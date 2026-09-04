@@ -249,3 +249,4 @@ HOFSTAB         = $0C20         ; the HDMA table built from them
 h_ntsplits      = HAL_VARS+$41  ; mid-frame $2000 writes recorded this frame
 h_prevctrl      = HAL_VARS+$42  ; $2000 as it was before the current write
 h_hofsframestart = HAL_VARS+$43 ; 2 bytes: scroll in force at the top of frame
+h_ctrlwrites    = HAL_VARS+$45  ; $2000 writes seen so far this frame

@@ -96,26 +96,36 @@ hal_w2000:
     stx a:h_prevctrl
     sta a:h_ppuctrl
 
-    ;  A write to $2000 while the display is live changes which nametable is
-    ;  on screen part-way down the frame.  That is how the dialogue box is
-    ;  drawn: the top few scanlines come from the other nametable.  Record it,
-    ;  and the flush turns it into an HDMA split on the horizontal scroll.
-    lda a:h_ppumask
-    and #$18                    ; is anything actually being displayed?
-    beq @done
-    lda a:HVBJOY
-    bmi @done                   ; a vblank write is just this frame's setting
-    ldx a:h_ntsplits
-    cpx #8
-    bcs @done
-    bne :+
-      lda a:h_prevctrl          ; first split: remember what preceded it, which
-      jsr hofs_from_ctrl        ; is what the frame opened with
+    ;  The first $2000 write of a frame is that frame's own setting, not a
+    ;  raster effect: the map code writes it once per frame while scrolling,
+    ;  and the flush eats enough of vblank that the write frequently lands
+    ;  after the display has already started.  Treating those as splits made
+    ;  the wrong nametable flicker in for a frame whenever the party moved.
+    ;  Only a *second* write within the same frame is a real mid-frame switch
+    ;  -- which is exactly what the dialogue box does, setting the box's
+    ;  nametable in vblank and restoring the map's part-way down the screen.
+    ldx a:h_ctrlwrites
+    inx
+    stx a:h_ctrlwrites
+    cpx #1
+    bne @split
+      lda a:h_ppuctrl           ; frame setting: this is what the frame opens on
+      jsr hofs_from_ctrl
       lda a:h_t0
       sta a:h_hofsframestart
       lda a:h_t1
       sta a:h_hofsframestart+1
-:   lda a:STAT78
+      bra @done
+@split:
+    lda a:h_ppumask
+    and #$18                    ; is anything actually being displayed?
+    beq @done
+    lda a:HVBJOY
+    bmi @done                   ; a vblank write is still just a setting
+    ldx a:h_ntsplits
+    cpx #8
+    bcs @done
+    lda a:STAT78
     lda a:SLHV
     lda a:OPVCT
     sta a:NTSPLITLINE,x
@@ -1525,6 +1535,7 @@ emit_span:
 .a8
 .i8
 flush_ntsplit:
+    stz a:h_ctrlwrites
     lda a:h_ntsplits
     bne @build
     stz a:HDMAEN                ; nothing to split: one scroll for the frame

@@ -94,6 +94,17 @@ def main():
             activate(); time.sleep(0.3); shot(tok[5:])
         elif tok in BUTTON:
             activate(); press(tok); time.sleep(0.25)
+        elif tok.startswith("down:") or tok.startswith("up:"):
+            #  Press and leave held / release, so screenshots can be taken
+            #  mid-movement.  Single-frame glitches only show while walking.
+            act, b = tok.split(":")
+            v = BUTTON[b]
+            arg = '"%s"' % v if isinstance(v, str) else str(v)
+            activate()
+            subprocess.run(["osascript", "-e",
+                'tell application "System Events" to key %s %s'
+                % ("down" if act == "down" else "up", arg)], capture_output=True)
+            time.sleep(0.1)
         elif tok in ("savestate", "loadstate"):
             #  ares hotkeys, bound in its GUI: 't' saves, 'r' restores.
             #  Letters rather than function keys on purpose -- macOS consumes
