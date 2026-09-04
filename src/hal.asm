@@ -150,7 +150,16 @@ hal_w2000:
     lda a:STAT78
     lda a:SLHV
     lda a:OPVCT
-    sta a:NTSPLITLINE,x
+    ;  The game counts in NES scanlines, and we crop NES_TOP_CROP off the top,
+    ;  so the line it has just reached sits that much higher on screen.  Correct
+    ;  it here rather than by moving the wait target: waiting on an earlier line
+    ;  risks polling for one already gone by, since the flush can eat enough of
+    ;  vblank to overshoot it, and missing costs a whole frame.
+    sec
+    sbc #NES_TOP_CROP
+    bcs :+
+      lda #0
+:   sta a:NTSPLITLINE,x
     lda a:h_ppuctrl
     jsr hofs_from_ctrl
     lda a:h_t0
