@@ -263,4 +263,4 @@ h_gcol          = HAL_VARS+$53  ; 2 bytes: column being sent
 h_gcount        = HAL_VARS+$55  ; 2 bytes: loop counter / dirty row tally
 h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send
 
-ENABLE_COLUMN_FLUSH = 0    ; single-DMA column path: implemented, still faulty
+ENABLE_COLUMN_FLUSH = 1    ; single-DMA column path

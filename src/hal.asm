@@ -76,6 +76,26 @@
   .endif
 .endmacro
 
+
+;;  Paint the backdrop and stop, from 16-bit code.  Same idea as
+;;  DIAG_CHECKPOINT, but usable inside the flush where A is 16 bits wide.
+.macro DIAG16 bgr
+    sep #$20
+    .a8
+    stz a:HDMAEN
+    stz a:TM                    ; backdrop only: nothing may mask the colour
+    lda #$0F
+    sta a:INIDISP
+    stz a:CGADD
+    lda #<(bgr)
+    sta a:CGDATA
+    lda #>(bgr)
+    sta a:CGDATA
+:   bra :-
+    rep #$20
+    .a16
+.endmacro
+
 .segment "HALCODE"
 .a8
 .i8
@@ -1373,6 +1393,13 @@ flush_nt:
     LEAVE16
     rts
 .endif
+    ;  LEAVE16 above asserts .a8/.i8 for the assembler.  Execution only reaches
+    ;  @byrows by branching *into* here from the scan, which is still 16-bit, so
+    ;  the widths have to be restated -- otherwise the whole row path assembles
+    ;  with 8-bit immediates and runs as 16-bit, which is exactly as bad as it
+    ;  sounds, and only when the block above is compiled in.
+    .a16
+    .i16
 
 @byrows:
     stz a:h_row
