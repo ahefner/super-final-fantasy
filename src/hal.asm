@@ -1038,6 +1038,14 @@ hal_waitvbl:
     lda a:NES_soft2000
     sta a:h_ppuctrl
 
+    ;  The NES build read $2002 twice a frame -- once at the top of
+    ;  WaitForVBlank and again in the NMI handler -- and each read reset the
+    ;  PPU's $2005/$2006 first-or-second-write toggle.  This port replaced both,
+    ;  so nothing cleared it and any imbalance persisted for good, after which
+    ;  every address pair was swapped and writes landed at wild addresses.  The
+    ;  minimap shows it worst: it sets a fresh address for every single byte.
+    stz a:h_latch
+
     jsr hal_flush
     ENTER16
     inc a:h_frame
@@ -1279,6 +1287,12 @@ flush_chr:
     LEAVE16
     rts
 @dirty:
+  .ifdef CHR_FLUSH_ALL
+    lda #0                      ; diagnostic: ignore the dirty span and send the
+    sta a:h_chrlo               ; whole of CHR every frame
+    lda #$3FFF
+    sta a:h_chrhi
+  .endif
     lda a:h_chrlo               ; round the span out to whole words
     and #$FFFE
     sta a:h_chrlo
