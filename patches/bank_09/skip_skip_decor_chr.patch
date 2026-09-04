@@ -1,0 +1,10 @@
+--- OLD
+Minimap_DrawDecorCHR:
+    LDA #<mm_decorchr
+--- NEW
+Minimap_DrawDecorCHR:
+  .ifdef SKIP_DECOR_CHR
+    RTS                 ; diagnostic: skip this stage
+  .else
+    LDA #<mm_decorchr
+  .endif

@@ -1310,6 +1310,22 @@ flush_chr:
     LEAVE16
     rts
 @dirty:
+  .ifdef PROBE_SPAN
+    ;  Well after boot, a frame that touches CHR at all should be the minimap's
+    ;  decor stage, which spreads across tiles up to $FC.  If the highest byte
+    ;  touched is inside the first sixteen tiles, the writes are collapsing.
+    lda a:h_frame
+    cmp #1200
+    bcc @spanok
+    lda a:h_chrhi
+    cmp #$0200
+    bcs @spanok
+      sep #$20
+      .a8
+      DIAG16 $001F              ; red: CHR writes collapsed into a tiny range
+      .a16
+@spanok:
+  .endif
   .ifdef CHR_FLUSH_ALL
     lda #0                      ; diagnostic: ignore the dirty span and send the
     sta a:h_chrlo               ; whole of CHR every frame

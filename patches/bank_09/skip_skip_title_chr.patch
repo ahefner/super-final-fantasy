@@ -1,0 +1,10 @@
+--- OLD
+Minimap_DrawTitleCHR:
+    LDA #<mm_titlechr
+--- NEW
+Minimap_DrawTitleCHR:
+  .ifdef SKIP_TITLE_CHR
+    RTS                 ; diagnostic: skip this stage
+  .else
+    LDA #<mm_titlechr
+  .endif

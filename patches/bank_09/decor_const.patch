@@ -1,0 +1,16 @@
+--- OLD
+      LDA (minimap_ptr), Y   ; get the preloaded CHR data
+      STA $2007              ; and draw it
+
+      INY                    ; inc loop counter/index
+      CPY #$30
+--- NEW
+  .ifdef DECOR_CONST
+      LDA #$FF               ; diagnostic: ignore the staged buffer entirely
+  .else
+      LDA (minimap_ptr), Y   ; get the preloaded CHR data
+  .endif
+      STA $2007              ; and draw it
+
+      INY                    ; inc loop counter/index
+      CPY #$30
