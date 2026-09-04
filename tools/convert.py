@@ -47,6 +47,8 @@ SUBS = [
     (r"LDA\s+\$2007\b", "rPPUDATA"),
     (r"STA\s+\$4014\b", "wOAMDMA"),
     (r"STA\s+\$4016\b", "wJOYSTROBE"),
+    (r"STY\s+\$4016\b", "wJOYSTROBE_Y"),
+    (r"STX\s+\$4016\b", "wJOYSTROBE_X"),
     (r"LDA\s+\$4016\b", "rJOYPAD"),
     (r"LDA\s+\$4015\b", "rAPUSTATUS"),
 ]
@@ -75,6 +77,9 @@ def split_comment(line):
     return line, ""
 
 
+NOT_APU = re.compile(r"\$401[46]\b")
+
+
 def convert_line(line):
     code, comment = split_comment(line)
     if DATA_DIRECTIVE.match(code):
@@ -83,6 +88,9 @@ def convert_line(line):
     for rx, rep in SUBS_C:
         code, k = rx.subn(rep, code)
         n += k
+    if NOT_APU.search(code):
+        sys.exit("unhandled access to a non-audio register, which the pAPU "
+                 "catch-all would silently swallow:\n    %s" % line.strip())
     for rx, rep in APU_SUBS_C:
         code, k = rx.subn(rep, code)
         n += k

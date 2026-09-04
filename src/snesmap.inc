@@ -224,3 +224,9 @@ h_tmframestart  = HAL_VARS+$40  ; TM in force at the top of the frame
 ; The game's own soft copy of $2000, at zero page $FF (variables.inc calls it
 ; soft2000).  The NES build's NMI handler pushed this to the PPU every frame.
 NES_soft2000    = $00FF
+
+; Raster splits: recording mid-frame $2001 writes and replaying them as an HDMA
+; table reproduces the map-transition wipe, but it introduces visible glitches
+; elsewhere that are more distracting than the missing effect.  Off until the
+; game is properly playable; the machinery stays in place for when it is.
+ENABLE_RASTER_SPLITS = 0

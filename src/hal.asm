@@ -132,6 +132,7 @@ hal_w2001:
 
     ;  A write while the display is actually live is a raster split.  Writes
     ;  made with rendering off are just setup and must not reach the table.
+.if ENABLE_RASTER_SPLITS
     lda a:h_prevmask
     and #$18
     beq @done
@@ -148,6 +149,7 @@ hal_w2001:
     sta a:RASTERTM,x
     inx
     stx a:h_rastercount
+.endif
 @done:
     plx
     pla

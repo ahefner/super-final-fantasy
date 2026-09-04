@@ -24,6 +24,7 @@
 .import nesio_w2005, nesio_w2006, nesio_w2006x, nesio_w2006y
 .import nesio_w2007, nesio_w2007x, nesio_w2007y, nesio_r2007
 .import nesio_oamdma, nesio_joystrobe, nesio_joyread, nesio_r4015
+.import nesio_joystrobey, nesio_joystrobex
 .endif
 
 ; ---- $2000 PPUCTRL / $2001 PPUMASK -------------------------------------
@@ -105,6 +106,12 @@
 ; ---- $4016/$4017 controller ports --------------------------------------
 .macro wJOYSTROBE
     jsr nesio_joystrobe
+.endmacro
+.macro wJOYSTROBE_Y
+    jsr nesio_joystrobey
+.endmacro
+.macro wJOYSTROBE_X
+    jsr nesio_joystrobex
 .endmacro
 .macro rJOYPAD
     jsr nesio_joyread

@@ -11,6 +11,15 @@ ROOT = os.path.dirname(HERE)
 SRC  = os.path.join(os.path.dirname(ROOT), "FF1Disassembly", "tenes", "nespal.c")
 DST  = os.path.join(ROOT, "src", "nespal.inc")
 
+if not os.path.exists(SRC):
+    #  The generated table is checked in, so a missing upstream is not fatal --
+    #  it only means the palette cannot be regenerated right now.
+    if os.path.exists(DST):
+        print("genpal: %s is gone; keeping the committed %s"
+              % (os.path.relpath(SRC), os.path.basename(DST)))
+        raise SystemExit(0)
+    sys.exit("genpal: %s not found and no committed table to fall back on" % SRC)
+
 text = open(SRC).read()
 body = text[text.index("{") + 1 : text.index("}")]
 body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)

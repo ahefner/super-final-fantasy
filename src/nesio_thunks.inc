@@ -22,6 +22,7 @@
 .export nesio_w2005, nesio_w2006, nesio_w2006x, nesio_w2006y
 .export nesio_w2007, nesio_w2007x, nesio_w2007y, nesio_r2007
 .export nesio_oamdma, nesio_joystrobe, nesio_joyread, nesio_r4015
+.export nesio_joystrobey, nesio_joystrobex
 
 .macro NESIO_THUNK name, target
 name:
@@ -69,5 +70,7 @@ name:
     NESIO_THUNK   nesio_r2007,     hal_r2007
     NESIO_THUNK   nesio_oamdma,    hal_oamdma
     NESIO_THUNK   nesio_joystrobe, hal_joystrobe
+    NESIO_THUNK_Y nesio_joystrobey, hal_joystrobe
+    NESIO_THUNK_X nesio_joystrobex, hal_joystrobe
     NESIO_THUNK   nesio_joyread,   hal_joyread
     NESIO_THUNK   nesio_r4015,     hal_r4015
