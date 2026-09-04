@@ -661,6 +661,13 @@ nt_attr:
 
 ; --- palette ------------------------------------------------------------
 pal_write:
+  .ifdef PROBE_PAL
+    sep #$20
+    .a8
+    inc a:h_palwrites           ; how many writes landed in palette space
+    rep #$20
+    .a16
+  .endif
     lda a:h_t0
     and #$001F
     sta a:h_t1
@@ -1038,6 +1045,13 @@ hal_waitvbl:
     lda a:NES_soft2000
     sta a:h_ppuctrl
 
+  .ifdef PROBE_LATCH
+    lda a:h_latch               ; did the frame end mid address-pair?
+    beq @latchok
+      DIAG16 $7C00              ; blue: the $2006 write toggle is out of phase
+    .a8
+@latchok:
+  .endif
     ;  The NES build read $2002 twice a frame -- once at the top of
     ;  WaitForVBlank and again in the NMI handler -- and each read reset the
     ;  PPU's $2005/$2006 first-or-second-write toggle.  This port replaced both,
@@ -1057,6 +1071,15 @@ hal_waitvbl:
     rtl
 
 hal_flush:
+  .ifdef PROBE_PAL
+    lda a:h_palwrites
+    cmp #40                     ; a real palette update is 32 bytes at most
+    bcc @palok                  ; named, not anonymous: DIAG16 carries its own
+      DIAG16 $001F              ; anonymous label and would capture the branch
+    .a8                         ; DIAG16 leaves the assembler tracking 16-bit A
+@palok:
+    stz a:h_palwrites
+  .endif
     lda #$80
     sta a:INIDISP               ; forced blank while VRAM is open
     jsr flush_pal
