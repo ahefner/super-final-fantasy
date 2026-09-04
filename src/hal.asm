@@ -382,6 +382,17 @@ hal_w2006:
       lda a:h_data
       and #$3F                  ; the PPU address bus is only 14 bits wide
       sta a:h_addr+1
+  .ifdef PROBE_HI
+      inc a:h_hicount
+      cmp a:h_himin
+      bcs @nomin
+        sta a:h_himin
+@nomin:
+      cmp a:h_himax
+      bcc @nomax
+        sta a:h_himax
+@nomax:
+  .endif
       lda #1
       sta a:h_latch
       bra @done
@@ -1071,6 +1082,27 @@ hal_waitvbl:
     rtl
 
 hal_flush:
+  .ifdef PROBE_HI
+    ;  A frame that writes many $2006 high bytes but only ever one distinct
+    ;  value is the collapse we are looking for.  Frames writing none leave min
+    ;  above max, so they cannot trip it.
+    lda a:h_frame+1
+    cmp #5                      ; well past boot
+    bcc @hidone
+    lda a:h_hicount
+    cmp #40                     ; the crest loop writes 48 a frame
+    bcc @hidone
+    lda a:h_himin
+    cmp a:h_himax
+    bne @hidone
+      DIAG16 $001F              ; red: every high byte this frame was identical
+      .a8
+@hidone:
+    stz a:h_hicount
+    lda #$FF
+    sta a:h_himin
+    stz a:h_himax
+  .endif
   .ifdef PROBE_PAL
     lda a:h_palwrites
     cmp #40                     ; a real palette update is 32 bytes at most

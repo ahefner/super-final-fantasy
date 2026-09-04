@@ -265,3 +265,6 @@ h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send
 
 ENABLE_COLUMN_FLUSH = 1    ; single-DMA column path
 h_palwrites     = HAL_VARS+$59  ; $2007 writes into palette space this frame
+h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
+h_himax         = HAL_VARS+$5B  ; highest
+h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
