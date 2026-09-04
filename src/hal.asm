@@ -104,12 +104,14 @@ hal_w2000:
     ;  Only a *second* write within the same frame is a real mid-frame switch
     ;  -- which is exactly what the dialogue box does, setting the box's
     ;  nametable in vblank and restoring the map's part-way down the screen.
-    ldx a:h_ctrlwrites
-    inx
-    stx a:h_ctrlwrites
-    cpx #1
+    ;  Counting writes per frame was too weak a test.  A split is only ever
+    ;  genuine inside the dialogue box's own raster window, which hal_waitline9
+    ;  opens and the flush closes -- nothing else in the game deliberately
+    ;  changes nametable part-way down a frame.  Everything else is that
+    ;  frame's setting, however late it happens to land.
+    lda a:h_rasterwin
     bne @split
-      lda a:h_ppuctrl           ; frame setting: this is what the frame opens on
+      lda a:h_ppuctrl           ; frame setting: what the frame opens on
       jsr hofs_from_ctrl
       lda a:h_t0
       sta a:h_hofsframestart
@@ -162,6 +164,8 @@ hal_waitline9:
     lda a:OPVCT
     cmp #9
     bne @wait
+    lda #1
+    sta a:h_rasterwin           ; from here to the flush, splits are expected
     pla
     plp
     rtl
@@ -1398,12 +1402,42 @@ nt_piece:
     clc
     adc #NTSHADOW
     sta a:A1T0L
+    sta a:h_ntsrc               ; keep our own copy: reading a DMA register back
+                                ; to find it again would be relying on hardware
+                                ; behaviour we do not need to depend on
     lda a:h_t3
     sec
     sbc a:h_t2
     inc a
     asl a                       ; two bytes per tilemap entry
     sta a:DAS0L
+    cmp #18
+    bcs @dma
+    ;  Short spans go straight through the VRAM port.  Scrolling sideways
+    ;  redraws a whole column, which arrives here as thirty one-tile spans --
+    ;  one per row, doubled for the duplicated rows -- and programming a DMA
+    ;  channel for two bytes apiece costs several times what writing them does.
+    ;  Doing it the expensive way overran vblank, and forced blank stayed on
+    ;  into the visible frame: a black band across the top of the screen,
+    ;  present only while walking horizontally.
+    lsr a                       ; back to a word count
+    sta a:h_t5
+    ldx a:h_ntsrc               ; the source address we just worked out
+    sep #$20
+    .a8
+@short:
+    lda a:$0000,x
+    sta a:VMDATAL
+    inx
+    lda a:$0000,x
+    sta a:VMDATAH
+    inx
+    dec a:h_t5
+    bne @short
+    rep #$20
+    .a16
+    rts
+@dma:
     sep #$20
     .a8
     lda #$01
@@ -1535,7 +1569,7 @@ emit_span:
 .a8
 .i8
 flush_ntsplit:
-    stz a:h_ctrlwrites
+    stz a:h_rasterwin
     lda a:h_ntsplits
     bne @build
     stz a:HDMAEN                ; nothing to split: one scroll for the frame
