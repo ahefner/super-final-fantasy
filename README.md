@@ -75,6 +75,12 @@ character creation.
 Working: intro, title, character creation, overworld, map transitions, town and
 castle interiors, battles with correct enemy and party graphics.
 
-Not done: dialog windows (a mid-frame $2005/$2006 split), sprite-0 hit, orb
-lighting, audio.  pAPU writes are recorded in a shadow register file for the
-eventual SPC700 driver.
+Not done: audio, the map-transition wipe (written, but disabled behind
+ENABLE_RASTER_SPLITS), and the orb lighting effect.  pAPU writes are recorded in
+a shadow register file for the eventual SPC700 driver.
+
+Sprite-0 hit needs no emulation: the game never reads it.  Every BVS/BVC in the
+codebase tests map tile properties, and all four BIT $2002 sites are there to
+reset the $2005/$2006 write toggle, discarding the flag.  Final Fantasy times
+its raster effects by counting CPU cycles instead, which is why those loops had
+to become waits on the vertical counter.
