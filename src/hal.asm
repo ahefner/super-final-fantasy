@@ -36,6 +36,7 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
+.export hal_waitline9
 
 .import OnReset
 
@@ -88,7 +89,71 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 hal_w2000:
+    php
+    pha
+    phx
+    ldx a:h_ppuctrl
+    stx a:h_prevctrl
     sta a:h_ppuctrl
+
+    ;  A write to $2000 while the display is live changes which nametable is
+    ;  on screen part-way down the frame.  That is how the dialogue box is
+    ;  drawn: the top few scanlines come from the other nametable.  Record it,
+    ;  and the flush turns it into an HDMA split on the horizontal scroll.
+    lda a:h_ppumask
+    and #$18                    ; is anything actually being displayed?
+    beq @done
+    lda a:HVBJOY
+    bmi @done                   ; a vblank write is just this frame's setting
+    ldx a:h_ntsplits
+    cpx #8
+    bcs @done
+    bne :+
+      lda a:h_prevctrl          ; first split: remember what preceded it, which
+      jsr hofs_from_ctrl        ; is what the frame opened with
+      lda a:h_t0
+      sta a:h_hofsframestart
+      lda a:h_t1
+      sta a:h_hofsframestart+1
+:   lda a:STAT78
+    lda a:SLHV
+    lda a:OPVCT
+    sta a:NTSPLITLINE,x
+    lda a:h_ppuctrl
+    jsr hofs_from_ctrl
+    lda a:h_t0
+    sta a:NTSPLITLO,x
+    lda a:h_t1
+    sta a:NTSPLITHI,x
+    inx
+    stx a:h_ntsplits
+@done:
+    plx
+    pla
+    plp
+    rtl
+
+;;  The nametable select bit is worth exactly 256 pixels of horizontal scroll,
+;;  so it lands in the high byte and the fine scroll in the low one.
+hofs_from_ctrl:                 ; A = $2000 -> h_t0/h_t1
+    and #$01
+    sta a:h_t1
+    lda a:h_scrollx
+    sta a:h_t0
+    rts
+
+;;  Wait until the beam reaches scanline 9.  See the dialogue box patch.
+hal_waitline9:
+    php
+    pha
+@wait:
+    lda a:STAT78
+    lda a:SLHV
+    lda a:OPVCT
+    cmp #9
+    bne @wait
+    pla
+    plp
     rtl
 
 hal_w2001:
@@ -947,6 +1012,7 @@ hal_flush:
     jsr flush_oam
     jsr flush_raster
     jsr flush_scroll
+    jsr flush_ntsplit
     lda a:h_ppumask
     and #$18                    ; is the NES rendering either layer?
     beq @dark
@@ -1425,6 +1491,7 @@ flush_raster:
     lda a:h_tmcur               ; next frame opens on this frame's last value
     sta a:h_tmframestart
     stz a:h_rastercount
+    stz a:h_ntsplits
     rts
 
 ;;  Emit one span of A scanlines holding the value in h_t0.  An HDMA line count
@@ -1446,6 +1513,96 @@ emit_span:
     sec
     sbc a:h_t3
     sta a:h_t2
+    bne @chunk
+    rts
+
+
+; --- dialogue box nametable split --------------------------------------
+;  Replay the mid-frame nametable switches recorded last frame as an HDMA
+;  table on BG1HOFS.  Switching nametables is worth 256 pixels of horizontal
+;  scroll here, so a band of scanlines taken from the other nametable is just a
+;  band with a different scroll value -- which is exactly what HDMA is for.
+.a8
+.i8
+flush_ntsplit:
+    lda a:h_ntsplits
+    bne @build
+    stz a:HDMAEN                ; nothing to split: one scroll for the frame
+    rts
+@build:
+    ldy #0                      ; write cursor into the table
+    ldx #0                      ; which recorded split we are on
+    lda a:h_hofsframestart      ; the scroll the frame opened with
+    sta a:h_t0
+    lda a:h_hofsframestart+1
+    sta a:h_t1
+    stz a:h_t2                  ; scanline the current span begins at
+@next:
+    cpx a:h_ntsplits
+    bcs @tail
+    lda a:NTSPLITLINE,x
+    cmp a:h_t2
+    bcc @skip                   ; out of order, or a zero-length span
+    beq @skip
+    sec
+    sbc a:h_t2
+    jsr emit_hofs
+    lda a:NTSPLITLINE,x
+    sta a:h_t2
+@skip:
+    lda a:NTSPLITLO,x
+    sta a:h_t0
+    lda a:NTSPLITHI,x
+    sta a:h_t1
+    inx
+    bra @next
+@tail:
+    lda #224                    ; the rest of the visible frame
+    sec
+    sbc a:h_t2
+    beq @end
+    bcc @end
+    jsr emit_hofs
+@end:
+    lda #$00
+    sta a:HOFSTAB,y             ; a zero line count ends the table
+    lda #$02
+    sta a:DMAP2                 ; mode 2: two bytes into one register
+    lda #<BG1HOFS
+    sta a:BBAD2
+    ldx #<HOFSTAB
+    stx a:A1T2L
+    ldx #>HOFSTAB
+    stx a:A1T2L+1
+    lda #WRAMBANK
+    sta a:A1B2
+    lda #$04
+    sta a:HDMAEN                ; channel 2
+    stz a:h_ntsplits
+    rts
+
+;;  One span of A scanlines holding the 16-bit scroll in h_t0/h_t1.  An HDMA
+;;  line count is seven bits, so a long span becomes several entries.
+emit_hofs:
+    sta a:h_t3
+@chunk:
+    lda a:h_t3
+    cmp #128
+    bcc :+
+      lda #127
+:   sta a:h_t4
+    sta a:HOFSTAB,y
+    iny
+    lda a:h_t0
+    sta a:HOFSTAB,y
+    iny
+    lda a:h_t1
+    sta a:HOFSTAB,y
+    iny
+    lda a:h_t3
+    sec
+    sbc a:h_t4
+    sta a:h_t3
     bne @chunk
     rts
 

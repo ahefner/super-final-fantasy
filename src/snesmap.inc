@@ -230,3 +230,22 @@ NES_soft2000    = $00FF
 ; elsewhere that are more distracting than the missing effect.  Off until the
 ; game is properly playable; the machinery stays in place for when it is.
 ENABLE_RASTER_SPLITS = 0
+
+; DMA channel 2, used for the dialogue box's nametable split
+DMAP2           = $4320
+BBAD2           = $4321
+A1T2L           = $4322
+A1B2            = $4324
+
+; A mid-frame $2000 write swaps which nametable is on screen.  With vertical
+; mirroring the two nametables sit side by side in one 64-wide tilemap, so the
+; SNES equivalent is simply adding 256 to the horizontal scroll -- which HDMA
+; can do per scanline.
+NTSPLITLINE     = $0920         ; 8 entries: scanline of each split
+NTSPLITLO       = $0928         ; 8 entries: horizontal scroll, low byte
+NTSPLITHI       = $0930         ; 8 entries: ...and high byte
+HOFSTAB         = $0C20         ; the HDMA table built from them
+
+h_ntsplits      = HAL_VARS+$41  ; mid-frame $2000 writes recorded this frame
+h_prevctrl      = HAL_VARS+$42  ; $2000 as it was before the current write
+h_hofsframestart = HAL_VARS+$43 ; 2 bytes: scroll in force at the top of frame

@@ -1,0 +1,21 @@
+--- OLD
+    LDY #$FC           ; count Y down from $FC
+  @BurnVBlankLoop:     ; On entry to this loop, game is about 565 cycles into VBlank)
+    DEY                    ; 2 cycles
+    NOP                    ; +2=4
+    NOP                    ; +2=6
+    NOP                    ; +2=8
+    BNE @BurnVBlankLoop    ; +3=11   (11*$FC)-1 = 2771 cycles burned in loop.
+                           ;         2771 + 565 = 3336 cycles since VBl start
+                           ; First visible rendered scanline starts 2387 cycles into VBlank
+                           ; 3336 - 2387 = 949 cycles into rendering
+                           ; 949 / 113.6667 = currently on scanline ~8.3
+       PAGECHECK @BurnVBlankLoop
+--- NEW
+    ;  The original burned a counted 2771 CPU cycles here to land about 8.3
+    ;  scanlines into rendering, then rounded up and called it scanline 9.
+    ;  That arithmetic is NES arithmetic: this CPU is twice as fast and this
+    ;  machine's vblank is 38 lines rather than 20, so the same loop finishes
+    ;  while still inside vblank, the whole dialogue band lands off-screen, and
+    ;  the box is never seen.  Wait for the scanline it was aiming at instead.
+    JSL hal_waitline9 + HALFAR

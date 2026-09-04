@@ -15,7 +15,7 @@
 .import hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .import hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .import hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
-.import hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline   ; used by the patched routines
+.import hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline, hal_waitline9   ; used by the patched routines
 
 .export nesio_w2000, nesio_w2001, nesio_w2001y
 .export nesio_r2002, nesio_r2002x, nesio_r2002y, nesio_b2002
