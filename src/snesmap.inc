@@ -258,3 +258,9 @@ h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30
 h_ntsrc2        = HAL_VARS+$4F  ; 2 bytes: source address of the span in flight
 NESPALPREV      = $7E4820       ; 32 bytes: palette as CGRAM last saw it
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
+GATHERBUF       = $0D00         ; 128 bytes: one tilemap column, made contiguous
+h_gcol          = HAL_VARS+$53  ; 2 bytes: column being sent
+h_gcount        = HAL_VARS+$55  ; 2 bytes: loop counter / dirty row tally
+h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send
+
+ENABLE_COLUMN_FLUSH = 0    ; single-DMA column path: implemented, still faulty

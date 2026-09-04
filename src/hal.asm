@@ -1314,6 +1314,67 @@ flush_nt:
     lda #WRAMBANK
     sta a:A1B0
     ENTER16
+
+    ;  Decide whether this frame is a column update.  Scrolling sideways
+    ;  dirties the same narrow span in nearly every row, and that case has to
+    ;  go down the tilemap in one transfer rather than sixty.  Writing whole
+    ;  columns is safe even where only some rows changed: the shadow is
+    ;  authoritative, so re-sending a clean row costs nothing but time.
+    lda #$00FF
+    sta a:h_c0                  ; union of the dirty spans, low water
+    stz a:h_c1                  ; ...and high water
+    stz a:h_gcount              ; how many rows are dirty
+    ldx #0
+@scan:
+    sep #$20
+    .a8
+    lda a:NTCOLLO,x
+    cmp a:NTCOLHI,x
+    beq :+
+    bcs @scannext               ; low above high: this row is clean
+:   inc a:h_gcount
+    lda a:NTCOLLO,x
+    cmp a:h_c0
+    bcs :+
+      sta a:h_c0
+:   lda a:NTCOLHI,x
+    cmp a:h_c1
+    bcc :+
+      sta a:h_c1
+:
+@scannext:
+    rep #$20
+    .a16
+    inx
+    cpx #30
+    bcc @scan
+
+.if ENABLE_COLUMN_FLUSH
+    lda a:h_gcount
+    cmp #8                      ; enough rows to be worth it?
+    bcc @byrows
+    lda a:h_c1
+    sec
+    sbc a:h_c0
+    cmp #5                      ; and a narrow enough span?
+    bcs @byrows
+    jsr column_flush
+    ldx #0                      ; every row is clean now
+    sep #$20
+    .a8
+:   lda #$FF
+    sta a:NTCOLLO,x
+    stz a:NTCOLHI,x
+    inx
+    cpx #32
+    bcc :-
+    rep #$20
+    .a16
+    LEAVE16
+    rts
+.endif
+
+@byrows:
     stz a:h_row
     lda #NTSHADOW               ; source of row 0
     sta a:h_ntsrc
@@ -1373,6 +1434,123 @@ flush_nt:
     cmp #30
     bcc @rowloop
     LEAVE16
+    rts
+
+
+.a16
+.i16
+;;  A horizontal scroll dirties the same narrow span in every row.  Taken row by
+;;  row that is sixty transfers, each preceded by rebuilding its source and
+;;  destination addresses, and it does not fit in vblank.  Taken as a column it
+;;  is one gather and three transfers, because VMAIN can be told to step the
+;;  VRAM address by a whole tilemap row after each write.
+;;
+;;  The gather is needed because DMA reads its source contiguously, and a column
+;;  of the shadow is strided: consecutive rows are 128 bytes apart.
+column_flush:
+    lda a:h_c1
+    sec
+    sbc a:h_c0
+    inc a
+    sta a:h_ncols
+    lda a:h_c0
+    sta a:h_gcol
+@colloop:
+    lda a:h_gcol                ; --- collect the column out of the shadow ---
+    asl a
+    clc
+    adc #NTSHADOW
+    tax
+    ldy #0
+    lda #30
+    sta a:h_gcount
+@gather:
+    lda a:$0000,x
+    sta a:GATHERBUF,y
+    iny
+    iny
+    txa
+    clc
+    adc #128                    ; the same column, one row down
+    tax
+    dec a:h_gcount
+    bne @gather
+
+    sep #$20                    ; --- and push it down the tilemap ---
+    .a8
+    lda #$81                    ; step one tilemap row per write
+    sta a:VMAIN
+    lda #WRAMBANK
+    sta a:A1B0
+    lda #$01
+    sta a:DMAP0                 ; two registers: $2118 then $2119
+    lda #$18
+    sta a:BBAD0
+    rep #$20
+    .a16
+
+    jsr col_base                ; the copy at rows 0..29
+    sta a:VMADDL
+    lda #GATHERBUF
+    sta a:A1T0L
+    lda #60
+    sta a:DAS0L
+    jsr col_go
+
+    jsr col_base                ; its duplicate: rows 30 and 31 first...
+    clc
+    adc #(30*32)
+    sta a:VMADDL
+    lda #GATHERBUF
+    sta a:A1T0L
+    lda #4
+    sta a:DAS0L
+    jsr col_go
+
+    jsr col_base                ; ...then rows 32..59, a quadrant lower
+    clc
+    adc #$0800
+    sta a:VMADDL
+    lda #(GATHERBUF+4)
+    sta a:A1T0L
+    lda #56
+    sta a:DAS0L
+    jsr col_go
+
+    lda a:h_gcol
+    inc a
+    sta a:h_gcol
+    dec a:h_ncols
+    beq @done
+    brl @colloop
+@done:
+    sep #$20
+    .a8
+    lda #$80                    ; back to stepping a single word
+    sta a:VMAIN
+    rep #$20
+    .a16
+    rts
+
+;;  Word address of row 0 of the column in h_gcol.
+col_base:
+    lda a:h_gcol
+    cmp #32
+    bcc :+
+      and #$001F
+      clc
+      adc #$0400                ; the right-hand pair of quadrants
+:   clc
+    adc #VRAM_BG1MAP
+    rts
+
+col_go:
+    sep #$20
+    .a8
+    lda #$01
+    sta a:MDMAEN
+    rep #$20
+    .a16
     rts
 
 .a16
