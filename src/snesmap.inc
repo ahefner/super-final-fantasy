@@ -255,3 +255,6 @@ h_ntsrc         = HAL_VARS+$47  ; 2 bytes: tilemap shadow address being sent
 h_vdst          = HAL_VARS+$49  ; 2 bytes: tilemap row base being written
 h_vdst0         = HAL_VARS+$4B  ; 2 bytes: ...for the copy at row r
 h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30
+h_ntsrc2        = HAL_VARS+$4F  ; 2 bytes: source address of the span in flight
+NESPALPREV      = $7E4820       ; 32 bytes: palette as CGRAM last saw it
+h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes

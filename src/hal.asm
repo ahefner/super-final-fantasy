@@ -188,6 +188,7 @@ hal_w2001:
       sta a:h_emphasis
       lda #1
       sta a:h_paldirty          ; the whole palette has to be re-tinted
+      sta a:h_palforce
 :   lda a:h_ppumask
     and #$01                    ; bit 0 is the greyscale switch
     cmp a:h_greyscale
@@ -195,6 +196,7 @@ hal_w2001:
       sta a:h_greyscale
       lda #1
       sta a:h_paldirty
+      sta a:h_palforce
 
     ;  A write during active display is a raster split -- the game is carving
     ;  the screen into bands, which is how the map transitions wipe open and
@@ -1047,6 +1049,30 @@ flush_pal:
     ENTER16
     ldy #0
 @loop:
+    ;  Only re-send entries that actually moved.  The intro's fade animates
+    ;  four colours, but rewriting all thirty-two of them every frame was
+    ;  enough on its own to push the flush past the end of vblank -- which is
+    ;  why the prologue, which never scrolls, showed a black band that shrank
+    ;  once the fade finished and the palette stopped changing.
+    tya
+    tax
+    sep #$20
+    .a8
+    lda a:h_palforce            ; emphasis or greyscale moved: redo everything
+    bne @send
+    lda f:NESPAL,x
+    cmp f:NESPALPREV,x
+    bne @send
+      rep #$20                  ; unchanged: rejoin the loop, 16-bit again
+      .a16
+      brl @skip
+@send:
+    .a8
+    lda f:NESPAL,x
+    sta f:NESPALPREV,x
+    rep #$20
+    .a16
+
     tya                         ; CGRAM entry for NES palette index Y:
     and #$0003                  ;   background  i      -> (i>>2)*16 + (i&3)
     sta a:h_t0                  ;   sprite      i+16   -> 128 + (i>>2)*16 + ...
@@ -1112,9 +1138,16 @@ flush_pal:
     sta a:CGDATA
     rep #$20
     .a16
+@skip:
     iny
     cpy #32
-    bcc @loop
+    bcs :+
+    brl @loop                   ; the body is too long for a short branch now
+:   sep #$20
+    .a8
+    stz a:h_palforce
+    rep #$20
+    .a16
     LEAVE16
     rts
 
@@ -1273,7 +1306,13 @@ flush_nt:
     rts
 :   stz a:h_ntdirty
     lda #$80
-    sta a:VMAIN                 ; step one word per pair of port writes
+    sta a:VMAIN                 ; step one word per transfer
+    lda #$01
+    sta a:DMAP0                 ; two registers: $2118 then $2119
+    lda #$18
+    sta a:BBAD0
+    lda #WRAMBANK
+    sta a:A1B0
     ENTER16
     stz a:h_row
     lda #NTSHADOW               ; source of row 0
@@ -1395,11 +1434,16 @@ nt_piece:
     clc
     adc a:h_ntsrc
     tax
+    stx a:h_ntsrc2              ; the address we will read from
     lda a:h_t3
     sec
     sbc a:h_t2
     inc a
     sta a:h_t5                  ; words to send
+    cmp #8
+    bcs @dma
+    ;  Short spans -- a sideways scroll gives one or two tiles per row -- cost
+    ;  less written straight through the port than programming a DMA channel.
     sep #$20
     .a8
 @word:
@@ -1411,6 +1455,21 @@ nt_piece:
     inx
     dec a:h_t5
     bne @word
+    rep #$20
+    .a16
+    rts
+@dma:
+    ;  Long spans -- a vertical scroll redraws a whole 64-tile row -- are the
+    ;  other way round: DMA moves them several times faster than the CPU can.
+    lda a:h_ntsrc2
+    sta a:A1T0L
+    lda a:h_t5
+    asl a                       ; two bytes per tilemap entry
+    sta a:DAS0L
+    sep #$20
+    .a8
+    lda #$01
+    sta a:MDMAEN
     rep #$20
     .a16
     rts
