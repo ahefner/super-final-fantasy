@@ -1,0 +1,12 @@
+# Build products
+out/
+gen/
+*.sfc
+*.o
+*.bin
+
+# ares writes save states and cartridge RAM next to the ROM
+*.bs[0-9]
+*.blu
+*.bsu
+*.ram

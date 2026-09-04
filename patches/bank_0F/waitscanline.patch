@@ -1,0 +1,34 @@
+--- OLD
+WaitScanline:
+    LDY #16          ; +2 cycles
+   @Loop:
+      DEY            ;   +2
+      BNE @Loop      ;   +3  (5 cycle loop * 16 iterations = 80-1 = 79 cycles for loop)
+
+  CRITPAGECHECK @Loop      ; ensure above loop does not cross page boundary
+
+    LDA tmp+2        ; +3
+    DEC tmp+2        ; +5
+    BNE @NoReload    ; +3 (if no reload -- 2/3)
+                     ;   or +2 (if reload -- 1/3)
+
+  CRITPAGECHECK @NoReload  ; ensure jump to NoReload does not require jump across page boundary
+
+  @Reload:
+    LDA #3           ; +2   Both Reload and NoReload use the same
+    STA tmp+2        ; +3    amount of cycles.. but Reload reloads tmp+2
+    RTS              ; +6    with 3 so that it counts down again
+
+  @NoReload:
+    LDA #0           ; +2
+    LDA tmp+2        ; +3   LDA -- not STA.  It's just burning cycles, not changing tmp+2
+    RTS              ; +6
+--- NEW
+WaitScanline:
+    ; The original burned a carefully counted 113 CPU cycles, which is one NES
+    ; scanline at 1.79MHz.  Counting cycles cannot work here -- this CPU runs at
+    ; twice the speed and the scanline is a different length -- so wait on the
+    ; PPU's own vertical counter instead.  That makes the raster effects land on
+    ; real scanline boundaries no matter what the CPU is doing.
+    JSL hal_waitscanline + HALFAR
+    RTS

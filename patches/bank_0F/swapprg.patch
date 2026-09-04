@@ -1,0 +1,20 @@
+--- OLD
+SwapPRG:
+    STA $FFF9    ; same deal as SetMMC1SwapMode.. write/shift/write...
+    LSR A
+    STA $FFF9
+    LSR A
+    STA $FFF9
+    LSR A
+    STA $FFF9
+    LSR A
+    STA $FFF9
+    RTS
+--- NEW
+SwapPRG:
+    ; On the SNES the "mapper" is the program bank register.  ROM chunk
+    ; CHUNK0+A holds NES bank A at $8000-$BFFF with the fixed bank at
+    ; $C000-$FFFF, so swapping banks means returning from here into a different
+    ; PBR.  hal_swapprg rewrites our return address to do exactly that, and
+    ; leaves A = 0 just as the five-write MMC1 sequence did.
+    JML hal_swapprg + HALFAR

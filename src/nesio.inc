@@ -1,0 +1,111 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  nesio.inc -- stand-ins for the NES hardware registers.
+;;
+;;  tools/convert.py rewrites every access to $2000-$2007 / $4000-$4017 in the
+;;  original source into one of these macros.
+;;
+;;  Each one is a three-byte JSR, exactly the size of the store or load it
+;;  replaces.  That matters: the sixteen NES banks are 16KB and full, so a
+;;  four-byte JSL straight into the HAL bank would push several of them over.
+;;  The JSR goes to a thunk in the fixed bank -- which every chunk carries a
+;;  copy of -- and the thunk makes the long call.  See nesio_thunks.inc.
+;;
+;;  The write macros are completely transparent: A, X, Y and P come back
+;;  exactly as they went in, so the surrounding 6502 code needs no other
+;;  changes.  The read macros behave like the load they replace -- value in the
+;;  named register, N and Z set from it, nothing else touched.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.ifndef NESIO_HOME              ; the fixed bank defines these rather than
+.import nesio_w2000, nesio_w2001, nesio_w2001y                  ; importing them
+.import nesio_r2002, nesio_r2002x, nesio_r2002y, nesio_b2002
+.import nesio_w2005, nesio_w2006, nesio_w2006x, nesio_w2006y
+.import nesio_w2007, nesio_w2007x, nesio_w2007y, nesio_r2007
+.import nesio_oamdma, nesio_joystrobe, nesio_joyread, nesio_r4015
+.endif
+
+; ---- $2000 PPUCTRL / $2001 PPUMASK -------------------------------------
+.macro wPPUCTRL
+    jsr nesio_w2000
+.endmacro
+.macro wPPUMASK
+    jsr nesio_w2001
+.endmacro
+.macro wPPUMASK_Y
+    jsr nesio_w2001y
+.endmacro
+
+; ---- $2002 PPUSTATUS ---------------------------------------------------
+.macro rPPUSTATUS
+    jsr nesio_r2002
+.endmacro
+.macro rPPUSTATUS_X
+    jsr nesio_r2002x
+.endmacro
+.macro rPPUSTATUS_Y
+    jsr nesio_r2002y
+.endmacro
+.macro bPPUSTATUS
+    jsr nesio_b2002
+.endmacro
+
+; ---- $2005 PPUSCROLL / $2006 PPUADDR -----------------------------------
+.macro wPPUSCROLL
+    jsr nesio_w2005
+.endmacro
+.macro wPPUADDR
+    jsr nesio_w2006
+.endmacro
+.macro wPPUADDR_X
+    jsr nesio_w2006x
+.endmacro
+.macro wPPUADDR_Y
+    jsr nesio_w2006y
+.endmacro
+
+; ---- $2007 PPUDATA -----------------------------------------------------
+.macro wPPUDATA
+    jsr nesio_w2007
+.endmacro
+.macro wPPUDATA_X
+    jsr nesio_w2007x
+.endmacro
+.macro wPPUDATA_Y
+    jsr nesio_w2007y
+.endmacro
+.macro rPPUDATA
+    jsr nesio_r2007
+.endmacro
+
+; ---- $4014 OAM DMA -----------------------------------------------------
+.macro wOAMDMA
+    jsr nesio_oamdma
+.endmacro
+
+; ---- $4000-$4013, $4015, $4017 pAPU ------------------------------------
+;  Audio is not wired up yet.  Every write is recorded in a shadow copy of the
+;  pAPU register file, so the eventual SPC700 driver has something to read and
+;  nothing here can disturb CPU state: a plain absolute store touches no flags
+;  and no registers, which is exactly what the original STA did.
+.macro wAPU reg
+    sta a:APUSHADOW + (reg)
+.endmacro
+.macro wAPU_X reg
+    stx a:APUSHADOW + (reg)
+.endmacro
+.macro wAPU_Y reg
+    sty a:APUSHADOW + (reg)
+.endmacro
+.macro rAPUSTATUS
+    jsr nesio_r4015
+.endmacro
+
+; ---- $4016/$4017 controller ports --------------------------------------
+.macro wJOYSTROBE
+    jsr nesio_joystrobe
+.endmacro
+.macro rJOYPAD
+    jsr nesio_joyread
+.endmacro

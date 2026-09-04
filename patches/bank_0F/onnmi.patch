@@ -1,0 +1,15 @@
+--- OLD
+OnNMI:
+    LDA soft2000
+    STA $2000      ; set the PPU state
+    LDA $2002      ; clear VBlank flag and reset 2005/2006 toggle
+    PLA
+    PLA
+    PLA            ; pull the RTI return info off the stack
+    RTS            ; return to the game
+--- NEW
+OnNMI:
+    ; Interrupts are never enabled in this port -- WaitForVBlank polls $4212 --
+    ; so the original trick of discarding the RTI frame and RTSing back into
+    ; the caller is unnecessary.  The vector still has to point somewhere.
+    RTI

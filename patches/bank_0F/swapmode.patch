@@ -1,0 +1,23 @@
+--- OLD
+SetMMC1SwapMode:
+    STA $9FFF    ; MMC1 registers must be written to 1 bit at a time
+    LSR A        ;  low bit first
+    STA $9FFF    ; To accomplish this, you write, then shift,
+    LSR A        ; then write, then shift.. etc.  5 writes total
+    STA $9FFF
+    LSR A
+    STA $9FFF
+    LSR A
+    STA $9FFF
+    RTS
+--- NEW
+SetMMC1SwapMode:
+    ; MMC1 has no counterpart here.  The mirroring and PRG swap mode this used
+    ; to select are fixed properties of the SNES memory map and of the HAL's
+    ; tilemap layout, so only the documented side effect survives: callers go
+    ; on to use the shifted value of A.
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    RTS

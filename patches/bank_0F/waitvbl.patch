@@ -1,0 +1,33 @@
+--- OLD
+WaitForVBlank:
+    LDA $2002      ; check VBlank flag
+    BPL @Wait      ; if off, VBlank hasn't occured yet, so jump to the wait
+                   ;  otherwise... whatever code occured since the last frame took longer than
+                   ;  1 frame... so...
+
+    LDA #0         ; waste time in this loop for a while...
+  @Loop:
+      SEC          ; the reason for this is because the game doesn't want NMI to fire during VBlank
+      SBC #$01     ;  because then you'd have less than a full VBlank for drawing next frame
+      BNE @Loop    ;  Of course... just reading $2002 above will prevent this from happening, so this isn't
+                   ;  really necessary, but it doesn't hurt.
+
+  @Wait:
+    LDA soft2000   ; Load desired PPU state
+    ORA #$80       ; flip on the Enable NMI bit
+    STA $2000      ; and write it to PPU status reg
+
+OnIRQ:                   ; IRQs point here, but the game doesn't use IRQs, so it's moot
+@LoopForever:
+    JMP @LoopForever     ; then loop forever! (or really until the NMI is triggered)
+--- NEW
+WaitForVBlank:
+    ; Wait for vblank to start, then hand the frame to the HAL, which pushes
+    ; everything the game drew since the last frame -- pattern tiles, tilemap,
+    ; palette, OAM and scroll -- from the WRAM shadows into VRAM by DMA.
+    JSL hal_waitvbl + HALFAR
+    RTS
+
+OnIRQ:                   ; IRQs point here, but the game doesn't use IRQs
+@LoopForever:
+    JMP @LoopForever

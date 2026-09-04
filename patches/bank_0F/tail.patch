@@ -1,0 +1,28 @@
+--- OLD
+; Unused space
+
+  .BYTE $FF, $ED, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF
+  .BYTE $FF, $1E, $FF, $00
+  .BYTE $00, $00
+  .BYTE "FINAL FANTASY"     ; <- FFHackster will make sure that is a 'Y'
+  .BYTE $43, $70, $00, $00  ;  if it isn't, it won't allow the user to open the ROM
+  .BYTE $48, $04, $01, $0C
+  .BYTE $C3, $FF
+
+.segment "VECTORS"
+
+  .WORD OnNMI
+  .WORD OnReset
+  .WORD OnIRQ     ;IRQ vector points to an infinite loop (IRQs should never occur)
+--- NEW
+;  The tail of this bank used to hold a block of editor metadata and the NES
+;  interrupt vectors.  Neither means anything on the SNES -- the console takes
+;  its vectors from the cartridge header, which lives in ROM bank 0 -- so the
+;  space goes to the thunks that every rewritten hardware access calls through.
+;  They have to be here, in the bank that is copied into all sixteen chunks,
+;  because they must be reachable whichever bank is switched in.
+
+.include "nesio_thunks.inc"

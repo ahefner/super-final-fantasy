@@ -1,0 +1,25 @@
+--- OLD
+ReadJoypadData:
+    LDA #1
+    STA $4016    ; strobe joypad (refreshes the latch with up to date joy data)
+    LDA #0
+    STA $4016
+
+    LDX #$08     ; loop 8 times (have to read each of the 8 buttons 1 at a time)
+@Loop:
+      LDA $4016  ; get the button state
+      AND #$03   ;  button state gets put in bit 0 usually, but it's on bit 1 for the Famicom if
+      CMP #$01   ;  the user is using the seperate controllers.  So doing this AND+CMP combo will set
+                 ;  the C flag if either of those bits are set (making this routine FC friendly)
+      ROL joy    ; rotate the C flag (the button state) into our RAM
+      DEX
+      BNE @Loop  ; loop until X expires (8 reads, once for each button)
+
+    RTS
+--- NEW
+ReadJoypadData:
+    ; The SNES reads the controller port for us every frame.  hal_joyupdate
+    ; translates the result into the NES bit order the rest of the game
+    ; expects, stores it in 'joy', and leaves X = 0 as the original did.
+    JSL hal_joyupdate + HALFAR
+    RTS

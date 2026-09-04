@@ -1,0 +1,86 @@
+--- OLD
+OnReset:
+    SEI            ; Set Interrupt flag (prevent IRQs from occuring)
+    LDA #0
+    STA $2000      ; Disable NMIs
+    STA soft2000
+    STA unk_FE     ; clear some PPU related areas in RAM
+    LDA #$06
+    STA $2001      ; disable Spr/BG rendering (shut off PPU)
+    CLD            ; clear Decimal flag (just a formality, doesn't really do anything)
+
+    LDX #$02       ; wait for 2 vblanks to occurs (2 full frames)
+  @Loop: 
+      BIT $2002      ;  This is necessary because the PPU requires some time to "warm up"
+      BPL @Loop      ;  failure to do this will result in the PPU basically not working
+      DEX
+      BNE @Loop
+
+    LDA #$80       ; reset the MMC1
+    STA $9FFF      ;  resets the latch used by register writes
+    STA $BFFF      ;  ensures that the next register write will be the first in the 5-write sequence
+    STA $DFFF
+    STA $FFF9
+
+    LDA #%00001110
+    JSR SetMMC1SwapMode ; Set MMC1's mirroring settings (Vert mirroring), and swap info
+
+    STA $BFFF      ; After that call, A will be 0
+    STA $BFFF      ;  having being shifted right 4 times.
+    STA $BFFF      ;  these writes clear out MMC1's other registers
+    STA $BFFF      ;  which aren't used for this game (like CHR-ROM stuff)
+    STA $BFFF
+    STA $DFFF      ; This is good practice even though it isn't really required.  A game
+    STA $DFFF      ;  should always set things to a known state.
+    STA $DFFF
+    STA $DFFF
+    STA $DFFF
+
+    LDA #$06
+    JSR SwapPRG    ; swap to bank 6 (pointless to do this here -- we do it again below)
+
+    STA $4016      ; clear joypad strobe??  This seems like an odd place to do it since it doesn't read joy data here  =P
+    STA $4015      ; turn off all sound channels
+    STA $4010      ; disble DMC IRQs
+    LDA #$C0
+    STA $4017      ; set alternative pAPU frame counter method, reset the frame counter, and disable APU IRQs
+
+    DEX            ; X was previously 0, this makes it FF
+    TXS            ; transfer it to the Stack Pointer (resetting the SP)
+    STX unk_0100   ; ???
+
+    JSR ClearBGPalette ;  clear the BG palette
+
+    LDA #$06           ; swap to bank 6 again (even though we just did) .. but why?  We never use
+    JSR SwapPRG        ;   anything in bank 6
+    JMP GameStart_L    ; jump to the start of the game!
+--- NEW
+.export OnReset          ; the HAL's reset code long-jumps here
+
+OnReset:
+    ; The SNES reset vector lands in the HAL, which brings up the PPU, the DMA
+    ; controller and the shadow buffers, then long-jumps here with PBR and DBR
+    ; already pointing at a valid chunk.  What survives of the original routine
+    ; is the part that is about *this game* rather than about the NES: put the
+    ; PPU soft copies in a known state, reset the stack, clear the BG palette.
+    ; The MMC1 initialisation and the two-frame PPU warm-up have no counterpart.
+    SEI
+    CLD
+
+    LDA #0
+    wPPUCTRL            ; NMI stays off for good -- WaitForVBlank polls instead
+    STA soft2000
+    STA unk_FE
+
+    LDA #$06
+    wPPUMASK            ; rendering off
+
+    LDX #$FF            ; reset the stack pointer
+    TXS
+    STX unk_0100
+
+    JSR ClearBGPalette
+
+    LDA #$06
+    JSR SwapPRG
+    JMP GameStart_L     ; jump to the start of the game!
