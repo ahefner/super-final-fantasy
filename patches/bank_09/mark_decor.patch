@@ -1,0 +1,34 @@
+--- OLD
+    ADC #$30
+    STA minimap_ptr
+    LDA minimap_ptr+1
+    ADC #0
+    STA minimap_ptr+1
+
+    LDA soft2000             ; reset the scroll
+    STA $2000
+    LDA #$00
+    STA $2005
+    LDA #$E8
+    STA $2005
+
+    JSR Minimap_DrawSFX       ; play ugly drawing sound effect
+--- NEW
+    ADC #$30
+    STA minimap_ptr
+    LDA minimap_ptr+1
+    ADC #0
+    STA minimap_ptr+1
+
+    LDA soft2000             ; reset the scroll
+    STA $2000
+    LDA #$00
+    STA $2005
+    LDA #$E8
+    STA $2005
+
+  .ifdef PROBE_MARK
+    STA a:APUSHADOW+$1F       ; diagnostic marker: this frame ran the crest loop
+  .else                       ; (same size as the JSR it replaces; A is $E8 here)
+    JSR Minimap_DrawSFX       ; play ugly drawing sound effect
+  .endif

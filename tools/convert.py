@@ -137,9 +137,21 @@ HEADER = """; ------------------------------------------------------------------
 def main():
     os.makedirs(GEN, exist_ok=True)
 
-    # Constants.inc / variables.inc are pure equates: use them as-is.
-    for f in ("Constants.inc", "variables.inc"):
-        shutil.copyfile(os.path.join(SRCDIR, f), os.path.join(GEN, f))
+    # Constants.inc / variables.inc are pure equates: use them as-is, except
+    # that the minimap's CHR staging buffer can be moved out of PRG-RAM (which
+    # is cartridge SRAM here) into WRAM, to test whether that memory is at
+    # fault.  $0D00-$0FFF is exactly the $300 bytes it needs and the game never
+    # touches it.
+    shutil.copyfile(os.path.join(SRCDIR, "Constants.inc"),
+                    os.path.join(GEN, "Constants.inc"))
+    v = open(os.path.join(SRCDIR, "variables.inc"), encoding="latin-1").read()
+    v = v.replace("mm_decorchr     = $7000",
+                  ".ifdef DECOR_IN_WRAM\n"
+                  "mm_decorchr     = $0D00\n"
+                  ".else\n"
+                  "mm_decorchr     = $7000\n"
+                  ".endif")
+    open(os.path.join(GEN, "variables.inc"), "w", encoding="latin-1").write(v)
 
     # macros.inc: keep LDABRA, but the page-boundary assertions describe NES
     # raster timing that no longer applies, so they become no-ops.

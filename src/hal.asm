@@ -382,7 +382,7 @@ hal_w2006:
       lda a:h_data
       and #$3F                  ; the PPU address bus is only 14 bits wide
       sta a:h_addr+1
-  .ifdef PROBE_HI
+  .if .defined(PROBE_HI) .or .defined(PROBE_ADDR)
       inc a:h_hicount
       cmp a:h_himin
       bcs @nomin
@@ -446,6 +446,15 @@ w2007_core:
 
 ; --- pattern table ------------------------------------------------------
 chr_write:
+  .ifdef PROBE_ADDR
+    cmp #$1000                  ; every crest and logo destination is below this
+    bcc @addrok
+      pha
+      lda #1
+      sta a:h_addrhigh
+      pla
+@addrok:
+  .endif
     and #$000F                  ; which byte of the tile?
     asl a                       ;   plane 0 rows land on even offsets...
     sta a:h_t1
@@ -1082,6 +1091,21 @@ hal_waitvbl:
     rtl
 
 hal_flush:
+  .ifdef PROBE_ADDR
+    ;  A frame with 40+ address pairs is the crest loop.  If any of its CHR
+    ;  writes reached $1000 or above, the address the HAL reconstructed is not
+    ;  the one the game asked for -- the fault would be on this side.
+    lda a:APUSHADOW+$1F         ; set only by the crest loop's own frame
+    beq @adone
+    lda a:h_addrhigh
+    beq @adone
+      DIAG16 $001F              ; red: reconstructed address out of range
+      .a8
+@adone:
+    stz a:h_addrhigh
+    stz a:APUSHADOW+$1F
+    stz a:h_hicount
+  .endif
   .ifdef PROBE_HI
     ;  A frame that writes many $2006 high bytes but only ever one distinct
     ;  value is the collapse we are looking for.  Frames writing none leave min
