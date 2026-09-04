@@ -252,3 +252,6 @@ h_hofsframestart = HAL_VARS+$43 ; 2 bytes: scroll in force at the top of frame
 h_ctrlwrites    = HAL_VARS+$45  ; $2000 writes seen so far this frame
 h_rasterwin     = HAL_VARS+$46  ; nonzero while a deliberate raster split is due
 h_ntsrc         = HAL_VARS+$47  ; 2 bytes: tilemap shadow address being sent
+h_vdst          = HAL_VARS+$49  ; 2 bytes: tilemap row base being written
+h_vdst0         = HAL_VARS+$4B  ; 2 bytes: ...for the copy at row r
+h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30

@@ -1273,15 +1273,14 @@ flush_nt:
     rts
 :   stz a:h_ntdirty
     lda #$80
-    sta a:VMAIN
-    lda #$01
-    sta a:DMAP0
-    lda #$18
-    sta a:BBAD0
-    lda #WRAMBANK
-    sta a:A1B0
+    sta a:VMAIN                 ; step one word per pair of port writes
     ENTER16
     stz a:h_row
+    lda #NTSHADOW               ; source of row 0
+    sta a:h_ntsrc
+    stz a:h_vdst0               ; tilemap row 0
+    lda #(30*32)
+    sta a:h_vdst1               ; ...and its duplicate, at row 30
 @rowloop:
     ldx a:h_row
     sep #$20
@@ -1300,18 +1299,38 @@ flush_nt:
     lda a:h_c1
     cmp a:h_c0
     bcc @nextrow                ; hi < lo: this row never changed
-    lda a:h_row
-    sta a:h_dstrow
+    lda a:h_vdst0
+    sta a:h_vdst
     jsr nt_put
-    lda a:h_row
-    clc
-    adc #30
-    sta a:h_dstrow
+    lda a:h_vdst1
+    sta a:h_vdst
     jsr nt_put
 @nextrow:
+    ;  Every address here advances by a constant, so carry them along rather
+    ;  than rebuilding each one out of shifts thirty times over.  Rebuilding
+    ;  them was what pushed the flush past the end of vblank while scrolling
+    ;  sideways, which showed as a black band across the top of the screen.
+    lda a:h_ntsrc
+    clc
+    adc #128                    ; one row of the shadow
+    sta a:h_ntsrc
+    lda a:h_vdst0
+    clc
+    adc #32                     ; one row of the tilemap
+    sta a:h_vdst0
     lda a:h_row
     inc a
     sta a:h_row
+    cmp #2                      ; rows 30 and 31 share the top pair of
+    bne :+                      ; quadrants; from row 32 the duplicate moves
+      lda #$0800                ; to the bottom pair
+      sta a:h_vdst1
+      bra :++
+:   lda a:h_vdst1
+    clc
+    adc #32
+    sta a:h_vdst1
+:   lda a:h_row
     cmp #30
     bcc @rowloop
     LEAVE16
@@ -1320,8 +1339,8 @@ flush_nt:
 .a16
 .i16
 nt_put:
-    ;  Send h_c0..h_c1 of source row h_row to tilemap row h_dstrow, split at
-    ;  the boundary between the two 32-column halves of the 64x64 map.
+    ;  Send h_c0..h_c1 of this row to tilemap row h_vdst, split at the
+    ;  boundary between the two 32-column halves of the 64x64 map.
     lda a:h_c0
     cmp #32
     bcs @rightonly
@@ -1357,75 +1376,33 @@ nt_put:
     rts
 
 nt_piece:
-    ;  h_t2..h_t3 columns, h_t4 = quadrant offset for the right-hand half.
-    ;  A 64x64 tilemap is four 32x32 blocks of $400 words: right is +$400,
-    ;  bottom is +$800.
-    lda a:h_dstrow
-    and #$0020
-    beq :+
-      lda #$0800
-      bra :++
-:   lda #0
-:   clc
-    adc a:h_t4
-    sta a:h_t5
-    lda a:h_dstrow
-    and #$001F
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    clc
-    adc a:h_t5
-    sta a:h_t5
+    ;  Columns h_t2..h_t3 of the row whose shadow begins at h_ntsrc, into
+    ;  tilemap row h_vdst, quadrant offset h_t4.  Written through the port:
+    ;  these spans are short -- a sideways scroll produces one or two tiles per
+    ;  row -- and programming a DMA channel for them costs far more than the
+    ;  writes themselves.
     lda a:h_t2
     and #$001F
     clc
-    adc a:h_t5
+    adc a:h_t4
+    clc
+    adc a:h_vdst
     clc
     adc #VRAM_BG1MAP
     sta a:VMADDL
-    lda a:h_row                 ; source: NTSHADOW + row*128 + firstcol*2
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    sta a:h_t5
     lda a:h_t2
-    asl a
+    asl a                       ; two bytes per tilemap entry
     clc
-    adc a:h_t5
-    clc
-    adc #NTSHADOW
-    sta a:A1T0L
-    sta a:h_ntsrc               ; keep our own copy: reading a DMA register back
-                                ; to find it again would be relying on hardware
-                                ; behaviour we do not need to depend on
+    adc a:h_ntsrc
+    tax
     lda a:h_t3
     sec
     sbc a:h_t2
     inc a
-    asl a                       ; two bytes per tilemap entry
-    sta a:DAS0L
-    cmp #18
-    bcs @dma
-    ;  Short spans go straight through the VRAM port.  Scrolling sideways
-    ;  redraws a whole column, which arrives here as thirty one-tile spans --
-    ;  one per row, doubled for the duplicated rows -- and programming a DMA
-    ;  channel for two bytes apiece costs several times what writing them does.
-    ;  Doing it the expensive way overran vblank, and forced blank stayed on
-    ;  into the visible frame: a black band across the top of the screen,
-    ;  present only while walking horizontally.
-    lsr a                       ; back to a word count
-    sta a:h_t5
-    ldx a:h_ntsrc               ; the source address we just worked out
+    sta a:h_t5                  ; words to send
     sep #$20
     .a8
-@short:
+@word:
     lda a:$0000,x
     sta a:VMDATAL
     inx
@@ -1433,15 +1410,7 @@ nt_piece:
     sta a:VMDATAH
     inx
     dec a:h_t5
-    bne @short
-    rep #$20
-    .a16
-    rts
-@dma:
-    sep #$20
-    .a8
-    lda #$01
-    sta a:MDMAEN
+    bne @word
     rep #$20
     .a16
     rts
