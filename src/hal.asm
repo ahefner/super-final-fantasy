@@ -174,7 +174,11 @@ hofs_from_ctrl:                 ; A = $2000 -> h_t0/h_t1
     sta a:h_t0
     rts
 
-;;  Wait until the beam reaches scanline 9.  See the dialogue box patch.
+;;  Wait for the scanline the dialogue box code is aiming at.  It counts in NES
+;;  scanlines and wants line 9; we crop NES_TOP_CROP lines off the top, so SNES
+;;  line 0 is NES line 8 and the line it wants is NES_TOP_CROP lower down.
+;;  Waiting for SNES line 9 instead ran the band a full tile row too long, and
+;;  that row went on showing the box's nametable -- right tiles, wrong palette.
 hal_waitline9:
     php
     pha
@@ -182,7 +186,7 @@ hal_waitline9:
     lda a:STAT78
     lda a:SLHV
     lda a:OPVCT
-    cmp #9
+    cmp #(9 - NES_TOP_CROP)
     bne @wait
     lda #1
     sta a:h_rasterwin           ; from here to the flush, splits are expected
