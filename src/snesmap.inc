@@ -23,10 +23,12 @@
 ; --- Bank numbers -------------------------------------------------------
 HALBANK         = $C0           ; HAL code lives here (long-addressed)
 HALFAR          = HALBANK * $10000
-TRACEFAR        = $C06000       ; 8KB of SRAM the game can never see: bank $C0
+TRACEFAR        = $A06000       ; 8KB of SRAM the game can never see: bank $A0
                                 ; is even, so $6000-$7FFF there is the page the
-                                ; odd game banks do not reach.  Trace buffers
-                                ; live here rather than in memory the game uses.
+                                ; odd game banks do not reach.  It must be an
+                                ; even bank in $A0-$BF: banks $C0-$FF map ROM
+                                ; across the whole 64KB and decode no SRAM at
+                                ; all, so $C06000 silently wrote to ROM.
 CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+2N
                                 ;
                                 ; Chunks sit TWO banks apart, all on odd banks.

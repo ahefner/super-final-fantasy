@@ -1159,15 +1159,10 @@ hal_flush:
     jsr flush_scroll
     jsr flush_ntsplit
   .ifdef SCROLLSTAT
-    ;  The ring lives in WRAM, which is genuinely free.  SRAM is not: every
-    ;  candidate region there is live during play -- $6900-$6EFF looks like the
-    ;  ending sequence's draw buffer but has 160 symbols overlaid on it,
-    ;  including bigstr_buf, char_order_buf and the level-up temporaries, and
-    ;  writing into it corrupts the game.
-    ;
-    ;  Logging freezes as soon as the minimap opens, so the ring still holds the
-    ;  walk rather than the ten seconds of map drawing, and the copy out lands
-    ;  above mm_titlechr where the scratch is dead.
+    ;  Write the trace straight into SRAM, on the page the game cannot reach
+    ;  (see TRACEFAR).  No ring in WRAM, no periodic copy, no trigger, and
+    ;  nothing of the game's own memory touched -- the bytes are simply there in
+    ;  the .ram file whenever the emulator exits.  2600 frames is ~43 seconds.
     lda a:HVBJOY                ; still inside vblank at the end of the flush?
     bmi @invbl
     inc a:h_over
@@ -1175,61 +1170,34 @@ hal_flush:
     inc a:h_over+1
 @invbl:
     ENTER16
-    ;  Dump on a fixed frame number rather than on any game state.  Input
-    ;  triggers cost a dozen runs and never fired reliably; a frame count needs
-    ;  no keypress and no particular screen.  The copy lands on mapdata, which
-    ;  only cosmetically corrupts the map, and only in this build.
-    ;  Log every frame, and copy the ring out every 256 frames, so whenever the
-    ;  emulator is quit the SRAM file holds the preceding ~11 seconds.  The copy
-    ;  lands on mapdata: that corrupts the map cosmetically, in this build only.
-    sep #$20
-    .a8
-    lda a:h_frame               ; low byte only: every 256th frame
-    beq @dumpring
-    rep #$20
-    .a16
     lda a:h_ringidx
     tax
     sep #$20
     .a8
-    lda a:h_frame               ; sequence marker
-    sta f:SCROLLRING, x
+    lda a:h_frame               ; sequence marker: consecutive proves it is ours
+    sta f:TRACEFAR+$100, x
     lda a:h_lastx
-    sta f:SCROLLRING+1, x
+    sta f:TRACEFAR+$101, x
     lda a:h_lasty
-    sta f:SCROLLRING+2, x
+    sta f:TRACEFAR+$102, x
     rep #$20
     .a16
     txa
     clc
     adc #3
-    cmp #2046
+    cmp #7800
     bcc :+
     lda #0
 :   sta a:h_ringidx
-    bra @statdone
-@dumpring:
-    rep #$20
-    .a16
-    ldx #0
-@ringcopy:
-    lda f:SCROLLRING, x
-    sta f:$A17800, x
-    inx
-    inx
-    cpx #2046
-    bcc @ringcopy
+    sta f:TRACEFAR+8
     lda #$5A5A
-    sta f:$A177F0
+    sta f:TRACEFAR+0
     lda a:h_frame
-    sta f:$A177F2
+    sta f:TRACEFAR+2
     lda a:h_late
-    sta f:$A177F4
+    sta f:TRACEFAR+4
     lda a:h_over
-    sta f:$A177F6
-    lda a:h_ringidx
-    sta f:$A177F8
-@statdone:
+    sta f:TRACEFAR+6
     LEAVE16
   .endif
     lda a:h_ppumask
