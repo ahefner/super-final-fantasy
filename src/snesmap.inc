@@ -123,7 +123,12 @@ NTSHADOW        = $1000         ; 4KB: 64x32 tilemap words (NES rows 0..29 used)
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
-SCROLLRING      = $7E5000       ; diagnostic: 1024 frames x 2 bytes
+SCROLLRING      = $7E5000       ; diagnostic: SCROLLSTAT's per-frame ring
+
+; Frame at which SCROLLSTAT copies its ring out to SRAM; -D DUMPFRAME=n to move
+.ifndef DUMPFRAME
+DUMPFRAME       = 1800
+.endif
 CHRSHADOW       = $7E8000       ; 16KB: 512 tiles in SNES 4bpp order
 
 ; ------------------------------------------------------------------------

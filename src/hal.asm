@@ -1158,11 +1158,15 @@ hal_flush:
     jsr flush_scroll
     jsr flush_ntsplit
   .ifdef SCROLLSTAT
-    ;  Log straight to SRAM $6900 -- theend_drawbuf, which only the ending
-    ;  sequence uses -- so no in-game trigger is needed at all.  Each entry
-    ;  carries the frame counter's low byte beside the datum: if consecutive
-    ;  entries do not differ by exactly one, the game is writing here and the
-    ;  whole trace is worthless.  $6F00 failed exactly that way.
+    ;  The ring lives in WRAM, which is genuinely free.  SRAM is not: every
+    ;  candidate region there is live during play -- $6900-$6EFF looks like the
+    ;  ending sequence's draw buffer but has 160 symbols overlaid on it,
+    ;  including bigstr_buf, char_order_buf and the level-up temporaries, and
+    ;  writing into it corrupts the game.
+    ;
+    ;  Logging freezes as soon as the minimap opens, so the ring still holds the
+    ;  walk rather than the ten seconds of map drawing, and the copy out lands
+    ;  above mm_titlechr where the scratch is dead.
     lda a:HVBJOY                ; still inside vblank at the end of the flush?
     bmi @invbl
     inc a:h_over
@@ -1170,34 +1174,61 @@ hal_flush:
     inc a:h_over+1
 @invbl:
     ENTER16
+    ;  Dump on a fixed frame number rather than on any game state.  Input
+    ;  triggers cost a dozen runs and never fired reliably; a frame count needs
+    ;  no keypress and no particular screen.  The copy lands on mapdata, which
+    ;  only cosmetically corrupts the map, and only in this build.
+    ;  Log every frame, and copy the ring out every 256 frames, so whenever the
+    ;  emulator is quit the SRAM file holds the preceding ~11 seconds.  The copy
+    ;  lands on mapdata: that corrupts the map cosmetically, in this build only.
+    sep #$20
+    .a8
+    lda a:h_frame               ; low byte only: every 256th frame
+    beq @dumpring
+    rep #$20
+    .a16
     lda a:h_ringidx
     tax
     sep #$20
     .a8
-    lda a:h_frame               ; sequence marker, for validating this region
-    sta f:$A16910, x
-    lda a:$0029                 ; sm_scroll_x: the game's OWN scroll variable
-    sta f:$A16911, x
-    lda a:$0032                 ; mapdraw_job: 2=draw tiles, 1=attributes, 0=idle
-    sta f:$A16912, x
+    lda a:h_frame               ; sequence marker
+    sta f:SCROLLRING, x
+    lda a:h_lastx
+    sta f:SCROLLRING+1, x
+    lda a:h_lasty
+    sta f:SCROLLRING+2, x
     rep #$20
     .a16
     txa
     clc
     adc #3
-    cmp #1518
+    cmp #2046
     bcc :+
     lda #0
 :   sta a:h_ringidx
-    sta f:$A16906
+    bra @statdone
+@dumpring:
+    rep #$20
+    .a16
+    ldx #0
+@ringcopy:
+    lda f:SCROLLRING, x
+    sta f:$A17800, x
+    inx
+    inx
+    cpx #2046
+    bcc @ringcopy
     lda #$5A5A
-    sta f:$A16900
+    sta f:$A177F0
     lda a:h_frame
-    sta f:$A16902
+    sta f:$A177F2
     lda a:h_late
-    sta f:$A16904
+    sta f:$A177F4
     lda a:h_over
-    sta f:$A16908
+    sta f:$A177F6
+    lda a:h_ringidx
+    sta f:$A177F8
+@statdone:
     LEAVE16
   .endif
     lda a:h_ppumask
