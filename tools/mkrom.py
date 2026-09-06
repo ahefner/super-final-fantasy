@@ -2,15 +2,26 @@
 """
 mkrom.py -- lay the linked pieces out as a HiROM image.
 
-ROM bank 0        low half unused, HAL at $8000, header at $FFC0
-ROM bank 1+N      low half unused, NES bank N at $8000, NES bank $0F at $C000
+ROM bank 0        low half unused, HAL at $8000, header at $FFB0
+ROM bank 1+2N     low half unused, NES bank N at $8000, NES bank $0F at $C000
+ROM bank 2+2N     unused
 
-Running the game with PBR = $81+N therefore puts NES bank N at $8000-$BFFF and
+Running the game with PBR = $A1+2N therefore puts NES bank N at $8000-$BFFF and
 the fixed bank at $C000-$FFFF, which is exactly the map the MMC1 gave it -- and
 because those banks also carry the SNES low-bank I/O map, the NES's RAM, its
 PRG-RAM at $6000-$7FFF and the hardware registers all land where the code
-already expects them.  The price is sixteen copies of the fixed bank, which is
-240KB out of a 2MB cartridge.
+already expects them.
+
+The chunks are two banks apart, and all of them odd, to buy somewhere to put
+trace data.  The cart declares 16KB of SRAM, and a HiROM board pages that by the
+low bank bit: even banks see the first 8KB, odd banks the second.  Every chunk
+being odd means the game sees one consistent 8KB no matter which bank is swapped
+in, and the even-bank page -- reachable from the HAL at bank $C0 -- is 8KB the
+game can never touch.  Every other region of the game's own SRAM turned out to
+be live during play, which is what made this worth the empty banks.
+
+The price is sixteen copies of the fixed bank plus sixteen empty banks; the
+image was already declared 2MB and now essentially fills it.
 """
 import os, sys
 
@@ -45,13 +56,16 @@ def main():
     hdr = read(os.path.join(OUT, "hdr.bin"), 0x0050)
     fixed = nesbank("0F")
 
-    rom = bytearray()
-    rom += b"\x00" * 0x8000 + hal + hdr            # ROM bank 0
-    for name in ORDER:                             # ROM banks 1..16
-        rom += b"\x00" * 0x8000 + nesbank(name) + fixed
+    rom = bytearray(ROMSZ)
+    rom[0x8000:0x8000 + len(hal)] = hal            # ROM bank 0: HAL...
+    rom[0x10000 - len(hdr):0x10000] = hdr          # ...and the header at its tail
 
-    used = len(rom)
-    rom += b"\x00" * (ROMSZ - used)
+    for i, name in enumerate(ORDER):               # ROM banks 1, 3, 5 ... 31
+        base = (1 + 2 * i) * BANK
+        rom[base + 0x8000:base + 0xC000] = nesbank(name)
+        rom[base + 0xC000:base + 0x10000] = fixed
+
+    used = (1 + 2 * (len(ORDER) - 1) + 1) * BANK
 
     # SNES checksum: zero the two fields, total the image, then add the $1FE
     # the complement and the checksum themselves will contribute.
