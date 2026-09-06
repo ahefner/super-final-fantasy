@@ -1363,9 +1363,21 @@ flush_chr:
     cmp a:h_chrhi
     beq @dirty
     bcc @dirty
+  .ifdef CHRDUMP
+    jsr chrdump_quiet           ; a frame that wrote no CHR at all
+  .endif
     LEAVE16
     rts
 @dirty:
+    ;  The early-out above ends in LEAVE16, which leaves the assembler tracking
+    ;  8-bit A.  Execution reaches here in 16-bit mode, so say so again -- with
+    ;  --feature force_range a 16-bit immediate would otherwise be truncated to
+    ;  a byte, silently, and the rounding below would be skipped entirely.
+    .a16
+    .i16
+  .ifdef CHRDUMP
+    jsr chrdump_busy
+  .endif
   .ifdef PROBE_SPAN
     ;  Well after boot, a frame that touches CHR at all should be the minimap's
     ;  decor stage, which spreads across tiles up to $FC.  If the highest byte
@@ -1431,6 +1443,143 @@ flush_chr:
     stz a:h_chrhi
     LEAVE16
     rts
+
+.ifdef CHRDUMP
+; --- diagnostic capture (CHRDUMP) ---------------------------------------
+;  The minimap draws its crest and logo tiles one byte at a time over 32
+;  consecutive frames, each frame dirtying a span that runs from tile $01 to
+;  tile $FC.  Nothing else in the game does that, so 14 consecutive wide-span
+;  frames followed by a frame that writes no CHR at all is the moment the
+;  drawing has just finished -- exactly when the corruption is on screen.
+;
+;  At that moment, capture both sides of the transfer for tiles $D0-$FF: the
+;  HAL's shadow, and what VRAM actually holds.  They go to the minimap's SRAM
+;  scratch, which is dead by this point, so the host can read them straight
+;  out of the .ram file.  Whichever side is wrong says where the bug lives.
+.a16
+.i16
+;  Base tile of the 48-tile capture window; override with -D DUMPTILE=$nn
+.ifndef DUMPTILE
+DUMPTILE = $D0
+.endif
+
+chrdump_busy:
+    rts
+
+;  Bank $09 holds the minimap and nothing else -- its one entry point is
+;  EnterMinimap -- so the NES bank being $09 is an exact test for "the minimap
+;  is on screen".  Capture on every frame there that writes no CHR, rather than
+;  latching a single shot: the drawing loops all write CHR, so a quiet frame is
+;  one where the crests and logo are already up, and the last capture before
+;  the emulator quits is the one that reaches the .ram file.
+chrdump_quiet:
+    sep #$20
+    .a8
+    lda a:h_curbank             ; a byte: a 16-bit load here would pick up
+    cmp #$09                    ; h_frame's low byte along with it
+    rep #$20
+    .a16
+    beq :+
+    rts
+:   lda #$5A5A
+    sta f:$A17C00
+    ldx #0
+@shadow:
+    lda f:CHRSHADOW+DUMPTILE*32, x
+    sta f:$A17000, x
+    inx
+    inx
+    cpx #$0600
+    bcc @shadow
+    sep #$20
+    .a8
+    lda #$80
+    sta a:VMAIN                 ; step one word after each high-byte read
+    rep #$20
+    .a16
+    ;  Validate the reader before trusting it: push a known pattern into unused
+    ;  VRAM and pull it back through this very same read path.  If it returns
+    ;  displaced, the displacement is in the reader, not in the DMA.
+    lda #$6000
+    sta a:VMADDL
+    sep #$20
+    .a8
+    ldx #0
+@sentwr:
+    lda f:chrdump_sentinel, x
+    sta a:VMDATAL
+    inx
+    lda f:chrdump_sentinel, x
+    sta a:VMDATAH
+    inx
+    cpx #16
+    bcc @sentwr
+    rep #$20
+    .a16
+    lda #$6000
+    sta a:VMADDL
+    sep #$20
+    .a8
+    lda a:RDVRAML               ; discard a whole word: the read latch reloads
+    lda a:RDVRAMH               ; from the pre-increment address, so the first
+    ldx #0                      ; word is otherwise served twice
+@sentrd:
+    lda a:RDVRAML
+    sta f:$A17C10, x
+    lda a:RDVRAMH
+    sta f:$A17C11, x
+    inx
+    inx
+    cpx #16
+    bcc @sentrd
+    rep #$20
+    .a16
+
+    lda #VRAM_CHR+DUMPTILE*16
+    sta a:VMADDL
+    sep #$20
+    .a8
+    lda a:RDVRAML               ; discard a whole word (see the sentinel above)
+    lda a:RDVRAMH
+    ldx #0
+@vram:
+    lda a:RDVRAML
+    sta f:$A17600, x
+    lda a:RDVRAMH
+    sta f:$A17601, x
+    inx
+    inx
+    cpx #$0600
+    bcc @vram
+    rep #$20
+    .a16
+
+    ;  End-to-end test of the flush itself.  Plant a known pattern in the
+    ;  shadow at tile $2F and mark just that tile dirty; the next frame's
+    ;  ordinary DMA carries it to VRAM, and the capture after that reads back
+    ;  what actually landed.  Faithful means the DMA is exonerated.
+    ldx #0
+@dmapat:
+    lda f:chrdump_dmapat, x
+    sta f:CHRSHADOW+$2F*32, x
+    inx
+    inx
+    cpx #16
+    bcc @dmapat
+    lda #$2F*32
+    sta a:h_chrlo
+    lda #$2F*32+15
+    sta a:h_chrhi
+    rts
+
+chrdump_dmapat:
+    .byte $01,$02,$03,$04,$05,$06,$07,$08
+    .byte $09,$0A,$0B,$0C,$0D,$0E,$0F,$10
+
+chrdump_sentinel:
+    .byte $11,$22,$33,$44,$55,$66,$77,$88
+    .byte $99,$AA,$BB,$CC,$DD,$EE,$FF,$01
+.endif
 
 ; --- tilemap ------------------------------------------------------------
 ;  Each NES row is written to the SNES tilemap twice, at row r and at row

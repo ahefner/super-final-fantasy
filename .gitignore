@@ -10,3 +10,6 @@ gen/
 *.blu
 *.bsu
 *.ram
+*.srm
+*.sym
+__pycache__/

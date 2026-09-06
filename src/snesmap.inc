@@ -55,6 +55,8 @@ BG3HOFS         = $2111
 BG3VOFS         = $2112
 VMAIN           = $2115
 VMADDL          = $2116
+RDVRAML         = $2139         ; VRAM read port, low / high
+RDVRAMH         = $213A
 VMADDH          = $2117
 VMDATAL         = $2118
 VMDATAH         = $2119
@@ -203,6 +205,12 @@ NES_TOP_CROP    = 8
 
 h_emphasis      = HAL_VARS+$3B  ; $2001 bits 7-5, as R/G/B in bits 2-0
 h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
+
+; Diagnostic (CHRDUMP): consecutive frames whose CHR dirty span was huge, and a
+; latch so the capture happens once.  Both are 2 bytes and only ever touched
+; 16-bit -- a byte flag read with a 16-bit load picks up its neighbour.
+h_dumpcnt       = HAL_VARS+$40
+h_dumpdone      = HAL_VARS+$42
 
 ; DMA channel 1, used for the raster-split HDMA
 DMAP1           = $4310

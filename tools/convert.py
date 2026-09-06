@@ -177,6 +177,9 @@ def main():
     for bank in BANKS:
         path = os.path.join(SRCDIR, "bank_%s.asm" % bank)
         text = open(path, "r", encoding="latin-1").read()
+        #  The disassembly uses CRLF.  Normalise first so patch files can
+        #  be written with ordinary newlines and still match verbatim.
+        text = text.replace("\r\n", "\n")
 
         patches = load_patches(bank)
         for name, old, new in patches:
