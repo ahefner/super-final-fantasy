@@ -239,6 +239,7 @@ h_arrive        = HAL_VARS+$4C   ; scanline the game reached WaitForVBlank on
 h_lasty         = HAL_VARS+$4E   ; final BG1VOFS, as the PPU sees it
 h_lastxhi       = HAL_VARS+$50   ; BG1HOFS high byte: the nametable-select bit
 h_flushend      = HAL_VARS+$52   ; scanline the flush finished on
+h_stage         = HAL_VARS+$54   ; 5 bytes: scanline after each flush stage
 h_late          = HAL_VARS+$44
 h_over          = HAL_VARS+$46
 

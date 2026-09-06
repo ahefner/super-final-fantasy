@@ -41,6 +41,17 @@
 .import OnReset
 
 ;; Flip to native mode with 16-bit registers, and back again.
+;  Record the scanline reached, for the per-stage flush timing.  Costs four
+;  instructions and only exists in a SCROLLSTAT build.
+.macro STAGE slot
+  .ifdef SCROLLSTAT
+    lda a:STAT78                ; reset the counter read toggle first
+    lda a:SLHV
+    lda a:OPVCT
+    sta a:h_stage+slot
+  .endif
+.endmacro
+
 .macro ENTER16
     clc
     xce
@@ -148,6 +159,7 @@ hal_w2000:
     cpx #8
     bcs @done
     lda a:STAT78
+    lda a:STAT78                ; reset the counter read toggle first
     lda a:SLHV
     lda a:OPVCT
     ;  The game counts in NES scanlines, and we crop NES_TOP_CROP off the top,
@@ -189,6 +201,7 @@ hal_waitline9:
     pha
 @wait:
     lda a:STAT78
+    lda a:STAT78                ; reset the counter read toggle first
     lda a:SLHV
     lda a:OPVCT
     cmp #9
@@ -290,11 +303,13 @@ hal_waitscanline:
     pha
     phx
     lda a:STAT78
+    lda a:STAT78                ; reset the counter read toggle first
     lda a:SLHV
     lda a:OPVCT
     sta a:h_t0
 @wait:
     lda a:STAT78
+    lda a:STAT78                ; reset the counter read toggle first
     lda a:SLHV
     lda a:OPVCT
     cmp a:h_t0
@@ -1151,10 +1166,15 @@ hal_flush:
   .endif
     lda #$80
     sta a:INIDISP               ; forced blank while VRAM is open
+    STAGE 0
     jsr flush_pal
+    STAGE 1
     jsr flush_chr
+    STAGE 2
     jsr flush_nt
+    STAGE 3
     jsr flush_oam
+    STAGE 4
     jsr flush_raster
     jsr flush_scroll
     jsr flush_ntsplit
@@ -1181,14 +1201,24 @@ hal_flush:
     sta f:TRACEFAR+$100, x
     lda a:h_lastx
     sta f:TRACEFAR+$101, x
-    lda a:h_flushend            ; scanline the flush finished on
+    lda a:h_stage+0             ; scanline at each stage boundary
     sta f:TRACEFAR+$102, x
+    lda a:h_stage+1
+    sta f:TRACEFAR+$103, x
+    lda a:h_stage+2
+    sta f:TRACEFAR+$104, x
+    lda a:h_stage+3
+    sta f:TRACEFAR+$105, x
+    lda a:h_stage+4
+    sta f:TRACEFAR+$106, x
+    lda a:h_flushend            ; and where the whole flush ended
+    sta f:TRACEFAR+$107, x
     rep #$20
     .a16
     txa
     clc
-    adc #3
-    cmp #7800
+    adc #8
+    cmp #7808
     bcc :+
     lda #0
 :   sta a:h_ringidx
