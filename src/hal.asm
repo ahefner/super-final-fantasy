@@ -1049,6 +1049,9 @@ hal_waitvbl:
     phx
     phy
   .ifdef SCROLLSTAT
+    lda a:SLHV                  ; latch the counters: how much of the frame did
+    lda a:OPVCT                 ; the game's own work just use?
+    sta a:h_arrive
     lda a:HVBJOY                ; arriving here already inside vblank means this
     bpl @notlate                ; call is for the next frame, not the one just
     inc a:h_late                ; ending -- a whole frame is about to be lost
@@ -1155,39 +1158,45 @@ hal_flush:
     jsr flush_scroll
     jsr flush_ntsplit
   .ifdef SCROLLSTAT
-    ;  Log straight into SRAM $6F00, which sits above theend_drawbuf and the
-    ;  battle temporaries and is free during ordinary play, so no trigger is
-    ;  needed: ares writes SRAM to FinalFantasy.ram whenever it exits.
+    ;  Log straight to SRAM $6900 -- theend_drawbuf, which only the ending
+    ;  sequence uses -- so no in-game trigger is needed at all.  Each entry
+    ;  carries the frame counter's low byte beside the datum: if consecutive
+    ;  entries do not differ by exactly one, the game is writing here and the
+    ;  whole trace is worthless.  $6F00 failed exactly that way.
     lda a:HVBJOY                ; still inside vblank at the end of the flush?
     bmi @invbl
     inc a:h_over
     bne @invbl
     inc a:h_over+1
 @invbl:
-    lda #$5A
-    sta f:$A16F00
-    lda a:h_frame
-    sta f:$A16F02
-    lda a:h_frame+1
-    sta f:$A16F03
-    lda a:h_late
-    sta f:$A16F04
-    lda a:h_late+1
-    sta f:$A16F05
-    lda a:h_over
-    sta f:$A16F06
-    lda a:h_over+1
-    sta f:$A16F07
-    ldx a:h_ringidx             ; and a rolling trace of the scroll itself
-    lda a:h_latch               ; nonzero = the frame ended mid $2005/$2006 pair
-    sta f:$A16F10,x
-    inx
-    cpx #240
-    bcc :+
-    ldx #0
-:   stx a:h_ringidx
+    ENTER16
+    lda a:h_ringidx
+    tax
+    sep #$20
+    .a8
+    lda a:h_frame               ; sequence marker, for validating this region
+    sta f:$A16910, x
+    lda a:h_lastx               ; the scroll the PPU actually received
+    sta f:$A16911, x
+    rep #$20
+    .a16
     txa
-    sta f:$A16F0E
+    clc
+    adc #2
+    cmp #1520
+    bcc :+
+    lda #0
+:   sta a:h_ringidx
+    sta f:$A16906
+    lda #$5A5A
+    sta f:$A16900
+    lda a:h_frame
+    sta f:$A16902
+    lda a:h_late
+    sta f:$A16904
+    lda a:h_over
+    sta f:$A16908
+    LEAVE16
   .endif
     lda a:h_ppumask
     and #$18                    ; is the NES rendering either layer?

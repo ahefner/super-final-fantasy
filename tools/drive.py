@@ -49,6 +49,24 @@ def key(code, down):
     _cg.CFRelease(e)
 
 
+def combo(first, second, lead=0.40, together=0.35):
+    """Hold `first`, let the game actually sample it, then add `second`.
+
+    The pad is read once a frame, so two buttons pressed in the same instant
+    can be seen as only one.  B+Select for the overworld map needs B already
+    held for several polls before Select arrives, and released after it.
+    """
+    activate()
+    key(BUTTON[first], True)
+    time.sleep(lead)
+    key(BUTTON[second], True)
+    time.sleep(together)
+    key(BUTTON[second], False)
+    time.sleep(0.20)
+    key(BUTTON[first], False)
+    time.sleep(0.05)
+
+
 def hold(button, secs):
     """Hold a button down for a stretch -- what sustained walking needs."""
     activate()

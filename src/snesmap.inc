@@ -215,6 +215,7 @@ h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
 ; and frames whose flush ran past the end of vblank.
 h_ringidx       = HAL_VARS+$48
 h_lastx         = HAL_VARS+$4A   ; final BG1HOFS, as the PPU sees it
+h_arrive        = HAL_VARS+$4C   ; scanline the game reached WaitForVBlank on
 h_late          = HAL_VARS+$44
 h_over          = HAL_VARS+$46
 
