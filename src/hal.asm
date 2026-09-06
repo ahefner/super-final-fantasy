@@ -1048,6 +1048,15 @@ hal_waitvbl:
     pha
     phx
     phy
+  .ifdef SCROLLSTAT
+    lda a:HVBJOY                ; arriving here already inside vblank means this
+    bpl @notlate                ; call is for the next frame, not the one just
+    inc a:h_late                ; ending -- a whole frame is about to be lost
+    bne @inside
+    inc a:h_late+1
+    bra @inside
+@notlate:
+  .endif
 @inside:                        ; already in vblank?  then this call is for the
     lda a:HVBJOY                ;   next frame, not the one just ending
     bmi @inside
@@ -1145,6 +1154,41 @@ hal_flush:
     jsr flush_raster
     jsr flush_scroll
     jsr flush_ntsplit
+  .ifdef SCROLLSTAT
+    ;  Log straight into SRAM $6F00, which sits above theend_drawbuf and the
+    ;  battle temporaries and is free during ordinary play, so no trigger is
+    ;  needed: ares writes SRAM to FinalFantasy.ram whenever it exits.
+    lda a:HVBJOY                ; still inside vblank at the end of the flush?
+    bmi @invbl
+    inc a:h_over
+    bne @invbl
+    inc a:h_over+1
+@invbl:
+    lda #$5A
+    sta f:$A16F00
+    lda a:h_frame
+    sta f:$A16F02
+    lda a:h_frame+1
+    sta f:$A16F03
+    lda a:h_late
+    sta f:$A16F04
+    lda a:h_late+1
+    sta f:$A16F05
+    lda a:h_over
+    sta f:$A16F06
+    lda a:h_over+1
+    sta f:$A16F07
+    ldx a:h_ringidx             ; and a rolling trace of the scroll itself
+    lda a:h_latch               ; nonzero = the frame ended mid $2005/$2006 pair
+    sta f:$A16F10,x
+    inx
+    cpx #240
+    bcc :+
+    ldx #0
+:   stx a:h_ringidx
+    txa
+    sta f:$A16F0E
+  .endif
     lda a:h_ppumask
     and #$18                    ; is the NES rendering either layer?
     beq @dark
@@ -2172,6 +2216,9 @@ flush_scroll:
       .a8
 :   lda a:h_t0
     sta a:BG1HOFS               ; write-twice 16-bit register
+  .ifdef SCROLLSTAT
+    sta a:h_lastx               ; ...and keep it for the scroll trace
+  .endif
     lda a:h_t0+1
     sta a:BG1HOFS
     rep #$20

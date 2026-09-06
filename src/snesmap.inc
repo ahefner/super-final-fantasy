@@ -123,6 +123,7 @@ NTSHADOW        = $1000         ; 4KB: 64x32 tilemap words (NES rows 0..29 used)
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
+SCROLLRING      = $7E5000       ; diagnostic: 1024 frames x 2 bytes
 CHRSHADOW       = $7E8000       ; 16KB: 512 tiles in SNES 4bpp order
 
 ; ------------------------------------------------------------------------
@@ -209,6 +210,14 @@ h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
 ; Diagnostic (CHRDUMP): consecutive frames whose CHR dirty span was huge, and a
 ; latch so the capture happens once.  Both are 2 bytes and only ever touched
 ; 16-bit -- a byte flag read with a 16-bit load picks up its neighbour.
+; Diagnostic (SCROLLSTAT): frames that arrived at WaitForVBlank already inside
+; vblank -- i.e. too late for it, so the game waits out a whole extra frame --
+; and frames whose flush ran past the end of vblank.
+h_ringidx       = HAL_VARS+$48
+h_lastx         = HAL_VARS+$4A   ; final BG1HOFS, as the PPU sees it
+h_late          = HAL_VARS+$44
+h_over          = HAL_VARS+$46
+
 h_dumpcnt       = HAL_VARS+$40
 h_dumpdone      = HAL_VARS+$42
 

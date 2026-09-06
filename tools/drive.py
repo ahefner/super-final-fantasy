@@ -12,23 +12,52 @@ Buttons use the mapping configured in ares on this machine:
     d-pad = arrow keys, Start = Return, Select = Tab,
     A = 's', B = 'a', Y = 'w', X = 'q'
 """
-import os, subprocess, sys, time
+import ctypes, ctypes.util, os, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SHOTS = os.environ.get("SHOTDIR", "/tmp")
 
-#  Buttons, as mapped in ares on this machine.  Letters go through as
-#  characters; everything else by key code.
-BUTTON = {"A": "s", "B": "a", "Y": "w", "X": "q",
-          "start": 36, "select": 48,
-          "up": 126, "down": 125, "left": 123, "right": 124}
+#  Buttons, as mapped in ares on this machine, given as raw macOS virtual key
+#  codes.  Everything goes through CGEvent below rather than AppleScript: System
+#  Events' "key down" only accepts a character or a key constant, so
+#  "key down 125" for an arrow parsed fine, reported success, and did nothing at
+#  all.  Every scripted arrow press was silently dropped, which made the party
+#  stand still while the script believed it was walking.
+BUTTON = {"A": 1, "B": 0, "Y": 13, "X": 12,        # s, a, w, q
+          "start": 36, "select": 48,               # Return, Tab
+          "up": 126, "down": 125, "left": 123, "right": 124,
+          "savestate": 17, "loadstate": 15}        # t, r
 
 #  How long to hold a button, in seconds.  This matters: the game samples the
 #  pad once a frame, so a down-and-up inside 16ms can fall between two polls and
 #  never be seen at all.  Seven frames is comfortably caught, and short enough
 #  not to auto-repeat in menus.
 HOLD = 0.12
+
+_cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library("ApplicationServices"))
+_cg.CGEventCreateKeyboardEvent.restype  = ctypes.c_void_p
+_cg.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+_cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+_cg.CFRelease.argtypes   = [ctypes.c_void_p]
+
+
+def key(code, down):
+    """Post a raw key event.  Holding works, which AppleScript cannot do."""
+    e = _cg.CGEventCreateKeyboardEvent(None, code, down)
+    _cg.CGEventPost(0, e)
+    _cg.CFRelease(e)
+
+
+def hold(button, secs):
+    """Hold a button down for a stretch -- what sustained walking needs."""
+    activate()
+    code = BUTTON[button]
+    key(code, True)
+    time.sleep(secs)
+    key(code, False)
+    time.sleep(0.05)
+
 
 def osa(script):
     subprocess.run(["osascript", "-e", script], capture_output=True)
@@ -38,14 +67,13 @@ def activate():
     osa('tell application "ares" to activate')
 
 
-def press(button, hold=HOLD):
-    v = BUTTON[button]
-    arg = '"%s"' % v if isinstance(v, str) else str(v)
-    subprocess.run(["osascript",
-                    "-e", 'tell application "System Events" to key down %s' % arg,
-                    "-e", "delay %.3f" % hold,
-                    "-e", 'tell application "System Events" to key up %s' % arg],
-                   capture_output=True)
+def press(button, secs=HOLD):
+    activate()
+    code = BUTTON[button]
+    key(code, True)
+    time.sleep(secs)
+    key(code, False)
+    time.sleep(0.05)
 
 
 def window_rect():
