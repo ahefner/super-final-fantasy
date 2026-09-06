@@ -1176,14 +1176,16 @@ hal_flush:
     .a8
     lda a:h_frame               ; sequence marker, for validating this region
     sta f:$A16910, x
-    lda a:h_lastx               ; the scroll the PPU actually received
+    lda a:$0029                 ; sm_scroll_x: the game's OWN scroll variable
     sta f:$A16911, x
+    lda a:$0032                 ; mapdraw_job: 2=draw tiles, 1=attributes, 0=idle
+    sta f:$A16912, x
     rep #$20
     .a16
     txa
     clc
-    adc #2
-    cmp #1520
+    adc #3
+    cmp #1518
     bcc :+
     lda #0
 :   sta a:h_ringidx
@@ -2259,6 +2261,9 @@ flush_scroll:
     .a8
     lda a:h_t1
     sta a:BG1VOFS
+  .ifdef SCROLLSTAT
+    sta a:h_lasty               ; ...and keep it for the scroll trace
+  .endif
     lda a:h_t1+1
     sta a:BG1VOFS
     LEAVE16
