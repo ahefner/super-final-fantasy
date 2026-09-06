@@ -1169,6 +1169,9 @@ hal_flush:
     bne @invbl
     inc a:h_over+1
 @invbl:
+    lda a:SLHV                  ; latch H/V: how far into the frame are we now?
+    lda a:OPVCT
+    sta a:h_flushend
     ENTER16
     lda a:h_ringidx
     tax
@@ -1178,7 +1181,7 @@ hal_flush:
     sta f:TRACEFAR+$100, x
     lda a:h_lastx
     sta f:TRACEFAR+$101, x
-    lda a:h_lasty
+    lda a:h_flushend            ; scanline the flush finished on
     sta f:TRACEFAR+$102, x
     rep #$20
     .a16
@@ -2232,6 +2235,9 @@ flush_scroll:
   .endif
     lda a:h_t0+1
     sta a:BG1HOFS
+  .ifdef SCROLLSTAT
+    sta a:h_lastxhi             ; the half a low-byte trace cannot see
+  .endif
     rep #$20
     .a16
     lda a:h_scrolly
