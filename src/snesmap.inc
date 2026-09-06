@@ -90,7 +90,14 @@ CGWSEL          = $2130
 CGADSUB         = $2131
 COLDATA         = $2132
 SETINI          = $2133
-RDNMI           = $4210
+RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
+                                ; whether or not NMI is enabled, and cleared by
+                                ; reading it.  Clearing it at the end of a flush
+                                ; and testing it on the next entry says whether a
+                                ; whole hardware frame passed while the game was
+                                ; working -- one the game never got to update,
+                                ; which no counter indexed by WaitForVBlank
+                                ; calls can see.
 TIMEUP          = $4211
 HVBJOY          = $4212
 RDIO            = $4213
@@ -240,6 +247,8 @@ h_lasty         = HAL_VARS+$4E   ; final BG1VOFS, as the PPU sees it
 h_lastxhi       = HAL_VARS+$50   ; BG1HOFS high byte: the nametable-select bit
 h_flushend      = HAL_VARS+$52   ; scanline the flush finished on
 h_stage         = HAL_VARS+$54   ; 5 bytes: scanline after each flush stage
+h_missed        = HAL_VARS+$5A   ; 2 bytes: hardware frames the game never saw
+h_hdmaon        = HAL_VARS+$5C   ; nonzero if HDMA drove BG1HOFS this frame
 h_late          = HAL_VARS+$44
 h_over          = HAL_VARS+$46
 

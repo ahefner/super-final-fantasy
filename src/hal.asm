@@ -150,6 +150,18 @@ hal_w2000:
       sta a:h_hofsframestart+1
       bra @done
 @split:
+    ;  A write inside the raster window is only a split if it actually moves the
+    ;  nametable selection.  The map's row/column draw writes $2000 twice every
+    ;  step -- setting the +32 stride to write a column, then restoring
+    ;  soft2000 -- and those change bit 2, not bits 0-1.  Recording them built
+    ;  an HDMA table over BG1HOFS once per step, overriding the scroll that
+    ;  flush_scroll had just written correctly and snapping the map sideways for
+    ;  a frame.  Horizontal only, because the table drives the horizontal
+    ;  register alone, which is why vertical scrolling never showed it.
+    lda a:h_ppuctrl
+    eor a:h_prevctrl
+    and #$03                    ; did the nametable selection really change?
+    beq @done
     lda a:h_ppumask
     and #$18                    ; is anything actually being displayed?
     beq @done
@@ -158,8 +170,7 @@ hal_w2000:
     ldx a:h_ntsplits
     cpx #8
     bcs @done
-    lda a:STAT78
-    lda a:STAT78                ; reset the counter read toggle first
+    lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV
     lda a:OPVCT
     ;  The game counts in NES scanlines, and we crop NES_TOP_CROP off the top,
@@ -200,8 +211,7 @@ hal_waitline9:
     php
     pha
 @wait:
-    lda a:STAT78
-    lda a:STAT78                ; reset the counter read toggle first
+    lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV
     lda a:OPVCT
     cmp #9
@@ -302,14 +312,12 @@ hal_waitscanline:
     php
     pha
     phx
-    lda a:STAT78
-    lda a:STAT78                ; reset the counter read toggle first
+    lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV
     lda a:OPVCT
     sta a:h_t0
 @wait:
-    lda a:STAT78
-    lda a:STAT78                ; reset the counter read toggle first
+    lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV
     lda a:OPVCT
     cmp a:h_t0
@@ -1065,6 +1073,12 @@ hal_waitvbl:
     phx
     phy
   .ifdef SCROLLSTAT
+    lda a:RDNMI                 ; did a whole vblank pass while the game worked?
+    bpl :+                      ; then the display advanced a frame and the game
+    inc a:h_missed              ; did not.  This is the blind spot in h_late,
+    bne :+                      ; which only sees arrivals *during* vblank
+    inc a:h_missed+1
+:   lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV                  ; latch the counters: how much of the frame did
     lda a:OPVCT                 ; the game's own work just use?
     sta a:h_arrive
@@ -1189,6 +1203,9 @@ hal_flush:
     bne @invbl
     inc a:h_over+1
 @invbl:
+    lda a:RDNMI                 ; clear the latch: any vblank seen on the next
+                                ; entry is then one the game genuinely missed
+    lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV                  ; latch H/V: how far into the frame are we now?
     lda a:OPVCT
     sta a:h_flushend
@@ -1205,11 +1222,11 @@ hal_flush:
     sta f:TRACEFAR+$102, x
     lda a:h_stage+1
     sta f:TRACEFAR+$103, x
-    lda a:h_stage+2
+    lda a:h_hdmaon              ; was BG1HOFS driven by HDMA this frame?
     sta f:TRACEFAR+$104, x
     lda a:h_stage+3
     sta f:TRACEFAR+$105, x
-    lda a:h_stage+4
+    lda a:h_missed              ; running count of frames the game never saw
     sta f:TRACEFAR+$106, x
     lda a:h_flushend            ; and where the whole flush ended
     sta f:TRACEFAR+$107, x
@@ -2160,9 +2177,17 @@ flush_ntsplit:
     stz a:h_rasterwin
     lda a:h_ntsplits
     bne @build
+  .ifdef SCROLLSTAT
+    stz a:h_hdmaon              ; no table: flush_scroll's value stands
+  .endif
     stz a:HDMAEN                ; nothing to split: one scroll for the frame
     rts
 @build:
+  .ifdef SCROLLSTAT
+    lda #1                      ; an HDMA table is about to drive BG1HOFS,
+    sta a:h_hdmaon              ; overriding whatever flush_scroll wrote
+    lda a:h_ntsplits
+  .endif
     ldy #0                      ; write cursor into the table
     ldx #0                      ; which recorded split we are on
     lda a:h_hofsframestart      ; the scroll the frame opened with
