@@ -1104,6 +1104,10 @@ hal_waitvbl:
 @wait:
     lda a:HVBJOY
     bpl @wait
+    STAGE 5                     ; the instant the wait returned, before anything
+                                ; else runs: separates "the wait came back late"
+                                ; from "something between the wait and the flush
+                                ; ate the time"
 
     ;  The NES build's NMI handler began every frame with
     ;      LDA soft2000 : STA $2000
@@ -1243,7 +1247,7 @@ hal_flush:
     sta f:TRACEFAR+$105, x
     lda a:h_stage+4             ; after flush_oam
     sta f:TRACEFAR+$106, x
-    lda a:h_flushend            ; and where the whole flush ended
+    lda a:h_stage+5             ; where the vblank wait returned
     sta f:TRACEFAR+$107, x
     rep #$20
     .a16
