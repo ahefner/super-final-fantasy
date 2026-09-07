@@ -1180,7 +1180,15 @@ hal_flush:
   .endif
     lda #$80
     sta a:INIDISP               ; forced blank while VRAM is open
+    ;  Scroll first.  While walking, the transfers below fill the whole of
+    ;  vblank and spill a few lines into the display, and flush_scroll used to
+    ;  run sixth of seven -- so the scroll reached the PPU at scanline 1 on most
+    ;  walking frames, after the picture had already begun.  It costs nothing to
+    ;  set it before the transfers, and then it always lands in vblank however
+    ;  long they take.  flush_ntsplit still runs last, since its HDMA table
+    ;  deliberately overrides BG1HOFS for the dialogue window.
     STAGE 0
+    jsr flush_scroll
     jsr flush_pal
     STAGE 1
     jsr flush_chr
@@ -1190,7 +1198,6 @@ hal_flush:
     jsr flush_oam
     STAGE 4
     jsr flush_raster
-    jsr flush_scroll
     jsr flush_ntsplit
   .ifdef SCROLLSTAT
     ;  Write the trace straight into SRAM, on the page the game cannot reach
@@ -1224,7 +1231,7 @@ hal_flush:
     sta f:TRACEFAR+$103, x
     lda a:h_hdmaon              ; was BG1HOFS driven by HDMA this frame?
     sta f:TRACEFAR+$104, x
-    lda a:h_stage+3
+    lda a:h_scrollline          ; scanline the scroll write landed on
     sta f:TRACEFAR+$105, x
     lda a:h_missed              ; running count of frames the game never saw
     sta f:TRACEFAR+$106, x
@@ -2283,6 +2290,12 @@ flush_scroll:
       sta a:h_t0
       sep #$20
       .a8
+  .ifdef SCROLLSTAT
+    lda a:STAT78                ; when does the scroll actually reach the PPU?
+    lda a:SLHV
+    lda a:OPVCT
+    sta a:h_scrollline
+  .endif
 :   lda a:h_t0
     sta a:BG1HOFS               ; write-twice 16-bit register
   .ifdef SCROLLSTAT

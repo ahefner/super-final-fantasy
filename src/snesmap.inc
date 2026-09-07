@@ -249,6 +249,7 @@ h_flushend      = HAL_VARS+$52   ; scanline the flush finished on
 h_stage         = HAL_VARS+$54   ; 5 bytes: scanline after each flush stage
 h_missed        = HAL_VARS+$5A   ; 2 bytes: hardware frames the game never saw
 h_hdmaon        = HAL_VARS+$5C   ; nonzero if HDMA drove BG1HOFS this frame
+h_scrollline    = HAL_VARS+$5D   ; scanline at which BG1HOFS was actually written
 h_late          = HAL_VARS+$44
 h_over          = HAL_VARS+$46
 
