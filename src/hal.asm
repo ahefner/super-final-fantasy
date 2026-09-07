@@ -46,9 +46,17 @@
 .macro STAGE slot
   .ifdef SCROLLSTAT
     lda a:STAT78                ; reset the counter read toggle first
-    lda a:SLHV
-    lda a:OPVCT
+    lda a:SLHV                  ; latch H/V
+    lda a:OPVCT                 ; low 8 bits, halved to leave room for the 9th
+    lsr a
     sta a:h_stage+slot
+    lda a:OPVCT                 ; second read: bit 0 is counter bit 8.  Without
+    lsr a                       ; it, vblank lines 256-261 alias onto display
+    bcc :+                      ; lines 0-5 -- exactly the range in question
+    lda a:h_stage+slot
+    ora #$80
+    sta a:h_stage+slot
+:
   .endif
 .endmacro
 
@@ -1229,11 +1237,11 @@ hal_flush:
     sta f:TRACEFAR+$102, x
     lda a:h_stage+1
     sta f:TRACEFAR+$103, x
-    lda a:h_hdmaon              ; was BG1HOFS driven by HDMA this frame?
+    lda a:h_stage+2             ; after flush_chr
     sta f:TRACEFAR+$104, x
-    lda a:h_scrollline          ; scanline the scroll write landed on
+    lda a:h_stage+3             ; after flush_nt
     sta f:TRACEFAR+$105, x
-    lda a:h_missed              ; running count of frames the game never saw
+    lda a:h_stage+4             ; after flush_oam
     sta f:TRACEFAR+$106, x
     lda a:h_flushend            ; and where the whole flush ended
     sta f:TRACEFAR+$107, x
