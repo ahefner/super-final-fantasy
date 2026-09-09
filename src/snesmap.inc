@@ -192,12 +192,14 @@ h_t1            = HAL_VARS+$0C
 h_t2            = HAL_VARS+$0E
 h_chrlo         = HAL_VARS+$10  ; 2 bytes: dirty span in the pattern shadow
 h_chrhi         = HAL_VARS+$12
+h_t6            = HAL_VARS+$14  ; 2-byte scratch (nt_attr's row offset)
 h_ntdirty       = HAL_VARS+$16  ; nonzero if any tilemap row changed
 h_render        = HAL_VARS+$17
 h_oamdirty      = HAL_VARS+$18
 h_curbank       = HAL_VARS+$19  ; the NES PRG bank currently selected
 h_frame         = HAL_VARS+$1A  ; 2 bytes
 h_spr0hit       = HAL_VARS+$1C  ; synthesised $2002 bit 6
+h_t7            = HAL_VARS+$1E  ; 2-byte scratch (nt_attr's column index)
 
 ; ------------------------------------------------------------------------
 ;  HAL scalars (continued)

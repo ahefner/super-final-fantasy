@@ -18,6 +18,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SHOTS = os.environ.get("SHOTDIR", "/tmp")
 
+#  Which ares to run.  The instrumented build (the one with the PC-range
+#  profiler and the write logs) lives in the ares source tree; /Applications
+#  holds a stock copy.  Diagnostics need the former, so let it be chosen.
+ARES = os.environ.get("ARES_BIN",
+    "/Applications/ares.app/Contents/MacOS/ares")
+
 #  Buttons, as mapped in ares on this machine, given as raw macOS virtual key
 #  codes.  Everything goes through CGEvent below rather than AppleScript: System
 #  Events' "key down" only accepts a character or a key constant, so
@@ -123,7 +129,7 @@ def main():
     script = sys.argv[1] if len(sys.argv) > 1 else "w6, shot:boot"
     subprocess.run(["killall", "ares", "Snes9x"], capture_output=True)
     time.sleep(1)
-    subprocess.Popen(["/Applications/ares.app/Contents/MacOS/ares",
+    subprocess.Popen([ARES,
                       "--system", "Super Famicom", "--no-file-prompt",
                       os.path.join(ROOT, "FinalFantasy.sfc")]
                      + (["--save-state", os.environ["STATE"]]
@@ -144,12 +150,12 @@ def main():
             #  Press and leave held / release, so screenshots can be taken
             #  mid-movement.  Single-frame glitches only show while walking.
             act, b = tok.split(":")
-            v = BUTTON[b]
-            arg = '"%s"' % v if isinstance(v, str) else str(v)
+            #  CGEvent, not AppleScript: System Events' "key down" takes only a
+            #  character or a key constant, so a raw arrow code was accepted and
+            #  discarded -- the same defect that made every scripted d-pad press
+            #  a no-op.  Holding a direction is exactly what walking tests need.
             activate()
-            subprocess.run(["osascript", "-e",
-                'tell application "System Events" to key %s %s'
-                % ("down" if act == "down" else "up", arg)], capture_output=True)
+            key(BUTTON[b], act == "down")
             time.sleep(0.1)
         elif tok in ("savestate", "loadstate"):
             #  ares hotkeys, bound in its GUI: 't' saves, 'r' restores.
@@ -174,7 +180,7 @@ def main():
             time.sleep(0.5)
         elif tok.startswith("h"):                 # hold: h<seconds>:<button>
             secs, b = tok[1:].split(":")
-            activate(); press(b, hold=float(secs))
+            hold(b, float(secs))
         elif tok.startswith("x"):                 # repeat: x<n>:<button>
             n, b = tok[1:].split(":")
             for _ in range(int(n)):

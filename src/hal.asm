@@ -628,53 +628,30 @@ nt_attr:
     lsr a
     asl a
     asl a
-    sta a:h_t3                  ; base row
+    sta a:h_row                 ; the row being written; starts at the block top
     lda a:h_t2
     and #$0007
     asl a
     asl a
     sta a:h_t4                  ; base column
     lda a:h_t1
-    and #$0400
+    and #$0400                  ; right-hand nametable?
     beq :+
       lda a:h_t4
       clc
       adc #32
       sta a:h_t4
 :
-    ;  dy and dx live in memory rather than in X and Y, because the body of the
-    ;  loop needs both index registers for the shadow it is writing.
-    stz a:h_t2                  ; h_t2 = dy
-@rowloop:
-    lda a:h_t2
-    clc
-    adc a:h_t3
-    sta a:h_row
-    cmp #30                     ; the last attribute row covers only two rows
-    bcs @nextrow
-    stz a:h_t0                  ; h_t0 = dx
-@colloop:
-    lda a:h_t0
-    clc
-    adc a:h_t4
-    sta a:h_col
-    ; quadrant = (dy & 2) + (dx & 2)/2
-    lda a:h_t2
-    and #$0002
-    sta a:h_t5
-    lda a:h_t0
-    and #$0002
-    lsr a
-    clc
-    adc a:h_t5
-    tax
-    sep #$20
-    .a8
-    lda a:h_pal,x               ; the palette this quarter of the block uses
-    sta a:h_t5
-    rep #$20
-    .a16
-    ; tilemap byte offset = row*128 + col*2, +1 to reach the high byte
+    ;  The tilemap offset of the block's top-left cell: row*128 + col*2, +1 to
+    ;  reach the high byte, which is where the palette number lives.
+    ;
+    ;  This is computed once per attribute byte.  It used to be recomputed for
+    ;  each of the sixteen cells -- seven shifts and half a dozen absolute
+    ;  loads apiece -- and that arithmetic dominated the frame: measured
+    ;  against the raster, nt_attr was 141 of the 238 scanlines the guest spent
+    ;  on the frames where the main loop overran, which is the per-step stutter
+    ;  while walking.  The loop below walks the offset instead: +2 along a row,
+    ;  +128 down to the next.
     lda a:h_row
     asl a
     asl a
@@ -684,26 +661,55 @@ nt_attr:
     asl a
     asl a
     sta a:h_t1
-    lda a:h_col
+    lda a:h_t4
     asl a
     clc
     adc a:h_t1
     inc a
+    sta a:h_t6                  ; offset of this row's leftmost cell
+    stz a:h_t2                  ; h_t2 = dy
+@rowloop:
+    lda a:h_row
+    cmp #30                     ; the last attribute row covers only two rows,
+    bcs @done                   ;   and the row only grows, so that is the end
+    ;  Rows 0 and 1 of the block take palettes 0 and 1, rows 2 and 3 take 2 and
+    ;  3.  The pair is fixed for the whole row, so choose it once here rather
+    ;  than rebuilding a quadrant index per cell.
+    lda a:h_t2
+    and #$0002
     tax
     sep #$20
     .a8
-    lda a:h_t5
-    ;  One NES attribute byte covers a 4x4 block of tiles, so a single write
-    ;  smears across sixteen tilemap words -- four columns wide.  Marking all
-    ;  of them dirty makes a step's attribute update widen the span to four
-    ;  columns, and column_flush then runs four times: twelve transfers and 47
-    ;  scanlines against a vblank of about 37.  Only the newly revealed column
-    ;  actually changes palette; the other three already hold this value.
-    cmp a:NTSHADOW,x
-    beq @same
-    sta a:NTSHADOW,x
+    lda a:h_pal+0,x
+    sta a:h_t5+0                ; palette for the row's left-hand two cells
+    lda a:h_pal+1,x
+    sta a:h_t5+1                ;   ...and for its right-hand two
     rep #$20
     .a16
+    lda a:h_t6
+    sta a:h_t0                  ; h_t0 = running cell offset
+    stz a:h_t7                  ; h_t7 = dx
+@colloop:
+    lda a:h_t7
+    lsr a                       ; dx >> 1 selects the left or right palette
+    tax
+    ldy a:h_t0
+    sep #$20
+    .a8
+    lda a:h_t5,x
+    ;  Only the newly revealed column actually changes palette; the other three
+    ;  already hold this value.  Marking them dirty anyway would widen a step's
+    ;  update to four columns, and column_flush would then run four times:
+    ;  twelve transfers and 47 scanlines against a vblank of about 37.
+    cmp a:NTSHADOW,y
+    beq @same
+    sta a:NTSHADOW,y
+    rep #$20
+    .a16
+    lda a:h_t4                  ; mark_dirty wants the cell's own column, so
+    clc                         ;   only a cell that changed pays for it
+    adc a:h_t7
+    sta a:h_col
     jsr mark_dirty
     bra @advance
 @same:
@@ -711,16 +717,28 @@ nt_attr:
     .a16
 @advance:
     lda a:h_t0
-    inc a
+    clc
+    adc #2                      ; next cell along the row
     sta a:h_t0
+    lda a:h_t7
+    inc a
+    sta a:h_t7
     cmp #4
     bcc @colloop
-@nextrow:
+    lda a:h_t6
+    clc
+    adc #128                    ; next row of the tilemap
+    sta a:h_t6
+    lda a:h_row
+    inc a
+    sta a:h_row
     lda a:h_t2
     inc a
     sta a:h_t2
     cmp #4
-    bcc @rowloop
+    bcs @done                   ; the loop body is past a branch's reach
+    jmp @rowloop
+@done:
     jmp bump_addr
 
 ; --- palette ------------------------------------------------------------
