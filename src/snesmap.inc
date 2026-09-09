@@ -352,6 +352,11 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
+h_clidx         = HAL_VARS+$68  ; ...where it is reading from...
+h_clrows        = HAL_VARS+$6A  ; ...and how far to advance the caller's pointer.
+                                ; Kept apart from h_t0..h_t8 because the slow
+                                ; path calls w2007_core, which uses those freely.
 h_wipetop       = HAL_VARS+$63  ; first lit line of the transition band...
 h_wipebot       = HAL_VARS+$64  ; ...and the first dark line below it
 h_wipeon        = HAL_VARS+$65  ; nonzero while a transition wipe is running

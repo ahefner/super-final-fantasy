@@ -34,7 +34,7 @@
 .export hal_reset
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
-.export hal_wipewindow
+.export hal_wipewindow, hal_chrload
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -2456,6 +2456,135 @@ flush_ntsplit:
     sta a:h_hdmaen
     stz a:h_ntsplits
     rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Bulk upload through $2007
+;;
+;;  CHRLoad_Cont is patched to call this rather than pushing a run of bytes
+;;  through $2007 one at a time.  Same contract as the loop it replaces: X rows
+;;  of 256 bytes from (tmp)+Y, and on return tmp+1 has advanced by X with X and
+;;  Y both zero.
+;;
+;;  The saving is not the conversion but everything wrapped around it.  Per byte
+;;  the old path paid a JSR to a thunk, a JSL into this bank, four pushes, a
+;;  mode switch, a dispatch and the whole lot again in reverse; here that
+;;  happens once for the run.  Measured, the tileset load in the middle of a map
+;;  transition had the CPU busy 209 of 262 lines, and 94 of those lines were
+;;  that overhead rather than work.
+;;
+;;  Despite the name the routine is not only used for CHR: several callers fill
+;;  a nametable through it.  So the destination decides which path is taken --
+;;  getting that wrong scrambles nametable data into the pattern shadow, which
+;;  is exactly what a first version of this did.
+.a8
+.i8
+hal_chrload:
+    php
+    ENTER16
+    txa
+    and #$00FF
+    sta a:h_clrows              ; rows
+    tya
+    and #$00FF
+    sta a:h_clidx               ; where in the first row to start
+    lda a:h_clrows
+    xba                         ; rows * 256
+    sec
+    sbc a:h_clidx
+    sta a:h_clcnt               ; bytes to move
+    bne :+
+    jmp @finish                 ; nothing to move (past a branch's reach)
+:
+
+    ;  Take the fast path only if the whole run lands in pattern space.  A run
+    ;  that would cross out of it goes byte by byte instead; that is rare, and
+    ;  correctness is worth more than the few frames.
+    lda a:h_addr
+    and #$3FFF
+    clc
+    adc a:h_clcnt
+    cmp #$2001
+    bcs @slow
+    lda a:h_addr
+    and #$3FFF
+    cmp #$2000
+    bcs @slow
+
+    lda a:h_addr                ; widen the dirty span once, not per byte
+    and #$1FF0
+    asl a
+    cmp a:h_chrlo
+    bcs :+
+      sta a:h_chrlo
+:   ldy a:h_clidx
+@fast:
+    lda (NES_tmp),y             ; the low byte is the one wanted; the high byte
+    sta a:h_data                ;   is just the next source byte, unused here
+    lda a:h_addr                ; which byte of the tile?
+    and #$000F
+    asl a                       ;   plane 0 rows land on even offsets...
+    sta a:h_t1
+    and #$0010                  ;   ...and plane 1 rows (i >= 8) on odd ones
+    beq :+
+      lda a:h_t1
+      sec
+      sbc #15
+      sta a:h_t1
+:   lda a:h_addr
+    and #$1FF0                  ; tile number * 16
+    asl a                       ; 4bpp tiles are 32 bytes, not 16
+    ora a:h_t1
+    tax
+    sep #$20
+    .a8
+    lda a:h_data
+    sta f:CHRSHADOW,x
+    rep #$20
+    .a16
+    lda a:h_addr
+    inc a
+    sta a:h_addr
+    iny
+    dec a:h_clcnt
+    bne @fast
+
+    lda a:h_addr                ; the last byte written closes the dirty span
+    dec a
+    and #$1FF0
+    asl a
+    ora #$001F
+    cmp a:h_chrhi
+    bcc :+
+      sta a:h_chrhi
+:   jmp @finish                 ; over the slow path, which is out of reach
+
+    ;  Anything not bound for pattern space goes through the ordinary
+    ;  conversion, which handles nametables, attributes and palette alike and
+    ;  bumps the address itself.  It uses both index registers and h_t0..h_t8,
+    ;  so the loop keeps its own state in memory.
+@slow:
+    lda a:h_clidx
+    tay
+    lda (NES_tmp),y
+    sta a:h_data
+    jsr w2007_core
+    lda a:h_clidx
+    inc a
+    sta a:h_clidx
+    dec a:h_clcnt
+    bne @slow
+
+@finish:
+    lda a:h_clrows              ; the caller expects tmp+1 to have advanced once
+    xba                         ;   per row, which is rows * 256 on the pointer
+    clc                         ;   taken as a whole
+    adc a:NES_tmp
+    sta a:NES_tmp
+    LEAVE16
+    ldx #0                      ; the loop this replaces exited with both zeroed
+    ldy #0
+    plp
+    rtl
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The map transition wipe

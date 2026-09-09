@@ -1,0 +1,18 @@
+--- OLD
+CHRLoad_Cont:
+    LDA (tmp), Y      ; read a byte from source pointer
+    STA $2007         ; and write it to CHR-RAM
+    INY               ; inc our source index
+    BNE CHRLoad_Cont  ; if it didn't wrap, continue looping
+
+    INC tmp+1         ; if it did wrap, inc the high byte of our source pointer
+    DEX               ; and decrement our row counter (256 bytes = a full row of tiles)
+    BNE CHRLoad_Cont  ; if we've loaded all requested rows, exit.  Otherwise continue loading
+    RTS
+
+--- NEW
+CHRLoad_Cont:
+    ;  Handed to the HAL as one run rather than a byte at a time through $2007;
+    ;  see hal_chrload.  Same source pointer, same row count, same exit state.
+    JSL hal_chrload + HALFAR
+    RTS
