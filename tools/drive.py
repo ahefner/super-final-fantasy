@@ -39,6 +39,46 @@ BUTTON = {"A": 1, "B": 0, "Y": 13, "X": 12,        # s, a, w, q
           "up": 126, "down": 125, "left": 123, "right": 124,
           "savestate": 17, "loadstate": 15}        # t, r
 
+#  Waiting in emulated frames rather than wall clock.
+#
+#  The instrumented ares runs at roughly half speed, so a wall-clock wait covers
+#  half as much of the game as it would otherwise -- and that ratio shifts as
+#  instrumentation is added or removed.  Scripts written in seconds therefore
+#  drift: one that reached the overworld a week ago stalls in the intro today,
+#  and the run silently measures the wrong thing.  That went unnoticed through
+#  several rounds of testing here.
+#
+#  The profiler writes one line per emulated frame and flushes it, so its output
+#  doubles as a frame counter.  When it is running, "f<n>" waits n emulated
+#  frames and "H<n>:<button>" holds a button for n of them; without it both fall
+#  back to n/60 seconds.
+PROF_OUT = os.environ.get("ARES_HAL_PROF_OUT")
+
+
+def emulated_frames():
+    if not PROF_OUT:
+        return None
+    try:
+        with open(PROF_OUT, "rb") as f:
+            return f.read().count(b"\n")
+    except IOError:
+        return 0
+
+
+def wait_frames(n, timeout=180.0):
+    """Wait for n more emulated frames, however long that takes in real time."""
+    start = emulated_frames()
+    if start is None:
+        time.sleep(n / 60.0)
+        return
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if emulated_frames() - start >= n:
+            return
+        time.sleep(0.02)
+    print("  (timed out waiting for %d emulated frames)" % n)
+
+
 #  How long to hold a button, in seconds.  This matters: the game samples the
 #  pad once a frame, so a down-and-up inside 16ms can fall between two polls and
 #  never be seen at all.  Seven frames is comfortably caught, and short enough
@@ -144,7 +184,9 @@ def main():
     time.sleep(1)
 
     for tok in [t.strip() for t in script.split(",") if t.strip()]:
-        if tok.startswith("w"):
+        if tok.startswith("f"):               # wait, measured in emulated frames
+            wait_frames(int(tok[1:]))
+        elif tok.startswith("w"):
             time.sleep(float(tok[1:]))
         elif tok.startswith("shot:"):
             activate(); time.sleep(0.3); shot(tok[5:])
@@ -185,6 +227,13 @@ def main():
         elif tok.startswith("h"):                 # hold: h<seconds>:<button>
             secs, b = tok[1:].split(":")
             hold(b, float(secs))
+        elif tok.startswith("H"):             # hold, measured in emulated frames
+            frames, b = tok[1:].split(":")
+            activate()
+            key(BUTTON[b], True)
+            wait_frames(int(frames))
+            key(BUTTON[b], False)
+            time.sleep(0.05)
         elif tok.startswith("x"):                 # repeat: x<n>:<button>
             n, b = tok[1:].split(":")
             for _ in range(int(n)):
