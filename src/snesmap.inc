@@ -260,6 +260,14 @@ SLHV            = $2137         ; reading it latches the H/V counters
 OPVCT           = $213D         ; vertical counter
 STAT78          = $213F         ; reading it resets the counter read toggle
 
+;  The last scanline at which hal_waitvbl will still serve a vblank it arrived
+;  inside of, rather than waiting for the next one.  Vblank runs to line 261,
+;  so this leaves 17 lines; a walking frame's flush measures about 15, and the
+;  arrivals this is meant to catch land around 237.  Raising it risks a flush
+;  running past the end of vblank and writing VRAM into the live picture, so
+;  the flush's finishing line is worth re-measuring after any change to it.
+LATE_FLUSH_LAST = 244
+
 h_rastercount   = HAL_VARS+$3D  ; mid-frame $2001 writes recorded this frame
 h_tmcur         = HAL_VARS+$3E  ; TM as of the most recent $2001 write
 RASTERLINE      = $0980         ; 16 entries: scanline of each split

@@ -1188,12 +1188,54 @@ hal_waitvbl:
     bra @inside
 @notlate:
   .endif
-@inside:                        ; already in vblank?  then this call is for the
-    lda a:HVBJOY                ;   next frame, not the one just ending
+    ;  Arriving here already inside vblank used to cost a whole frame: the
+    ;  code spun out the rest of that vblank and then waited for the next one,
+    ;  on the reasoning that the call belonged to the frame about to start.
+    ;  Measured against the raster that spin is 246 scanlines, and it is the
+    ;  whole of the remaining per-step stutter.  A step's burst of $2007 writes
+    ;  finishes around line 237 -- just inside vblank -- and the frame was then
+    ;  thrown away even though the flush needs about fifteen lines and
+    ;  twenty-four were left.
+    ;
+    ;  So serve this vblank instead, when there is demonstrably room in what is
+    ;  left of it.  Two things have to be true, and both are cheap to ask:
+    ;
+    ;    RDNMI bit 7 latches "a vblank has begun" and clears on read, and the
+    ;    two serving paths below are its only readers.  Set means this is a
+    ;    vblank nothing has flushed into yet.  Clear means we already served it
+    ;    and the game has come round again inside the same one, which must wait
+    ;    -- otherwise a fast pass would run twice in one frame.
+    ;
+    ;    The V counter says how much is left.  Read as eight bits it is
+    ;    unambiguous here, because HVBJOY has already established that we are in
+    ;    vblank: lines 224..255 read as themselves, and 256..261 read as 0..5.
+    ;    That is why a value below 224 at this point means the vblank is nearly
+    ;    over, not that the picture has started.
+    ;
+    ;  (A SCROLLSTAT build reads RDNMI above for its own diagnostic and takes
+    ;  the latch with it, so it never serves early.  That build is already
+    ;  documented as unusable for other reasons.)
+    lda a:HVBJOY
+    bpl @wait                   ; not in vblank yet: the ordinary path
+    lda a:RDNMI
+    bpl @inside                 ; already flushed into this one: take the next
+    lda a:STAT78                ; reset the counter's own read toggle
+    lda a:SLHV                  ; latch H and V
+    lda a:OPVCT
+    cmp #224
+    bcc @inside                 ; lines 256..261: too little of it left
+    cmp #LATE_FLUSH_LAST+1
+    bcs @inside                 ; too close to the end to fit a flush
+    bra @serve                  ; room enough -- save the frame
+
+@inside:                        ; wait out the rest of this vblank...
+    lda a:HVBJOY
     bmi @inside
-@wait:
+@wait:                          ; ...then for the next one to begin
     lda a:HVBJOY
     bpl @wait
+    lda a:RDNMI                 ; consume the latch for the vblank we now serve
+@serve:
     STAGE 5                     ; the instant the wait returned, before anything
                                 ; else runs: separates "the wait came back late"
                                 ; from "something between the wait and the flush
