@@ -268,7 +268,8 @@ hal_w2001:
     ;  any code that reconfigures $2001 mid-frame -- which is exactly what
     ;  battle set-up does when it turns the sprites back on after the fade-in,
     ;  so the party and the menu cursor never reappeared.
-:   lda a:h_ppumask
+:   stz a:h_wipeon              ; the game is driving rendering again
+    lda a:h_ppumask
     jsr tm_from_mask
     sta a:h_tmcur
 
@@ -1405,9 +1406,19 @@ hal_flush:
     sta f:TRACEFAR+6
     LEAVE16
   .endif
+    ;  A transition wipe decides visibility through TM, band by band, and its
+    ;  frames carry no $2001 write at all -- ScreenWipeFrame's were removed when
+    ;  the effect moved to HDMA.  So during a wipe h_ppumask still holds whatever
+    ;  the game last set, and after ScreenWipe_Close finishes that is $00, with
+    ;  the matching "rendering on" write not arriving until the opening half has
+    ;  already run.  Blanking on it here put the whole opening half behind a
+    ;  forced blank: the bands were built and drawn correctly and never seen.
+    lda a:h_wipeon
+    bne @lit
     lda a:h_ppumask
     and #$18                    ; is the NES rendering either layer?
     beq @dark
+@lit:
     lda #$0F
     sta a:INIDISP
     rts
@@ -2239,6 +2250,10 @@ flush_oam:
 .a8
 .i8
 flush_raster:
+    lda a:h_wipeon              ; a transition wipe owns the screen while it runs
+    beq @nowipe
+    jmp wipe_table
+@nowipe:
     lda a:h_rastercount
     bne @build
                                 ; no splits: one setting for the whole frame,
@@ -2298,6 +2313,52 @@ flush_raster:
     sta a:h_tmframestart
     stz a:h_rastercount
     stz a:h_ntsplits
+    rts
+
+;;  Three spans -- dark, lit, dark -- from the band hal_wipewindow recorded.
+;;  Built here rather than where it was recorded so that both the table and the
+;;  channel are settled during vblank, before HDMA is armed at the top of the
+;;  frame.
+wipe_table:
+    ldy #0
+    lda #$10                    ; TM: sprites only -- the background is off
+    sta a:h_t0
+    lda a:h_wipetop
+    beq :+
+      jsr emit_span
+:   lda #$11                    ; TM: background and sprites
+    sta a:h_t0
+    lda a:h_wipebot
+    sec
+    sbc a:h_wipetop
+    beq :+
+      jsr emit_span
+:   lda #$10
+    sta a:h_t0
+    lda #224
+    sec
+    sbc a:h_wipebot
+    beq :+
+      jsr emit_span
+:   lda #$00
+    sta a:HDMATAB,y             ; a zero line count ends the table
+    lda #$10                    ; what stands above the first span
+    sta a:TM
+    sta a:h_tmframestart
+    lda #$00
+    sta a:DMAP1                 ; write one byte to one register
+    lda #<TM
+    sta a:BBAD1
+    ldx #<HDMATAB
+    stx a:A1T1L
+    ldx #>HDMATAB
+    stx a:A1T1L+1
+    lda #WRAMBANK
+    sta a:A1B1
+    lda a:h_hdmaen
+    ora #$02                    ; channel 1
+    sta a:h_hdmaen
+    stz a:h_rastercount
     rts
 
 ;;  Emit one span of A scanlines holding the value in h_t0.  An HDMA line count
@@ -2424,82 +2485,45 @@ hal_wipewindow:
     sep #$30
     .a8
     .i8
+    ;  Record the band; the flush builds the table from it.  Nothing is
+    ;  programmed here on purpose.  This runs after ScreenWipeFrame_Prep, which
+    ;  does an OAM DMA and a palette draw -- and a palette draw is $2007 traffic,
+    ;  which is dear in this port -- so by now the raster is quite often past the
+    ;  end of vblank and into the picture.  Enabling HDMA there starts it
+    ;  mid-frame with a stale pointer, which paints scattered single scanlines,
+    ;  and rewriting the table there hands HDMA a table it is already reading.
+    ;
     ;  First lit line, in SNES picture lines.  tmp+4 is measured from before the
-    ;  picture starts, so the band sits WIPE_LEAD further down; a band that
-    ;  begins above the top of the picture simply starts at zero, and loses that
-    ;  much of its height.
+    ;  picture starts, so the band sits WIPE_LEAD further down; a band beginning
+    ;  above the top of the picture starts at zero and loses that much height.
     lda a:NES_tmp+5             ; height
-    sta a:h_t5
+    sta a:h_wipebot
     lda a:NES_tmp+4
     sec
     sbc #WIPE_LEAD
     bcs @haveTop
-      ;  begins above the picture: clip the overhang off the top of the band
       eor #$FF
-      inc a                     ; how far above -- the borrow made this negative
-      sta a:h_t4
-      lda a:h_t5
+      inc a                     ; how far above the picture it began
+      sta a:h_wipetop
+      lda a:h_wipebot
       sec
-      sbc a:h_t4
+      sbc a:h_wipetop
       bcs :+
         lda #0                  ; entirely above the picture: nothing lit
-:     sta a:h_t5
+:     sta a:h_wipebot
       lda #0
 @haveTop:
-    sta a:h_t4                  ; first lit line
+    sta a:h_wipetop
     clc
-    adc a:h_t5
+    adc a:h_wipebot
     bcs @full                   ; past 255: lit all the way down
     cmp #224
     bcc :+
 @full:
       lda #224
-:   sta a:h_t5                  ; first dark line below the band
-
-    ;  Three spans: dark above, lit through the band, dark below.
-    ldy #0
-    lda #$10                    ; TM: sprites only -- the background is off
-    sta a:h_t0
-    lda a:h_t4
-    beq :+
-      jsr emit_span
-:   lda #$11                    ; TM: background and sprites
-    sta a:h_t0
-    lda a:h_t5
-    sec
-    sbc a:h_t4
-    beq :+
-      jsr emit_span
-:   lda #$10
-    sta a:h_t0
-    lda #224
-    sec
-    sbc a:h_t5
-    beq :+
-      jsr emit_span
-:   lda #$00
-    sta a:HDMATAB,y             ; a zero line count ends the table
-
-    lda #$10                    ; what stands above the first span
-    sta a:TM
-    sta a:h_tmframestart
-    lda #$00
-    sta a:DMAP1                 ; write one byte to one register
-    lda #<TM
-    sta a:BBAD1
-    ldx #<HDMATAB
-    stx a:A1T1L
-    ldx #>HDMATAB
-    stx a:A1T1L+1
-    lda #WRAMBANK
-    sta a:A1B1
-    ;  Enable it now rather than leaving it to the next flush: this runs inside
-    ;  vblank, after the flush has already committed HDMAEN for the coming
-    ;  frame, and HDMA is armed at the top of the frame that follows.
-    lda a:h_hdmaen
-    ora #$02
-    sta a:h_hdmaen
-    sta a:HDMAEN
+:   sta a:h_wipebot             ; first dark line below the band
+    lda #1
+    sta a:h_wipeon
     ply
     plx
     pla

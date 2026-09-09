@@ -352,6 +352,9 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_wipetop       = HAL_VARS+$63  ; first lit line of the transition band...
+h_wipebot       = HAL_VARS+$64  ; ...and the first dark line below it
+h_wipeon        = HAL_VARS+$65  ; nonzero while a transition wipe is running
 h_hdmaen        = HAL_VARS+$62  ; which HDMA channels this frame wants.  Two
                                 ; separate flushes drive HDMA -- flush_raster on
                                 ; TM, flush_ntsplit on BG1HOFS -- and each used
