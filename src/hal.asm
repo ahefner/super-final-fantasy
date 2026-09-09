@@ -1052,7 +1052,6 @@ hal_r4015:
 
 hal_swapprg:
     sta a:h_curbank
-    asl a                       ; chunks are two banks apart; see CHUNK0
     clc
     adc #CHUNK0
     sta a:h_t0

@@ -34,7 +34,7 @@ hal_stub:
     .byte $31                   ; $FFD5 HiROM, FastROM
     .byte $02                   ; $FFD6 ROM + RAM + battery
     .byte $0B                   ; $FFD7 2048 KB
-    .byte $04                   ; $FFD8 16 KB of SRAM
+    .byte $03                   ; $FFD8 8 KB of SRAM
     .byte $01                   ; $FFD9 NTSC / North America
     .byte $33                   ; $FFDA developer: extended header present
     .byte $00                   ; $FFDB version

@@ -23,22 +23,14 @@
 ; --- Bank numbers -------------------------------------------------------
 HALBANK         = $C0           ; HAL code lives here (long-addressed)
 HALFAR          = HALBANK * $10000
-TRACEFAR        = $A06000       ; 8KB of SRAM the game can never see: bank $A0
-                                ; is even, so $6000-$7FFF there is the page the
-                                ; odd game banks do not reach.  It must be an
-                                ; even bank in $A0-$BF: banks $C0-$FF map ROM
-                                ; across the whole 64KB and decode no SRAM at
-                                ; all, so $C06000 silently wrote to ROM.
-CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+2N
-                                ;
-                                ; Chunks sit TWO banks apart, all on odd banks.
-                                ; With 16KB of SRAM a HiROM cart pages it by the
-                                ; low bank bit: even banks see the first 8KB,
-                                ; odd banks the second.  Keeping every chunk odd
-                                ; means the game always sees one consistent 8KB
-                                ; for its PRG-RAM and save, whichever bank is
-                                ; swapped in, and leaves the even-bank page free
-                                ; for the HAL to use -- see TRACEFAR.
+TRACEFAR        = $A06000       ; NO LONGER A PRIVATE PAGE.  With 8KB of SRAM
+                                ; every bank aliases the same 8KB, so this is
+                                ; the game's own PRG-RAM and writing here
+                                ; corrupts it.  The SCROLLSTAT trace that used
+                                ; this is therefore unusable; instrument the
+                                ; emulator instead, which is what actually found
+                                ; the last two bugs.
+CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+N
                                 ;
                                 ; $A1 rather than $81 on purpose.  A HiROM cart
                                 ; is only guaranteed to decode its SRAM at
