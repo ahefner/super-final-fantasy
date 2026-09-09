@@ -93,6 +93,30 @@ def main():
     rom[cs+0], rom[cs+1] = comp & 0xFF, comp >> 8
     rom[cs+2], rom[cs+3] = total & 0xFF, total >> 8
 
+    # Check the pair before writing it out.
+    #
+    # A Super Everdrive V2 decides HiROM vs LoROM partly on whether the
+    # complement and the checksum add up to $FFFF, and it weights that far more
+    # heavily than the published heuristics do.  Tested directly: an image whose
+    # checksum value is simply wrong, but whose pair is well formed, is detected
+    # as HiROM and runs; the same image with a malformed pair is detected as
+    # LoROM and black screens.  Four bytes, one variable.  The cart never says a
+    # word about a checksum either way, so a mistake here is invisible until the
+    # console shows nothing.
+    #
+    # The pair is correct by construction above, so this only catches a future
+    # change to that arithmetic -- which is exactly the mistake that would cost
+    # another blind hardware round to find.
+    check = (rom[cs+0] | (rom[cs+1] << 8)) + (rom[cs+2] | (rom[cs+3] << 8))
+    if check != 0xFFFF:
+        sys.exit("header checksum pair is malformed (sums to $%04X, want $FFFF); "
+                 "a cart would read this as LoROM and refuse to boot" % check)
+    verify = bytearray(rom)
+    for i in range(4):
+        verify[cs + i] = 0
+    if (sum(verify) + 0x01FE) & 0xFFFF != (rom[cs+2] | (rom[cs+3] << 8)):
+        sys.exit("header checksum does not match the image")
+
     dst = os.path.join(ROOT, "FinalFantasy.sfc")
     open(dst, "wb").write(rom)
     print("%s: %d KB used of %d KB, checksum $%04X"
