@@ -66,6 +66,23 @@ def main():
 
     used = (1 + len(ORDER)) * BANK
 
+    # Poison the LoROM header position.
+    #
+    # A flash cart or emulator decides HiROM vs LoROM by scoring the bytes at
+    # both candidate header offsets, $FFC0 and $7FC0.  Ours is a HiROM image, so
+    # $7FB0-$7FFF is simply unused -- bank $C0's low half, which nothing in the
+    # port ever addresses.  Left as the zero fill, though, it collects points it
+    # has no business collecting: a zero map-mode byte reads as "even, therefore
+    # LoROM" (+3), and a zero at $7FD0 has a low nibble under 4 (+2).
+    #
+    # Writing two bytes takes both away.  Under the snes9x scoring that most of
+    # these detectors descend from, that widens HiROM's margin from 10 to 15.
+    # It is not a diagnosis -- the header fields that actually select the mapper
+    # are identical to those of builds that boot, and this margin was already
+    # decisive -- but the bytes are free and a wider margin can only help.
+    rom[0x7FD5] = 0x31              # odd map mode: not the LoROM shape
+    rom[0x7FD0] = 0x0F              # low nibble >= 4
+
     # SNES checksum: zero the two fields, total the image, then add the $1FE
     # the complement and the checksum themselves will contribute.
     cs = 0xFFDC
