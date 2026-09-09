@@ -24,6 +24,10 @@ SHOTS = os.environ.get("SHOTDIR", "/tmp")
 ARES = os.environ.get("ARES_BIN",
     "/Applications/ares.app/Contents/MacOS/ares")
 
+#  Which image to run.  Defaults to the current build; set ROM to point an
+#  experiment at a specific one without disturbing it.
+ROM = os.environ.get("ROM", os.path.join(ROOT, "FinalFantasy.sfc"))
+
 #  Buttons, as mapped in ares on this machine, given as raw macOS virtual key
 #  codes.  Everything goes through CGEvent below rather than AppleScript: System
 #  Events' "key down" only accepts a character or a key constant, so
@@ -131,7 +135,7 @@ def main():
     time.sleep(1)
     subprocess.Popen([ARES,
                       "--system", "Super Famicom", "--no-file-prompt",
-                      os.path.join(ROOT, "FinalFantasy.sfc")]
+                      ROM]
                      + (["--save-state", os.environ["STATE"]]
                         if os.environ.get("STATE") else []),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

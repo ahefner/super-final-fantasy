@@ -2568,6 +2568,7 @@ hal_reset:
     sta a:MDMAEN                ; twice over, for both 64K halves
 
     jsr clear_vram
+    jsr clear_cgram
     jsr init_ppu
     jsr init_halvars
 
@@ -2602,6 +2603,29 @@ clear_vram:
     lda #.loword(zerobyte)
     sta a:A1T0L
     lda #0
+    sta a:DAS0L
+    LEAVE16
+    lda #$01
+    sta a:MDMAEN
+    rts
+
+;  CGRAM powers up arbitrary on real hardware, and the port only ever writes
+;  four entries of each sixteen-colour palette -- an NES tile is two bits deep,
+;  so colours 4..15 are never referenced and never written.  "Never referenced"
+;  is not a reason to leave them holding random colours, and it costs one DMA
+;  to make the whole of CGRAM defined before anything looks at it.
+clear_cgram:
+    stz a:CGADD
+    lda #$08                    ; fixed source, one destination register
+    sta a:DMAP0
+    lda #$22                    ; $2122, the CGRAM data port
+    sta a:BBAD0
+    lda #HALBANK
+    sta a:A1B0
+    ENTER16
+    lda #.loword(zerobyte)
+    sta a:A1T0L
+    lda #512                    ; 256 entries, two bytes each
     sta a:DAS0L
     LEAVE16
     lda #$01
@@ -2676,6 +2700,25 @@ init_halvars:
 :   lda #$FF
     sta a:NTCOLLO,x
     stz a:NTCOLHI,x
+    inx
+    cpx #32
+    bcc :-
+
+    ;  No palette entry has reached CGRAM yet, and the comparison in flush_pal
+    ;  has to be told so.  Both NESPAL and NESPALPREV live in WRAM, which reset
+    ;  zeroes, so left alone they start out *equal* -- and flush_pal reads that
+    ;  as "unchanged, nothing to send".  The first flush then sent nothing at
+    ;  all, and an entry the game writes as colour $00 was never sent even
+    ;  after that, because it always compared equal to the zero it started as.
+    ;  CGRAM kept its power-on contents for those entries: zeroes under an
+    ;  emulator, which reads as black and hides the bug, but arbitrary colours
+    ;  on a real console.
+    ;
+    ;  $FF is not a colour the NES can hold -- its palette is six bits -- so
+    ;  seeding with it makes the first write of any entry differ, zero included.
+    ldx #0
+:   lda #$FF
+    sta f:NESPALPREV,x
     inx
     cpx #32
     bcc :-
