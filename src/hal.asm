@@ -693,10 +693,23 @@ nt_attr:
     sep #$20
     .a8
     lda a:h_t5
+    ;  One NES attribute byte covers a 4x4 block of tiles, so a single write
+    ;  smears across sixteen tilemap words -- four columns wide.  Marking all
+    ;  of them dirty makes a step's attribute update widen the span to four
+    ;  columns, and column_flush then runs four times: twelve transfers and 47
+    ;  scanlines against a vblank of about 37.  Only the newly revealed column
+    ;  actually changes palette; the other three already hold this value.
+    cmp a:NTSHADOW,x
+    beq @same
     sta a:NTSHADOW,x
     rep #$20
     .a16
     jsr mark_dirty
+    bra @advance
+@same:
+    rep #$20
+    .a16
+@advance:
     lda a:h_t0
     inc a
     sta a:h_t0
