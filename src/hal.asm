@@ -527,9 +527,11 @@ nt_write:
     tax
     sep #$20
     .a8
-    lda a:h_data
-    cmp f:NESNT,x               ; is this byte already the one it was built from?
+    lda f:NESNT,x               ; the byte the shadow was built from
+    sta a:h_t3                  ;   -- nt_attr wants to know which bits changed
+    cmp a:h_data                ; is the new byte already that one?
     beq @unchanged
+    lda a:h_data
     sta f:NESNT,x               ; keep the raw bytes for readback and attributes
     rep #$20
     .a16
@@ -642,6 +644,9 @@ nt_attr:
     asl a
     asl a
     sta a:h_pal+3
+    lda a:h_data                ; which palette bits differ from what was here
+    eor a:h_t3
+    sta a:h_t3
     rep #$20
     .a16
     lda a:h_t2                  ; top-left tile of the 4x4 block
@@ -693,7 +698,9 @@ nt_attr:
 @rowloop:
     lda a:h_row
     cmp #30                     ; the last attribute row covers only two rows,
-    bcs @done                   ;   and the row only grows, so that is the end
+    bcc :+                      ;   and the row only grows, so that is the end
+    jmp @done                   ; (the loop body is past a branch's reach)
+:
     ;  Rows 0 and 1 of the block take palettes 0 and 1, rows 2 and 3 take 2 and
     ;  3.  The pair is fixed for the whole row, so choose it once here rather
     ;  than rebuilding a quadrant index per cell.
@@ -706,7 +713,31 @@ nt_attr:
     sta a:h_t5+0                ; palette for the row's left-hand two cells
     lda a:h_pal+1,x
     sta a:h_t5+1                ;   ...and for its right-hand two
-    rep #$20
+    ;  ...and which of the row's two quadrants actually changed.  A quadrant
+    ;  whose two palette bits match the byte that was here before already has
+    ;  its four cells right -- the same argument that lets nt_write skip an
+    ;  unchanged byte outright, applied a quarter of a byte at a time.  A step
+    ;  reveals one tile column, which lies in one of the two quadrant columns,
+    ;  so half the block is typically untouched.
+    lda a:h_t3                  ; old XOR new
+    cpx #$0000
+    beq :+
+      lsr a
+      lsr a
+      lsr a
+      lsr a                     ; rows 2 and 3 are described by the high nibble
+:   sta a:h_t8+1
+    and #$03
+    sta a:h_t8+0                ; did the left-hand quadrant change?
+    lda a:h_t8+1
+    and #$0C
+    sta a:h_t8+1                ;   ...and the right-hand one?
+    ora a:h_t8+0
+    bne :+
+      rep #$20
+      .a16
+      jmp @nextrow              ; neither: past a branch's reach
+:   rep #$20
     .a16
     lda a:h_t6
     sta a:h_t0                  ; h_t0 = running cell offset
@@ -715,9 +746,15 @@ nt_attr:
     lda a:h_t7
     lsr a                       ; dx >> 1 selects the left or right palette
     tax
-    ldy a:h_t0
     sep #$20
     .a8
+    lda a:h_t8,x                ; did this cell's quadrant change at all?
+    bne @docell
+      rep #$20
+      .a16
+      bra @advance
+@docell:
+    ldy a:h_t0
     lda a:h_t5,x
     ;  Only the newly revealed column actually changes palette; the other three
     ;  already hold this value.  Marking them dirty anyway would widen a step's
@@ -747,6 +784,7 @@ nt_attr:
     sta a:h_t7
     cmp #4
     bcc @colloop
+@nextrow:
     lda a:h_t6
     clc
     adc #128                    ; next row of the tilemap
