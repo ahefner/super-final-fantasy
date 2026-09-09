@@ -528,14 +528,36 @@ nt_write:
     sep #$20
     .a8
     lda a:h_data
+    cmp f:NESNT,x               ; is this byte already the one it was built from?
+    beq @unchanged
     sta f:NESNT,x               ; keep the raw bytes for readback and attributes
     rep #$20
     .a16
     lda a:h_t1
     and #$03FF
     cmp #$03C0
-    bcs nt_attr
+    bcc @tile
+    jmp nt_attr
 
+@unchanged:
+    ;  Everything the shadow holds for this address was derived from the byte
+    ;  already sitting here: the tilemap's tile number for a name byte, and the
+    ;  sixteen palette high bytes for an attribute byte.  Writing the same value
+    ;  again cannot change any of them, so the whole conversion is skipped.
+    ;
+    ;  This is sound only because those shadow bytes have exactly one author
+    ;  each -- nt_write for the low byte of a tilemap word, nt_attr for the high
+    ;  byte -- and because reset zeroes all of WRAM in one DMA, so NESNT and
+    ;  NTSHADOW start out agreeing.  Nothing else ever writes either.
+    ;
+    ;  It matters because the game redraws a whole column as the map scrolls,
+    ;  and over the overworld's large uniform stretches most of that column is
+    ;  the same data that was already there.
+    rep #$20
+    .a16
+    jmp bump_addr
+
+@tile:
     ; a tile: work out its row and column on the 64-wide SNES tilemap
     sta a:h_t2
     and #$001F
