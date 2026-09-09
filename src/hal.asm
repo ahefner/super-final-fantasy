@@ -1341,8 +1341,11 @@ hal_flush:
     STAGE 3
     jsr flush_oam
     STAGE 4
+    stz a:h_hdmaen              ; each of the two below asks for its own channel
     jsr flush_raster
     jsr flush_ntsplit
+    lda a:h_hdmaen              ; ...and only now does the register hear about it
+    sta a:HDMAEN
   .ifdef SCROLLSTAT
     ;  Write the trace straight into SRAM, on the page the game cannot reach
     ;  (see TRACEFAR).  No ring in WRAM, no periodic copy, no trigger, and
@@ -2237,7 +2240,8 @@ flush_oam:
 flush_raster:
     lda a:h_rastercount
     bne @build
-    stz a:HDMAEN                ; no splits: one setting for the whole frame
+                                ; no splits: one setting for the whole frame,
+                                ; and this frame wants no channel of its own
     lda a:h_tmcur
     sta a:TM
     sta a:h_tmframestart
@@ -2286,8 +2290,9 @@ flush_raster:
     stx a:A1T1L+1
     lda #WRAMBANK
     sta a:A1B1
-    lda #$02
-    sta a:HDMAEN                ; channel 1
+    lda a:h_hdmaen
+    ora #$02                    ; channel 1 -- see h_hdmaen
+    sta a:h_hdmaen
     lda a:h_tmcur               ; next frame opens on this frame's last value
     sta a:h_tmframestart
     stz a:h_rastercount
@@ -2331,8 +2336,7 @@ flush_ntsplit:
   .ifdef SCROLLSTAT
     stz a:h_hdmaon              ; no table: flush_scroll's value stands
   .endif
-    stz a:HDMAEN                ; nothing to split: one scroll for the frame
-    rts
+    rts                         ; nothing to split: no channel of its own
 @build:
   .ifdef SCROLLSTAT
     lda #1                      ; an HDMA table is about to drive BG1HOFS,
@@ -2385,8 +2389,9 @@ flush_ntsplit:
     stx a:A1T2L+1
     lda #WRAMBANK
     sta a:A1B2
-    lda #$04
-    sta a:HDMAEN                ; channel 2
+    lda a:h_hdmaen
+    ora #$04                    ; channel 2 -- see h_hdmaen
+    sta a:h_hdmaen
     stz a:h_ntsplits
     rts
 

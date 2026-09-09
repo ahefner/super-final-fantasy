@@ -324,5 +324,10 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_hdmaen        = HAL_VARS+$62  ; which HDMA channels this frame wants.  Two
+                                ; separate flushes drive HDMA -- flush_raster on
+                                ; TM, flush_ntsplit on BG1HOFS -- and each used
+                                ; to store HDMAEN outright, so whichever ran last
+                                ; switched the other one off.
 h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
                                 ; flags, one byte each, indexed left/right
