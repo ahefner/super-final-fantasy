@@ -34,6 +34,7 @@
 .export hal_reset
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
+.export hal_wipewindow
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -2394,6 +2395,116 @@ flush_ntsplit:
     sta a:h_hdmaen
     stz a:h_ntsplits
     rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The map transition wipe
+;;
+;;  The game opens and shuts a horizontal band across the screen, a little more
+;;  of it each frame.  On the NES it drew that band by hand: background off,
+;;  on again tmp+4 scanlines later, off again after tmp+5 more, with each switch
+;;  timed by burning exactly one scanline per call to WaitScanline.
+;;
+;;  None of that timing survives here -- see the note beside ENABLE_RASTER_SPLITS
+;;  for why the writes cannot be caught where the game means them -- so
+;;  ScreenWipeFrame is patched to call this instead.  Nothing has to be inferred:
+;;  tmp+4 and tmp+5 describe the band exactly, and three spans of an HDMA table
+;;  over TM draw it in hardware, for nothing, every scanline of the frame.
+;;
+;;  Sprites stay on throughout, as the NES left them.  The game hides them for
+;;  the duration by parking OAM off-screen before the wipe starts, so "background
+;;  off" really does mean a black band.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.a8
+.i8
+hal_wipewindow:
+    php
+    pha
+    phx
+    phy
+    sep #$30
+    .a8
+    .i8
+    ;  First lit line, in SNES picture lines.  tmp+4 is measured from before the
+    ;  picture starts, so the band sits WIPE_LEAD further down; a band that
+    ;  begins above the top of the picture simply starts at zero, and loses that
+    ;  much of its height.
+    lda a:NES_tmp+5             ; height
+    sta a:h_t5
+    lda a:NES_tmp+4
+    sec
+    sbc #WIPE_LEAD
+    bcs @haveTop
+      ;  begins above the picture: clip the overhang off the top of the band
+      eor #$FF
+      inc a                     ; how far above -- the borrow made this negative
+      sta a:h_t4
+      lda a:h_t5
+      sec
+      sbc a:h_t4
+      bcs :+
+        lda #0                  ; entirely above the picture: nothing lit
+:     sta a:h_t5
+      lda #0
+@haveTop:
+    sta a:h_t4                  ; first lit line
+    clc
+    adc a:h_t5
+    bcs @full                   ; past 255: lit all the way down
+    cmp #224
+    bcc :+
+@full:
+      lda #224
+:   sta a:h_t5                  ; first dark line below the band
+
+    ;  Three spans: dark above, lit through the band, dark below.
+    ldy #0
+    lda #$10                    ; TM: sprites only -- the background is off
+    sta a:h_t0
+    lda a:h_t4
+    beq :+
+      jsr emit_span
+:   lda #$11                    ; TM: background and sprites
+    sta a:h_t0
+    lda a:h_t5
+    sec
+    sbc a:h_t4
+    beq :+
+      jsr emit_span
+:   lda #$10
+    sta a:h_t0
+    lda #224
+    sec
+    sbc a:h_t5
+    beq :+
+      jsr emit_span
+:   lda #$00
+    sta a:HDMATAB,y             ; a zero line count ends the table
+
+    lda #$10                    ; what stands above the first span
+    sta a:TM
+    sta a:h_tmframestart
+    lda #$00
+    sta a:DMAP1                 ; write one byte to one register
+    lda #<TM
+    sta a:BBAD1
+    ldx #<HDMATAB
+    stx a:A1T1L
+    ldx #>HDMATAB
+    stx a:A1T1L+1
+    lda #WRAMBANK
+    sta a:A1B1
+    ;  Enable it now rather than leaving it to the next flush: this runs inside
+    ;  vblank, after the flush has already committed HDMAEN for the coming
+    ;  frame, and HDMA is armed at the top of the frame that follows.
+    lda a:h_hdmaen
+    ora #$02
+    sta a:h_hdmaen
+    sta a:HDMAEN
+    ply
+    plx
+    pla
+    plp
+    rtl
 
 ;;  One span of A scanlines holding the 16-bit scroll in h_t0/h_t1.  An HDMA
 ;;  line count is seven bits, so a long span becomes several entries.

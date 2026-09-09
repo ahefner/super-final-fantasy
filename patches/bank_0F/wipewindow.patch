@@ -1,0 +1,56 @@
+--- OLD
+    LDX #10                  ; This loop "fine-tunes" the wait.  It works out to 1+5*X cycles
+    @InitialWait:            ;  so you can change the value X loads here to increase/decrease
+      DEX                    ;  the wait.
+      BNE @InitialWait       ; Ultimately, at the end of this loop, you should be about ~1156 cycles
+    PAGECHECK @InitialWait   ;  into VBlank (a little under 11 scanlines until onscreen rendering starts)
+                             ; If you edit routines SetOWScroll, SetSMScroll, or DrawMapPalette and
+                             ;  it messes with the screen wipe effect, you can modify this loop
+                             ;  to attempt to realign the timing.
+
+    LDA #$10                 ; turn BG rendering off
+    STA $2001
+    LDX tmp+4                ; wait for tmp+4 scanlines
+    @WaitLines_Off:
+      JSR WaitScanline
+      DEX
+      BNE @WaitLines_Off
+    PAGECHECK @WaitLines_Off
+
+    LDA #$1E                 ; turn BG rendering on
+    STA $2001
+    LDX tmp+5                ; wait for tmp+5 scanlines
+    @WaitLines_On:
+      JSR WaitScanline
+      DEX
+      BNE @WaitLines_On
+    PAGECHECK @WaitLines_On
+
+    LDA #$10                 ; then turn BG rendering back off.  Leave it off for the rest of the frame
+    STA $2001
+
+
+--- NEW
+    ;  The original bracketed its visible window with three $2001 writes a
+    ;  frame -- background off, on at scanline tmp+4, off again tmp+5 lines
+    ;  later -- and timed them by burning exactly one NES scanline per call to
+    ;  WaitScanline.
+    ;
+    ;  None of that arithmetic survives the port.  The counts are measured from
+    ;  where the NES's WaitForVBlank returned, on a 240-line picture, after a
+    ;  prep step calibrated to about eleven scanlines; here the wait returns at
+    ;  a different raster position, the flush has already eaten a variable slice
+    ;  of vblank, and the picture is cropped to 224 lines.  Replayed as written,
+    ;  only one of the three writes lands during active display at all -- the
+    ;  other two fall in vblank -- so the background never switches off and the
+    ;  screen simply stays lit.  That is why recording the writes and rebuilding
+    ;  them as an HDMA table was never able to reproduce this effect.
+    ;
+    ;  The window does not have to be inferred from the writes, though: tmp+4
+    ;  and tmp+5 describe it exactly, and the SNES can hold the whole thing in
+    ;  one HDMA table over TM.  So hand those two straight to the HAL and let
+    ;  hardware draw the bands.  It also removes some 230 scanlines of busy
+    ;  waiting a frame, which is what stretched the wipe to half again its
+    ;  proper length.
+    JSL hal_wipewindow + HALFAR
+

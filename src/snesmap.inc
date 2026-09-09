@@ -276,14 +276,42 @@ HDMATAB         = $09A0         ; the HDMA table we build from them
 h_prevmask      = HAL_VARS+$3F  ; $2001 as it was before the current write
 h_tmframestart  = HAL_VARS+$40  ; TM in force at the top of the frame
 
+; The game's zero-page scratch (variables.inc calls it tmp, 16 bytes).  The
+; screen-wipe band is described by tmp+4 and tmp+5, which hal_wipewindow reads.
+NES_tmp         = $0010
+
+; How far below tmp+4 the wipe band's first visible line sits.  The game counts
+; tmp+4 from roughly eleven scanlines before its picture begins -- that is what
+; the "122+11" in ScreenWipe_Open is for -- and this port crops the NES's top
+; eight lines, so the band starts WIPE_LEAD lines further down in SNES terms.
+WIPE_LEAD       = 11 + NES_TOP_CROP
+
 ; The game's own soft copy of $2000, at zero page $FF (variables.inc calls it
 ; soft2000).  The NES build's NMI handler pushed this to the PPU every frame.
 NES_soft2000    = $00FF
 
-; Raster splits: recording mid-frame $2001 writes and replaying them as an HDMA
-; table reproduces the map-transition wipe, but it introduces visible glitches
-; elsewhere that are more distracting than the missing effect.  Off until the
-; game is properly playable; the machinery stays in place for when it is.
+; Raster splits: record mid-frame $2001 writes, replay them as an HDMA table.
+;
+; This does NOT reproduce the map-transition wipe, whatever an earlier version of
+; this comment claimed.  It never did: when it was last on, the effect was
+; flickery and opened from the wrong place on the screen, and measurement since
+; says why.  The game brackets its visible window with three $2001 writes a
+; frame -- off, on, off -- and only one of them lands during active display, at
+; scanline 7, reading "background on".  The other two fall in vblank and are
+; skipped, correctly.  A table built from that can never turn the background off,
+; so the screen stays lit; and the one split it does catch is nowhere near where
+; the game means it to be.
+;
+; The cause is geometry, not a coding slip.  The game counts its waits from where
+; its own WaitForVBlank returned, on a 240-line picture, after a prep step
+; calibrated to about eleven scanlines -- which is what the "122+11" in
+; ScreenWipe_Open is for.  Here the wait returns at a different raster position,
+; the flush has eaten a variable slice of vblank first, and the picture is
+; cropped to 224 lines.  The counts cannot land where the game intends.
+;
+; So the split positions are not recoverable from the game's cycle-counted waits,
+; and this switch cannot be made to work by fixing it.  The wipe needs the window
+; computed from the two variables the game already keeps.  Left off.
 ENABLE_RASTER_SPLITS = 0
 
 ; DMA channel 2, used for the dialogue box's nametable split
