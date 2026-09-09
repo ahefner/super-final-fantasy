@@ -268,7 +268,27 @@ hal_w2001:
     ;  any code that reconfigures $2001 mid-frame -- which is exactly what
     ;  battle set-up does when it turns the sprites back on after the fade-in,
     ;  so the party and the menu cursor never reappeared.
-:   stz a:h_wipeon              ; the game is driving rendering again
+:   lda a:h_wipeon              ; the game is driving rendering again
+    beq @notwipe
+    stz a:h_wipeon
+    ;  A wipe has just ended, and this is the last chance to leave the screen in
+    ;  a sane state for a while.  The map load that follows a close runs for the
+    ;  better part of a second without ever reaching WaitForVBlank -- measured,
+    ;  46 frames with the game's own frame counter frozen on 45 of them -- so no
+    ;  flush will come round to act on the write being made here.  INIDISP, TM
+    ;  and HDMAEN would all keep whatever the wipe's last frame left them
+    ;  holding, which means its final band, a few rows of map, sitting on screen
+    ;  for the whole load instead of the black the game asked for.
+    lda a:h_hdmaen              ; the wipe's channel goes now, not at the flush
+    and #$FD
+    sta a:h_hdmaen
+    sta a:HDMAEN
+    lda a:h_ppumask
+    and #$18                    ; is the game asking for any rendering at all?
+    bne @notwipe
+    lda #$80
+    sta a:INIDISP               ; no: blank it here and now
+@notwipe:
     lda a:h_ppumask
     jsr tm_from_mask
     sta a:h_tmcur
