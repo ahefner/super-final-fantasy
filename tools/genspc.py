@@ -106,8 +106,16 @@ def program():
     a.mov_a_dp(0xF4); a.mov_dp_a(LAST)
     # S-DSP global set-up
     a.dsp(0x6C, 0x20)         # FLG: reset off, mute off, echo writes disabled
-    a.dsp(0x0C, 0x7F)         # MVOL_L
-    a.dsp(0x1C, 0x7F)         # MVOL_R
+    #  Main volume, backed off from full scale.  The pulses are unipolar (see
+    #  square()), so each one contributes a DC offset that rises and falls with
+    #  its envelope, and those offsets all push the same way instead of
+    #  cancelling as a bipolar wave's would.  That costs headroom the AC signal
+    #  used to have: at full MVOL the mix peaked at 32511 against a 32767
+    #  ceiling.  Backing MVOL off scales every voice together, so the balance
+    #  that was settled on is untouched.  (The DC itself is not audible -- the
+    #  console AC-couples its output, as does anything it is plugged into.)
+    a.dsp(0x0C, 0x68)         # MVOL_L
+    a.dsp(0x1C, 0x68)         # MVOL_R
     a.dsp(0x2C, 0x00)         # EVOL_L
     a.dsp(0x3C, 0x00)         # EVOL_R
     a.dsp(0x5C, 0xFF)         # KOFF everything
@@ -152,17 +160,16 @@ def program():
     a.jmp("ack")
     a.label("sounding")
     a.mov_a_dp(CMD)
-    a.and_a_imm(0x0F)         # NES 4-bit volume -> x2.
-    a.asl_a()                 # Halved from x4.  Four voices at full were
-                              # reaching 270 of the DSP's sum, which clips.
-                              # The triangle keeps its 1.5 against the pulses,
-                              # but that ratio is now made by pulling the
-                              # pulses down rather than pushing the triangle
-                              # up, which is what caused the clipping.
+    a.and_a_imm(0x0F)         # NES 4-bit volume.
+    a.asl_a()                 # x2 for everything...
     a.mov_dp_a(VOL)
-    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("volset")
-    a.mov_a_dp(VOL); a.lsr_a(); a.mov_dp_a(PHI)      # the triangle sits forward
-    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI); a.mov_dp_a(VOL)   # x3: still 1.5x
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("trivol")
+    a.mov_a_dp(VOL); a.asl_a(); a.mov_dp_a(VOL)   # ...x4 for the pulses and
+    a.bra("volset")                               # noise: a unipolar wave
+    a.label("trivol")                             # swings half as far for the
+    a.mov_a_dp(VOL); a.lsr_a(); a.mov_dp_a(PHI)   # same peak, so this restores
+    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)     # the level that was right
+    a.mov_dp_a(VOL)                               # x3 for the bipolar triangle
     a.label("volset")
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
@@ -208,8 +215,22 @@ def brr_block(nibbles, shift, loop, end):
     return bytes(out)
 
 def square(duty_high):
-    """One 32-sample cycle, duty_high samples at +7 then the rest at -7."""
-    s = [7] * duty_high + [-7] * (32 - duty_high)
+    """One 32-sample cycle: the silent phase, then duty_high samples of tone.
+
+    Unipolar, 0 to +7, the way the NES's own pulse output works -- not a
+    bipolar square swinging either side of zero.  The reason is the driver's
+    volume writes.  It rewrites volume every frame to shape its own envelopes,
+    and the DSP applies volume as a plain multiplier, so with a bipolar wave --
+    at full amplitude the whole cycle -- every one of those writes steps the
+    output wherever it happens to land, and that step is the click.  With the
+    low phase at zero, a volume change during it multiplies zero and cannot be
+    heard.  For the duties this game uses, 12.5% and 25%, that is seven eighths
+    and three quarters of the cycle.  A change during the high phase still
+    steps, but so does it on a NES, so that much is faithful rather than wrong.
+
+    The silent phase leads, so a key-on also starts from zero.
+    """
+    s = [0] * (32 - duty_high) + [7] * duty_high
     return brr_block(s[:16], 12, False, False) + brr_block(s[16:], 12, True, True)
 
 def triangle():
