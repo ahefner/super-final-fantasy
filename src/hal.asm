@@ -3130,14 +3130,41 @@ hal_apu_frame:
     pha
     lda a:h_apuon
     and a:h_apumask
-    bne @sounding               ; already sounding: pitch and volume only
-      pla
-      ora #$40                  ; silent last frame: key-on
-      pha
-      lda a:h_apuon
-      ora a:h_apumask
-      sta a:h_apuon
+    beq @keyon                  ; silent last frame
+    ;  Still sounding -- but did the volume rise?  The driver does amplitude in
+    ;  software and its envelope only climbs at a note start, so a rise is a
+    ;  note attack even though the voice never went quiet.  Measured, those
+    ;  attacks step the output four- and fivefold in a single sample, and on a
+    ;  smoothly interpolated waveform that step is the click; keying on puts the
+    ;  DSP's 2 ms ramp exactly where the jump is.  Restarting the waveform's
+    ;  phase costs nothing audible on a square.  The triangle is sent a fixed
+    ;  volume and so never takes this path, which is why it did not click.
+    lda a:h_apuvoice
+    bne @lastp2
+      lda a:h_apulast0
+      bra @cmplast
+@lastp2:
+    lda a:h_apulast1
+@cmplast:
+    cmp a:h_apuvol
+    bcs @sounding               ; unchanged or decaying: leave the phase alone
+@keyon:
+    pla
+    ora #$40
+    pha
+    lda a:h_apuon
+    ora a:h_apumask
+    sta a:h_apuon
 @sounding:
+    lda a:h_apuvoice            ; remember it for next frame's comparison
+    bne @stp2
+      lda a:h_apuvol
+      sta a:h_apulast0
+      bra @stdone
+@stp2:
+    lda a:h_apuvol
+    sta a:h_apulast1
+@stdone:
     pla
     sta a:APUIO1
     jsr apu_send
