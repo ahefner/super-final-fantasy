@@ -3158,13 +3158,69 @@ hal_apu_frame:
     jsr apu_send
 @next:
     lda a:h_apuvoice
-    bne @done                   ; pulse 2 done too
+    bne @tri                    ; pulse 2 done: on to the triangle
     lda #$10
     sta a:h_apuvoice            ; pulse 2 is voice 1
     lda #$02
     sta a:h_apumask
     ldy #4
     jmp @pulse                  ; the body is past a branch's reach
+
+    ;  The triangle.  With the control bit set -- which is all but eight of the
+    ;  writes ever seen -- the linear counter reloads every quarter-frame from
+    ;  the low seven bits of $4008, so the voice sounds exactly when that value
+    ;  is nonzero: $8F is on, $80 is off.  The rare control-clear write is a
+    ;  timed note, approximated here as "on while nonzero".  No volume on the
+    ;  NES, so a fixed one here, balanced against the pulses by ear later.
+@tri:
+    lda a:h_apuvoice
+    cmp #$20
+    beq @done                   ; already done
+    lda #$20
+    sta a:h_apuvoice            ; voice 2
+    lda #$04
+    sta a:h_apumask
+    lda a:APUSHADOW+$15
+    and #$04
+    beq @silent
+    lda a:APUSHADOW+8
+    and #$7F                    ; linear counter reload value
+    beq @silent
+    lda #15
+    sta a:h_apuvol
+    rep #$20
+    .a16
+    lda a:APUSHADOW+$A          ; timer
+    and #$07FF
+    cmp #2                      ; below this the NES triangle is not a tone
+    bcc @silent16
+    asl a
+    tax
+    lda f:apupitch_tri + HALFAR,x
+    sta a:h_apupitch
+    sep #$20
+    .a8
+    lda a:h_apupitch+1          ; no duty bits: voice 2's waveform is fixed
+    sta a:APUIO3
+    lda a:h_apupitch
+    sta a:APUIO2
+    lda a:h_apuvol
+    ora a:h_apuvoice
+    pha
+    lda a:h_apuon
+    and a:h_apumask
+    bne @trisounding
+      pla
+      ora #$40                  ; key-on
+      pha
+      lda a:h_apuon
+      ora a:h_apumask
+      sta a:h_apuon
+@trisounding:
+    pla
+    sta a:APUIO1
+    jsr apu_send
+    bra @done
 @done:
     sep #$30
     .i8
