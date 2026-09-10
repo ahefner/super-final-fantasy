@@ -1,0 +1,17 @@
+--- OLD
+    LDY #0           ; clear Y for upcoming CHR loading loop
+  @CHRLoop:
+      LDA (tmp), Y   ; load 256 bytes of CHR (16 tiles -- 1 row)
+      STA $2007
+      INY
+      BNE @CHRLoop
+
+--- NEW
+    ;  One row of CHR, the same shape as the loop in CHRLoad_Cont, so hand it
+    ;  to the HAL the same way rather than paying the per-write cost 256 times.
+    ;  hal_chrload advances tmp by the row it moved, which does not matter here:
+    ;  the top of @ObjLoop rebuilds the pointer for every object.
+    LDY #0
+    LDX #1
+    JSL hal_chrload + HALFAR
+
