@@ -278,6 +278,15 @@ h_tmframestart  = HAL_VARS+$40  ; TM in force at the top of the frame
 
 ; The game's zero-page scratch (variables.inc calls it tmp, 16 bytes).  The
 ; screen-wipe band is described by tmp+4 and tmp+5, which hal_wipewindow reads.
+NES_mapflags    = $002D         ; bit 1 set means a column is being drawn
+
+; The game's attribute draw buffers (variables.inc puts draw_buf at $0780).
+; DrawMapAttributes walks these, and hal_drawattr walks them in its place.
+DRAW_ATTR       = $07C0         ; the attribute bits wanted
+DRAW_AT_HI      = $07D0         ; destination address, high byte...
+DRAW_AT_LO      = $07E0         ; ...and low
+DRAW_AT_MSK     = $07F0         ; which bits of the byte to replace
+
 NES_tmp         = $0010
 
 ; How far below tmp+4 the wipe band's first visible line sits.  The game counts
@@ -352,6 +361,7 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...
 h_clrows        = HAL_VARS+$6A  ; ...and how far to advance the caller's pointer.

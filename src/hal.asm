@@ -34,7 +34,7 @@
 .export hal_reset
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
-.export hal_wipewindow, hal_chrload
+.export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -2476,6 +2476,79 @@ flush_ntsplit:
     sta a:h_hdmaen
     stz a:h_ntsplits
     rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The map's attribute update
+;;
+;;  DrawMapAttributes reads back each attribute byte, rewrites the bits it owns
+;;  and puts it back -- and on the NES that read-modify-write costs four writes
+;;  to $2006 and three accesses to $2007 for every byte.  Through the HAL that
+;;  is seven call chains apiece before any conversion happens, and measured
+;;  against the raster it was better than a third of what the map load spent.
+;;
+;;  None of the ceremony is needed here: the byte it wants to read back is
+;;  already in NESNT, so the whole row is done in one call, and the smear across
+;;  the sixteen tilemap cells goes through nt_attr exactly as a $2007 write
+;;  would have done.
+.a8
+.i8
+hal_drawattr:
+    php
+    clc
+    xce                         ; native mode for the whole run: the index into
+    rep #$10                    ;   NESNT needs sixteen bits, and dropping back
+    sep #$20                    ;   to emulation mode would truncate it to eight
+    .a8
+    .i16
+    lda a:NES_mapflags          ; a column is one byte shorter than a row
+    and #$02
+    beq :+
+      lda #$0F
+      bra :++
+:   lda #$10
+:   sta a:h_dacount
+    ldy #0
+@loop:
+    cpy a:h_dacount
+    bcc :+
+    jmp @done
+:   lda a:DRAW_AT_HI,y          ; the address the game would have set
+    sta a:h_addr+1
+    lda a:DRAW_AT_LO,y
+    sta a:h_addr
+    rep #$20
+    .a16
+    lda a:h_addr
+    and #$07FF                  ; the two nametables sit side by side
+    sta a:h_t1
+    tax
+    sep #$20
+    .a8
+    lda f:NESNT,x               ; what the game would have read back
+    sta a:h_t3                  ; nt_attr wants the old byte, to see what moved
+    eor a:DRAW_ATTR,y           ; invert the bits being replaced...
+    and a:DRAW_AT_MSK,y         ;   ...keep only those...
+    eor a:h_t3                  ;   ...and put the rest back as it was
+    sta f:NESNT,x
+    sta a:h_data
+    phy                         ; nt_attr uses both index registers
+    rep #$20
+    .a16
+    lda a:h_t1
+    and #$03FF
+    jsr nt_attr                 ; the same smear a $2007 write would have done
+    sep #$20
+    .a8
+    ply
+    iny
+    jmp @loop
+@done:
+    sep #$30
+    .i8
+    sec
+    xce                         ; back to emulation mode for the caller
+    plp
+    rtl
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Bulk upload through $2007

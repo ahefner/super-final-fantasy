@@ -1,0 +1,42 @@
+--- OLD
+DrawMapAttributes:
+    LDA mapflags
+    LDX #$10        ; set X to $10 (if row)
+    AND #$02        ; check if we're drawing a row or column
+    BEQ :+ 
+      LDX #$0F      ; set X to $0F (if column)
+
+:   STX tmp+1       ; dump X to tmp+1.  This is our upper-bound
+    LDX #$00        ; clear X (source index)
+    LDA $2002       ; reset PPU toggle
+
+@Loop:
+    LDA draw_buf_at_hi, X  ; set our PPU addr to desired value
+    STA $2006
+    LDA draw_buf_at_lo, X
+    STA $2006
+    LDA $2007              ; dummy PPU read to fill read buffer
+    LDA $2007              ; read the attribute byte at the desired address
+    STA tmp                ; back it up in temp ram
+    EOR draw_buf_attr, X   ; EOR with attribute byte to make attribute bits inversed (so that the next EOR will correct them)
+    AND draw_buf_at_msk, X ; mask out desired attribute bits
+    EOR tmp                ; EOR again with original byte, correcting desired attribute bits, and restoring other bits
+    LDY draw_buf_at_hi, X  ; reload desired PPU address with Y (so not to disrupt A)
+    STY $2006
+    LDY draw_buf_at_lo, X
+    STY $2006
+    STA $2007              ; write new attribute byte back to attribute tables
+    INX                    ; inc our source index
+    CPX tmp+1              ; and loop until it reaches our upper-bound
+    BCC @Loop
+    RTS             ; exit once we've done them all
+
+--- NEW
+DrawMapAttributes:
+    ;  The read-modify-write this did through $2006/$2007 costs seven HAL call
+    ;  chains per attribute byte, and the byte it reads back is already in the
+    ;  HAL's own copy of the nametable.  Hand the whole row over instead; see
+    ;  hal_drawattr.
+    JSL hal_drawattr + HALFAR
+    RTS
+
