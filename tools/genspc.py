@@ -116,7 +116,14 @@ def program():
     for v in range(4):        # each voice: its own directory entry, gain mode
         a.dsp(v * 0x10 + 0x04, v)        # SRCN = voice; the entry is repointed
         a.dsp(v * 0x10 + 0x05, 0x00)     # ADSR1: bit7 clear -> GAIN used
-        a.dsp(v * 0x10 + 0x07, 0x7F)     # GAIN, direct, maximum
+        # GAIN in linear-increase mode at the fastest rate: 0 to full in 64
+        # samples, 2 ms.  Not direct mode.  With direct gain the voice jumps
+        # from silence to its first sample at key-on, and the interpolator --
+        # which softens every other edge of a stretched low-pitch square --
+        # cannot soften that one, so it clicks.  A 2 ms ramp is below the
+        # threshold where an attack reads as soft, and key-off gets the DSP's
+        # release fade for free.
+        a.dsp(v * 0x10 + 0x07, 0xDF)     # GAIN: linear increase, rate 31
     a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
     a.mov_dp_imm(0xF4, 0)     # tell the 65816 we are alive: ack = 0
 
