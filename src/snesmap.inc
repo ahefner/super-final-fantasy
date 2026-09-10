@@ -91,7 +91,7 @@ APUIO3          = $2143
 ; and plays a fixed A-440 on voice 0 from reset.  That checks the SPC700
 ; upload, the port protocol and the S-DSP set-up as a whole, before any
 ; translation of the game's registers exists to muddy the diagnosis.
-AUDIO_TEST_TONE = 1
+AUDIO_TEST_TONE = 0
 TEST_TONE_PITCH = $070A         ; 440 Hz for a 32-sample cycle: 440 * 4.096
 
 RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
@@ -376,6 +376,12 @@ h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
 h_apuseq        = HAL_VARS+$6E  ; audio packet sequence number
 h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
 h_tonekon       = HAL_VARS+$70  ; test tone: has its key-on been sent?
+h_apuon         = HAL_VARS+$71  ; bit per voice: was it sounding last frame?
+h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
+h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
+h_apuvol        = HAL_VARS+$74  ; its NES volume nibble
+h_apupitch      = HAL_VARS+$75  ; 2 bytes: its S-DSP pitch
+h_apuwait       = HAL_VARS+$77  ; apu_send's bounded-wait counter
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

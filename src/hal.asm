@@ -3053,11 +3053,25 @@ spc_ack:
     rts
 
 ;;  One frame of sound.  Called with the game's registers already saved.
+;;
+;;  What the driver asks of the APU was measured before any of this was
+;;  designed (see the audio commits): constant volume and halted length
+;;  counters throughout, amplitude done in software in the low nibble of the
+;;  control register every frame, $4015 used to gate channels for sound
+;;  effects.  So per pulse channel, per frame: it sounds if $4015 enables it,
+;;  its volume nibble is nonzero and its timer is 8 or more (the NES mutes a
+;;  pulse below that); its pitch is the timer through the table; its duty is
+;;  the top two control bits.  A voice going from silent to sounding is a
+;;  key-on, sounding to silent a key-off, and nothing else is -- the driver's
+;;  volume-0 rest is the note boundary, and a same-pitch $4003 rewrite mid-note
+;;  is a phase restart the ear cannot hear on a constant-volume square.
 .a8
 .i8
 hal_apu_frame:
     lda a:h_apuok
-    beq @done
+    bne :+
+    rts
+:
   .if AUDIO_TEST_TONE
     lda #<TEST_TONE_PITCH
     sta a:APUIO2
@@ -3073,20 +3087,103 @@ hal_apu_frame:
 @cmd:
     sta a:APUIO1
     jsr apu_send
+    rts
   .endif
+    clc
+    xce                         ; native: the timer and the table index are 16-bit
+    rep #$10
+    sep #$20
+    .a8
+    .i16
+    ldy #0                      ; Y = the channel's register base in the shadow
+    lda #$01
+    sta a:h_apumask             ; pulse 1 is voice 0: bit 0 of $4015 and of h_apuon
+    stz a:h_apuvoice
+@pulse:
+    lda a:APUSHADOW+$15
+    and a:h_apumask             ; enabled?
+    beq @silent
+    lda a:APUSHADOW+0,y
+    and #$0F                    ; sounding?
+    beq @silent
+    sta a:h_apuvol
+    rep #$20
+    .a16
+    lda a:APUSHADOW+2,y         ; timer: low byte, high byte's low three bits
+    and #$07FF
+    cmp #8
+    bcc @silent16
+    asl a                       ; word index
+    tax                         ; (long addressing indexes by X only)
+    lda f:apupitch_pulse + HALFAR,x
+    sta a:h_apupitch
+    sep #$20
+    .a8
+    lda a:APUSHADOW+0,y         ; duty rides in the top two bits of pitch-high
+    and #$C0
+    ora a:h_apupitch+1
+    sta a:APUIO3
+    lda a:h_apupitch
+    sta a:APUIO2
+    lda a:h_apuvol
+    ora a:h_apuvoice
+    pha
+    lda a:h_apuon
+    and a:h_apumask
+    bne @sounding               ; already sounding: pitch and volume only
+      pla
+      ora #$40                  ; silent last frame: key-on
+      pha
+      lda a:h_apuon
+      ora a:h_apumask
+      sta a:h_apuon
+@sounding:
+    pla
+    sta a:APUIO1
+    jsr apu_send
+    bra @next
+@silent16:
+    sep #$20
+    .a8
+@silent:
+    lda a:h_apuon
+    and a:h_apumask
+    beq @next                   ; was silent already: nothing to send
+    lda a:h_apuon
+    eor a:h_apumask
+    sta a:h_apuon
+    lda #$80                    ; key-off
+    ora a:h_apuvoice
+    sta a:APUIO1
+    jsr apu_send
+@next:
+    lda a:h_apuvoice
+    bne @done                   ; pulse 2 done too
+    lda #$10
+    sta a:h_apuvoice            ; pulse 2 is voice 1
+    lda #$02
+    sta a:h_apumask
+    ldy #4
+    jmp @pulse                  ; the body is past a branch's reach
 @done:
+    sep #$30
+    .i8
+    sec
+    xce
     rts
 
-;;  Hand the packet on the data ports to the SPC700 and wait for it to be taken.
+;;  Hand the packet on the data ports to the SPC700 and wait for it to be
+;;  taken.  Called with A eight bits wide and in either index width, so the
+;;  bounded-wait counter lives in memory rather than an index register.
 apu_send:
     inc a:h_apuseq
     lda a:h_apuseq
     sta a:APUIO0
-    ldy #0                      ; a bounded wait: 256 polls is a few thousand
-@wait:                          ;   cycles, and the SPC700 answers in a few dozen
+    stz a:h_apuwait             ; 256 polls: a few thousand cycles, against the
+@wait:                          ;   few dozen the SPC700 takes to answer
     cmp a:APUIO0
     beq @ok
-    dey
+    dec a:h_apuwait
     bne @wait
     stz a:h_apuok               ; it stopped answering: go silent, not dead
 @ok:

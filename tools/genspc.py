@@ -11,7 +11,13 @@ change once it works.
 Port protocol (65816 -> SPC700), one packet per voice per frame:
     $2141  cmd    bit 7 key-off, bit 6 key-on, bits 5-4 voice, bits 3-0 volume
     $2142  pitch, low byte           (S-DSP 14-bit pitch, from apupitch.inc)
-    $2143  pitch, high byte
+    $2143  pitch, high byte in bits 5-0; bits 7-6 select the waveform (duty)
+
+Each voice's directory entry is rewritten to the chosen waveform on every
+packet.  The DSP reads a voice's loop address from the directory each time
+the sample loops, so a duty change takes effect at the next cycle with no
+key-on -- which is how the NES does it, and the only way a change mid-note
+does not click.
     $2140  sequence number, written last; the SPC700 acts when it changes and
            echoes it back as the acknowledgement.
 
@@ -43,6 +49,10 @@ class Asm:
     def mov_dp_a(self, d):     self.emit(0xC4, d)
     def mov_dp_imm(self, d, i):self.emit(0x8F, i, d)     # operand order: imm, dp
     def mov_x_a(self):         self.emit(0x5D)
+    def mov_y_a(self):         self.emit(0xFD)
+    def lsr_a(self):           self.emit(0x5C)
+    def inc_x(self):           self.emit(0x3D)
+    def mov_absy_a(self, a):   self.emit(0xD6, a & 0xFF, a >> 8)     # MOV !abs+Y,A
     def mov_a_x(self):         self.emit(0x7D)
     def cmp_a_dp(self, d):     self.emit(0x64, d)
     def and_a_imm(self, i):    self.emit(0x28, i)
@@ -74,14 +84,19 @@ class Asm:
         self.mov_dp_imm(0xF2, reg); self.mov_dp_a(0xF3)
 
 # direct-page variables (page 0, clear of the $F0-$FF I/O registers)
-LAST, CMD, VOL, VB = 0x00, 0x01, 0x02, 0x03
+LAST, CMD, VOL, VB, PHI = 0x00, 0x01, 0x02, 0x03, 0x04
 MASKTAB = 0x10        # four bytes: 1<<voice
+WAVETAB = 0x20        # four words: address of each duty's waveform
+DIRBASE = 0x0400      # directory: entry v at DIRBASE + 4v
 
 def program():
     a = Asm(LOAD)
     a.di(); a.clrp()
     # key-on mask table, written into direct page at start-up
     for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
+    for i in range(4):
+        w = BRRBASE + i * 18
+        a.mov_dp_imm(WAVETAB + 2*i, w & 0xFF); a.mov_dp_imm(WAVETAB + 2*i + 1, w >> 8)
     # Port 0 still holds the boot ROM's final handshake value.  Take that as the
     # sequence baseline rather than 0, or it reads as a first packet -- one made
     # of whatever the upload left on the other ports.
@@ -98,8 +113,8 @@ def program():
     a.dsp(0x3D, 0x00)         # NON off
     a.dsp(0x4D, 0x00)         # EON off
     a.dsp(0x5D, DIRPAGE)      # DIR
-    for v in range(4):        # each voice: waveform 0, gain mode, full gain
-        a.dsp(v * 0x10 + 0x04, 0x00)     # SRCN
+    for v in range(4):        # each voice: its own directory entry, gain mode
+        a.dsp(v * 0x10 + 0x04, v)        # SRCN = voice; the entry is repointed
         a.dsp(v * 0x10 + 0x05, 0x00)     # ADSR1: bit7 clear -> GAIN used
         a.dsp(v * 0x10 + 0x07, 0x7F)     # GAIN, direct, maximum
     a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
@@ -115,15 +130,24 @@ def program():
     a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
     a.mov_dp_a(VB)
     a.mov_a_dp(CMD)
-    a.and_a_imm(0x0F)         # NES 4-bit volume -> 0..120
-    a.asl_a(); a.asl_a(); a.asl_a()
+    a.and_a_imm(0x0F)         # NES 4-bit volume -> 0..60: four voices at full
+    a.asl_a(); a.asl_a()      #   must not exceed the DSP's sum
     a.mov_dp_a(VOL)
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
     a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
     # PITCH_L, PITCH_H straight from the ports
     a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
-    a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF7); a.mov_dp_a(0xF3)
+    a.mov_a_dp(0xF7); a.mov_dp_a(PHI)                              # keep the duty bits
+    a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI); a.and_a_imm(0x3F); a.mov_dp_a(0xF3)
+    # repoint this voice's directory entry (start and loop) at the duty's waveform
+    a.mov_a_dp(VB); a.lsr_a(); a.lsr_a(); a.mov_y_a()               # Y = voice*4
+    a.mov_a_dp(PHI)
+    for _ in range(6): a.lsr_a()                                    # duty
+    a.asl_a(); a.mov_x_a()                                          # X = duty*2
+    a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE);     a.mov_absy_a(DIRBASE + 2)
+    a.inc_x()
+    a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
     # key mask for this voice
     a.mov_a_dp(VB); a.xcn_a()        # $30 -> $03: the voice number
     a.mov_x_a(); a.mov_a_dpx(MASKTAB)
@@ -153,18 +177,19 @@ def square(duty_high):
     s = [7] * duty_high + [-7] * (32 - duty_high)
     return brr_block(s[:16], 12, False, False) + brr_block(s[16:], 12, True, True)
 
-WAVES = [square(16)]      # waveform 0: 50% duty, for the test tone
+# NES duty 0..3 = 12.5%, 25%, 50%, 75%  (75% is 25% inverted: same tone)
+WAVES = [square(4), square(8), square(16), square(24)]
 
 def main():
     prog = program()
     assert len(prog) <= 0x200, len(prog)
     image = bytearray(prog) + bytes(0x200 - len(prog))         # pad to $0400
     # directory: start/loop for each waveform
-    addr = BRRBASE; brr = bytearray(); dirent = bytearray()
-    for w in WAVES:
-        dirent += bytes([addr & 0xFF, addr >> 8, addr & 0xFF, addr >> 8])
-        brr += w; addr += len(w)
-    dirent += bytes(0x10 - len(dirent))
+    # four directory entries, one per VOICE (not per waveform); each starts on
+    # waveform 0 and is repointed by the program as packets arrive
+    brr = b"".join(WAVES)
+    w0 = BRRBASE
+    dirent = bytes([w0 & 0xFF, w0 >> 8, w0 & 0xFF, w0 >> 8]) * 4
     image += dirent + brr
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
