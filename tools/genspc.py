@@ -56,6 +56,8 @@ class Asm:
     def mov_a_x(self):         self.emit(0x7D)
     def cmp_a_dp(self, d):     self.emit(0x64, d)
     def cmp_a_imm(self, i):    self.emit(0x68, i)
+    def adc_a_dp(self, d):     self.emit(0x84, d)
+    def clc(self):             self.emit(0x60)
     def and_a_imm(self, i):    self.emit(0x28, i)
     def or_a_imm(self, i):     self.emit(0x08, i)
     def asl_a(self):           self.emit(0x1C)
@@ -85,7 +87,7 @@ class Asm:
         self.mov_dp_imm(0xF2, reg); self.mov_dp_a(0xF3)
 
 # direct-page variables (page 0, clear of the $F0-$FF I/O registers)
-LAST, CMD, VOL, VB, PHI = 0x00, 0x01, 0x02, 0x03, 0x04
+LAST, CMD, VOL, VB, PHI, MASK = 0x00, 0x01, 0x02, 0x03, 0x04, 0x05
 MASKTAB = 0x10        # four bytes: 1<<voice
 WAVETAB = 0x20        # four words: address of each duty's waveform
 DIRBASE = 0x0400      # directory: entry v at DIRBASE + 4v
@@ -137,16 +139,32 @@ def program():
     a.mov_dp_a(CMD)
     a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
     a.mov_dp_a(VB)
+    a.xcn_a()                 # $30 -> $03: the voice number...
+    a.mov_x_a(); a.mov_a_dpx(MASKTAB)
+    a.mov_dp_a(MASK)          # ...and its key mask
+    # A key-off writes KOFF and nothing else.  Zeroing the volume in the same
+    # packet -- as a first version did -- cuts the output dead before the
+    # DSP's release can fade it, and that cut is a click on every note-off,
+    # loud on the smooth triangle and audible on a low pulse sitting on a long
+    # plateau.  Leave VOL and PITCH where they are; the release does the rest.
+    a.mov_a_dp(CMD); a.and_a_imm(0x80); a.beq("sounding")
+    a.mov_a_dp(MASK); a.dsp_a(0x5C)  # KOFF = mask
+    a.jmp("ack")
+    a.label("sounding")
     a.mov_a_dp(CMD)
-    a.and_a_imm(0x0F)         # NES 4-bit volume -> 0..60: four voices at full
+    a.and_a_imm(0x0F)         # NES 4-bit volume -> x4: four voices at full
     a.asl_a(); a.asl_a()      #   must not exceed the DSP's sum
     a.mov_dp_a(VOL)
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("volset")
+    a.mov_a_dp(VOL); a.lsr_a(); a.mov_dp_a(PHI)      # the triangle sits forward
+    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI); a.mov_dp_a(VOL)   # x6 in the NES mix
+    a.label("volset")
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
     a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
-    # PITCH_L, PITCH_H straight from the ports
+    # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top bits
     a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
-    a.mov_a_dp(0xF7); a.mov_dp_a(PHI)                              # keep the duty bits
+    a.mov_a_dp(0xF7); a.mov_dp_a(PHI)
     a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI); a.and_a_imm(0x3F); a.mov_dp_a(0xF3)
     # repoint this voice's directory entry (start and loop) at the duty's
     # waveform -- except the triangle voice, whose entry is fixed at start-up
@@ -159,17 +177,10 @@ def program():
     a.inc_x()
     a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
     a.label("norepoint")
-    # key mask for this voice
-    a.mov_a_dp(VB); a.xcn_a()        # $30 -> $03: the voice number
-    a.mov_x_a(); a.mov_a_dpx(MASKTAB)
-    a.mov_dp_a(VOL)                  # VOL no longer needed; reuse it for the mask
-    a.mov_a_dp(CMD); a.and_a_imm(0x80); a.beq("nokoff")
-    a.mov_a_dp(VOL); a.dsp_a(0x5C)   # KOFF = mask
-    a.label("nokoff")
-    a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("nokon")
+    a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("ack")
     a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
-    a.mov_a_dp(VOL); a.dsp_a(0x4C)   # KON = mask
-    a.label("nokon")
+    a.mov_a_dp(MASK); a.dsp_a(0x4C)  # KON = mask
+    a.label("ack")
     a.mov_a_dp(LAST); a.mov_dp_a(0xF4)   # acknowledge
     a.jmp("loop")
     a.link()
