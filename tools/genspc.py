@@ -33,7 +33,8 @@ OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
 
 LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
 DIRPAGE = 0x04         # directory at $0400
-BRRBASE = 0x0410
+ADDRTAB = 0x0410       # waveform address table, one word per waveform
+BRRBASE = 0x0460       # BRR sample data (past a 40-entry address table)
 
 # --- a very small SPC700 assembler ----------------------------------------
 class Asm:
@@ -46,6 +47,7 @@ class Asm:
     def mov_a_imm(self, i):    self.emit(0xE8, i)
     def mov_a_dp(self, d):     self.emit(0xE4, d)
     def mov_a_dpx(self, d):    self.emit(0xF4, d)
+    def mov_a_absx(self, a):   self.emit(0xF5, a & 0xFF, a >> 8)  # MOV A,!abs+X
     def mov_dp_a(self, d):     self.emit(0xC4, d)
     def mov_dp_imm(self, d, i):self.emit(0x8F, i, d)     # operand order: imm, dp
     def mov_x_a(self):         self.emit(0x5D)
@@ -57,6 +59,7 @@ class Asm:
     def cmp_a_dp(self, d):     self.emit(0x64, d)
     def cmp_a_imm(self, i):    self.emit(0x68, i)
     def adc_a_dp(self, d):     self.emit(0x84, d)
+    def adc_a_imm(self, i):    self.emit(0x88, i)
     def clc(self):             self.emit(0x60)
     def and_a_imm(self, i):    self.emit(0x28, i)
     def or_a_imm(self, i):     self.emit(0x08, i)
@@ -88,8 +91,8 @@ class Asm:
 
 # direct-page variables (page 0, clear of the $F0-$FF I/O registers)
 LAST, CMD, VOL, VB, PHI, MASK = 0x00, 0x01, 0x02, 0x03, 0x04, 0x05
+WIDX    = 0x06        # waveform index from the sequence byte
 MASKTAB = 0x10        # four bytes: 1<<voice
-WAVETAB = 0x20        # four words: address of each duty's waveform
 DIRBASE = 0x0400      # directory: entry v at DIRBASE + 4v
 
 def program():
@@ -97,9 +100,6 @@ def program():
     a.di(); a.clrp()
     # key-on mask table, written into direct page at start-up
     for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
-    for i in range(4):
-        w = BRRBASE + WAVEADDR[i]
-        a.mov_dp_imm(WAVETAB + 2*i, w & 0xFF); a.mov_dp_imm(WAVETAB + 2*i + 1, w >> 8)
     # Port 0 still holds the boot ROM's final handshake value.  Take that as the
     # sequence baseline rather than 0, or it reads as a first packet -- one made
     # of whatever the upload left on the other ports.
@@ -185,17 +185,22 @@ def program():
     a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
     a.mov_a_dp(0xF7); a.mov_dp_a(PHI)
     a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI); a.and_a_imm(0x3F); a.mov_dp_a(0xF3)
-    # repoint this voice's directory entry (start and loop) at the duty's
-    # waveform -- except the triangle voice, whose entry is fixed at start-up
-    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("norepoint")
+    #  Repoint this voice's directory entry (start and loop) at the waveform
+    #  the 65816 chose.  Both duty and cycle length ride in the sequence byte's
+    #  top five bits; the triangle's eight sit above the pulses' thirty-two.
+    #  The entry is the loop address too, so a change with no key-on takes hold
+    #  at the end of the cycle in progress rather than cutting one short.
+    a.mov_a_dp(LAST)
+    for _ in range(3): a.lsr_a()                                    # 0..31
+    a.mov_dp_a(WIDX)
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
+    a.mov_a_dp(WIDX); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
+    a.label("pulsewave")
     a.mov_a_dp(VB); a.lsr_a(); a.lsr_a(); a.mov_y_a()               # Y = voice*4
-    a.mov_a_dp(PHI)
-    for _ in range(6): a.lsr_a()                                    # duty
-    a.asl_a(); a.mov_x_a()                                          # X = duty*2
-    a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE);     a.mov_absy_a(DIRBASE + 2)
+    a.mov_a_dp(WIDX); a.asl_a(); a.mov_x_a()                        # X = index*2
+    a.mov_a_absx(ADDRTAB);    a.mov_absy_a(DIRBASE);     a.mov_absy_a(DIRBASE + 2)
     a.inc_x()
-    a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
-    a.label("norepoint")
+    a.mov_a_absx(ADDRTAB);    a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
     a.label("keys")
     a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("ack")
     a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
@@ -214,63 +219,74 @@ def brr_block(nibbles, shift, loop, end):
         out.append(((nibbles[i] & 0xF) << 4) | (nibbles[i + 1] & 0xF))
     return bytes(out)
 
-PULSE_SAMPLES = 64     # samples in one cycle of a pulse waveform
-TRI_SAMPLES   = 32     # the NES triangle is a 32-step staircase: exactly this
+#  One cycle of a waveform is not a fixed length here.  The DSP makes a note
+#  higher by playing a waveform faster, and both ends of that are bounded: the
+#  pitch register stops at $3FFF, four times native rate, and a waveform of N
+#  samples can only hold N/2 harmonics however slowly it is played.  A single
+#  length is therefore wrong at both ends at once -- a 64-sample cycle gives a
+#  55Hz bass note just 32 harmonics, stopping at 1.7kHz, while the menu chirp
+#  at 3.4kHz needs a pitch of 27764 that does not exist.
+#
+#  So keep a family, and pick per note (see genapu.py) the one whose playback
+#  rate lands near TARGET_RATE.  Bass notes get a long cycle and hundreds of
+#  harmonics; the chirp gets a short one it can play fast enough.
+#
+#  A BRR block is 16 samples, so a cycle shorter than that is stored as
+#  several cycles filling one block -- the loop is still seamless, the voice
+#  just runs through more than one period per loop.
+SIZES  = [8, 16, 32, 64, 128, 256, 512, 1024]
+DUTIES = [(1, 8), (1, 4), (1, 2), (3, 4)]     # NES duty 0..3
 
 def brr_wave(samples, shift):
-    """A looping BRR waveform of any length: whole 16-sample blocks, the last
-    one flagged loop+end so the voice runs the cycle forever."""
-    assert len(samples) % 16 == 0
+    """A looping BRR waveform of any whole number of 16-sample blocks: the
+    last block is flagged loop+end, so the voice runs the cycle for ever."""
+    assert len(samples) % 16 == 0 and samples
     n = len(samples) // 16
     return b"".join(brr_block(samples[i*16:(i+1)*16], shift,
                               i == n - 1, i == n - 1) for i in range(n))
 
-def square(duty_high):
-    """One PULSE_SAMPLES-long cycle: the silent phase, then duty_high of tone.
+def square(num, den, period):
+    """One cycle: the silent phase, then the duty's share of it at full value.
 
-    Unipolar, 0 to +7, the way the NES's own pulse output works -- not a
-    bipolar square swinging either side of zero.  The reason is the driver's
-    volume writes.  It rewrites volume every frame to shape its own envelopes,
-    and the DSP applies volume as a plain multiplier, so with a bipolar wave --
-    at full amplitude the whole cycle -- every one of those writes steps the
-    output wherever it happens to land, and that step is the click.  With the
-    low phase at zero, a volume change during it multiplies zero and cannot be
-    heard.  For the duties this game uses, 12.5% and 25%, that is seven eighths
-    and three quarters of the cycle.  A change during the high phase still
-    steps, but so does it on a NES, so that much is faithful rather than wrong.
+    Unipolar, 0 to +7, the way a NES pulse works -- it outputs its volume
+    during the high phase and zero during the low one.  That matters because
+    the driver rewrites volume every frame to shape its own envelopes and the
+    DSP applies volume as a plain multiplier: with a bipolar wave, at full
+    amplitude the whole cycle, every one of those writes steps the output
+    wherever it lands, and that step is the click.  Against zero it multiplies
+    to nothing and cannot be heard.  A change during the high phase still
+    steps, but a NES steps there too.
 
     The silent phase leads, so a key-on also starts from zero.
-
-    The cycle is 64 samples rather than the 32 it needs to describe a square,
-    and the pitch table is built to match, so the DSP consumes source samples
-    twice as fast for the same note.  That is not for waveform detail -- two
-    samples per edge describe the same square -- but for edge sharpness in
-    time.  The DSP reconstructs with a fixed 4-tap Gaussian, which smears every
-    edge across about four source samples; at twice the source rate that smear
-    covers half as long, so the edge keeps twice the high-frequency content.
-    A NES square has edges as abrupt as any volume step, which is why a volume
-    step does not stand out on one.  Ours were sanded down by the interpolator
-    while the steps stayed sharp, and that contrast is what is heard as a
-    click -- worst at low notes, where the source rate is lowest and the smear
-    widest, which is exactly where it was reported.
     """
-    s = [0] * (PULSE_SAMPLES - duty_high) + [7] * duty_high
-    return brr_wave(s, 12)
+    high = max(1, period * num // den)
+    cycle = [0] * (period - high) + [7] * high
+    reps = max(1, 16 // period)              # short cycles fill a whole block
+    return brr_wave(cycle * reps, 12)
 
-def triangle():
-    """The NES triangle: a 32-step staircase 15..0, 0..15, one step a sample."""
+def triangle(period):
+    """The NES triangle: a 32-step staircase 15..0, 0..15, resampled to the
+    cycle length in use.  Longer cycles do not add steps -- the NES has 32 and
+    no more -- they place the same steps more sharply in time."""
     steps = list(range(15, -1, -1)) + list(range(0, 16))
-    s = [v - 8 for v in steps]                       # -8..+7
-    return brr_wave(s, 12)
+    cycle = [steps[i * 32 // period] - 8 for i in range(period)]   # -8..+7
+    reps = max(1, 16 // period)
+    return brr_wave(cycle * reps, 12)
 
 # NES duty 0..3 = 12.5%, 25%, 50%, 75%  (75% is 25% inverted: same tone);
 # waveform 4 is the triangle, voice 2's for good
-#  NES duty 0..3 = 12.5%, 25%, 50%, 75% of the cycle
-WAVES = [square(PULSE_SAMPLES * n // 32) for n in (4, 8, 16, 24)] + [triangle()]
-WAVEADDR = []                      # start address of each waveform in BRR RAM
+#  Waveform order fixes the index the 65816 sends in the sequence byte's top
+#  five bits: pulses at duty*8 + size, the triangle's eight above them at
+#  32 + size.  Five bits only reach 31, so the triangle's index is the size
+#  alone and the SPC700 adds the 32 once it knows the packet is voice 2.
+WAVES    = [square(n, d, p) for (n, d) in DUTIES for p in SIZES] \
+         + [triangle(p) for p in SIZES]
+WAVEADDR = []
 _o = 0
 for _w in WAVES:
-    WAVEADDR.append(_o); _o += len(_w)
+    WAVEADDR.append(BRRBASE + _o); _o += len(_w)
+TRIWAVE0 = len(SIZES) * len(DUTIES)          # index of the triangle's first
+
 TRIANGLE_VOICE = 2
 NOISE_VOICE = 3
 
@@ -282,10 +298,17 @@ def main():
     # four directory entries, one per VOICE (not per waveform); each starts on
     # waveform 0 and is repointed by the program as packets arrive
     brr = b"".join(WAVES)
-    w0 = BRRBASE; wt = BRRBASE + WAVEADDR[4]           # the triangle
+    #  Four directory entries, one per voice.  Every one is repointed by the
+    #  program as packets arrive, so the values here only have to be sane
+    #  until the first note.
     ent = lambda w: bytes([w & 0xFF, w >> 8, w & 0xFF, w >> 8])
+    w0 = WAVEADDR[0]; wt = WAVEADDR[TRIWAVE0]
     dirent = ent(w0) + ent(w0) + ent(wt) + ent(w0)     # voice 2 is the triangle
-    image += dirent + brr
+    assert len(dirent) == ADDRTAB - DIRBASE, len(dirent)
+    addrtab = b"".join(bytes([w & 0xFF, w >> 8]) for w in WAVEADDR)
+    assert ADDRTAB + len(addrtab) <= BRRBASE, len(addrtab)
+    addrtab += bytes(BRRBASE - ADDRTAB - len(addrtab))
+    image += dirent + addrtab + brr
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
         f.write("SPCPROG_LOAD  = $%04X\n" % LOAD)

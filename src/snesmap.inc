@@ -381,9 +381,19 @@ h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
 h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
 h_apuvol        = HAL_VARS+$74  ; its NES volume nibble
 h_apupitch      = HAL_VARS+$75  ; 2 bytes: its S-DSP pitch
-h_apulast0      = HAL_VARS+$78  ; last frame's volume nibble, pulse 1...
-h_apulast1      = HAL_VARS+$79  ; ...and pulse 2, to catch a note attack
 h_apuwait       = HAL_VARS+$77  ; apu_send's bounded-wait counter
+h_apuwave       = HAL_VARS+$78  ; waveform index, pre-shifted into the sequence
+                                ;   byte's bits 7-3: duty and cycle length
+;  Sweep unit state, two bytes per pulse channel so one index serves both:
+;  X = 0 for pulse 1, 2 for pulse 2.
+h_swper         = HAL_VARS+$7A  ; the period the sweep now owns
+h_swseen        = HAL_VARS+$7E  ; the period the CPU last wrote, to spot writes
+h_swdiv         = HAL_VARS+$82  ; half-frames left before the next update
+h_swmute        = HAL_VARS+$86  ; nonzero while the sweep is silencing it
+h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
+h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
+h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
+h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

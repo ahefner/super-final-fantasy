@@ -3109,19 +3109,37 @@ hal_apu_frame:
     sta a:h_apuvol
     rep #$20
     .a16
-    lda a:APUSHADOW+2,y         ; timer: low byte, high byte's low three bits
-    and #$07FF
-    cmp #8
-    bcc @silent16
+    ;  The sweep unit owns this channel's period once the driver has set it,
+    ;  so the note comes from there rather than straight from the shadow.  It
+    ;  also decides when the period has run past either end and the channel
+    ;  falls silent.
+    tya                         ; Y is 0 or 4; the sweep state is two bytes wide
+    lsr a
+    tax                         ; X = 0 for pulse 1, 2 for pulse 2
+    jsr apu_sweep
+    lda a:h_swmute,x
+    bne @silent16
+    lda a:h_swper,x
+    pha                         ; keep the timer: the size table indexes by it
     asl a                       ; word index
     tax                         ; (long addressing indexes by X only)
     lda f:apupitch_pulse + HALFAR,x
     sta a:h_apupitch
+    pla
+    tax                         ; X = timer, for the byte-wide size table
     sep #$20
     .a8
-    lda a:APUSHADOW+0,y         ; duty rides in the top two bits of pitch-high
-    and #$C0
-    ora a:h_apupitch+1
+    ;  The waveform this pitch was computed for.  Duty and cycle length travel
+    ;  together in the sequence byte's top five bits: the duty bits are already
+    ;  in position 7-6 in the control register, and the table's size index is
+    ;  pre-shifted to 5-3, so this is two loads and an OR.
+    lda f:apusize_pulse + HALFAR,x
+    sta a:h_apuwave
+    lda a:APUSHADOW+0,y
+    and #$C0                    ; duty
+    ora a:h_apuwave
+    sta a:h_apuwave
+    lda a:h_apupitch+1          ; PITCH_H alone now: the duty has its own field
     sta a:APUIO3
     lda a:h_apupitch
     sta a:APUIO2
@@ -3209,13 +3227,18 @@ hal_apu_frame:
     and #$07FF
     cmp #2                      ; below this the NES triangle is not a tone
     bcc @trisilent
+    pha
     asl a
     tax
     lda f:apupitch_tri + HALFAR,x
     sta a:h_apupitch
+    pla
+    tax
     sep #$20
     .a8
-    lda a:h_apupitch+1          ; no duty bits: voice 2's waveform is fixed
+    lda f:apusize_tri + HALFAR,x  ; cycle length; no duty on the triangle, so
+    sta a:h_apuwave               ;   the SPC700 reads this as the size alone
+    lda a:h_apupitch+1
     sta a:APUIO3
     lda a:h_apupitch
     sta a:APUIO2
@@ -3273,6 +3296,7 @@ hal_apu_frame:
     lda f:apunoise + HALFAR,x
     sta a:APUIO2                ; the rate rides where pitch would
     stz a:APUIO3
+    stz a:h_apuwave             ; the noise voice plays no waveform
     lda a:h_apuvol
     ora a:h_apuvoice
     pha
@@ -3297,12 +3321,145 @@ hal_apu_frame:
     xce
     rts
 
+;;  One video frame of a pulse channel's sweep unit.
+;;
+;;  The sweep bends a note's period while it sounds: every half-frame it adds
+;;  or subtracts period>>shift, and the channel goes silent when the period
+;;  falls below 8 or the target passes $7FF.  The game drives three effects
+;;  with it -- the menu chirp, the dialogue box opening and closing, and the
+;;  minigame error tone -- and all of them run the period down to the mute
+;;  threshold.  The chirp travels from timer 32 to 8, which is 3.4kHz to
+;;  12.4kHz.  With no sweep it was one flat tone, which is what was reported.
+;;
+;;  Two ticks a frame: the game never writes $4017, so the frame counter stays
+;;  in its power-on four-step mode and the half-frame clock is 120Hz.
+;;
+;;  Nothing records which register the CPU wrote -- the shadow keeps values,
+;;  not events -- so a write is inferred from the period differing from the one
+;;  last seen.  That is sound here rather than merely convenient: the driver
+;;  will not rewrite a frequency that has not changed, because writing $4003
+;;  would reset the duty, so a period that changes is always a real write and
+;;  one that holds still belongs to the sweep.
+;;
+;;  Entry: native, A and index registers 16 bits, X = 0 for pulse 1 or 2 for
+;;  pulse 2, Y = that channel's base in the shadow (0 or 4).
+.a16
+.i16
+apu_sweep:
+    lda a:APUSHADOW+1,y
+    and #$00FF
+    sta a:h_swreg               ; EPPP NSSS
+    lda a:APUSHADOW+2,y
+    and #$07FF
+    cmp a:h_swseen,x
+    beq @running
+      sta a:h_swseen,x          ; a new period from the CPU: take it, and
+      sta a:h_swper,x           ;   reload the divider the way $4003 does
+      jsr apu_swdiv
+@running:
+    lda #2
+    sta a:h_swticks
+@tick:
+    ;  Target and mute are recomputed every half-frame, whether or not the
+    ;  divider fires and whether or not the sweep is enabled.  Silencing a
+    ;  pulse whose period is under 8, or whose target has run past $7FF, is a
+    ;  property of the channel rather than of the sweep being switched on --
+    ;  and a muted channel does not update its period even when the divider
+    ;  does fire, which is what stops a rising sweep dead at the top.
+    lda a:h_swper,x
+    sta a:h_swtmp
+    lda a:h_swreg
+    and #$0007
+    beq @haschange              ; a shift of zero makes the change the period
+@shift:
+    lsr a:h_swtmp
+    dec a
+    bne @shift
+@haschange:
+    lda a:h_swreg
+    and #$0008
+    bne @up
+      lda a:h_swper,x           ; falling pitch: the period grows
+      clc
+      adc a:h_swtmp
+      bra @target
+@up:
+    lda a:h_swper,x             ; rising pitch: the period shrinks
+    sec
+    sbc a:h_swtmp
+    bcc @zero
+    cpx #0
+    bne @target                 ; pulse 2 subtracts the change; pulse 1 negates
+    cmp #0                      ;   with ones' complement, so it takes one more
+    beq @target
+    dec a
+    bra @target
+@zero:
+    lda #0
+@target:
+    sta a:h_swtgt
+    stz a:h_swmute,x
+    lda a:h_swper,x
+    cmp #8
+    bcc @domute
+    lda a:h_swtgt
+    cmp #$0800
+    bcc @divider
+@domute:
+    lda #1
+    sta a:h_swmute,x
+@divider:
+    lda a:h_swdiv,x
+    beq @update
+      dec a
+      sta a:h_swdiv,x
+      bra @next
+@update:
+    jsr apu_swdiv
+    lda a:h_swreg
+    and #$0080
+    beq @next                   ; disabled -- the driver writes $7F -- so the
+    lda a:h_swreg               ;   divider still runs but the period holds
+    and #$0007
+    beq @next                   ; a shift of zero never updates the period
+    lda a:h_swmute,x
+    bne @next                   ; muted: the period is not updated either
+    lda a:h_swtgt
+    sta a:h_swper,x
+@next:
+    dec a:h_swticks
+    beq @out
+    jmp @tick                   ; the tick body is past a branch's reach
+@out:
+    rts
+
+;;  Reload the sweep divider from the register's period field.
+.a16
+.i16
+apu_swdiv:
+    lda a:h_swreg
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    and #$0007
+    sta a:h_swdiv,x
+    rts
+
+.a8
+.i8
 ;;  Hand the packet on the data ports to the SPC700 and wait for it to be
 ;;  taken.  Called with A eight bits wide and in either index width, so the
 ;;  bounded-wait counter lives in memory rather than an index register.
 apu_send:
+    ;  Port 0 is the handshake: the SPC700 acts when it changes and echoes it
+    ;  back.  Only enough of it has to change to be noticed, so three bits are
+    ;  the sequence and the top five carry the waveform index -- which saves a
+    ;  second packet per note, and there was nowhere left in ports 1-3 anyway.
     inc a:h_apuseq
     lda a:h_apuseq
+    and #$07
+    ora a:h_apuwave
     sta a:APUIO0
     stz a:h_apuwait             ; 256 polls: a few thousand cycles, against the
 @wait:                          ;   few dozen the SPC700 takes to answer

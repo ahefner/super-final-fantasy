@@ -35,16 +35,53 @@ CPU        = 1789773.0        # NTSC 2A03 CPU clock
 DSP_RATE   = 32000.0          # S-DSP output sample rate
 PITCH_UNIT = 4096.0           # DSP pitch of 4096 == play sample at native rate
 PITCH_MAX  = 0x3FFF           # 14-bit pitch register
-#  Samples in one cycle of each BRR waveform.  These must match genspc.py.
-#  The pulses use a 64-sample cycle to describe a shape that needs only 32:
-#  the point is not detail but source rate.  At twice the rate the DSP's fixed
-#  4-tap Gaussian smears each edge across half as much time, so the square
-#  keeps twice the high-frequency content -- see square() in genspc.py.
-PULSE_PERIOD = 64
-TRI_PERIOD   = 32             # the NES triangle staircase is 32 steps exactly
+#  Cycle lengths available, and the playback rate to aim for.  These must
+#  match SIZES in genspc.py.
+#
+#  The DSP raises a note by playing a waveform faster, and that is bounded at
+#  both ends: the pitch register stops at $3FFF (four times native rate), and
+#  an N-sample cycle holds only N/2 harmonics however slowly it is played.  One
+#  fixed length is therefore wrong at both ends at once.  A 64-sample cycle
+#  gave a 55Hz bass note 32 harmonics reaching only 1.7kHz -- audibly dull --
+#  while the menu chirp at 3.4kHz wanted a pitch of 27764, which does not
+#  exist, so it came out clamped nearly an octave flat.
+#
+#  Instead pick, per timer value, the longest cycle whose playback rate stays
+#  at or under TARGET_RATE.  Since pitch = rate * 4096 / 32000, capping the
+#  rate caps the pitch: at 64000 no entry can exceed 8192, half the register's
+#  range, so nothing clamps anywhere a real note or effect can reach.
+#
+#  TARGET_RATE is the one dial worth turning here, and it trades brightness
+#  against aliasing.  Low, at 32000, the waveform's own Nyquist lands exactly
+#  on the output's and nothing folds -- but the DSP's 4-tap Gaussian smears
+#  each edge across four source samples, and at that rate four source samples
+#  is a long time, so the tone is soft.  High, at the 128000 the pitch register
+#  can just reach, the smear covers a quarter as long and the edges stay sharp,
+#  at the cost of folding the harmonics above the 16kHz output Nyquist back
+#  down.  For a square those fall off as 1/n, so they fold in 30dB or more
+#  below the fundamental.
+#
+#  It is set high deliberately.  The build before this one used a fixed
+#  64-sample cycle, which happened to run the top musical notes at 117000 --
+#  heavily oversampled, and bright -- while starving a 55Hz bass note at 3500.
+#  An earlier attempt here capped the rate at 64000, which brightened the bass
+#  but pulled those high notes down to 58000 and came out darker overall.  At
+#  128000 no note is played slower than the fixed-64 build played it, and the
+#  low end gains the most.
+SIZES       = [8, 16, 32, 64, 128, 256, 512, 1024]
+TARGET_RATE = 127000.0     # a hair under 128000, so rounding cannot pass $3FFF
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT  = os.path.join(os.path.dirname(HERE), "src", "apupitch.inc")
+
+
+def size_for(freq):
+    """The longest cycle whose playback rate stays at or under TARGET_RATE."""
+    best = SIZES[0]
+    for p in SIZES:
+        if freq * p <= TARGET_RATE:
+            best = p
+    return best
 
 
 def pitch_for(freq, period):
@@ -52,16 +89,20 @@ def pitch_for(freq, period):
     return max(0, min(PITCH_MAX, p))
 
 
-def table(divisor, period):
-    # index by timer 0..2047; t=0 slot is a placeholder (never a real note)
-    out = []
+def table(divisor):
+    """Per timer value: the pitch, and the index of the cycle length it is
+    computed for.  The size index is returned pre-shifted into the position it
+    occupies in the sequence byte, so the caller only has to OR it in."""
+    pitches, sizes = [], []
     for t in range(2048):
-        if t == 0:
-            out.append(0)
+        if t == 0:                       # never a real note: the driver parks
+            pitches.append(0); sizes.append(0)
             continue
         f = CPU / (divisor * (t + 1))
-        out.append(pitch_for(f, period))
-    return out
+        p = size_for(f)
+        pitches.append(pitch_for(f, p))
+        sizes.append(SIZES.index(p) << 3)
+    return pitches, sizes
 
 
 def emit(f, name, vals):
@@ -86,16 +127,27 @@ def noise_table():
         out.append(min(range(32), key=lambda i: abs(DSP_NOISE[i]-f)))
     return out
 
+def emitb(f, name, vals):
+    f.write("\n%s:\n" % name)
+    for i in range(0, len(vals), 16):
+        f.write("    .byte " + ",".join("$%02X" % v for v in vals[i:i+16]) +
+                ("    ; t=%d\n" % i))
+
+
 def main():
-    pulse = table(16, PULSE_PERIOD)   # pulse and noise share the /16 divisor
-    tri   = table(32, TRI_PERIOD)     # triangle is an octave down, same timer
+    pulse, psize = table(16)    # pulse and noise share the /16 divisor
+    tri,   tsize = table(32)    # triangle is an octave down, same timer
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genapu.py -- do not edit.\n")
-        f.write("; NES 11-bit timer -> S-DSP 14-bit pitch, for a %d-sample\n"
-                "; single-cycle waveform.  Two tables: pulse/noise, and the\n"
-                "; octave-lower triangle.  2048 words each.\n" % PULSE_PERIOD)
+        f.write("; NES 11-bit timer -> S-DSP 14-bit pitch, paired with the\n"
+                "; cycle length that pitch is computed for (see SIZES).  Two\n"
+                "; sets: pulse/noise, and the octave-lower triangle.\n"
+                "; The size bytes are pre-shifted into their place in the\n"
+                "; sequence byte, bits 5-3.\n")
         emit(f, "apupitch_pulse", pulse)
         emit(f, "apupitch_tri",   tri)
+        emitb(f, "apusize_pulse", psize)
+        emitb(f, "apusize_tri",   tsize)
         nt=noise_table()
         f.write("\n; NES noise period -> S-DSP noise rate (bits 4-0 of FLG)\napunoise:\n")
         f.write("    .byte " + ",".join("$%02X"%v for v in nt) + "\n")
