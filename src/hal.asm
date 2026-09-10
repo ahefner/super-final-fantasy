@@ -2524,11 +2524,14 @@ hal_chrload:
     clc
     adc a:h_clcnt
     cmp #$2001
-    bcs @slow
-    lda a:h_addr
+    bcc :+
+    jmp @slow                   ; past a branch's reach, like the two below
+:   lda a:h_addr
     and #$3FFF
     cmp #$2000
-    bcs @slow
+    bcc :+
+    jmp @slow
+:
 
     lda a:h_addr                ; widen the dirty span once, not per byte
     and #$1FF0
@@ -2536,7 +2539,65 @@ hal_chrload:
     cmp a:h_chrlo
     bcs :+
       sta a:h_chrlo
-:   ldy a:h_clidx
+:
+    ;  Whole aligned tiles take a much shorter path.  The sixteen bytes of a
+    ;  tile land at fixed offsets from that tile's base in the shadow -- the
+    ;  even ones for plane 0, the odd for plane 1 -- so with the base in X there
+    ;  is no address arithmetic left in the loop at all, and A can stay eight
+    ;  bits throughout, which takes the mode switches out too.  What remains per
+    ;  byte is a load, a store and an index bump.
+    lda a:h_addr
+    and #$000F
+    beq :+
+    jmp @bytes                  ; not tile-aligned (past a branch's reach)
+:   lda a:h_clcnt
+    and #$000F
+    beq :+
+    jmp @bytes                  ; not a whole number of tiles
+:   lda a:h_addr
+    and #$1FF0
+    asl a
+    tax                         ; X = this tile's base in the shadow
+    ldy a:h_clidx
+    sep #$20
+    .a8
+@tile:
+  .repeat 8, i
+    lda (NES_tmp),y
+    sta f:CHRSHADOW+(i*2),x     ; plane 0 rows land on even offsets
+    iny
+  .endrepeat
+  .repeat 8, i
+    lda (NES_tmp),y
+    sta f:CHRSHADOW+(i*2)+1,x   ;   ...and plane 1 rows on odd ones
+    iny
+  .endrepeat
+    rep #$20
+    .a16
+    txa
+    clc
+    adc #32                     ; a 4bpp tile is 32 bytes, not 16
+    tax
+    lda a:h_addr
+    clc
+    adc #16
+    sta a:h_addr
+    lda a:h_clcnt
+    sec
+    sbc #16
+    sta a:h_clcnt
+    beq @spanhi
+    sep #$20
+    .a8
+    jmp @tile                   ; the unrolled body is past a branch's reach
+
+@bytes:
+    ;  Reached only by branches taken in 16-bit mode, but the code above ends in
+    ;  an 8-bit stretch, so the assembler needs telling -- otherwise the 16-bit
+    ;  immediates below are quietly assembled as bytes.
+    .a16
+    .i16
+    ldy a:h_clidx
 @fast:
     lda (NES_tmp),y             ; the low byte is the one wanted; the high byte
     sta a:h_data                ;   is just the next source byte, unused here
@@ -2568,6 +2629,7 @@ hal_chrload:
     dec a:h_clcnt
     bne @fast
 
+@spanhi:
     lda a:h_addr                ; the last byte written closes the dirty span
     dec a
     and #$1FF0
