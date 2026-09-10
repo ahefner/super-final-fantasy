@@ -98,7 +98,7 @@ def program():
     # key-on mask table, written into direct page at start-up
     for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
     for i in range(4):
-        w = BRRBASE + i * 18
+        w = BRRBASE + WAVEADDR[i]
         a.mov_dp_imm(WAVETAB + 2*i, w & 0xFF); a.mov_dp_imm(WAVETAB + 2*i + 1, w >> 8)
     # Port 0 still holds the boot ROM's final handshake value.  Take that as the
     # sequence baseline rather than 0, or it reads as a first packet -- one made
@@ -214,8 +214,19 @@ def brr_block(nibbles, shift, loop, end):
         out.append(((nibbles[i] & 0xF) << 4) | (nibbles[i + 1] & 0xF))
     return bytes(out)
 
+PULSE_SAMPLES = 64     # samples in one cycle of a pulse waveform
+TRI_SAMPLES   = 32     # the NES triangle is a 32-step staircase: exactly this
+
+def brr_wave(samples, shift):
+    """A looping BRR waveform of any length: whole 16-sample blocks, the last
+    one flagged loop+end so the voice runs the cycle forever."""
+    assert len(samples) % 16 == 0
+    n = len(samples) // 16
+    return b"".join(brr_block(samples[i*16:(i+1)*16], shift,
+                              i == n - 1, i == n - 1) for i in range(n))
+
 def square(duty_high):
-    """One 32-sample cycle: the silent phase, then duty_high samples of tone.
+    """One PULSE_SAMPLES-long cycle: the silent phase, then duty_high of tone.
 
     Unipolar, 0 to +7, the way the NES's own pulse output works -- not a
     bipolar square swinging either side of zero.  The reason is the driver's
@@ -229,19 +240,37 @@ def square(duty_high):
     steps, but so does it on a NES, so that much is faithful rather than wrong.
 
     The silent phase leads, so a key-on also starts from zero.
+
+    The cycle is 64 samples rather than the 32 it needs to describe a square,
+    and the pitch table is built to match, so the DSP consumes source samples
+    twice as fast for the same note.  That is not for waveform detail -- two
+    samples per edge describe the same square -- but for edge sharpness in
+    time.  The DSP reconstructs with a fixed 4-tap Gaussian, which smears every
+    edge across about four source samples; at twice the source rate that smear
+    covers half as long, so the edge keeps twice the high-frequency content.
+    A NES square has edges as abrupt as any volume step, which is why a volume
+    step does not stand out on one.  Ours were sanded down by the interpolator
+    while the steps stayed sharp, and that contrast is what is heard as a
+    click -- worst at low notes, where the source rate is lowest and the smear
+    widest, which is exactly where it was reported.
     """
-    s = [0] * (32 - duty_high) + [7] * duty_high
-    return brr_block(s[:16], 12, False, False) + brr_block(s[16:], 12, True, True)
+    s = [0] * (PULSE_SAMPLES - duty_high) + [7] * duty_high
+    return brr_wave(s, 12)
 
 def triangle():
     """The NES triangle: a 32-step staircase 15..0, 0..15, one step a sample."""
     steps = list(range(15, -1, -1)) + list(range(0, 16))
     s = [v - 8 for v in steps]                       # -8..+7
-    return brr_block(s[:16], 12, False, False) + brr_block(s[16:], 12, True, True)
+    return brr_wave(s, 12)
 
 # NES duty 0..3 = 12.5%, 25%, 50%, 75%  (75% is 25% inverted: same tone);
 # waveform 4 is the triangle, voice 2's for good
-WAVES = [square(4), square(8), square(16), square(24), triangle()]
+#  NES duty 0..3 = 12.5%, 25%, 50%, 75% of the cycle
+WAVES = [square(PULSE_SAMPLES * n // 32) for n in (4, 8, 16, 24)] + [triangle()]
+WAVEADDR = []                      # start address of each waveform in BRR RAM
+_o = 0
+for _w in WAVES:
+    WAVEADDR.append(_o); _o += len(_w)
 TRIANGLE_VOICE = 2
 NOISE_VOICE = 3
 
@@ -253,7 +282,7 @@ def main():
     # four directory entries, one per VOICE (not per waveform); each starts on
     # waveform 0 and is repointed by the program as packets arrive
     brr = b"".join(WAVES)
-    w0 = BRRBASE; wt = BRRBASE + 4 * 18                # the triangle
+    w0 = BRRBASE; wt = BRRBASE + WAVEADDR[4]           # the triangle
     ent = lambda w: bytes([w & 0xFF, w >> 8, w & 0xFF, w >> 8])
     dirent = ent(w0) + ent(w0) + ent(wt) + ent(w0)     # voice 2 is the triangle
     image += dirent + brr
