@@ -63,8 +63,32 @@ def main():
         base = (1 + i) * BANK
         rom[base + 0x8000:base + 0xC000] = nesbank(name)
         rom[base + 0xC000:base + 0x10000] = fixed
+        # The low half is never addressed -- the game runs in banks $A1+ where
+        # that range is I/O, WRAM and SRAM -- so mirror the high half into it
+        # rather than leave 32KB of zeros in every chunk (see below).
+        rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
 
     used = (1 + len(ORDER)) * BANK
+
+    # Make the image dense, as a real cartridge is.
+    #
+    # A real HiROM cart is ROM from end to end; ours had two large regions of
+    # zero fill -- bank 0's low half, and the million bytes past the last chunk.
+    # A flash cart deciding HiROM against LoROM has nothing in the header to go
+    # on here (the mapper fields are identical across builds it has accepted
+    # and refused), so whatever it is keying on is content, and long runs of
+    # zeros are the one thing that makes this image unlike every cartridge it
+    # was built to recognise.  Mirror real data into them instead: the low half
+    # of bank 0 repeats its own high half, which is what a chip with an unwired
+    # address line would show, and the tail repeats the chunks.
+    rom[0x0000:0x7FB0] = rom[0x8000:0xFFB0]     # ...but not the header: the
+                                                # LoROM slot stays the poisoned
+                                                # non-header it was made to be
+    tail = used
+    while tail < ROMSZ:
+        n = min(used - BANK, ROMSZ - tail)          # the chunks, less bank 0
+        rom[tail:tail + n] = rom[BANK:BANK + n]
+        tail += n
 
     # Poison the LoROM header position.
     #
