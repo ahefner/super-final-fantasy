@@ -152,12 +152,17 @@ def program():
     a.jmp("ack")
     a.label("sounding")
     a.mov_a_dp(CMD)
-    a.and_a_imm(0x0F)         # NES 4-bit volume -> x4: four voices at full
-    a.asl_a(); a.asl_a()      #   must not exceed the DSP's sum
+    a.and_a_imm(0x0F)         # NES 4-bit volume -> x2.
+    a.asl_a()                 # Halved from x4.  Four voices at full were
+                              # reaching 270 of the DSP's sum, which clips.
+                              # The triangle keeps its 1.5 against the pulses,
+                              # but that ratio is now made by pulling the
+                              # pulses down rather than pushing the triangle
+                              # up, which is what caused the clipping.
     a.mov_dp_a(VOL)
     a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("volset")
     a.mov_a_dp(VOL); a.lsr_a(); a.mov_dp_a(PHI)      # the triangle sits forward
-    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI); a.mov_dp_a(VOL)   # x6 in the NES mix
+    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI); a.mov_dp_a(VOL)   # x3: still 1.5x
     a.label("volset")
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
