@@ -1192,6 +1192,8 @@ hal_waitvbl:
     pha
     phx
     phy
+    jsr hal_apu_frame           ; this frame's sound, sent before the wait so
+                                ;   it costs idle time rather than vblank
   .ifdef SCROLLSTAT
     lda a:RDNMI                 ; did a whole vblank pass while the game worked?
     bpl :+                      ; then the display advanced a frame and the game
@@ -2933,6 +2935,149 @@ flush_scroll:
 
 .a8
 .i8
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Audio: the SPC700 side
+;;
+;;  The SPC700 runs a small fixed program (tools/genspc.py) that does nothing
+;;  but apply what it is told to the S-DSP.  All the thinking happens over
+;;  here, where it can be traced.  Two pieces: getting that program into the
+;;  SPC700 at reset through its boot ROM, and one packet per voice per frame.
+;;
+;;  Packet, three data ports then the sequence number last:
+;;      APUIO1  bit 7 key-off, bit 6 key-on, bits 5-4 voice, bits 3-0 volume
+;;      APUIO2  pitch low        APUIO3  pitch high
+;;      APUIO0  sequence number; the SPC700 acts when it changes and echoes it
+;;
+;;  Every wait on the SPC700 is bounded.  If it never answers -- a failed upload,
+;;  a cartridge without one -- the game runs silent rather than hanging.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  The IPL boot ROM protocol.  On power-up the SPC700 sits in its boot ROM
+;;  with $AA/$BB on ports 0/1; a transfer is "nonzero on port 1, address on
+;;  2/3, $CC on port 0", then each byte is "data on port 1, running index on
+;;  port 0" with the index echoed back as the acknowledgement; and a zero on
+;;  port 1 with an index that has jumped by at least two makes it jump to the
+;;  address on 2/3.
+.a8
+.i8
+spc_upload:
+    clc
+    xce                         ; native mode: the byte index needs 16 bits
+    rep #$10
+    sep #$20
+    .a8
+    .i16
+    ldx #$FFFF                  ; how long to wait for the boot ROM's greeting
+@ready:
+    lda a:APUIO0
+    cmp #$AA
+    bne @notyet
+    lda a:APUIO1
+    cmp #$BB
+    beq @go
+@notyet:
+    dex
+    bne @ready
+    bra @out                    ; nobody home
+@go:
+    lda #$01
+    sta a:APUIO1                ; a transfer follows...
+    lda #<SPCPROG_LOAD
+    sta a:APUIO2                ; ...to this address
+    lda #>SPCPROG_LOAD
+    sta a:APUIO3
+    lda #$CC
+    sta a:APUIO0
+@ackcc:
+    cmp a:APUIO0
+    bne @ackcc
+    ldx #0
+@byte:
+    lda f:spcprog + HALFAR,x
+    sta a:APUIO1
+    txa                         ; the low byte of the index is the handshake
+    sta a:APUIO0
+@ackb:
+    cmp a:APUIO0
+    bne @ackb
+    inx
+    cpx #SPCPROG_LEN
+    bne @byte
+    lda #$00
+    sta a:APUIO1                ; no more data: jump...
+    lda #<SPCPROG_ENTRY
+    sta a:APUIO2                ; ...here
+    lda #>SPCPROG_ENTRY
+    sta a:APUIO3
+    txa
+    clc
+    adc #2                      ; the index must move on by two or more,
+    bne :+                      ;   and must not be zero
+      inc a
+:   sta a:APUIO0
+@ackj:
+    cmp a:APUIO0
+    bne @ackj
+    sta a:h_apuseq              ; the program takes this as its baseline, so the
+                                ;   first real packet must count on from it
+    ;  The program announces itself by writing zero to port 0.
+    ldx #$FFFF
+@alive:
+    lda a:APUIO0
+    beq @running
+    dex
+    bne @alive
+    bra @out
+@running:
+    lda #1
+    sta a:h_apuok
+@out:
+    sep #$30
+    .i8
+    sec
+    xce
+    rts
+
+;;  One frame of sound.  Called with the game's registers already saved.
+.a8
+.i8
+hal_apu_frame:
+    lda a:h_apuok
+    beq @done
+  .if AUDIO_TEST_TONE
+    lda #<TEST_TONE_PITCH
+    sta a:APUIO2
+    lda #>TEST_TONE_PITCH
+    sta a:APUIO3
+    lda a:h_tonekon
+    bne @hold
+      inc a:h_tonekon
+      lda #$4F                  ; key-on, voice 0, volume 15
+      bra @cmd
+@hold:
+    lda #$0F                    ; voice 0, volume 15, no key event
+@cmd:
+    sta a:APUIO1
+    jsr apu_send
+  .endif
+@done:
+    rts
+
+;;  Hand the packet on the data ports to the SPC700 and wait for it to be taken.
+apu_send:
+    inc a:h_apuseq
+    lda a:h_apuseq
+    sta a:APUIO0
+    ldy #0                      ; a bounded wait: 256 polls is a few thousand
+@wait:                          ;   cycles, and the SPC700 answers in a few dozen
+    cmp a:APUIO0
+    beq @ok
+    dey
+    bne @wait
+    stz a:h_apuok               ; it stopped answering: go silent, not dead
+@ok:
+    rts
+
 hal_reset:
     sei
     clc
@@ -2995,6 +3140,7 @@ hal_reset:
     jsr clear_cgram
     jsr init_ppu
     jsr init_halvars
+    jsr spc_upload              ; audio: get the SPC700 running
 
     lda #$01
     sta a:NMITIMEN              ; ...except the automatic controller read
@@ -3173,3 +3319,8 @@ init_halvars:
 
 nespal_snes:
 .include "nespal.inc"
+
+; NES timer -> S-DSP pitch (tools/genapu.py) and the SPC700 program with its
+; sample data (tools/genspc.py).
+.include "apupitch.inc"
+.include "spcprog.inc"

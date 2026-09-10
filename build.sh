@@ -5,6 +5,8 @@ cd "$(dirname "$0")"
 mkdir -p out gen
 
 python3 tools/genpal.py
+python3 tools/genapu.py
+python3 tools/genspc.py
 python3 tools/convert.py
 
 CA65="ca65 --cpu 65816 $CA65EXTRA"

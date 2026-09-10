@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""
+genspc.py -- build the SPC700 program and its sample data into src/spcprog.inc
+
+The SPC700 side of the audio port is deliberately dumb: the 65816 works out
+what every voice should be doing each frame and sends it over the four I/O
+ports; this program just applies it to the S-DSP.  Keeping the logic on the
+65816 keeps it where it can be traced and profiled.  Nothing here needs to
+change once it works.
+
+Port protocol (65816 -> SPC700), one packet per voice per frame:
+    $2141  cmd    bit 7 key-off, bit 6 key-on, bits 5-4 voice, bits 3-0 volume
+    $2142  pitch, low byte           (S-DSP 14-bit pitch, from apupitch.inc)
+    $2143  pitch, high byte
+    $2140  sequence number, written last; the SPC700 acts when it changes and
+           echoes it back as the acknowledgement.
+
+SPC700 memory:
+    $0200  this program
+    $0400  sample directory (DIR = $04), one entry per waveform
+    $0410  BRR sample data
+"""
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
+
+LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
+DIRPAGE = 0x04         # directory at $0400
+BRRBASE = 0x0410
+
+# --- a very small SPC700 assembler ----------------------------------------
+class Asm:
+    def __init__(self, org):
+        self.org = org; self.code = bytearray(); self.labels = {}; self.fix = []
+    def pc(self): return self.org + len(self.code)
+    def label(self, n): self.labels[n] = self.pc()
+    def emit(self, *b): self.code += bytes(b)
+    # instructions
+    def mov_a_imm(self, i):    self.emit(0xE8, i)
+    def mov_a_dp(self, d):     self.emit(0xE4, d)
+    def mov_a_dpx(self, d):    self.emit(0xF4, d)
+    def mov_dp_a(self, d):     self.emit(0xC4, d)
+    def mov_dp_imm(self, d, i):self.emit(0x8F, i, d)     # operand order: imm, dp
+    def mov_x_a(self):         self.emit(0x5D)
+    def mov_a_x(self):         self.emit(0x7D)
+    def cmp_a_dp(self, d):     self.emit(0x64, d)
+    def and_a_imm(self, i):    self.emit(0x28, i)
+    def or_a_imm(self, i):     self.emit(0x08, i)
+    def asl_a(self):           self.emit(0x1C)
+    def xcn_a(self):           self.emit(0x9F)
+    def clrp(self):            self.emit(0x20)
+    def di(self):              self.emit(0xC0)
+    def branch(self, op, lab):
+        self.emit(op, 0); self.fix.append((len(self.code) - 1, lab))
+    def beq(self, l): self.branch(0xF0, l)
+    def bne(self, l): self.branch(0xD0, l)
+    def bra(self, l): self.branch(0x2F, l)
+    def jmp(self, l):
+        self.emit(0x5F, 0, 0); self.fix.append((len(self.code) - 2, ("abs", l)))
+    def link(self):
+        for pos, lab in self.fix:
+            if isinstance(lab, tuple):
+                a = self.labels[lab[1]]
+                self.code[pos] = a & 0xFF; self.code[pos + 1] = a >> 8
+            else:
+                rel = self.labels[lab] - (self.org + pos + 1)
+                assert -128 <= rel <= 127, (lab, rel)
+                self.code[pos] = rel & 0xFF
+    # helpers
+    def dsp(self, reg, val):   # write a constant to a DSP register
+        self.mov_dp_imm(0xF2, reg); self.mov_dp_imm(0xF3, val)
+    def dsp_a(self, reg):      # write A to a DSP register
+        self.mov_dp_imm(0xF2, reg); self.mov_dp_a(0xF3)
+
+# direct-page variables (page 0, clear of the $F0-$FF I/O registers)
+LAST, CMD, VOL, VB = 0x00, 0x01, 0x02, 0x03
+MASKTAB = 0x10        # four bytes: 1<<voice
+
+def program():
+    a = Asm(LOAD)
+    a.di(); a.clrp()
+    # key-on mask table, written into direct page at start-up
+    for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
+    # Port 0 still holds the boot ROM's final handshake value.  Take that as the
+    # sequence baseline rather than 0, or it reads as a first packet -- one made
+    # of whatever the upload left on the other ports.
+    a.mov_a_dp(0xF4); a.mov_dp_a(LAST)
+    # S-DSP global set-up
+    a.dsp(0x6C, 0x20)         # FLG: reset off, mute off, echo writes disabled
+    a.dsp(0x0C, 0x7F)         # MVOL_L
+    a.dsp(0x1C, 0x7F)         # MVOL_R
+    a.dsp(0x2C, 0x00)         # EVOL_L
+    a.dsp(0x3C, 0x00)         # EVOL_R
+    a.dsp(0x5C, 0xFF)         # KOFF everything
+    a.dsp(0x4C, 0x00)         # KON nothing
+    a.dsp(0x2D, 0x00)         # PMON off
+    a.dsp(0x3D, 0x00)         # NON off
+    a.dsp(0x4D, 0x00)         # EON off
+    a.dsp(0x5D, DIRPAGE)      # DIR
+    for v in range(4):        # each voice: waveform 0, gain mode, full gain
+        a.dsp(v * 0x10 + 0x04, 0x00)     # SRCN
+        a.dsp(v * 0x10 + 0x05, 0x00)     # ADSR1: bit7 clear -> GAIN used
+        a.dsp(v * 0x10 + 0x07, 0x7F)     # GAIN, direct, maximum
+    a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
+    a.mov_dp_imm(0xF4, 0)     # tell the 65816 we are alive: ack = 0
+
+    a.label("loop")
+    a.mov_a_dp(0xF4)          # sequence number from the 65816
+    a.cmp_a_dp(LAST)
+    a.beq("loop")             # unchanged: nothing to do
+    a.mov_dp_a(LAST)
+    a.mov_a_dp(0xF5)          # cmd
+    a.mov_dp_a(CMD)
+    a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
+    a.mov_dp_a(VB)
+    a.mov_a_dp(CMD)
+    a.and_a_imm(0x0F)         # NES 4-bit volume -> 0..120
+    a.asl_a(); a.asl_a(); a.asl_a()
+    a.mov_dp_a(VOL)
+    # VOL_L, VOL_R
+    a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    # PITCH_L, PITCH_H straight from the ports
+    a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF7); a.mov_dp_a(0xF3)
+    # key mask for this voice
+    a.mov_a_dp(VB); a.xcn_a()        # $30 -> $03: the voice number
+    a.mov_x_a(); a.mov_a_dpx(MASKTAB)
+    a.mov_dp_a(VOL)                  # VOL no longer needed; reuse it for the mask
+    a.mov_a_dp(CMD); a.and_a_imm(0x80); a.beq("nokoff")
+    a.mov_a_dp(VOL); a.dsp_a(0x5C)   # KOFF = mask
+    a.label("nokoff")
+    a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("nokon")
+    a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
+    a.mov_a_dp(VOL); a.dsp_a(0x4C)   # KON = mask
+    a.label("nokon")
+    a.mov_a_dp(LAST); a.mov_dp_a(0xF4)   # acknowledge
+    a.jmp("loop")
+    a.link()
+    return bytes(a.code)
+
+# --- sample data -----------------------------------------------------------
+def brr_block(nibbles, shift, loop, end):
+    hdr = (shift << 4) | (int(loop) << 1) | int(end)   # filter 0
+    out = bytearray([hdr])
+    for i in range(0, 16, 2):
+        out.append(((nibbles[i] & 0xF) << 4) | (nibbles[i + 1] & 0xF))
+    return bytes(out)
+
+def square(duty_high):
+    """One 32-sample cycle, duty_high samples at +7 then the rest at -7."""
+    s = [7] * duty_high + [-7] * (32 - duty_high)
+    return brr_block(s[:16], 12, False, False) + brr_block(s[16:], 12, True, True)
+
+WAVES = [square(16)]      # waveform 0: 50% duty, for the test tone
+
+def main():
+    prog = program()
+    assert len(prog) <= 0x200, len(prog)
+    image = bytearray(prog) + bytes(0x200 - len(prog))         # pad to $0400
+    # directory: start/loop for each waveform
+    addr = BRRBASE; brr = bytearray(); dirent = bytearray()
+    for w in WAVES:
+        dirent += bytes([addr & 0xFF, addr >> 8, addr & 0xFF, addr >> 8])
+        brr += w; addr += len(w)
+    dirent += bytes(0x10 - len(dirent))
+    image += dirent + brr
+    with open(OUT, "w") as f:
+        f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
+        f.write("SPCPROG_LOAD  = $%04X\n" % LOAD)
+        f.write("SPCPROG_ENTRY = $%04X\n" % LOAD)
+        f.write("SPCPROG_LEN   = %d\n" % len(image))
+        f.write("spcprog:\n")
+        for i in range(0, len(image), 16):
+            f.write("    .byte " + ",".join("$%02X" % b for b in image[i:i+16]) + "\n")
+    print("SPC program %d bytes, image %d bytes -> %s" % (len(prog), len(image), OUT))
+
+if __name__ == "__main__":
+    main()

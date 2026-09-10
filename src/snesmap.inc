@@ -82,6 +82,18 @@ CGWSEL          = $2130
 CGADSUB         = $2131
 COLDATA         = $2132
 SETINI          = $2133
+APUIO0          = $2140         ; the four SPC700 I/O ports
+APUIO1          = $2141
+APUIO2          = $2142
+APUIO3          = $2143
+
+; Audio.  With AUDIO_TEST_TONE set the HAL ignores the game's sound entirely
+; and plays a fixed A-440 on voice 0 from reset.  That checks the SPC700
+; upload, the port protocol and the S-DSP set-up as a whole, before any
+; translation of the game's registers exists to muddy the diagnosis.
+AUDIO_TEST_TONE = 1
+TEST_TONE_PITCH = $070A         ; 440 Hz for a 32-sample cycle: 440 * 4.096
+
 RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
                                 ; whether or not NMI is enabled, and cleared by
                                 ; reading it.  Clearing it at the end of a flush
@@ -361,6 +373,9 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_apuseq        = HAL_VARS+$6E  ; audio packet sequence number
+h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
+h_tonekon       = HAL_VARS+$70  ; test tone: has its key-on been sent?
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...
