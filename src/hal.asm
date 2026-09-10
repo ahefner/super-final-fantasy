@@ -2988,18 +2988,16 @@ spc_upload:
     sta a:APUIO3
     lda #$CC
     sta a:APUIO0
-@ackcc:
-    cmp a:APUIO0
-    bne @ackcc
-    ldx #0
+    jsr spc_ack                 ; every wait on the boot ROM is bounded: a real
+    bcs @out                    ;   SPC700 that does not answer as the emulator's
+    ldx #0                      ;   did must leave a silent game, not a hung one
 @byte:
     lda f:spcprog + HALFAR,x
     sta a:APUIO1
     txa                         ; the low byte of the index is the handshake
     sta a:APUIO0
-@ackb:
-    cmp a:APUIO0
-    bne @ackb
+    jsr spc_ack
+    bcs @out
     inx
     cpx #SPCPROG_LEN
     bne @byte
@@ -3015,9 +3013,8 @@ spc_upload:
     bne :+                      ;   and must not be zero
       inc a
 :   sta a:APUIO0
-@ackj:
-    cmp a:APUIO0
-    bne @ackj
+    jsr spc_ack
+    bcs @out
     sta a:h_apuseq              ; the program takes this as its baseline, so the
                                 ;   first real packet must count on from it
     ;  The program announces itself by writing zero to port 0.
@@ -3036,6 +3033,23 @@ spc_upload:
     .i8
     sec
     xce
+    rts
+
+;;  Wait for the boot ROM to echo the value in A on port 0.  Carry set on
+;;  timeout.  Preserves A and X; uses Y as the counter.
+.a8
+.i16
+spc_ack:
+    ldy #$4000
+@poll:
+    cmp a:APUIO0
+    beq @got
+    dey
+    bne @poll
+    sec
+    rts
+@got:
+    clc
     rts
 
 ;;  One frame of sound.  Called with the game's registers already saved.
