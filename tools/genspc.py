@@ -113,7 +113,7 @@ def program():
     a.dsp(0x5C, 0xFF)         # KOFF everything
     a.dsp(0x4C, 0x00)         # KON nothing
     a.dsp(0x2D, 0x00)         # PMON off
-    a.dsp(0x3D, 0x00)         # NON off
+    a.dsp(0x3D, 0x08)         # NON: voice 3 plays the noise generator
     a.dsp(0x4D, 0x00)         # EON off
     a.dsp(0x5D, DIRPAGE)      # DIR
     for v in range(4):        # each voice: its own directory entry, gain mode
@@ -162,6 +162,13 @@ def program():
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
     a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    # The noise voice takes no pitch or waveform: instead its packet's pitch-low
+    # byte is the global noise rate, written into FLG's low five bits (echo
+    # writes stay disabled, bit 5).
+    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.bne("tonal")
+    a.mov_a_dp(0xF6); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
+    a.jmp("keys")
+    a.label("tonal")
     # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top bits
     a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
     a.mov_a_dp(0xF7); a.mov_dp_a(PHI)
@@ -177,6 +184,7 @@ def program():
     a.inc_x()
     a.mov_a_dpx(WAVETAB);     a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
     a.label("norepoint")
+    a.label("keys")
     a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("ack")
     a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
     a.mov_a_dp(MASK); a.dsp_a(0x4C)  # KON = mask
@@ -209,6 +217,7 @@ def triangle():
 # waveform 4 is the triangle, voice 2's for good
 WAVES = [square(4), square(8), square(16), square(24), triangle()]
 TRIANGLE_VOICE = 2
+NOISE_VOICE = 3
 
 def main():
     prog = program()

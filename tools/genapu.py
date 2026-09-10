@@ -65,6 +65,20 @@ def emit(f, name, vals):
                 ("    ; t=%d\n" % i))
 
 
+# S-DSP global noise clock, rate 0..31, in Hz (hardware table).
+DSP_NOISE = [0,16,21,25,31,42,50,63,83,100,125,167,200,250,333,400,
+             500,667,800,1000,1300,1600,2000,2700,3200,4000,5300,6400,
+             8000,10700,16000,32000]
+# NES noise pitch, period index 0..15, in Hz (NTSC LFSR clock).
+NES_NOISE = [4811.2,2405.6,1202.8,601.4,300.7,200.5,150.4,120.3,
+             95.3,75.8,50.6,37.9,25.3,18.9,9.4,4.7]
+
+def noise_table():
+    out=[]
+    for f in NES_NOISE:
+        out.append(min(range(32), key=lambda i: abs(DSP_NOISE[i]-f)))
+    return out
+
 def main():
     pulse = table(16)     # pulse and noise share the /16 divisor
     tri   = table(32)     # triangle is an octave down for the same timer
@@ -75,6 +89,9 @@ def main():
                 "; octave-lower triangle.  2048 words each.\n" % PERIOD_SAMPLES)
         emit(f, "apupitch_pulse", pulse)
         emit(f, "apupitch_tri",   tri)
+        nt=noise_table()
+        f.write("\n; NES noise period -> S-DSP noise rate (bits 4-0 of FLG)\napunoise:\n")
+        f.write("    .byte " + ",".join("$%02X"%v for v in nt) + "\n")
     # a short human summary of the musically-useful span
     def span(vals, lo, hi):
         return "t=%d->$%04X .. t=%d->$%04X" % (lo, vals[lo], hi, vals[hi])

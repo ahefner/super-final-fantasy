@@ -3156,15 +3156,29 @@ hal_apu_frame:
     ora a:h_apuvoice
     sta a:APUIO1
     jsr apu_send
+    ;  Every voice's paths, sounding and silent alike, come back here, so this
+    ;  has to dispatch on all four and stop after the last.  An earlier version
+    ;  only knew how to follow pulse 1, and after the noise voice went silent it
+    ;  read the voice number as "not pulse 1" and restarted the triangle --
+    ;  triangle, noise, silent, triangle, for ever.  The frame loop never
+    ;  returned, which is a black screen at boot.
 @next:
     lda a:h_apuvoice
-    bne @tri                    ; pulse 2 done: on to the triangle
+    beq @topulse2               ; pulse 1 done
+    cmp #$10
+    beq @tri                    ; pulse 2 done
+    cmp #$20
+    beq @tonoise                ; triangle done
+    jmp @done                   ; noise done: the frame is finished
+@topulse2:
     lda #$10
     sta a:h_apuvoice            ; pulse 2 is voice 1
     lda #$02
     sta a:h_apumask
     ldy #4
     jmp @pulse                  ; the body is past a branch's reach
+@tonoise:
+    jmp @noise
 
     ;  The triangle.  With the control bit set -- which is all but eight of the
     ;  writes ever seen -- the linear counter reloads every quarter-frame from
@@ -3172,10 +3186,11 @@ hal_apu_frame:
     ;  is nonzero: $8F is on, $80 is off.  The rare control-clear write is a
     ;  timed note, approximated here as "on while nonzero".  No volume on the
     ;  NES, so a fixed one here, balanced against the pulses by ear later.
+@trisilent:
+    sep #$20
+    .a8
+    bra @silent
 @tri:
-    lda a:h_apuvoice
-    cmp #$20
-    beq @done                   ; already done
     lda #$20
     sta a:h_apuvoice            ; voice 2
     lda #$04
@@ -3193,7 +3208,7 @@ hal_apu_frame:
     lda a:APUSHADOW+$A          ; timer
     and #$07FF
     cmp #2                      ; below this the NES triangle is not a tone
-    bcc @silent16
+    bcc @trisilent
     asl a
     tax
     lda f:apupitch_tri + HALFAR,x
@@ -3217,6 +3232,60 @@ hal_apu_frame:
       ora a:h_apumask
       sta a:h_apuon
 @trisounding:
+    pla
+    sta a:APUIO1
+    jsr apu_send
+    jmp @noise
+
+    ;  Noise, voice 3.  It sounds when $4015 enables it and $400C's volume
+    ;  nibble is nonzero; its rate is $400E's period through the table; it has
+    ;  no pitch, so the packet's pitch-low byte carries the rate instead.
+@noise:
+    lda #$30
+    sta a:h_apuvoice            ; voice 3
+    lda #$08
+    sta a:h_apumask
+    lda a:APUSHADOW+$15
+    and #$08
+    beq @noisesilent
+    lda a:APUSHADOW+$C
+    and #$0F
+    bne @noiseon
+@noisesilent:
+    jmp @silent                 ; the shared key-off path is out of branch reach
+@noiseon:
+    sta a:h_apuvol              ; the raw nibble: the packet carries four bits
+                                ;   of volume and the SPC700 does the scaling,
+                                ;   as it does for every other voice
+    lda a:APUSHADOW+$E
+    and #$0F                    ; period index
+    ;  Widen deliberately before indexing.  TAX with an eight-bit accumulator
+    ;  and sixteen-bit index registers moves all sixteen bits, hidden high byte
+    ;  included, so the index would carry rubbish above the period and the
+    ;  table read would land anywhere.  The pulse and triangle paths compute
+    ;  their index in real sixteen-bit mode and are not exposed to this.
+    rep #$20
+    .a16
+    and #$00FF
+    tax
+    sep #$20
+    .a8
+    lda f:apunoise + HALFAR,x
+    sta a:APUIO2                ; the rate rides where pitch would
+    stz a:APUIO3
+    lda a:h_apuvol
+    ora a:h_apuvoice
+    pha
+    lda a:h_apuon
+    and a:h_apumask
+    bne @noisesounding
+      pla
+      ora #$40
+      pha
+      lda a:h_apuon
+      ora a:h_apumask
+      sta a:h_apuon
+@noisesounding:
     pla
     sta a:APUIO1
     jsr apu_send
