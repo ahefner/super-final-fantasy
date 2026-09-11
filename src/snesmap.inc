@@ -82,6 +82,18 @@ CGWSEL          = $2130
 CGADSUB         = $2131
 COLDATA         = $2132
 SETINI          = $2133
+APUIO0          = $2140         ; the four SPC700 I/O ports
+APUIO1          = $2141
+APUIO2          = $2142
+APUIO3          = $2143
+
+; Audio.  With AUDIO_TEST_TONE set the HAL ignores the game's sound entirely
+; and plays a fixed A-440 on voice 0 from reset.  That checks the SPC700
+; upload, the port protocol and the S-DSP set-up as a whole, before any
+; translation of the game's registers exists to muddy the diagnosis.
+AUDIO_TEST_TONE = 0
+TEST_TONE_PITCH = $070A         ; 440 Hz for a 32-sample cycle: 440 * 4.096
+
 RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
                                 ; whether or not NMI is enabled, and cleared by
                                 ; reading it.  Clearing it at the end of a flush
@@ -361,6 +373,44 @@ h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
 h_himax         = HAL_VARS+$5B  ; highest
 h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
 h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
+h_apuseq        = HAL_VARS+$6E  ; audio packet sequence number
+h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
+h_tonekon       = HAL_VARS+$70  ; test tone: has its key-on been sent?
+h_apuon         = HAL_VARS+$71  ; bit per voice: was it sounding last frame?
+h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
+h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
+h_apuvol        = HAL_VARS+$74  ; its NES volume nibble
+h_apupitch      = HAL_VARS+$75  ; 2 bytes: its S-DSP pitch
+h_apuwait       = HAL_VARS+$77  ; apu_send's bounded-wait counter
+h_apuwave       = HAL_VARS+$78  ; waveform index, pre-shifted into the sequence
+                                ;   byte's bits 7-3: duty and cycle length
+;  Sweep unit state, two bytes per pulse channel so one index serves both:
+;  X = 0 for pulse 1, 2 for pulse 2.
+h_swper         = HAL_VARS+$7A  ; the period the sweep now owns
+h_swseen        = HAL_VARS+$7E  ; the period the CPU last wrote, to spot writes
+h_swdiv         = HAL_VARS+$82  ; half-frames left before the next update
+h_swmute        = HAL_VARS+$86  ; nonzero while the sweep is silencing it
+h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
+h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
+h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
+h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
+h_sfxlast       = HAL_VARS+$92  ; last frame's sq2_sfx, to spot an effect
+                                ;   starting again with identical register bytes
+NESZP_SQ2SFX    = $007E         ; the game's own "pulse 2 is busy with a sound
+                                ;   effect for N more frames" countdown
+h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
+h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
+h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
+                                ;   own, so it may advance the sweep clock
+;  The noise channel's NES envelope and length counter.  It is the only
+;  channel this game drives with them: its $400C writes clear the
+;  constant-volume bit, so the low nibble is a decay rate and the level comes
+;  from the envelope.
+h_nzdecay       = HAL_VARS+$9C  ; envelope level, 15 down to 0
+h_nzdiv         = HAL_VARS+$9D  ; quarter-frames until the level steps
+h_nzstart       = HAL_VARS+$9E  ; a $400F write restarts the envelope
+h_nzlen         = HAL_VARS+$9F  ; length counter; at zero the channel is silent
+h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

@@ -240,6 +240,16 @@ def main():
                 press(b); time.sleep(0.18)
         else:
             sys.exit("unknown token %r" % tok)
+
+    #  Stop the emulator before returning.  It does not exit when the script
+    #  runs out of tokens, and every log it was opened with -- the profiler,
+    #  the DSP and APU write logs, the raw wave capture -- keeps growing for as
+    #  long as it sits there.  Two runs compared afterwards then hold different
+    #  amounts of whatever the game drifted into once the script stopped
+    #  driving it, which is not a difference between the builds.  A capture has
+    #  to end where the script ends to mean anything.
+    subprocess.run(["killall", "ares"], capture_output=True)
+    time.sleep(0.3)
     print("done")
 
 

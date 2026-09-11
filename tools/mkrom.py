@@ -63,35 +63,58 @@ def main():
         base = (1 + i) * BANK
         rom[base + 0x8000:base + 0xC000] = nesbank(name)
         rom[base + 0xC000:base + 0x10000] = fixed
+        # The low half is never addressed -- the game runs in banks $A1+ where
+        # that range is I/O, WRAM and SRAM -- so mirror the high half into it
+        # rather than leave 32KB of zeros in every chunk (see below).
+        rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
 
     used = (1 + len(ORDER)) * BANK
 
-    # Poison the LoROM header position.
+    # Make the image dense, as a real cartridge is.
     #
-    # A flash cart or emulator decides HiROM vs LoROM by scoring the bytes at
-    # both candidate header offsets, $FFC0 and $7FC0.  Ours is a HiROM image, so
-    # $7FB0-$7FFF is simply unused -- bank $C0's low half, which nothing in the
-    # port ever addresses.  Left as the zero fill, though, it collects points it
-    # has no business collecting: a zero map-mode byte reads as "even, therefore
-    # LoROM" (+3), and a zero at $7FD0 has a low nibble under 4 (+2).
+    # A real HiROM cart is ROM from end to end; ours had two large regions of
+    # zero fill -- bank 0's low half, and the million bytes past the last chunk.
+    # A flash cart deciding HiROM against LoROM has nothing in the header to go
+    # on here (the mapper fields are identical across builds it has accepted
+    # and refused), so whatever it is keying on is content, and long runs of
+    # zeros are the one thing that makes this image unlike every cartridge it
+    # was built to recognise.  Mirror real data into them instead: the low half
+    # of bank 0 repeats its own high half, which is what a chip with an unwired
+    # address line would show, and the tail repeats the chunks.
+    rom[0x0000:0x7FB0] = rom[0x8000:0xFFB0]     # ...stopping short of the
+                                                # second header copy above
+    tail = used
+    while tail < ROMSZ:
+        n = min(used - BANK, ROMSZ - tail)          # the chunks, less bank 0
+        rom[tail:tail + n] = rom[BANK:BANK + n]
+        tail += n
+
+    # A second copy of the header, at the LoROM offset.
     #
-    # Writing two bytes takes both away.  Under the snes9x scoring that most of
-    # these detectors descend from, that widens HiROM's margin from 10 to 15.
-    # It is not a diagnosis -- the header fields that actually select the mapper
-    # are identical to those of builds that boot, and this margin was already
-    # decisive -- but the bytes are free and a wider margin can only help.
-    rom[0x7FD5] = 0x31              # odd map mode: not the LoROM shape
-    rom[0x7FD0] = 0x0F              # low nibble >= 4
+    # Some flash-cart firmware reads the header at $7FC0 first and, if it
+    # passes as a header, believes its map-mode byte -- falling back to $FFC0
+    # only when it does not.  A HiROM image therefore maps correctly only if
+    # the $7FC0 slot holds a valid header that itself says HiROM.  Ours held
+    # zeros with a planted $31, which the checksum-pair test rejected before
+    # the $31 was ever read.  So: the same header, twice.  The copy lives in
+    # bank $C0's low half, which nothing in the port addresses.
+    #
+    # The checksum must then be computed with BOTH pairs zeroed and both
+    # credited, or the two copies disagree with the sum.  See below.
+    rom[0x7FB0:0x8000] = rom[0xFFB0:0x10000]
 
     # SNES checksum: zero the two fields, total the image, then add the $1FE
     # the complement and the checksum themselves will contribute.
-    cs = 0xFFDC
-    for i in range(4):
-        rom[cs + i] = 0
-    total = (sum(rom) + 0x01FE) & 0xFFFF
+    SLOTS = (0xFFDC, 0x7FDC)          # the pair, in both header copies
+    for cs in SLOTS:
+        for i in range(4):
+            rom[cs + i] = 0
+    total = (sum(rom) + 0x01FE * len(SLOTS)) & 0xFFFF
     comp = total ^ 0xFFFF
-    rom[cs+0], rom[cs+1] = comp & 0xFF, comp >> 8
-    rom[cs+2], rom[cs+3] = total & 0xFF, total >> 8
+    for cs in SLOTS:
+        rom[cs+0], rom[cs+1] = comp & 0xFF, comp >> 8
+        rom[cs+2], rom[cs+3] = total & 0xFF, total >> 8
+    cs = SLOTS[0]
 
     # Check the pair before writing it out.
     #
@@ -112,10 +135,13 @@ def main():
         sys.exit("header checksum pair is malformed (sums to $%04X, want $FFFF); "
                  "a cart would read this as LoROM and refuse to boot" % check)
     verify = bytearray(rom)
-    for i in range(4):
-        verify[cs + i] = 0
-    if (sum(verify) + 0x01FE) & 0xFFFF != (rom[cs+2] | (rom[cs+3] << 8)):
+    for c in SLOTS:
+        for i in range(4):
+            verify[c + i] = 0
+    if (sum(verify) + 0x01FE * len(SLOTS)) & 0xFFFF != (rom[cs+2] | (rom[cs+3] << 8)):
         sys.exit("header checksum does not match the image")
+    if rom[0x7FDC:0x7FE0] != rom[0xFFDC:0xFFE0] or rom[0x7FC0:0x7FDC] != rom[0xFFC0:0xFFDC]:
+        sys.exit("the two header copies disagree")
 
     dst = os.path.join(ROOT, "FinalFantasy.sfc")
     open(dst, "wb").write(rom)
