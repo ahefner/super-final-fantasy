@@ -24,7 +24,7 @@
 .import nesio_w2005, nesio_w2006, nesio_w2006x, nesio_w2006y
 .import nesio_w2007, nesio_w2007x, nesio_w2007y, nesio_r2007
 .import nesio_oamdma, nesio_joystrobe, nesio_joyread, nesio_r4015
-.import nesio_w4015, nesio_w4003, nesio_w4007, nesio_w400b
+.import nesio_w4015, nesio_w4003, nesio_w4007, nesio_w400b, nesio_w400f
 .import nesio_joystrobey, nesio_joystrobex
 .endif
 
@@ -106,6 +106,8 @@
       jsr nesio_w4007
     .elseif (reg) = $0B
       jsr nesio_w400b
+    .elseif (reg) = $0F
+      jsr nesio_w400f
     .else
       sta a:APUSHADOW + (reg)
     .endif

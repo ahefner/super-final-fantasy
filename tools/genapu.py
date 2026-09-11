@@ -121,10 +121,21 @@ DSP_NOISE = [0,16,21,25,31,42,50,63,83,100,125,167,200,250,333,400,
 NES_NOISE = [4811.2,2405.6,1202.8,601.4,300.7,200.5,150.4,120.3,
              95.3,75.8,50.6,37.9,25.3,18.9,9.4,4.7]
 
+#  NES length counter table, indexed by the top five bits of $400F.
+NES_LENGTH = [10,254, 20,  2, 40,  4, 80,  6,160,  8, 60, 10, 14, 12, 26, 14,
+              12, 16, 24, 18, 48, 20, 96, 22,192, 24, 72, 26, 16, 28, 32, 30]
+
+
 def noise_table():
+    #  Rate 0 is excluded deliberately.  It does not mean "very slow": the
+    #  DSP's counter never fires at rate 0, so the noise LFSR stops dead and
+    #  the voice emits whatever value it froze on -- a constant, which is a DC
+    #  offset rather than noise.  The slowest NES period, index 15 at 4.7Hz,
+    #  is nearer 0 than to rate 1's 16Hz by simple distance, so an unguarded
+    #  search picked it and turned that period into silence-plus-offset.
     out=[]
     for f in NES_NOISE:
-        out.append(min(range(32), key=lambda i: abs(DSP_NOISE[i]-f)))
+        out.append(min(range(1, 32), key=lambda i: abs(DSP_NOISE[i]-f)))
     return out
 
 def emitb(f, name, vals):
@@ -151,6 +162,9 @@ def main():
         nt=noise_table()
         f.write("\n; NES noise period -> S-DSP noise rate (bits 4-0 of FLG)\napunoise:\n")
         f.write("    .byte " + ",".join("$%02X"%v for v in nt) + "\n")
+        f.write("\n; NES length counter, indexed by the top five bits of $400F\napulen:\n")
+        for i in range(0, 32, 16):
+            f.write("    .byte " + ",".join("$%02X"%v for v in NES_LENGTH[i:i+16]) + "\n")
     # a short human summary of the musically-useful span
     def span(vals, lo, hi):
         return "t=%d->$%04X .. t=%d->$%04X" % (lo, vals[lo], hi, vals[hi])

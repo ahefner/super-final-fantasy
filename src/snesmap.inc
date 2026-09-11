@@ -402,6 +402,15 @@ h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
                                 ;   own, so it may advance the sweep clock
+;  The noise channel's NES envelope and length counter.  It is the only
+;  channel this game drives with them: its $400C writes clear the
+;  constant-volume bit, so the low nibble is a decay rate and the level comes
+;  from the envelope.
+h_nzdecay       = HAL_VARS+$9C  ; envelope level, 15 down to 0
+h_nzdiv         = HAL_VARS+$9D  ; quarter-frames until the level steps
+h_nzstart       = HAL_VARS+$9E  ; a $400F write restarts the envelope
+h_nzlen         = HAL_VARS+$9F  ; length counter; at zero the channel is silent
+h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

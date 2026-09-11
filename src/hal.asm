@@ -36,7 +36,7 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
-.export hal_w4015, hal_w4003, hal_w4007, hal_w400b
+.export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
 
@@ -3132,6 +3132,7 @@ hal_apu_frame:
     sep #$20
     .a8
     .i16
+    jsr apu_noiseenv
     ldy #0                      ; Y = the channel's register base in the shadow
     lda #$01
     sta a:h_apumask             ; pulse 1 is voice 0: bit 0 of $4015 and of h_apuon
@@ -3308,8 +3309,17 @@ hal_apu_frame:
     lda a:APUSHADOW+$15
     and #$08
     beq @noisesilent
+    lda a:h_nzlen               ; the length counter has run out
+    beq @noisesilent
     lda a:APUSHADOW+$C
-    and #$0F
+    and #$10                    ; constant volume, or the envelope's level?
+    beq @nzenv
+      lda a:APUSHADOW+$C
+      and #$0F
+      bra @nzhavevol
+@nzenv:
+    lda a:h_nzdecay
+@nzhavevol:
     bne @noiseon
 @noisesilent:
     jmp @silent                 ; the shared key-off path is out of branch reach
@@ -3511,6 +3521,78 @@ apu_sweep:
       sta a:h_swmute,x
 :   rts
 
+;;  One video frame of the noise channel's envelope and length counter.
+;;
+;;  This is the only channel the game drives with the NES's own envelope.  Its
+;;  $400C writes clear the constant-volume bit -- the battle sounds write $2F,
+;;  which is halt and loop set, constant clear, and a low nibble of 15 -- so
+;;  that nibble is a decay period, not a level, and the level comes from the
+;;  envelope.  Reading it as a volume, which is what this did, plays a flat 15
+;;  where a console fades, and never stops of its own accord.
+;;
+;;  Clocked off the same five-step sequence as the sweep.  In that mode the
+;;  envelope runs on every quarter-frame and the length counter on every
+;;  half-frame, and there are exactly two quarter-frames to each half-frame --
+;;  so the tick count already worked out for the sweep serves here, doubled.
+.a8
+.i16
+apu_noiseenv:
+    lda a:h_swtickn
+    beq @out                    ; no half-frame fell in this video frame
+    sta a:h_nztick
+@half:
+    jsr apu_envclk              ; two quarter-frames to every half-frame
+    jsr apu_envclk
+    lda a:APUSHADOW+$C
+    and #$20                    ; halt: the length counter is frozen
+    bne @nolen
+    lda a:h_nzlen
+    beq @nolen
+      dec a
+      sta a:h_nzlen
+@nolen:
+    dec a:h_nztick
+    bne @half
+@out:
+    rts
+
+;;  One quarter-frame of the envelope.
+.a8
+.i16
+apu_envclk:
+    lda a:h_nzstart
+    beq @run
+      stz a:h_nzstart           ; a $400F write restarts it at full level
+      lda #15
+      sta a:h_nzdecay
+      lda a:APUSHADOW+$C
+      and #$0F
+      sta a:h_nzdiv             ; the divider's period is that nibble plus one
+      rts
+@run:
+    lda a:h_nzdiv
+    beq @step
+      dec a
+      sta a:h_nzdiv
+      rts
+@step:
+    lda a:APUSHADOW+$C
+    and #$0F
+    sta a:h_nzdiv
+    lda a:h_nzdecay
+    beq @wrap
+      dec a
+      sta a:h_nzdecay
+      rts
+@wrap:
+    lda a:APUSHADOW+$C
+    and #$20                    ; the halt bit doubles as the envelope's loop
+    beq @done
+      lda #15
+      sta a:h_nzdecay
+@done:
+    rts
+
 ;;  Reload the sweep divider from the register's period field.
 .a16
 .i16
@@ -3579,6 +3661,36 @@ apu_ifmuted:
     plp
     rtl
 
+;;  A write to $400F: the noise channel's length counter load, which on a NES
+;;  also sets the envelope's start flag so the next quarter-frame restarts it
+;;  at full level.  Nothing is pushed to the SPC700 from here -- this can only
+;;  make the channel louder or longer, never silent, so the frame's own call
+;;  is soon enough.
+.a8
+.i8
+hal_w400f:
+    sta a:APUSHADOW+$0F
+    php
+    pha
+    phx
+    lda #1
+    sta a:h_nzstart
+    lda a:APUSHADOW+$15
+    and #$08
+    beq @out                    ; the channel is disabled: the counter stays 0
+    lda a:APUSHADOW+$0F
+    lsr a
+    lsr a
+    lsr a                       ; the top five bits index the length table
+    tax
+    lda f:apulen + HALFAR,x
+    sta a:h_nzlen
+@out:
+    plx
+    pla
+    plp
+    rtl
+
 ;;  A write to $4015, the channel enable register, pushed to the SPC700 at
 ;;  once instead of waiting for the next frame.
 ;;
@@ -3600,7 +3712,10 @@ hal_w4015:
     sta a:APUSHADOW+$15         ; the store the macro would have done itself
     php
     pha
-    phx
+    and #$08
+    bne :+
+      stz a:h_nzlen             ; clearing a channel's bit clears its length
+:   phx
     phy
     jsr hal_apu_frame
     ply
@@ -3811,6 +3926,29 @@ init_halvars:
     stz a:h_rastercount
     stz a:h_emphasis
     stz a:h_greyscale
+    ;  Audio state.  WRAM comes up arbitrary on a console, and these are read
+    ;  before anything writes them: a stray h_nzlen would sound the noise
+    ;  channel for up to two and a half seconds at boot, and a stray h_swmute
+    ;  would silence a pulse until the driver next changed its note.
+    stz a:h_nzdecay
+    stz a:h_nzdiv
+    stz a:h_nzstart
+    stz a:h_nzlen
+    stz a:h_nztick
+    stz a:h_apufull
+    stz a:h_sfxlast
+    stz a:h_swacc
+    stz a:h_swacc+1
+    stz a:h_swtickn
+    stz a:h_swtickn+1
+    ldx #0
+:   stz a:h_swper,x             ; two bytes per pulse channel, four channels'
+    stz a:h_swseen,x            ;   worth of slots: clear the lot
+    stz a:h_swdiv,x
+    stz a:h_swmute,x
+    inx
+    cpx #4
+    bcc :-
     lda #$11
     sta a:h_tmcur
     sta a:h_tmframestart
