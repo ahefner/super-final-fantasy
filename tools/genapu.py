@@ -117,9 +117,19 @@ def emit(f, name, vals):
 DSP_NOISE = [0,16,21,25,31,42,50,63,83,100,125,167,200,250,333,400,
              500,667,800,1000,1300,1600,2000,2700,3200,4000,5300,6400,
              8000,10700,16000,32000]
-# NES noise pitch, period index 0..15, in Hz (NTSC LFSR clock).
-NES_NOISE = [4811.2,2405.6,1202.8,601.4,300.7,200.5,150.4,120.3,
-             95.3,75.8,50.6,37.9,25.3,18.9,9.4,4.7]
+#  NES noise: the LFSR is clocked at CPU / period, with this period table on
+#  NTSC.  That is the rate to match, because the SNES's noise generator is
+#  also a 15-bit LFSR and its FLG rate is likewise the rate its LFSR is
+#  clocked at, so equal clocks give comparable spectra.
+#
+#  These were previously entered as frequencies about 93 times too low --
+#  4811Hz at the top where the hardware runs at 447kHz -- which mapped every
+#  period onto a far slower DSP rate and made the whole channel sound too low
+#  to be noise.  The top few periods are faster than the DSP can go at all and
+#  clamp at its 32kHz maximum; nothing better is available.
+NES_NOISE_PERIOD = [4, 8, 16, 32, 64, 96, 128, 160,
+                    202, 254, 380, 508, 762, 1016, 2034, 4068]
+NES_NOISE = [CPU / p for p in NES_NOISE_PERIOD]
 
 #  NES length counter table, indexed by the top five bits of $400F.
 NES_LENGTH = [10,254, 20,  2, 40,  4, 80,  6,160,  8, 60, 10, 14, 12, 26, 14,

@@ -783,7 +783,7 @@ apusize_tri:
 
 ; NES noise period -> S-DSP noise rate (bits 4-0 of FLG)
 apunoise:
-    .byte $1A,$17,$14,$11,$0E,$0C,$0B,$0A,$09,$08,$06,$05,$03,$02,$01,$01
+    .byte $1F,$1F,$1F,$1F,$1F,$1E,$1E,$1D,$1C,$1B,$1A,$18,$16,$15,$12,$0F
 
 ; NES length counter, indexed by the top five bits of $400F
 apulen:
