@@ -10,7 +10,11 @@
 set -e
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cp "$HERE/FinalFantasy.sfc" /tmp/fftest.sfc
-if [ -f "$HERE/FinalFantasy.srm" ]; then cp "$HERE/FinalFantasy.srm" /tmp/fftest.srm; fi
+#  ares names its battery file .ram, not .srm.  A stale FinalFantasy.srm sat
+#  beside it and was mistaken for the save once, which wasted a real one.
+for ext in ram srm; do
+  if [ -f "$HERE/FinalFantasy.$ext" ]; then cp "$HERE/FinalFantasy.$ext" "/tmp/fftest.$ext"; fi
+done
 export ROM=/tmp/fftest.sfc
 export ARES_BIN="${ARES_BIN:-/Users/hefner/stuff/FFR/ares/build_macos/desktop-ui/RelWithDebInfo/ares.app/Contents/MacOS/ares}"
 exec python3 "$HERE/tools/drive.py" "$@"

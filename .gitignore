@@ -13,3 +13,4 @@ gen/
 *.srm
 *.sym
 __pycache__/
+*.wav

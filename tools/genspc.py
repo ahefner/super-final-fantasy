@@ -117,9 +117,11 @@ def program():
     #  32767 ceiling: it clips, and not rarely enough to ignore -- it is what
     #  the overworld and town music do.
     #
-    #  $3E leaves that worst case at 32533, just inside the rail, so no
-    #  combination of channels can clip.  It costs about 4.5dB against the
-    #  previous setting and changes no voice's level relative to another.
+    #  $7C leaves that worst case just inside the rail, so no combination of
+    #  channels can clip, and changes no voice's level relative to another.
+    #  (It reads as twice the figure this once was because BRR_SCALE dropped by
+    #  one at the same time and halved every sample: the product, and with it
+    #  the output level, is unchanged.)
     #
     #  The bill is really the unipolar waveforms': half their swing is a DC
     #  offset nobody can hear -- the console AC-couples its output -- but it
@@ -128,8 +130,8 @@ def program():
     #  up instead of clipping.  Nothing here can do that: the SPC700 sets a
     #  volume per voice and the DSP sums them, so the only lever is the level
     #  they are summed at.
-    a.dsp(0x0C, 0x3E)         # MVOL_L
-    a.dsp(0x1C, 0x3E)         # MVOL_R
+    a.dsp(0x0C, 0x7C)         # MVOL_L
+    a.dsp(0x1C, 0x7C)         # MVOL_R
     a.dsp(0x2C, 0x00)         # EVOL_L
     a.dsp(0x3C, 0x00)         # EVOL_R
     a.dsp(0x5C, 0xFF)         # KOFF everything
@@ -248,6 +250,30 @@ def brr_block(nibbles, shift, loop, end):
 #  A BRR block is 16 samples, so a cycle shorter than that is stored as
 #  several cycles filling one block -- the loop is still seamless, the voice
 #  just runs through more than one period per loop.
+#  BRR scale for every waveform here.  Not 12, the maximum, and that matters.
+#
+#  The decoder computes  (nibble << scale) >> 1  and stores the sample doubled,
+#  so at scale 12 a nibble of -8 becomes exactly -32768 -- the floor of the
+#  voice's internal range.  The triangle is the only waveform that uses -8; the
+#  pulses are unipolar, 0 to +7, and reach 87.5%.
+#
+#  That matters because of how the DSP interpolates.  It sums four Gaussian
+#  weighted taps, and after three of them truncates the running total to
+#  sixteen bits -- wrapping, not clamping (gaussian.cpp).  Feed it samples
+#  already at the rail and that partial sum can pass the boundary and come back
+#  with the opposite sign: a full-scale discontinuity in one sample.  It is
+#  heard as clipping, and only while the triangle plays.
+#
+#  Measured in a capture of the town music before this changed: eleven
+#  one-sample jumps above 12000, every one while the triangle sounded and none
+#  at any other time, the largest 16129.
+#
+#  Scale 11 halves every sample -- the waveforms are 4-bit, so no shape is lost,
+#  only headroom gained -- and MVOL doubles to put the level back.  What then
+#  bounds the mix is the clamp at the end of the chain, which saturates
+#  properly, rather than a wrap in the middle of the interpolator.
+BRR_SCALE = 11
+
 SIZES  = [8, 16, 32, 64, 128, 256, 512, 1024]
 DUTIES = [(1, 8), (1, 4), (1, 2), (3, 4)]     # NES duty 0..3
 
@@ -276,7 +302,7 @@ def square(num, den, period):
     high = max(1, period * num // den)
     cycle = [0] * (period - high) + [7] * high
     reps = max(1, 16 // period)              # short cycles fill a whole block
-    return brr_wave(cycle * reps, 12)
+    return brr_wave(cycle * reps, BRR_SCALE)
 
 def triangle(period):
     """The NES triangle: a 32-step staircase 15..0, 0..15, resampled to the
@@ -285,7 +311,7 @@ def triangle(period):
     steps = list(range(15, -1, -1)) + list(range(0, 16))
     cycle = [steps[i * 32 // period] - 8 for i in range(period)]   # -8..+7
     reps = max(1, 16 // period)
-    return brr_wave(cycle * reps, 12)
+    return brr_wave(cycle * reps, BRR_SCALE)
 
 # NES duty 0..3 = 12.5%, 25%, 50%, 75%  (75% is 25% inverted: same tone);
 # waveform 4 is the triangle, voice 2's for good
