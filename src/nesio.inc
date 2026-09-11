@@ -19,6 +19,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .ifndef NESIO_HOME              ; the fixed bank defines these rather than
+;  Called straight from a patched routine rather than through a thunk, because
+;  it replaces a whole loop rather than a single register access.  Every bank
+;  includes this file, so the import belongs here and not in the thunks, which
+;  only the fixed bank assembles.
+.import hal_clearnt
+
 .import nesio_w2000, nesio_w2001, nesio_w2001y                  ; importing them
 .import nesio_r2002, nesio_r2002x, nesio_r2002y, nesio_b2002
 .import nesio_w2005, nesio_w2006, nesio_w2006x, nesio_w2006y

@@ -37,6 +37,7 @@
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
+.export hal_clearnt
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
 
@@ -3545,6 +3546,91 @@ apu_swdiv:
 
 .a8
 .i8
+;;  Clear the left-hand nametable, as bank_0E's ClearNT does it.
+;;
+;;  That routine writes 1024 bytes through $2007 -- 960 zero tiles then 64
+;;  attribute bytes of $FF -- and every one of them went through the whole
+;;  per-write path: a thunk, a long call, five pushes, two mode flips, the
+;;  address decode, the tilemap conversion and the dirty-range update, some 210
+;;  cycles a byte where a NES spends four.  A screen clear on its own is more
+;;  than three frames, and the menus clear the screen constantly: it is most of
+;;  why confirming a name in party creation stalls for a quarter of a second
+;;  with the music stopped.
+;;
+;;  Done in bulk it is nearly free, because the result is uniform.  Every tile
+;;  byte is zero and every attribute byte is $FF, which is palette 3 in all
+;;  four of its quadrants, so every tilemap word comes out the same: tile 0 in
+;;  the low byte, palette 3 shifted into place in the high byte.  So there is
+;;  nothing to convert -- just three fills and the dirty ranges.
+;;
+;;  Exit state matches the loop it replaces: the PPU address has advanced the
+;;  full $400 to $2400 and the $2006 toggle is clear, which is where two
+;;  address writes leave it.
+.a8
+.i8
+hal_clearnt:
+    php
+    ENTER16
+    ;  the raw NES bytes, kept for readback and for attribute conversion
+    ldx #$0000
+    lda #$0000
+@zero:
+    sta f:NESNT,x
+    inx
+    inx
+    cpx #$03C0
+    bcc @zero
+    lda #$FFFF
+@attr:
+    sta f:NESNT,x
+    inx
+    inx
+    cpx #$0400
+    bcc @attr
+    ;  the tilemap: rows 0..29, columns 0..31 of a 64-wide map, so a row is 64
+    ;  bytes of the 128 and the right-hand nametable is left alone
+    ldx #$0000
+    ldy #30
+@row:
+    lda #NT_CLEARWORD
+  .repeat 32
+    sta a:NTSHADOW,x
+    inx
+    inx
+  .endrepeat
+    txa
+    clc
+    adc #64                     ; step over the other nametable's half of the row
+    tax
+    dey
+    beq @rowsdone
+    jmp @row                    ; the unrolled body is past a branch's reach
+@rowsdone:
+    ;  every row is dirty from column 0 to column 31
+    sep #$20
+    .a8
+    ldx #$00
+@dirty:
+    stz a:NTCOLLO,x
+    lda a:NTCOLHI,x
+    cmp #31
+    bcs :+
+      lda #31
+      sta a:NTCOLHI,x
+:   inx
+    cpx #30
+    bcc @dirty
+    lda #1
+    sta a:h_ntdirty
+    stz a:h_latch               ; two address writes leave the toggle clear
+    rep #$20
+    .a16
+    lda #$2400                  ; $2000 plus the $400 bytes written
+    sta a:h_addr
+    LEAVE16
+    plp
+    rtl
+
 ;;  A write to a pulse or triangle high-timer register, pushed to the SPC700
 ;;  at once if it has just silenced the channel.
 ;;

@@ -1,0 +1,41 @@
+--- OLD
+ClearNT:
+    LDA $2002     ; reset PPU toggle
+    LDA #$20
+    STA $2006
+    LDA #$00
+    STA $2006     ; set PPU addr to $2000 (start of NT)
+    LDY #$00      ; zero out A and Y
+    TYA           ;   Y will be the low byte of our counter
+    LDX #$03      ; X=3 -- this is the high byte of our counter (loop $0300 times)
+
+@Loop:            ; first loop clears the first $0300 bytes of the NT
+      STA $2007
+      INY
+      BNE @Loop      ; once Y wraps
+        DEX          ;  decrement X
+        BNE @Loop    ;  and stop looping once X expires (total $0300 iterations)
+
+@Loop2:           ; next loop clears the next $00C0 (up to the attribute table)
+      STA $2007
+      INY
+      CPY #$C0       ; loop until Y reaches #$C0
+      BCC @Loop2
+
+
+    LDA #$FF      ; A=FF (this is what we will fill attribute table with
+@Loop3:           ;  3rd and final loop fills the last $40 bytes (attribute table) with FF
+      STA $2007
+      INY
+      BNE @Loop3
+
+    RTS
+
+--- NEW
+ClearNT:
+    ;  1024 writes through $2007 became three fills; see hal_clearnt.  The
+    ;  result is uniform -- tile 0 everywhere, attribute $FF everywhere -- so
+    ;  there is nothing to convert byte by byte.  Same exit state: the PPU
+    ;  address has advanced to $2400 and the toggle is clear.
+    JSL hal_clearnt + HALFAR
+    RTS
