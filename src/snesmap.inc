@@ -400,6 +400,8 @@ NESZP_SQ2SFX    = $007E         ; the game's own "pulse 2 is busy with a sound
                                 ;   effect for N more frames" countdown
 h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
+h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
+                                ;   own, so it may advance the sweep clock
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

@@ -36,7 +36,7 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
-.export hal_w4015
+.export hal_w4015, hal_w4003, hal_w4007, hal_w400b
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
 
@@ -1193,6 +1193,8 @@ hal_waitvbl:
     pha
     phx
     phy
+    lda #1
+    sta a:h_apufull             ; this is the frame's own call: tick the sweep
     jsr hal_apu_frame           ; this frame's sound, sent before the wait so
                                 ;   it costs idle time rather than vblank
   .ifdef SCROLLSTAT
@@ -3102,19 +3104,31 @@ hal_apu_frame:
     ;  the remainder between frames and the ticks fall 1,2,1,2,2 -- eight every
     ;  five frames.  Running two a frame, as this first did, sweeps a quarter
     ;  too fast, which is audible beside a console.
+    ;  Only the call made once per frame by hal_waitvbl advances this.  The
+    ;  register hooks below call hal_apu_frame too, to get a silence out
+    ;  without waiting for the frame, and if those also ticked the sweep it
+    ;  would run fast -- the very fault that was just corrected.
+    lda a:h_apufull
+    and #$00FF
+    bne @fullframe
+      stz a:h_swtickn
+      bra @accdone
+@fullframe:
+    stz a:h_apufull
     lda a:h_swacc
     clc
     adc #96
     ldx #0
 @acctick:
     cmp #60
-    bcc @accdone
+    bcc @accstore
     sbc #60                     ; carry is set: the cmp above said A was larger
     inx
     bra @acctick
-@accdone:
+@accstore:
     sta a:h_swacc
     stx a:h_swtickn
+@accdone:
     sep #$20
     .a8
     .i16
@@ -3512,6 +3526,59 @@ apu_swdiv:
 
 .a8
 .i8
+;;  A write to a pulse or triangle high-timer register, pushed to the SPC700
+;;  at once if it has just silenced the channel.
+;;
+;;  Zeroing a channel's timer is how the driver silences it -- Music_NewSong
+;;  writes $4002/3, $4006/7, $400A/B and then the volumes, and its own comment
+;;  says the timer writes are what "in effect silences the squares".  They do,
+;;  on a NES, because the hardware mutes a pulse whose timer is under 8 the
+;;  instant it is written.  Here it only took effect at the next frame, and at
+;;  a transition the next frame can be twenty away, so the note hung across
+;;  the black gap.  Some transitions also write $4015 and were already caught
+;;  by the hook below; those that only zero timers were not, which is why the
+;;  fault came and went depending on which way the screen changed.
+;;
+;;  The check is made here rather than in the macro: the banks have no room,
+;;  and this way the expensive part runs only when a channel actually goes
+;;  quiet, not on every note the driver plays.
+.a8
+.i8
+hal_w4003:
+    sta a:APUSHADOW+$03
+    php
+    pha
+    phx
+    ldx #$02
+    bra apu_ifmuted
+hal_w4007:
+    sta a:APUSHADOW+$07
+    php
+    pha
+    phx
+    ldx #$06
+    bra apu_ifmuted
+hal_w400b:
+    sta a:APUSHADOW+$0B
+    php
+    pha
+    phx
+    ldx #$0A
+apu_ifmuted:
+    and #$07                    ; the high three bits of the eleven-bit timer
+    bne @out                    ; set at all means 256 or more: still sounding
+    lda a:APUSHADOW,x           ; low byte; under 8 a NES mutes the channel
+    cmp #8
+    bcs @out
+      phy
+      jsr hal_apu_frame
+      ply
+@out:
+    plx
+    pla
+    plp
+    rtl
+
 ;;  A write to $4015, the channel enable register, pushed to the SPC700 at
 ;;  once instead of waiting for the next frame.
 ;;
