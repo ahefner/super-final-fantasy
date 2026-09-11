@@ -36,6 +36,7 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
+.export hal_w4015
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
 
@@ -3511,6 +3512,36 @@ apu_swdiv:
 
 .a8
 .i8
+;;  A write to $4015, the channel enable register, pushed to the SPC700 at
+;;  once instead of waiting for the next frame.
+;;
+;;  Sound is otherwise sent from hal_waitvbl, once per frame, which is fine
+;;  while the game is drawing frames.  It is not fine across a transition: the
+;;  game blacks the screen, writes $4015 = 0 to silence every channel, and
+;;  then spends a dozen frames loading CHR and filling nametables without
+;;  asking for vblank once.  Nothing pushed the silence in all that time, so
+;;  the SPC700 held the last note through the gap -- audible as a note hanging
+;;  over the middle of the screen wipe, where a console is silent, because a
+;;  console's APU takes the write the instant it is made.
+;;
+;;  Hooked here rather than at the writes to the timer or volume registers
+;;  because this is the one that means "stop": it is written once at a
+;;  transition, where those are written constantly by the music driver.
+.a8
+.i8
+hal_w4015:
+    sta a:APUSHADOW+$15         ; the store the macro would have done itself
+    php
+    pha
+    phx
+    phy
+    jsr hal_apu_frame
+    ply
+    plx
+    pla
+    plp
+    rtl
+
 ;;  Hand the packet on the data ports to the SPC700 and wait for it to be
 ;;  taken.  Called with A eight bits wide and in either index width, so the
 ;;  bounded-wait counter lives in memory rather than an index register.
