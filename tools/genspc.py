@@ -176,16 +176,34 @@ def program():
     a.jmp("ack")
     a.label("sounding")
     a.mov_a_dp(CMD)
-    a.and_a_imm(0x0F)         # NES 4-bit volume.
-    a.asl_a()                 # x2 for everything...
-    a.mov_dp_a(VOL)
+    #  One NES nibble, scaled per voice, because the three kinds of voice do
+    #  not arrive at the same amplitude.  Our pulses are unipolar and peak at
+    #  14336, the triangle is bipolar and peaks at 16384, and the noise is not
+    #  a waveform of ours at all -- the DSP's own generator, which spans the
+    #  whole sixteen-bit range.  Left at the same scale the noise comes out
+    #  four times a pulse where a NES puts it at 1.17, which is audible as the
+    #  noise channel sitting far too high in the mix.
+    #
+    #  The targets are the NES's non-linear mixer at full level: a pulse at
+    #  0.1494, the triangle at 0.2464 and noise at 0.1744, or 1.65 and 1.17
+    #  times a pulse.  Against those, x4 / x3 / x1 gives 1.50 and 1.00 -- the
+    #  triangle a little under and the noise a little under, both inside a
+    #  decibel and a half, which is as close as whole multiples of a four-bit
+    #  nibble reach.
+    #
+    #  It also settles the last of the headroom: the noise at x4 put the
+    #  worst case at 44619 against a 32767 rail, and at x1 it is 29746.
+    a.and_a_imm(0x0F)         # NES 4-bit volume
+    a.mov_dp_a(VOL)           # x1 -- which is the noise voice's share
+    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("volset")
     a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("trivol")
-    a.mov_a_dp(VOL); a.asl_a(); a.mov_dp_a(VOL)   # ...x4 for the pulses and
-    a.bra("volset")                               # noise: a unipolar wave
-    a.label("trivol")                             # swings half as far for the
-    a.mov_a_dp(VOL); a.lsr_a(); a.mov_dp_a(PHI)   # same peak, so this restores
-    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)     # the level that was right
-    a.mov_dp_a(VOL)                               # x3 for the bipolar triangle
+    a.mov_a_dp(VOL); a.asl_a(); a.asl_a()         # x4 for the pulses: unipolar
+    a.mov_dp_a(VOL)                               #   swings half as far
+    a.bra("volset")
+    a.label("trivol")
+    a.mov_a_dp(VOL); a.asl_a(); a.mov_dp_a(PHI)   # x3 for the triangle
+    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)
+    a.mov_dp_a(VOL)
     a.label("volset")
     # VOL_L, VOL_R
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
