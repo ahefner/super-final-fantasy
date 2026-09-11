@@ -411,6 +411,8 @@ h_nzdiv         = HAL_VARS+$9D  ; quarter-frames until the level steps
 h_nzstart       = HAL_VARS+$9E  ; a $400F write restarts the envelope
 h_nzlen         = HAL_VARS+$9F  ; length counter; at zero the channel is silent
 h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
+h_tintbase      = HAL_VARS+$A2  ; 2 bytes: emphasis<<7, the offset of this
+                                ;   emphasis mode's block in nespal_snes
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

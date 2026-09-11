@@ -1459,6 +1459,22 @@ flush_pal:
     rts
 :   stz a:h_paldirty
     ENTER16
+    ;  Which of the palette's eight emphasis blocks to read from.  The tint is
+    ;  a fixed function of the emphasis bits and the colour, so it is baked
+    ;  into the table by tools/genpal.py rather than worked out per entry: the
+    ;  arithmetic used to cost some 38000 cycles a frame during the battle
+    ;  transition, over four times a vblank, and the overrun held forced blank
+    ;  across the top forty-odd scanlines of the picture.
+    lda a:h_emphasis
+    and #$0007
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; 64 entries of two bytes each
+    sta a:h_tintbase
     ldy #0
 @loop:
     ;  Only re-send entries that actually moved.  The intro's fade animates
@@ -1540,9 +1556,10 @@ flush_pal:
     .a16
     and #$003F
     asl a
+    clc
+    adc a:h_tintbase            ; this emphasis mode's block, already tinted
     tax
     lda f:nespal_snes + HALFAR,x
-    jsr apply_tint
     sep #$20
     .a8
     sta a:CGDATA
@@ -1564,93 +1581,13 @@ flush_pal:
     rts
 
 
-;;  Colour emphasis.  Setting one of the NES's three emphasis bits dims the
-;;  *other* two channels to roughly three quarters -- which is how the battle
-;;  screen flashes.  The SNES has no equivalent switch, so the tint is baked
-;;  into CGRAM instead, and the palette is marked dirty whenever the bits move.
-.a16
-.i16
-apply_tint:                     ; A = BGR555 colour -> A, tinted
-    pha
-    lda a:h_emphasis
-    and #$00FF                  ; mask off the neighbouring variable
-    bne :+
-      pla
-      rts
-:   pla
-    sta a:h_t3
-
-    and #$001F                  ; red, dimmed if green or blue is emphasised
-    sta a:h_t4
-    lda a:h_emphasis
-    and #$0006
-    beq :+
-      jsr dim_channel
-:   lda a:h_t4
-    sta a:h_t5
-
-    lda a:h_t3                  ; green, dimmed if red or blue is emphasised
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    and #$001F
-    sta a:h_t4
-    lda a:h_emphasis
-    and #$0005
-    beq :+
-      jsr dim_channel
-:   lda a:h_t4
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    ora a:h_t5
-    sta a:h_t5
-
-    lda a:h_t3                  ; blue, dimmed if red or green is emphasised
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    and #$001F
-    sta a:h_t4
-    lda a:h_emphasis
-    and #$0003
-    beq :+
-      jsr dim_channel
-:   lda a:h_t4
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a
-    ora a:h_t5
-    rts
-
-dim_channel:                    ; h_t4 -= h_t4 >> 2
-    lda a:h_t4
-    lsr a
-    lsr a
-    sta a:h_t0
-    lda a:h_t4
-    sec
-    sbc a:h_t0
-    sta a:h_t4
-    rts
+;;  Colour emphasis is not applied here any more.  Setting one of the NES's
+;;  three emphasis bits dims the *other* two channels to roughly three
+;;  quarters, which is how the battle screen flashes; that used to be computed
+;;  for every palette entry on every frame the bits moved.  It is a fixed
+;;  function of the emphasis bits and the colour index, so tools/genpal.py now
+;;  bakes all eight variants into nespal_snes and the flush just reads the
+;;  right block.  See h_tintbase in flush_pal.
 
 ; --- pattern tables -----------------------------------------------------
 flush_chr:
