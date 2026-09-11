@@ -3091,7 +3091,29 @@ hal_apu_frame:
   .endif
     clc
     xce                         ; native: the timer and the table index are 16-bit
-    rep #$10
+    rep #$30
+    .a16
+    .i16
+    ;  How many half-frame clocks fall in this video frame.  The game writes
+    ;  $C0 to $4017 (bank_0F: "alternative pAPU frame counter method"), which
+    ;  selects the five-step sequence, and that clocks the sweep at 96Hz where
+    ;  the four-step mode would give 120Hz.  96 does not divide 60, so carry
+    ;  the remainder between frames and the ticks fall 1,2,1,2,2 -- eight every
+    ;  five frames.  Running two a frame, as this first did, sweeps a quarter
+    ;  too fast, which is audible beside a console.
+    lda a:h_swacc
+    clc
+    adc #96
+    ldx #0
+@acctick:
+    cmp #60
+    bcc @accdone
+    sbc #60                     ; carry is set: the cmp above said A was larger
+    inx
+    bra @acctick
+@accdone:
+    sta a:h_swacc
+    stx a:h_swtickn
     sep #$20
     .a8
     .i16
@@ -3349,16 +3371,47 @@ apu_sweep:
     lda a:APUSHADOW+1,y
     and #$00FF
     sta a:h_swreg               ; EPPP NSSS
+    ;  Has the CPU set this channel going again?
+    ;
+    ;  A period differing from the one last seen is one answer, but not a
+    ;  complete one: an effect replayed before it has finished writes the very
+    ;  same register bytes, and a shadow that keeps values cannot tell that
+    ;  from no write at all.  The menu chirp does exactly this -- it sounded
+    ;  once and then stayed quiet however fast the cursor moved.
+    ;
+    ;  The game keeps its own record though.  Everything that takes pulse 2
+    ;  loads sq2_sfx with its length in frames and the music driver counts it
+    ;  down, so a value that has gone *up* since last frame is a new effect.
+    ;  Reading it here costs nothing, where detecting the register write would
+    ;  have meant extra code at every write site in banks that have no room.
+    ;  Every sweep in this game is on pulse 2; there is no sq1_sfx.
+    cpx #2
+    bne @byperiod
+    lda a:NESZP_SQ2SFX
+    and #$00FF
+    cmp a:h_sfxlast
+    beq @samesfx
+    bcc @samesfx
+      sta a:h_sfxlast
+      bra @reload
+@samesfx:
+    sta a:h_sfxlast
+@byperiod:
     lda a:APUSHADOW+2,y
     and #$07FF
     cmp a:h_swseen,x
     beq @running
-      sta a:h_swseen,x          ; a new period from the CPU: take it, and
-      sta a:h_swper,x           ;   reload the divider the way $4003 does
-      jsr apu_swdiv
+@reload:
+    lda a:APUSHADOW+2,y
+    and #$07FF
+    sta a:h_swseen,x
+    sta a:h_swper,x
+    jsr apu_swdiv
 @running:
-    lda #2
-    sta a:h_swticks
+    lda a:h_swtickn             ; one frame counter serves both channels, so
+    sta a:h_swticks             ;   the tick count is worked out once a frame
+    bne @tick
+    jmp @noticks                ; out of a branch's reach past the tick body
 @tick:
     ;  Target and mute are recomputed every half-frame, whether or not the
     ;  divider fires and whether or not the sweep is enabled.  Silencing a
@@ -3432,6 +3485,16 @@ apu_sweep:
     jmp @tick                   ; the tick body is past a branch's reach
 @out:
     rts
+@noticks:
+    ;  No half-frame fell in this video frame.  The period stays put, but the
+    ;  channel is still silent if it has already run past either end.
+    stz a:h_swmute,x
+    lda a:h_swper,x
+    cmp #8
+    bcs :+
+      lda #1
+      sta a:h_swmute,x
+:   rts
 
 ;;  Reload the sweep divider from the register's period field.
 .a16

@@ -394,6 +394,12 @@ h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
 h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
 h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
 h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
+h_sfxlast       = HAL_VARS+$92  ; last frame's sq2_sfx, to spot an effect
+                                ;   starting again with identical register bytes
+NESZP_SQ2SFX    = $007E         ; the game's own "pulse 2 is busy with a sound
+                                ;   effect for N more frames" countdown
+h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
+h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_dacount       = HAL_VARS+$6C  ; hal_drawattr: attribute bytes to update
 h_clcnt         = HAL_VARS+$66  ; hal_chrload: bytes still to move...
 h_clidx         = HAL_VARS+$68  ; ...where it is reading from...

@@ -106,16 +106,30 @@ def program():
     a.mov_a_dp(0xF4); a.mov_dp_a(LAST)
     # S-DSP global set-up
     a.dsp(0x6C, 0x20)         # FLG: reset off, mute off, echo writes disabled
-    #  Main volume, backed off from full scale.  The pulses are unipolar (see
-    #  square()), so each one contributes a DC offset that rises and falls with
-    #  its envelope, and those offsets all push the same way instead of
-    #  cancelling as a bipolar wave's would.  That costs headroom the AC signal
-    #  used to have: at full MVOL the mix peaked at 32511 against a 32767
-    #  ceiling.  Backing MVOL off scales every voice together, so the balance
-    #  that was settled on is untouched.  (The DC itself is not audible -- the
-    #  console AC-couples its output, as does anything it is plugged into.)
-    a.dsp(0x0C, 0x68)         # MVOL_L
-    a.dsp(0x1C, 0x68)         # MVOL_R
+    #  Main volume, backed off far enough that the mix cannot clip.
+    #
+    #  The pulses are unipolar (see square()), so every voice's offset pushes
+    #  the same way instead of partly cancelling as bipolar waves would, and
+    #  the worst case is just the sum of all four peaks.  Measured against the
+    #  emulator's own output, one unit of a voice's VOL is worth about 242 at
+    #  MVOL $68, and VOL reaches 60+60+45+60 = 225 with both pulses loud, the
+    #  triangle under them and a noise effect on top.  That is 54572 against a
+    #  32767 ceiling: it clips, and not rarely enough to ignore -- it is what
+    #  the overworld and town music do.
+    #
+    #  $3E leaves that worst case at 32533, just inside the rail, so no
+    #  combination of channels can clip.  It costs about 4.5dB against the
+    #  previous setting and changes no voice's level relative to another.
+    #
+    #  The bill is really the unipolar waveforms': half their swing is a DC
+    #  offset nobody can hear -- the console AC-couples its output -- but it
+    #  occupies headroom all the same.  A NES has the same shape of problem
+    #  and answers it with a non-linear mixer that compresses as channels pile
+    #  up instead of clipping.  Nothing here can do that: the SPC700 sets a
+    #  volume per voice and the DSP sums them, so the only lever is the level
+    #  they are summed at.
+    a.dsp(0x0C, 0x3E)         # MVOL_L
+    a.dsp(0x1C, 0x3E)         # MVOL_R
     a.dsp(0x2C, 0x00)         # EVOL_L
     a.dsp(0x3C, 0x00)         # EVOL_R
     a.dsp(0x5C, 0xFF)         # KOFF everything
