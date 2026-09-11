@@ -761,53 +761,45 @@ nt_attr:
       rep #$20
       .a16
       jmp @nextrow              ; neither: past a branch's reach
-:   rep #$20
-    .a16
-    lda a:h_t6
-    sta a:h_t0                  ; h_t0 = running cell offset
-    stz a:h_t7                  ; h_t7 = dx
-@colloop:
-    lda a:h_t7
-    lsr a                       ; dx >> 1 selects the left or right palette
-    tax
+:   ;  The row's four cells, unrolled, with the running offset in Y and the
+    ;  accumulator eight bits wide from start to finish.
+    ;
+    ;  This used to keep the offset and the column counter in memory and flip
+    ;  the accumulator's width twice per cell.  That is sixteen cells for every
+    ;  attribute byte the game writes, and attribute writes turned out to be
+    ;  the single largest cost in a screen redraw -- 36% of one measured at
+    ;  eighteen frames, more than the tile writes themselves.  Holding the
+    ;  offset in an index register costs nothing: Y is not used across this
+    ;  loop, and its width is set independently of the accumulator's.
+    ;
+    ;  Only a cell that actually changes is marked dirty.  Marking all four
+    ;  would widen a step's update to four columns, and column_flush would then
+    ;  run four times: twelve transfers and 47 scanlines against a vblank of
+    ;  about 37.
+    rep #$10
+    .i16
+    ldy a:h_t6
     sep #$20
     .a8
-    lda a:h_t8,x                ; did this cell's quadrant change at all?
-    bne @docell
-      rep #$20
-      .a16
-      bra @advance
-@docell:
-    ldy a:h_t0
-    lda a:h_t5,x
-    ;  Only the newly revealed column actually changes palette; the other three
-    ;  already hold this value.  Marking them dirty anyway would widen a step's
-    ;  update to four columns, and column_flush would then run four times:
-    ;  twelve transfers and 47 scanlines against a vblank of about 37.
-    cmp a:NTSHADOW,y
-    beq @same
-    sta a:NTSHADOW,y
+    stz a:h_col+1               ; the column store below is eight bits wide now,
+                                ;   so clear the high byte the old one wrote
+  .repeat 4, dx
+    lda a:h_t8 + (dx >> 1)      ; did this cell's quadrant change at all?
+    beq :+
+    lda a:h_t5 + (dx >> 1)
+    cmp a:NTSHADOW,y            ; already this palette?
+    beq :+
+      sta a:NTSHADOW,y
+      lda a:h_t4
+      clc
+      adc #dx
+      sta a:h_col
+      jsr mark_dirty8           ; the eight-bit entry: no width to restore
+:   iny
+    iny                         ; next cell along the row
+  .endrepeat
     rep #$20
     .a16
-    lda a:h_t4                  ; mark_dirty wants the cell's own column, so
-    clc                         ;   only a cell that changed pays for it
-    adc a:h_t7
-    sta a:h_col
-    jsr mark_dirty
-    bra @advance
-@same:
-    rep #$20
-    .a16
-@advance:
-    lda a:h_t0
-    clc
-    adc #2                      ; next cell along the row
-    sta a:h_t0
-    lda a:h_t7
-    inc a
-    sta a:h_t7
-    cmp #4
-    bcc @colloop
 @nextrow:
     lda a:h_t6
     clc
@@ -859,6 +851,18 @@ pal_write:
 ;  column span.  A per-row span is the right granularity here because the game
 ;  updates the screen a row or a column at a time as the map scrolls, and a
 ;  single-column update must not cost a full-screen transfer.
+;;  Two entry points, each with its own copy of the work rather than one
+;;  calling the other.  mark_dirty takes and leaves a sixteen-bit accumulator,
+;;  which is what the tile path wants; mark_dirty8 is for a caller already in
+;;  eight bits, and nt_attr calls it for every cell whose palette moves.
+;;
+;;  The duplication is deliberate.  Written as a wrapper round the eight-bit
+;;  entry it cost the tile path an extra call and return on every write, and
+;;  that path runs often enough that the two together measured worse than the
+;;  version with no eight-bit entry at all.  A dozen bytes is the cheaper
+;;  trade.
+.a16
+.i16
 mark_dirty:
     ldx a:h_row
     sep #$20
@@ -875,6 +879,22 @@ mark_dirty:
     sta a:h_ntdirty
     rep #$20
     .a16
+    rts
+
+.a8
+.i16
+mark_dirty8:
+    ldx a:h_row
+    lda a:h_col
+    cmp a:NTCOLLO,x
+    bcs :+
+      sta a:NTCOLLO,x
+:   lda a:h_col
+    cmp a:NTCOLHI,x
+    bcc :+
+      sta a:NTCOLHI,x
+:   lda #1
+    sta a:h_ntdirty
     rts
 
 bump_addr:
