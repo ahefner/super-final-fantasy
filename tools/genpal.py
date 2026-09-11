@@ -1,80 +1,74 @@
 #!/usr/bin/env python3
 """
-genpal.py -- turn the NES palette out of tenes/nespal.c into a 15-bit BGR
-lookup table for CGRAM.  Using the emulator's own table keeps the SNES port
-looking like the NES build does on this machine.
+genpal.py -- the NES palette, and its colour-emphasis variants, as a CGRAM
+lookup table in src/nespal.inc.
+
+The base colours are below, in 8-bit RGB, and they are the whole input: this
+script reads nothing and depends on nothing.  They came from tenes' nespal.c,
+so the port looks like the NES build did on the machine it was compared
+against, but that file is no longer in the tree and there is no reason to keep
+reaching for it -- sixty-four constants are better held here than fetched.
+
+What the script adds is the emphasis.  Setting one of the NES's three emphasis
+bits dims the *other* two channels to about three quarters; the battle
+transition cycles all eight modes to make the screen flash.  That is a fixed
+function of the emphasis bits and the colour index, so all eight variants are
+emitted here rather than worked out in the flush, where deriving them cost
+more than a vblank and left a black band across the top of the picture.
 """
-import os, re, sys
+import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-SRC  = os.path.join(os.path.dirname(ROOT), "FF1Disassembly", "tenes", "nespal.c")
-DST  = os.path.join(ROOT, "src", "nespal.inc")
+DST  = os.path.join(os.path.dirname(HERE), "src", "nespal.inc")
 
-#  The base palette comes from the emulator's own table when it is there, and
-#  otherwise from the committed output.  The first 64 entries of that output
-#  are the untinted block, so re-running this without the upstream source
-#  reproduces exactly what it produced before -- which keeps it idempotent and
-#  usable on a machine that has not got tenes checked out.
-def base_from_source():
-    text = open(SRC).read()
-    body = text[text.index("{") + 1 : text.index("}")]
-    body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
-    v = [int(x) for x in re.findall(r"\d+", body)]
-    if len(v) != 64 * 3:
-        sys.exit("expected 192 components, got %d" % len(v))
-    return [(v[i*3] >> 3, v[i*3+1] >> 3, v[i*3+2] >> 3) for i in range(64)]
+#  The 2C02's 64 colours, 8-bit RGB.
+NESPAL = [
+    (117,117,117), ( 39, 27,143), (  0,  0,171), ( 71,  0,159),
+    (143,  0,119), (171,  0, 19), (167,  0,  0), (127, 11,  0),
+    ( 67, 47,  0), (  0, 71,  0), (  0, 81,  0), (  0, 63, 23),
+    ( 27, 63, 95), (  0,  0,  0), (  0,  0,  0), (  0,  0,  0),
+    (188,188,188), (  0,115,239), ( 35, 59,239), (131,  0,243),
+    (191,  0,191), (231,  0, 91), (219, 43,  0), (203, 79, 15),
+    (139,115,  0), (  0,151,  0), (  0,171,  0), (  0,147, 59),
+    (  0,131,139), ( 32, 32, 32), (  0,  0,  0), (  0,  0,  0),
+    (255,255,255), ( 63,191,255), ( 95,151,255), (167,139,253),
+    (247,123,255), (255,119,183), (255,119, 99), (255,155, 59),
+    (243,191, 63), (131,211, 19), ( 79,223, 75), ( 88,248,152),
+    (  0,235,219), ( 86, 86, 86), (  0,  0,  0), (  0,  0,  0),
+    (255,255,255), (171,231,255), (199,215,255), (215,203,255),
+    (255,199,255), (255,199,219), (255,191,179), (255,219,171),
+    (255,231,163), (227,255,163), (171,243,191), (179,255,207),
+    (159,255,243), (200,200,200), (  0,  0,  0), (  0,  0,  0),
+]
+assert len(NESPAL) == 64, len(NESPAL)
 
-def base_from_committed():
-    words = []
-    for line in open(DST):
-        line = line.split(";")[0]
-        m = re.search(r"\.word\s+\$([0-9A-Fa-f]{4})", line)
-        if m:
-            words.append(int(m.group(1), 16))
-    if len(words) < 64:
-        sys.exit("genpal: %s holds %d entries, need at least 64" % (DST, len(words)))
-    return [(w & 0x1F, (w >> 5) & 0x1F, (w >> 10) & 0x1F) for w in words[:64]]
 
-if os.path.exists(SRC):
-    base = base_from_source()
-elif os.path.exists(DST):
-    print("genpal: %s is gone; rebuilding from the committed %s"
-          % (os.path.relpath(SRC), os.path.basename(DST)))
-    base = base_from_committed()
-else:
-    sys.exit("genpal: %s not found and no committed table to fall back on" % SRC)
-
-#  Eight copies of the palette, one per colour-emphasis mode, rather than one
-#  copy tinted at run time.
-#
-#  Setting one of the NES's three emphasis bits dims the *other* two channels
-#  to about three quarters, and the battle transition cycles through all eight
-#  modes to make the screen flash.  Doing that arithmetic in the flush cost
-#  some 38000 cycles a frame -- more than four times a vblank -- so the flush
-#  ran on into the picture and held forced blank across the top forty-odd
-#  scanlines.  That is a black band over the top fifth of the screen for the
-#  whole of the transition.
-#
-#  The tint is a pure function of the emphasis bits and the colour index, so
-#  it belongs here.  512 entries is a kilobyte of ROM and turns the flush's
-#  inner loop into one indexed load.
 def dim(v):
-    return v - (v >> 2)          # the same three-quarters as the old apply_tint
+    """Three quarters, the way the hardware attenuates an unemphasised
+    channel, on the 5-bit value CGRAM actually holds."""
+    return v - (v >> 2)
 
-out = ["; GENERATED by tools/genpal.py from tenes/nespal.c -- do not edit.",
-       "; NES colour index -> SNES 15-bit BGR, one word per entry.",
-       "; Eight blocks of 64: emphasis 0 first, then one block per mode, where",
-       "; bit 0 is red, bit 1 green and bit 2 blue.  Index (emph << 6) | colour.",
-       ""]
-for emph in range(8):
-    who = "".join(c for c, b in (("R", 1), ("G", 2), ("B", 4)) if emph & b)
-    out.append("    ; emphasis %d %s" % (emph, who or "(none)"))
-    for i, (r5, g5, b5) in enumerate(base):
-        r, g, b = r5, g5, b5
-        if emph & 0b110: r = dim(r)       # red dims when green or blue is on
-        if emph & 0b101: g = dim(g)       # green, when red or blue is
-        if emph & 0b011: b = dim(b)       # blue, when red or green is
-        out.append("    .word $%04X    ; $%02X" % (b << 10 | g << 5 | r, i))
-open(DST, "w").write("\n".join(out) + "\n")
-print("wrote %s (8 x 64 entries)" % DST)
+
+def main():
+    out = ["; GENERATED by tools/genpal.py -- do not edit.",
+           "; NES colour index -> SNES 15-bit BGR, one word per entry.",
+           "; Eight blocks of 64: emphasis 0 first, then one block per mode,",
+           "; where bit 0 is red, bit 1 green and bit 2 blue.  The flush reads",
+           "; entry (emphasis << 6) | colour; see h_tintbase in flush_pal.",
+           ""]
+    for emph in range(8):
+        who = "".join(c for c, b in (("R", 1), ("G", 2), ("B", 4)) if emph & b)
+        out.append("    ; emphasis %d %s" % (emph, who or "(none)"))
+        for i, (r, g, b) in enumerate(NESPAL):
+            r5, g5, b5 = r >> 3, g >> 3, b >> 3
+            if emph & 0b110: r5 = dim(r5)   # red dims when green or blue is on
+            if emph & 0b101: g5 = dim(g5)   # green, when red or blue is
+            if emph & 0b011: b5 = dim(b5)   # blue, when red or green is
+            out.append("    .word $%04X    ; $%02X  %3d,%3d,%3d"
+                       % (b5 << 10 | g5 << 5 | r5, i, r, g, b))
+    open(DST, "w").write("\n".join(out) + "\n")
+    print("wrote %s (8 x 64 entries)" % DST)
+
+
+if __name__ == "__main__":
+    main()
