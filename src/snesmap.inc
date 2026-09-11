@@ -414,6 +414,9 @@ h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
 ;  The tilemap word ClearNT leaves everywhere: tile 0, and the palette number
 ;  from an attribute byte of $FF, which is 3 in each quadrant.  nt_attr stores
 ;  a palette as (bits & 3) << 2 in the high byte, so that is $0C.
+h_fillcnt       = HAL_VARS+$A4  ; hal_ntfill: bytes left to write
+h_fillcol       = HAL_VARS+$A6  ; ...and the column the run started at
+
 NT_CLEARWORD    = $0C00
 
 h_tintbase      = HAL_VARS+$A2  ; 2 bytes: emphasis<<7, the offset of this

@@ -20,10 +20,11 @@
 
 .ifndef NESIO_HOME              ; the fixed bank defines these rather than
 ;  Called straight from a patched routine rather than through a thunk, because
-;  it replaces a whole loop rather than a single register access.  Every bank
-;  includes this file, so the import belongs here and not in the thunks, which
-;  only the fixed bank assembles.
-.import hal_clearnt
+;  each replaces a whole loop rather than a single register access.  This block
+;  is skipped in the fixed bank, which defines the thunks rather than importing
+;  them, so anything the fixed bank's own patches call is imported in
+;  nesio_thunks.inc instead -- hal_ntfill is, for the box rows.
+.import hal_clearnt, hal_ntfill
 
 .import nesio_w2000, nesio_w2001, nesio_w2001y                  ; importing them
 .import nesio_r2002, nesio_r2002x, nesio_r2002y, nesio_b2002

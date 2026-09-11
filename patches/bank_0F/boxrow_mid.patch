@@ -1,0 +1,63 @@
+--- OLD
+DrawBoxRow_Mid:
+    JSR MenuCondStall  ; do the conditional stall
+    LDA $2002          ; reset PPU toggle
+    LDA ppu_dest+1
+    STA $2006          ; Load up desired PPU address
+    LDA ppu_dest
+    STA $2006
+    LDX tmp+10         ; Load adjusted width into X (for loop counter)
+    LDA #$FA           ; FA = L border tile
+    STA $2007          ;   draw left border
+
+    LDA #$FF           ; FF = inner box body tile
+@Loop:
+      STA $2007        ;  draw box body tile
+      DEX              ;    until X expires
+      BNE @Loop
+
+    LDA #$FB           ; FB = R border tile
+    STA $2007          ;  draw right border
+
+    LDA ppu_dest       ; Add #$20 to PPU address so that it points to the next row
+    CLC
+    ADC #$20
+    STA ppu_dest
+    LDA ppu_dest+1
+    ADC #0             ; Add 0 to catch carry
+    STA ppu_dest+1
+
+    RTS
+
+--- NEW
+DrawBoxRow_Mid:
+    JSR MenuCondStall  ; do the conditional stall
+    LDA $2002          ; reset PPU toggle
+    LDA ppu_dest+1
+    STA $2006          ; Load up desired PPU address
+    LDA ppu_dest
+    STA $2006
+    LDX tmp+10         ; Load adjusted width into X (for loop counter)
+    LDA #$FA           ; FA = L border tile
+    STA $2007          ;   draw left border
+
+    LDA #$FF           ; FF = inner box body tile
+    ;  The run of identical tiles goes to the HAL as one call rather than
+    ;  a byte at a time through $2007; see hal_ntfill.  X still holds the
+    ;  width on entry, and is put back to zero afterwards so the exit
+    ;  state matches the loop this replaces.
+    JSL hal_ntfill + HALFAR
+    LDX #$00
+
+    LDA #$FB           ; FB = R border tile
+    STA $2007          ;  draw right border
+
+    LDA ppu_dest       ; Add #$20 to PPU address so that it points to the next row
+    CLC
+    ADC #$20
+    STA ppu_dest
+    LDA ppu_dest+1
+    ADC #0             ; Add 0 to catch carry
+    STA ppu_dest+1
+
+    RTS

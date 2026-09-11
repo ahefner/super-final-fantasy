@@ -1,0 +1,49 @@
+--- OLD
+DrawBoxRow_Bot:
+    JSR MenuCondStall   ; Do the conditional stall
+    LDA $2002           ; Reset PPU Toggle
+    LDA ppu_dest+1      ;  and load up PPU Address
+    STA $2006
+    LDA ppu_dest
+    STA $2006
+
+    LDX tmp+10          ; put adjusted width in X (for loop counter)
+    LDA #$FC            ;  FC = DL border tile
+    STA $2007
+
+    LDA #$FD            ;  FD = bottom border tile
+@Loop:
+      STA $2007         ;  Draw it
+      DEX               ;   until X expires
+      BNE @Loop
+
+    LDA #$FE            ;  FE = DR border tile
+    STA $2007
+
+    RTS
+
+--- NEW
+DrawBoxRow_Bot:
+    JSR MenuCondStall   ; Do the conditional stall
+    LDA $2002           ; Reset PPU Toggle
+    LDA ppu_dest+1      ;  and load up PPU Address
+    STA $2006
+    LDA ppu_dest
+    STA $2006
+
+    LDX tmp+10          ; put adjusted width in X (for loop counter)
+    LDA #$FC            ;  FC = DL border tile
+    STA $2007
+
+    LDA #$FD            ;  FD = bottom border tile
+    ;  The run of identical tiles goes to the HAL as one call rather than
+    ;  a byte at a time through $2007; see hal_ntfill.  X still holds the
+    ;  width on entry, and is put back to zero afterwards so the exit
+    ;  state matches the loop this replaces.
+    JSL hal_ntfill + HALFAR
+    LDX #$00
+
+    LDA #$FE            ;  FE = DR border tile
+    STA $2007
+
+    RTS

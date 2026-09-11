@@ -37,7 +37,7 @@
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
-.export hal_clearnt
+.export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
 
@@ -620,9 +620,9 @@ nt_write:
     .a8
     lda a:h_data
     sta a:NTSHADOW,x            ; low byte of the tilemap word is the tile
-    rep #$20
-    .a16
-    jsr mark_dirty
+    jsr mark_dirty8             ; already eight bits wide, so use the entry that
+    rep #$20                    ;   wants that rather than widening here only
+    .a16                        ;   for mark_dirty to narrow again
     jmp bump_addr
 
 ; --- attribute table ----------------------------------------------------
@@ -897,24 +897,33 @@ mark_dirty8:
     sta a:h_ntdirty
     rts
 
+;;  Advance the PPU address after a write.
+;;
+;;  The directives matter as much as the code.  mark_dirty8 above is .a8, and
+;;  ca65 carries that forward: without these, every sixteen-bit immediate here
+;;  assembles with a one-byte operand while the processor, running with a
+;;  sixteen-bit accumulator, reads two -- and the instruction stream comes
+;;  apart.  force_range truncates the constants rather than complaining, so it
+;;  builds clean and dies at run time.
+.a16
+.i16
 bump_addr:
-    sep #$20
-    .a8
+    ;  Stays sixteen bits throughout.  This used to narrow the accumulator to
+    ;  test one bit of h_ppuctrl and widen it again to do the addition, two
+    ;  mode switches for an increment, on a routine that runs once per byte the
+    ;  game writes to $2007.  A sixteen-bit load drags in the neighbouring
+    ;  variable, but the mask keeps only bit 2, which comes from the low byte.
     lda a:h_ppuctrl
-    and #$04                    ; stride: down a column, or along a row?
+    and #$0004                  ; stride: down a column, or along a row?
     beq @by1
-    rep #$20
-    .a16
-    lda a:h_addr
-    clc
-    adc #32
-    bra @store
+      lda a:h_addr
+      clc
+      adc #32
+      sta a:h_addr
+      rts
 @by1:
-    rep #$20
-    .a16
     lda a:h_addr
     inc a
-@store:
     sta a:h_addr
     rts
 
@@ -3566,6 +3575,148 @@ apu_swdiv:
 
 .a8
 .i8
+;;  Write the same byte to a run of consecutive PPU addresses.
+;;
+;;  The menus are drawn out of boxes, and every box row is a corner tile, a run
+;;  of one border or body tile, and another corner -- see DrawBoxRow_Top, _Mid
+;;  and _Bot, which differ only in the tiles they use.  That run went through
+;;  $2007 a byte at a time, and on a subscreen transition that path is most of
+;;  the cost: nt_write and the fixed overhead around it came to some 88% of an
+;;  eight-frame stall.
+;;
+;;  A run that stays inside one row of one nametable needs none of the per-byte
+;;  work repeated.  The tilemap offset just advances by two, the row never
+;;  changes, and the dirty range only needs telling where the run starts and
+;;  ends.  Anything else -- crossing a row, running into the attribute table,
+;;  the down-a-column stride -- falls back to the ordinary conversion once per
+;;  byte, which still saves the thunk and the long call around each one.
+;;
+;;  Entry: A = the byte, X = how many times to write it.
+.a8
+.i8
+hal_ntfill:
+    php
+    pha
+    phx
+    phy
+    sta a:h_data
+    ENTER16
+    txa
+    and #$00FF
+    sta a:h_fillcnt             ; the count, kept for the address at the end
+    bne @guards
+    jmp @out
+@toslow:                        ; the fast path below is past a branch's reach
+    jmp @slow
+@guards:
+    lda a:h_ppuctrl
+    and #$0004
+    bne @toslow                 ; writing down a column, not along a row
+    lda a:h_addr
+    and #$3FFF
+    cmp #$2000
+    bcc @toslow                 ; pattern tables
+    cmp #$3F00
+    bcs @toslow                 ; palette
+    and #$07FF
+    sta a:h_t1                  ; index into the pair of nametables
+    and #$03FF
+    cmp #$03C0
+    bcs @toslow                 ; attribute table
+    sta a:h_t2                  ; index within this one
+    and #$001F
+    sta a:h_fillcol             ; column the run starts at
+    clc
+    adc a:h_fillcnt
+    cmp #33
+    bcs @toslow                 ; the run would leave the row
+    ;  Fast path: work the row's place in the tilemap out once.
+    lda a:h_t2
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta a:h_row                 ; 0..29
+    lda a:h_t1
+    and #$0400
+    beq :+
+      lda a:h_fillcol
+      clc
+      adc #32                   ; the right-hand nametable's columns
+      sta a:h_fillcol
+:   lda a:h_row
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; row * 128
+    clc
+    adc a:h_fillcol
+    adc a:h_fillcol             ; + column * 2
+    tay                         ; Y walks the tilemap
+    lda a:h_t1
+    clc
+    adc a:h_fillcnt
+    sta a:h_t2                  ; where the raw-byte index has to stop
+    ldx a:h_t1                  ; X walks the raw NES bytes
+    sep #$20
+    .a8
+@fill:
+    lda a:h_data
+    sta f:NESNT,x               ; the byte, kept for readback and attributes
+    sta a:NTSHADOW,y            ; and the tile number in the tilemap word
+    inx
+    iny
+    iny
+    cpx a:h_t2                  ; the index registers carry the loop, so the
+    bcc @fill                   ;   accumulator never changes width in here
+    ;  Both ends of the run are enough: mark_dirty keeps a low and a high water
+    ;  mark for the row, so everything between them is covered.
+    stz a:h_col+1
+    lda a:h_fillcol
+    sta a:h_col
+    jsr mark_dirty8
+    rep #$20
+    .a16
+    lda a:h_fillcol
+    clc
+    adc a:h_fillcnt
+    dec a                       ; the last column the run touched
+    sta a:h_col
+    sep #$20
+    .a8
+    jsr mark_dirty8
+    rep #$20
+    .a16
+@advance:
+    lda a:h_addr                ; where the same number of single writes would
+    clc                         ;   have left it
+    adc a:h_fillcnt
+    sta a:h_addr
+@out:
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+@slow:
+    jsr w2007_core              ; the ordinary conversion, which advances h_addr
+    lda a:h_fillcnt
+    dec a
+    sta a:h_fillcnt
+    bne @slow
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
 ;;  Clear the left-hand nametable, as bank_0E's ClearNT does it.
 ;;
 ;;  That routine writes 1024 bytes through $2007 -- 960 zero tiles then 64
