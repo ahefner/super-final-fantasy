@@ -2478,10 +2478,28 @@ flush_altar:
     lda a:h_altarframe          ; this frame's table, out of the beam bank
     asl a
     tax
-    lda f:BEAMFAR+2,x
+    lda a:altarorb              ; water and air each keep a table of their own,
+    cmp #ORB_WATER              ;  so their beams can behave unlike the rest
+    beq @water
+    cmp #ORB_AIR
+    beq @air
+      lda f:BEAMFAR+BEAMOFF0,x
+      sta a:A1T4L
+      lda f:BEAMFAR+BEAMOFF0+1,x
+      sta a:A1T4L+1
+      bra @armed
+@water:
+    lda f:BEAMFAR+BEAMOFF1,x
     sta a:A1T4L
-    lda f:BEAMFAR+3,x
+    lda f:BEAMFAR+BEAMOFF1+1,x
     sta a:A1T4L+1
+    bra @armed
+@air:
+    lda f:BEAMFAR+BEAMOFF2,x
+    sta a:A1T4L
+    lda f:BEAMFAR+BEAMOFF2+1,x
+    sta a:A1T4L+1
+@armed:
     lda #BEAMBANK
     sta a:A1B4
     lda #$01

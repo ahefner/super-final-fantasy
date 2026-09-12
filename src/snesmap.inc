@@ -240,6 +240,14 @@ ALTARSNAP       = 6
 BEAMBANK        = $D1
 BEAMFAR         = $D10000
 
+;  Where each variant's per-frame index array starts inside that bank.  Fixed
+;  rather than packed so the HAL reaches either with one long-indexed load and
+;  an eight-bit frame index.  Variant 0 is the plain beam; variant 1 is the
+;  water orb's, which sways.  genbeam.py asserts the frame count still fits.
+BEAMOFF0        = $0004         ; plain: earth and fire
+BEAMOFF1        = $0100         ; water: a long, slow ripple
+BEAMOFF2        = $0200         ; air: short crests, reading as rising smoke
+
 h_altarhw       = HAL_VARS+$AE  ; half-width as the table is walked down
 h_altarerr      = HAL_VARS+$AF  ; ...and the error term that narrows it
 h_altarstep     = HAL_VARS+$B0  ; total narrowing across the whole band
