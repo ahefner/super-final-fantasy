@@ -153,6 +153,31 @@ NTSHADOW        = $1000         ; 4KB: 64x32 tilemap words (NES rows 0..29 used)
 ;  variables.inc names it and no instruction in any bank addresses it.
 altarorb        = $006D
 
+;  The altar beam, as the flush needs it: which scanline it starts on, how many
+;  it covers, and whether it is running at all.  hal_altarband records these
+;  once a frame from the game's own loop; flush_altar turns them into spans.
+h_altaron       = HAL_VARS+$AB
+h_altartop      = HAL_VARS+$AC
+h_altarht       = HAL_VARS+$AD
+
+;  The four altars' tile special codes, as altarorb carries them.  Named
+;  separately from Constants.inc's TP_SPEC_*ORB because the generated banks
+;  include both that and this, and ca65 will not have a symbol defined twice.
+;  These are frozen NES data, so the two cannot drift apart in practice.
+ORB_EARTH       = $18
+ORB_FIRE        = $1A
+ORB_WATER       = $1C
+ORB_AIR         = $1E
+
+;  How hard the beam adds light, as COLDATA's five-bit level.  Half is a
+;  starting point to look at, not a tuned value.
+ALTARLEVEL      = 16
+
+;  What the two channels a tint does not own are lifted to.  Keeps a coloured
+;  beam brightening rather than merely tinting; white ignores it, being all
+;  three channels at ALTARLEVEL already.
+ALTARFLOOR      = 6
+
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
@@ -275,6 +300,13 @@ DMAP1           = $4310
 BBAD1           = $4311
 A1T1L           = $4312
 A1B1            = $4314
+
+; DMA channel 3, used for the altar beam's HDMA over CGADSUB.  Channel 0 is the
+; flush's own block transfers, 1 the raster split over TM, 2 BG1HOFS.
+DMAP3           = $4330
+BBAD3           = $4331
+A1T3L           = $4332
+A1B3            = $4334
 SLHV            = $2137         ; reading it latches the H/V counters
 OPVCT           = $213D         ; vertical counter
 STAT78          = $213F         ; reading it resets the counter read toggle
@@ -292,6 +324,10 @@ h_tmcur         = HAL_VARS+$3E  ; TM as of the most recent $2001 write
 RASTERLINE      = $0980         ; 16 entries: scanline of each split
 RASTERTM        = $0990         ; 16 entries: TM value from that split
 HDMATAB         = $09A0         ; the HDMA table we build from them
+ALTARTAB        = $0C20         ; ...and the altar beam's own, on its own
+                                ; channel so the two can be live together.
+                                ; $0C20 is past OAMSHADOW's 544 bytes at $0A00
+                                ; and short of NTSHADOW at $1000.
 h_prevmask      = HAL_VARS+$3F  ; $2001 as it was before the current write
 h_tmframestart  = HAL_VARS+$40  ; TM in force at the top of the frame
 

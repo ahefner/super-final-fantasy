@@ -18,6 +18,7 @@
 .import hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline, hal_waitline9   ; used by the patched routines
 .import hal_wipewindow, hal_chrload, hal_drawattr
 .import hal_ntfill                ; the box rows call it directly; see nesio.inc
+.import hal_altarband, hal_altaroff   ; ...and DoAltarEffect calls these
 .import hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f ; see nesio.inc
 
 .export nesio_w2000, nesio_w2001, nesio_w2001y

@@ -1,0 +1,22 @@
+--- OLD
+    LDX tmp                ; delay 'tmp' scanlines
+    @LinesDelay:
+      JSR WaitAltarScanline
+      DEX
+      BNE @LinesDelay
+          PAGECHECK @LinesDelay
+
+    LDX tmp+1              ; then illuminate 'tmp+1' scanlines
+    @LinesIllum:
+      JSR DoAltarScanline
+      DEX
+      BNE @LinesIllum
+          PAGECHECK @LinesIllum
+--- NEW
+    ;  The beam is HDMA now rather than counted cycles.  Hand the band to the
+    ;  HAL and let the flush draw it; AltarFrame above still waits for vblank,
+    ;  so this loop still runs once a frame and still owns the shake and the
+    ;  sound.  WaitAltarScanline and DoAltarScanline are now unreachable.
+    LDA tmp                ; scanlines of delay above the band
+    LDX tmp+1              ; scanlines lit
+    JSL hal_altarband + HALFAR

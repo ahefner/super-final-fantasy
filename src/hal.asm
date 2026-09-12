@@ -37,6 +37,7 @@
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
+.export hal_altarband, hal_altaroff
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -1398,9 +1399,10 @@ hal_flush:
     STAGE 3
     jsr flush_oam
     STAGE 4
-    stz a:h_hdmaen              ; each of the two below asks for its own channel
+    stz a:h_hdmaen              ; each of the three below asks for its own channel
     jsr flush_raster
     jsr flush_ntsplit
+    jsr flush_altar
     lda a:h_hdmaen              ; ...and only now does the register hear about it
     sta a:HDMAEN
   .ifdef SCROLLSTAT
@@ -2373,6 +2375,173 @@ emit_span:
     sbc a:h_t3
     sta a:h_t2
     bne @chunk
+    rts
+
+;;  Emit one span of A scanlines holding h_t0, into the altar beam's table.
+;;  A copy of emit_span rather than a parameterised version of it: both tables
+;;  are live in the same frame, and the destination is the only difference.
+.a8
+.i8
+emit_aspan:
+    sta a:h_t2
+@chunk:
+    lda a:h_t2
+    cmp #128
+    bcc :+
+      lda #127
+:   sta a:h_t3
+    sta a:ALTARTAB,y
+    iny
+    lda a:h_t0
+    sta a:ALTARTAB,y
+    iny
+    lda a:h_t2
+    sec
+    sbc a:h_t3
+    sta a:h_t2
+    bne @chunk
+    rts
+
+; --- the altar beam ----------------------------------------------------
+;;  The NES draws this by toggling the monochrome bit at a counted cycle offset
+;;  within each scanline: 120 pixels of grey per line, drifting one dot right
+;;  per line because the loop runs 114 cycles against a scanline's 113.667.
+;;  None of that timing survives the port, and it was only ever imitating
+;;  light -- the original shakes the screen a pixel every eight frames
+;;  specifically to hide the raster jitter it could not avoid, which says how
+;;  exact it managed to be.
+;;
+;;  So the band is recorded here and drawn by the flush, the way the transition
+;;  wipe is: HDMA over CGADSUB switches additive colour maths on for exactly
+;;  the band's scanlines, and COLDATA carries the colour of the orb being lit.
+;;  The game's own loop still paces it -- AltarFrame waits for vblank once an
+;;  iteration -- and still owns the screen shake and the sound effect.
+;;
+;;  IN:  A = scanlines of delay above the band, X = scanlines lit
+.a8
+.i8
+hal_altarband:
+    php
+    pha
+    sta a:h_altartop
+    stx a:h_altarht
+    lda #1
+    sta a:h_altaron
+    pla
+    plp
+    rtl
+
+;;  The effect is over: stop asking for a channel, and put the colour maths
+;;  registers back where the reset left them.
+.a8
+.i8
+hal_altaroff:
+    php
+    pha
+    stz a:h_altaron
+    stz a:CGADSUB               ; no colour maths at all
+    lda #$E0                    ; and a fixed colour of zero in all three
+    sta a:COLDATA
+    pla
+    plp
+    rtl
+
+;;  The band, as three spans over CGADSUB: no colour maths above it, additive
+;;  maths inside it, none below.  The same shape as the wipe's table and built
+;;  the same way, on its own channel so the raster split keeps channel 1.
+.a8
+.i8
+flush_altar:
+    lda a:h_altaron
+    bne @on
+    rts
+@on:
+    ldy #0
+    stz a:h_t0                  ; colour maths off above the band
+    lda a:h_altartop
+    beq :+
+      jsr emit_aspan
+:   lda #$31                    ; add, no halve: BG1, sprites and the backdrop
+    sta a:h_t0                  ;
+                                ;  The backdrop bit matters more than it looks.
+                                ;  NES colour 0 converts to 4bpp index 0, which
+                                ;  is transparent on BG1, so every pixel the NES
+                                ;  drew in the universal background colour is
+                                ;  backdrop here -- the black in the road, and
+                                ;  much else.  Without bit 5 the light stopped
+                                ;  dead at all of them, which read as holes
+                                ;  punched through the beam.
+    lda a:h_altarht
+    beq :+
+      jsr emit_aspan
+:   stz a:h_t0                  ; and off again below it
+    lda a:h_altartop
+    clc
+    adc a:h_altarht
+    sta a:h_t1
+    lda #224
+    sec
+    sbc a:h_t1
+    bcc :+
+    beq :+
+      jsr emit_aspan
+:   lda #$00
+    sta a:ALTARTAB,y            ; a zero line count ends the table
+    stz a:CGADSUB               ; what stands above the first span
+    stz a:CGWSEL                ; fixed colour as the addend, no colour window
+    jsr altar_colour
+    lda #$00
+    sta a:DMAP3                 ; write one byte to one register
+    lda #<CGADSUB
+    sta a:BBAD3
+    ldx #<ALTARTAB
+    stx a:A1T3L
+    ldx #>ALTARTAB
+    stx a:A1T3L+1
+    lda #WRAMBANK
+    sta a:A1B3
+    lda a:h_hdmaen
+    ora #$08                    ; channel 3 -- see the register block
+    sta a:h_hdmaen
+    rts
+
+;;  The fixed colour the band adds, chosen by which altar was lit.  COLDATA
+;;  packs channel-select bits and a five-bit level into one byte and writes
+;;  only the channels selected, so a tint means clearing all three and then
+;;  setting the ones wanted.  White needs one write because it sets all three.
+;;
+;;  Additive maths is why white reads brighter than any of the tints without
+;;  being special-cased: green lifts one channel, white lifts three.  The air
+;;  orb is the last of the four, so the escalation comes out of the arithmetic.
+.a8
+.i8
+altar_colour:
+    lda #$E0 | ALTARFLOOR       ; a floor under all three channels first, so a
+    sta a:COLDATA               ;  tint brightens as well as colours.  A pure
+                                ;  single-channel add only lifts pixels that
+                                ;  already have that channel, which made the
+                                ;  tints read as dark and heavily saturated.
+    lda a:altarorb
+    cmp #ORB_FIRE
+    beq @fire
+    cmp #ORB_WATER
+    beq @water
+    cmp #ORB_AIR
+    beq @air
+      lda #$40 | ALTARLEVEL     ; earth: green
+      sta a:COLDATA
+      rts
+@fire:
+    lda #$20 | ALTARLEVEL       ; red
+    sta a:COLDATA
+    rts
+@water:
+    lda #$80 | ALTARLEVEL       ; blue
+    sta a:COLDATA
+    rts
+@air:
+    lda #$E0 | ALTARLEVEL       ; white -- all three channels at once
+    sta a:COLDATA
     rts
 
 
@@ -4181,6 +4350,9 @@ init_halvars:
     stz a:h_trilin
     stz a:h_trirel
     stz a:h_trtick
+    stz a:h_altaron
+    stz a:h_altartop
+    stz a:h_altarht
     stz a:h_apufull
     stz a:h_sfxlast
     stz a:h_swacc
