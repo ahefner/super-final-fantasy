@@ -1,0 +1,18 @@
+--- OLD
+SMMove_AltarEffect:
+    INC altareffect       ; set the altar effect flag
+    CLC                   ; CLC to allow player to move
+    RTS
+--- NEW
+SMMove_AltarEffect:
+    ;  Record which of the four altars this was.  The tile's special code is
+    ;  what dispatched us here through lut_SMMoveJmpTbl in the first place --
+    ;  $18/$1A/$1C/$1E for earth/fire/water/air -- and it is the only thing
+    ;  that tells them apart, since the last three can be lit in any order and
+    ;  so the orb flags cannot be counted.  All four values are nonzero, so the
+    ;  map loop's "LDA altareffect / BEQ" test is unchanged.
+    LDA tileprop
+    AND #TP_SPEC_MASK
+    STA altareffect
+    CLC                   ; CLC to allow player to move
+    RTS

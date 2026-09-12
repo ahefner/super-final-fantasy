@@ -146,6 +146,13 @@ NTCOLHI         = $0960         ; $20 bytes: per-row dirty column high water mar
 OAMSHADOW       = $0A00         ; 544 bytes: SNES OAM image (512 low + 32 high)
 NTSHADOW        = $1000         ; 4KB: 64x32 tilemap words (NES rows 0..29 used)
 
+;  Which altar the player stepped on, kept for the duration of the altar
+;  effect.  It holds the tile's special code -- $18/$1A/$1C/$1E for
+;  earth/fire/water/air -- captured from altareffect before DoAltarEffect
+;  clears it.  $6D..$7B is a genuine hole in the NES variable map: nothing in
+;  variables.inc names it and no instruction in any bank addresses it.
+altarorb        = $006D
+
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
