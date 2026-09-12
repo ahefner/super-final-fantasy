@@ -37,6 +37,7 @@
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
+.export hal_altarband, hal_altaroff
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -1398,9 +1399,10 @@ hal_flush:
     STAGE 3
     jsr flush_oam
     STAGE 4
-    stz a:h_hdmaen              ; each of the two below asks for its own channel
+    stz a:h_hdmaen              ; each of the three below asks for its own channel
     jsr flush_raster
     jsr flush_ntsplit
+    jsr flush_altar
     lda a:h_hdmaen              ; ...and only now does the register hear about it
     sta a:HDMAEN
   .ifdef SCROLLSTAT
@@ -1576,6 +1578,18 @@ flush_pal:
     sep #$20
     .a8
     sta a:h_t4                  ; 8-bit from here: h_greyscale is a single byte,
+  .ifdef FFDARK
+    ;  DEBUG BUILD ONLY, tag "dark".  The dungeons this effect belongs in are
+    ;  mostly black; Coneria is mostly grass.  Swapping the town's green for
+    ;  black is the cheapest way to judge the beam against the background it
+    ;  will really have.  NES $1A is the grass, in two of the four BG palettes
+    ;  -- read off the hardware, not guessed.
+    cmp #$1A
+    bne @nodark
+      lda #$0F                  ; NES black
+      sta a:h_t4
+  @nodark:
+  .endif
     lda a:h_greyscale           ; and a 16-bit load would drag in its neighbour
     beq :+
       lda a:h_t4
@@ -2373,6 +2387,173 @@ emit_span:
     sbc a:h_t3
     sta a:h_t2
     bne @chunk
+    rts
+
+; --- the altar beam ----------------------------------------------------
+;;  The NES draws this by toggling the monochrome bit at a counted cycle offset
+;;  within each scanline: 120 pixels of grey per line, drifting one dot right
+;;  per line because the loop runs 114 cycles against a scanline's 113.667.
+;;  None of that timing survives the port, and it was only ever imitating
+;;  light -- the original shakes the screen a pixel every eight frames
+;;  specifically to hide the raster jitter it could not avoid.
+;;
+;;  The shape is not computed here.  Every frame of the animation has its HDMA
+;;  window table built at build time by tools/genbeam.py and laid in its own
+;;  ROM bank, so a frame costs one pointer store and the edges can move a pixel
+;;  a line without vblank paying for it.  Computing them here cost more than
+;;  vblank had: per-scanline the flush overran the interval and put a black
+;;  band across the top of the picture, and quantising the taper into runs
+;;  bought the time back only at the price of visible stairsteps.
+;;
+;;  Lines outside the beam carry an empty window -- left past right -- which
+;;  switches colour maths off by itself, so the window alone describes the
+;;  beam and CGADSUB can stay put for the whole effect.
+;;
+;;  IN:  nothing.  One call is one frame of the animation.
+.a8
+.i8
+hal_altarband:
+    php
+    pha
+    lda a:h_altaron
+    bne @running
+      stz a:h_altarframe        ; the first frame of a new effect
+      lda #1
+      sta a:h_altaron
+      bra @out
+@running:
+    lda a:h_altarframe
+    inc a
+    cmp f:BEAMFAR               ; the frame count is the blob's first word
+    bcc @store
+      lda f:BEAMFAR
+      dec a                     ; hold the last frame rather than run off the end
+@store:
+    sta a:h_altarframe
+@out:
+    pla
+    plp
+    rtl
+
+;;  The effect is over: stop asking for a channel, and put the colour maths
+;;  registers back where the reset left them.
+.a8
+.i8
+hal_altaroff:
+    php
+    pha
+    stz a:h_altaron
+    stz a:h_altarframe
+    stz a:CGADSUB               ; no colour maths at all
+    stz a:CGWSEL                ; ...nor any colour window to gate it
+    stz a:WOBJSEL
+    lda #$E0                    ; and a fixed colour of zero in all three
+    sta a:COLDATA
+    pla
+    plp
+    rtl
+
+;;  Point the window channel at this frame's table and set the maths up.  The
+;;  registers are rewritten every frame rather than once at the start because
+;;  the effect shares them with nothing and this costs a dozen stores.
+.a8
+.i8
+flush_altar:
+    lda a:h_altaron
+    bne @on
+    rts
+@on:
+    lda #$31                    ; add, no halve: BG1, sprites and the backdrop.
+    sta a:CGADSUB               ;  The backdrop matters: NES colour 0 converts
+                                ;  to 4bpp index 0, which is transparent on BG1,
+                                ;  so every pixel the NES drew in the universal
+                                ;  background colour is backdrop here.  Without
+                                ;  bit 5 the light stopped dead at all of them.
+    lda #$10                    ; colour maths inside the colour window only;
+    sta a:CGWSEL                ;  the addend stays the fixed colour
+    lda #$20                    ; W1 on for the colour window, not inverted
+    sta a:WOBJSEL
+    jsr altar_colour
+
+    lda a:h_altarframe          ; this frame's table, out of the beam bank
+    asl a
+    tax
+    lda a:altarorb              ; water and air each keep a table of their own,
+    cmp #ORB_WATER              ;  so their beams can behave unlike the rest
+    beq @water
+    cmp #ORB_AIR
+    beq @air
+      lda f:BEAMFAR+BEAMOFF0,x
+      sta a:A1T4L
+      lda f:BEAMFAR+BEAMOFF0+1,x
+      sta a:A1T4L+1
+      bra @armed
+@water:
+    lda f:BEAMFAR+BEAMOFF1,x
+    sta a:A1T4L
+    lda f:BEAMFAR+BEAMOFF1+1,x
+    sta a:A1T4L+1
+    bra @armed
+@air:
+    lda f:BEAMFAR+BEAMOFF2,x
+    sta a:A1T4L
+    lda f:BEAMFAR+BEAMOFF2+1,x
+    sta a:A1T4L+1
+@armed:
+    lda #BEAMBANK
+    sta a:A1B4
+    lda #$01
+    sta a:DMAP4                 ; mode 1: two bytes into two registers
+    lda #<WH0                   ;  -- WH0 then WH1, which are adjacent
+    sta a:BBAD4
+    lda a:h_hdmaen
+    ora #$10                    ; channel 4 -- see the register block
+    sta a:h_hdmaen
+    rts
+
+;;  The fixed colour the band adds, chosen by which altar was lit.  COLDATA
+;;  packs channel-select bits and a five-bit level into one byte and writes
+;;  only the channels selected, so a tint means clearing all three and then
+;;  setting the ones wanted.  White needs one write because it sets all three.
+;;
+;;  Additive maths is why white reads brighter than any of the tints without
+;;  being special-cased: green lifts one channel, white lifts three.  The air
+;;  orb is the last of the four, so the escalation comes out of the arithmetic.
+.a8
+.i8
+altar_colour:
+    lda #$E0 | ALTARFLOOR       ; a floor under all three channels first, so a
+    sta a:COLDATA               ;  tint brightens as well as colours.  A pure
+                                ;  single-channel add only lifts pixels that
+                                ;  already have that channel, which made the
+                                ;  tints read as dark and heavily saturated.
+    lda a:altarorb
+    cmp #ORB_FIRE
+    beq @fire
+    cmp #ORB_WATER
+    beq @water
+    cmp #ORB_AIR
+    beq @air
+      lda #$40 | ALTARLEVEL     ; earth: green...
+      sta a:COLDATA
+      lda #$20 | ALTAREARTHR    ; ...warmed with a little red
+      sta a:COLDATA
+      rts
+@fire:
+    lda #$20 | ALTARLEVEL       ; red...
+    sta a:COLDATA
+    lda #$40 | ALTARFIREG       ; ...with its green lifted toward orange
+    sta a:COLDATA
+    rts
+@water:
+    lda #$80 | ALTARLEVEL       ; blue...
+    sta a:COLDATA
+    lda #$40 | ALTARWATERG      ; ...with its green lifted toward cyan
+    sta a:COLDATA
+    rts
+@air:
+    lda #$E0 | ALTARLEVEL       ; white -- all three channels at once
+    sta a:COLDATA
     rts
 
 
@@ -4181,6 +4362,8 @@ init_halvars:
     stz a:h_trilin
     stz a:h_trirel
     stz a:h_trtick
+    stz a:h_altaron
+    stz a:h_altarframe
     stz a:h_apufull
     stz a:h_sfxlast
     stz a:h_swacc

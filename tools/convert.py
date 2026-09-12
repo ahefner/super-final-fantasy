@@ -111,9 +111,21 @@ def load_patches(bank):
             continue
         #  Patches named debug_* exist to reach something the game normally
         #  gates behind hours of play -- they change behaviour and must never
-        #  land in an ordinary build, so they apply only under FFDEBUG=1.
-        if name.startswith("debug_") and not os.environ.get("FFDEBUG"):
-            continue
+        #  land in an ordinary build, so they apply only under FFDEBUG.
+        #
+        #  FFDEBUG=1 (or "all") turns on every one of them, which is rarely
+        #  what is wanted: debug_epilogue takes over every standard map, so it
+        #  and debug_altartiles cannot both be on and still let you walk into
+        #  a town.  FFDEBUG=<tag>[,<tag>...] applies only the patches whose
+        #  names contain one of the tags -- FFDEBUG=altar, FFDEBUG=chaos.
+        if name.startswith("debug_"):
+            want = os.environ.get("FFDEBUG", "")
+            if not want:
+                continue
+            if want not in ("1", "all"):
+                tags = [t.strip() for t in want.split(",") if t.strip()]
+                if not any(t in name for t in tags):
+                    continue
         text = open(os.path.join(d, name)).read()
         if "--- OLD\n" not in text or "\n--- NEW\n" not in text:
             sys.exit("%s/%s: missing '--- OLD' / '--- NEW' markers" % (d, name))

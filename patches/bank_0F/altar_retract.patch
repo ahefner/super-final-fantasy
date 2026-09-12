@@ -1,0 +1,11 @@
+--- OLD
+    CMP #$08            ; keep looping until < 8 lines are illuminated
+    BCS @MainLoop       ;  at which point, we're done
+--- NEW
+    CMP #$02            ; keep looping until the beam is down to a column.
+    BCS @MainLoop       ;  The NES stopped at 8 illuminated lines, which was
+                        ;  fine when it retracted by walking the band's bottom
+                        ;  edge upward -- the last few lines were leaving the
+                        ;  screen anyway.  Now that it retracts by narrowing,
+                        ;  stopping at 8 leaves a beam eight pixels wide
+                        ;  winking out; three more frames take it to a column.

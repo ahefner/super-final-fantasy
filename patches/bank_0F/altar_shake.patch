@@ -1,0 +1,22 @@
+--- OLD
+    AND #$01          ; also use the low bit of lines/8 as a scroll adjustment
+    EOR tmp+15        ; OR with desired X scroll
+--- NEW
+    AND #$01          ; also use the low bit of lines/8 as a scroll adjustment
+
+    ;  ...but only for the first half or so.  The shake was there to hide
+    ;  raster jitter the NES could not avoid; there is none of that to hide
+    ;  here, so it is kept purely for the drama -- and it wants to fall away
+    ;  partway into the hold rather than the instant the beam stops climbing.
+    ;
+    ;  tmp+2 is the phase, zero while the beam grows.  Once it is not, tmp+1
+    ;  counts the lit lines down from 110 two at a time, so 92 is ten frames
+    ;  past the turn: midway through the fully extended beam.
+    LDX tmp+2
+    BEQ :+
+      LDX tmp+1
+      CPX #92
+      BCS :+
+        LDA #0
+  :
+    EOR tmp+15        ; OR with desired X scroll

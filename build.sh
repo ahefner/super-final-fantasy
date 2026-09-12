@@ -7,7 +7,15 @@ mkdir -p out gen
 python3 tools/genpal.py
 python3 tools/genapu.py
 python3 tools/genspc.py
+python3 tools/genbeam.py
 python3 tools/convert.py
+
+#  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged
+#  against a dungeon-like background.  That is a HAL change rather than a
+#  source patch, so it rides on a ca65 define rather than the patch-name gate.
+case "$FFDEBUG" in
+  *dark*) CA65EXTRA="$CA65EXTRA -DFFDARK" ;;
+esac
 
 CA65="ca65 --cpu 65816 $CA65EXTRA"
 

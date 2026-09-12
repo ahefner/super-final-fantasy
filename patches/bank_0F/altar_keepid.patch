@@ -1,0 +1,12 @@
+--- OLD
+    LDA #0
+    STA tmp+2            ; clear the phase (start with beam expanding outward from player)
+    STA altareffect      ; clear the altar effect flag
+--- NEW
+    LDA altareffect      ; which altar this was, put here by SMMove_AltarEffect.
+    STA altarorb         ;  Kept, because altareffect is cleared just below and
+                         ;  the effect itself runs long after that.
+
+    LDA #0
+    STA tmp+2            ; clear the phase (start with beam expanding outward from player)
+    STA altareffect      ; clear the altar effect flag

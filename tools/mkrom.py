@@ -68,7 +68,18 @@ def main():
         # rather than leave 32KB of zeros in every chunk (see below).
         rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
 
-    used = (1 + len(ORDER)) * BANK
+    #  The altar beam's HDMA tables, pre-built by genbeam.py.  They get a bank
+    #  of their own because HDMA reads them straight out of ROM: nothing has to
+    #  copy them anywhere, and the CPU spends nothing per frame beyond pointing
+    #  a channel at the right offset.  HiROM puts image bank N at SNES bank
+    #  $C0+N, so this one is $D1 -- BEAMBANK in snesmap.inc.
+    beam = open(os.path.join(OUT, "beam.bin"), "rb").read()
+    if len(beam) > BANK:
+        sys.exit("beam.bin is %d bytes, more than one bank" % len(beam))
+    beambank = 1 + len(ORDER)
+    rom[beambank * BANK:beambank * BANK + len(beam)] = beam
+
+    used = (2 + len(ORDER)) * BANK
 
     # Make the image dense, as a real cartridge is.
     #

@@ -1,0 +1,9 @@
+--- OLD
+  @Done:                ; altar effect is complete
+    LDA unk_07D2        ; ???  useless and pretty random.
+--- NEW
+  @Done:                ; altar effect is complete
+    JSL hal_altaroff + HALFAR   ; stop the beam, and put the colour maths
+                                ;  registers back where the reset left them
+
+    LDA unk_07D2        ; ???  useless and pretty random.
