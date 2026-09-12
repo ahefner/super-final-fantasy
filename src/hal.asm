@@ -80,45 +80,6 @@
     xce
 .endmacro
 
-;;  Paint the backdrop a fixed 15-bit BGR colour, force the display on and
-;;  stop.  Inline 8-bit code only: a checkpoint has to be usable before the
-;;  stack pointer or the register widths can be trusted.  Build with
-;;  -D DIAG_STOP=n to stop at checkpoint n.
-.macro DIAG_CHECKPOINT n, bgr
-  .ifdef DIAG_STOP
-    .if DIAG_STOP = n
-      lda #$0F
-      sta a:INIDISP
-      stz a:CGADD
-      lda #<(bgr)
-      sta a:CGDATA
-      lda #>(bgr)
-      sta a:CGDATA
-    : jmp :-
-    .endif
-  .endif
-.endmacro
-
-
-;;  Paint the backdrop and stop, from 16-bit code.  Same idea as
-;;  DIAG_CHECKPOINT, but usable inside the flush where A is 16 bits wide.
-.macro DIAG16 bgr
-    sep #$20
-    .a8
-    stz a:HDMAEN
-    stz a:TM                    ; backdrop only: nothing may mask the colour
-    lda #$0F
-    sta a:INIDISP
-    stz a:CGADD
-    lda #<(bgr)
-    sta a:CGDATA
-    lda #>(bgr)
-    sta a:CGDATA
-:   bra :-
-    rep #$20
-    .a16
-.endmacro
-
 .segment "HALCODE"
 .a8
 .i8
@@ -298,24 +259,6 @@ hal_w2001:
 
     ;  A write while the display is actually live is a raster split.  Writes
     ;  made with rendering off are just setup and must not reach the table.
-.if ENABLE_RASTER_SPLITS
-    lda a:h_prevmask
-    and #$18
-    beq @done
-    lda a:HVBJOY
-    bmi @done
-    ldx a:h_rastercount
-    cpx #16
-    bcs @done                   ; more splits than budgeted; drop the rest
-    lda a:STAT78                ; reset the counter read toggle
-    lda a:SLHV                  ; latch H and V
-    lda a:OPVCT                 ; ...and read the scanline
-    sta a:RASTERLINE,x
-    lda a:h_tmcur
-    sta a:RASTERTM,x
-    inx
-    stx a:h_rastercount
-.endif
 @done:
     plx
     pla
@@ -438,17 +381,6 @@ hal_w2006:
       lda a:h_data
       and #$3F                  ; the PPU address bus is only 14 bits wide
       sta a:h_addr+1
-  .if .defined(PROBE_HI) .or .defined(PROBE_ADDR)
-      inc a:h_hicount
-      cmp a:h_himin
-      bcs @nomin
-        sta a:h_himin
-@nomin:
-      cmp a:h_himax
-      bcc @nomax
-        sta a:h_himax
-@nomax:
-  .endif
       lda #1
       sta a:h_latch
       bra @done
@@ -502,15 +434,6 @@ w2007_core:
 
 ; --- pattern table ------------------------------------------------------
 chr_write:
-  .ifdef PROBE_ADDR
-    cmp #$1000                  ; every crest and logo destination is below this
-    bcc @addrok
-      pha
-      lda #1
-      sta a:h_addrhigh
-      pla
-@addrok:
-  .endif
     and #$000F                  ; which byte of the tile?
     asl a                       ;   plane 0 rows land on even offsets...
     sta a:h_t1
@@ -820,13 +743,6 @@ nt_attr:
 
 ; --- palette ------------------------------------------------------------
 pal_write:
-  .ifdef PROBE_PAL
-    sep #$20
-    .a8
-    inc a:h_palwrites           ; how many writes landed in palette space
-    rep #$20
-    .a16
-  .endif
     lda a:h_t0
     and #$001F
     sta a:h_t1
@@ -1219,7 +1135,6 @@ hal_swapprg:
 .a8
 .i8
 hal_waitvbl:
-    DIAG_CHECKPOINT 2, $7C00    ; blue: the game reached WaitForVBlank
     php
     pha
     phx
@@ -1309,13 +1224,6 @@ hal_waitvbl:
     lda a:NES_soft2000
     sta a:h_ppuctrl
 
-  .ifdef PROBE_LATCH
-    lda a:h_latch               ; did the frame end mid address-pair?
-    beq @latchok
-      DIAG16 $7C00              ; blue: the $2006 write toggle is out of phase
-    .a8
-@latchok:
-  .endif
     ;  The NES build read $2002 twice a frame -- once at the top of
     ;  WaitForVBlank and again in the NMI handler -- and each read reset the
     ;  PPU's $2005/$2006 first-or-second-write toggle.  This port replaced both,
@@ -1335,51 +1243,6 @@ hal_waitvbl:
     rtl
 
 hal_flush:
-  .ifdef PROBE_ADDR
-    ;  A frame with 40+ address pairs is the crest loop.  If any of its CHR
-    ;  writes reached $1000 or above, the address the HAL reconstructed is not
-    ;  the one the game asked for -- the fault would be on this side.
-    lda a:APUSHADOW+$1F         ; set only by the crest loop's own frame
-    beq @adone
-    lda a:h_addrhigh
-    beq @adone
-      DIAG16 $001F              ; red: reconstructed address out of range
-      .a8
-@adone:
-    stz a:h_addrhigh
-    stz a:APUSHADOW+$1F
-    stz a:h_hicount
-  .endif
-  .ifdef PROBE_HI
-    ;  A frame that writes many $2006 high bytes but only ever one distinct
-    ;  value is the collapse we are looking for.  Frames writing none leave min
-    ;  above max, so they cannot trip it.
-    lda a:h_frame+1
-    cmp #5                      ; well past boot
-    bcc @hidone
-    lda a:h_hicount
-    cmp #40                     ; the crest loop writes 48 a frame
-    bcc @hidone
-    lda a:h_himin
-    cmp a:h_himax
-    bne @hidone
-      DIAG16 $001F              ; red: every high byte this frame was identical
-      .a8
-@hidone:
-    stz a:h_hicount
-    lda #$FF
-    sta a:h_himin
-    stz a:h_himax
-  .endif
-  .ifdef PROBE_PAL
-    lda a:h_palwrites
-    cmp #40                     ; a real palette update is 32 bytes at most
-    bcc @palok                  ; named, not anonymous: DIAG16 carries its own
-      DIAG16 $001F              ; anonymous label and would capture the branch
-    .a8                         ; DIAG16 leaves the assembler tracking 16-bit A
-@palok:
-    stz a:h_palwrites
-  .endif
     lda #$80
     sta a:INIDISP               ; forced blank while VRAM is open
     ;  Scroll first.  While walking, the transfers below fill the whole of
@@ -1640,9 +1503,6 @@ flush_chr:
     cmp a:h_chrhi
     beq @dirty
     bcc @dirty
-  .ifdef CHRDUMP
-    jsr chrdump_quiet           ; a frame that wrote no CHR at all
-  .endif
     LEAVE16
     rts
 @dirty:
@@ -1652,31 +1512,6 @@ flush_chr:
     ;  a byte, silently, and the rounding below would be skipped entirely.
     .a16
     .i16
-  .ifdef CHRDUMP
-    jsr chrdump_busy
-  .endif
-  .ifdef PROBE_SPAN
-    ;  Well after boot, a frame that touches CHR at all should be the minimap's
-    ;  decor stage, which spreads across tiles up to $FC.  If the highest byte
-    ;  touched is inside the first sixteen tiles, the writes are collapsing.
-    lda a:h_frame
-    cmp #1200
-    bcc @spanok
-    lda a:h_chrhi
-    cmp #$0200
-    bcs @spanok
-      sep #$20
-      .a8
-      DIAG16 $001F              ; red: CHR writes collapsed into a tiny range
-      .a16
-@spanok:
-  .endif
-  .ifdef CHR_FLUSH_ALL
-    lda #0                      ; diagnostic: ignore the dirty span and send the
-    sta a:h_chrlo               ; whole of CHR every frame
-    lda #$3FFF
-    sta a:h_chrhi
-  .endif
     lda a:h_chrlo               ; round the span out to whole words
     and #$FFFE
     sta a:h_chrlo
@@ -1721,142 +1556,6 @@ flush_chr:
     LEAVE16
     rts
 
-.ifdef CHRDUMP
-; --- diagnostic capture (CHRDUMP) ---------------------------------------
-;  The minimap draws its crest and logo tiles one byte at a time over 32
-;  consecutive frames, each frame dirtying a span that runs from tile $01 to
-;  tile $FC.  Nothing else in the game does that, so 14 consecutive wide-span
-;  frames followed by a frame that writes no CHR at all is the moment the
-;  drawing has just finished -- exactly when the corruption is on screen.
-;
-;  At that moment, capture both sides of the transfer for tiles $D0-$FF: the
-;  HAL's shadow, and what VRAM actually holds.  They go to the minimap's SRAM
-;  scratch, which is dead by this point, so the host can read them straight
-;  out of the .ram file.  Whichever side is wrong says where the bug lives.
-.a16
-.i16
-;  Base tile of the 48-tile capture window; override with -D DUMPTILE=$nn
-.ifndef DUMPTILE
-DUMPTILE = $D0
-.endif
-
-chrdump_busy:
-    rts
-
-;  Bank $09 holds the minimap and nothing else -- its one entry point is
-;  EnterMinimap -- so the NES bank being $09 is an exact test for "the minimap
-;  is on screen".  Capture on every frame there that writes no CHR, rather than
-;  latching a single shot: the drawing loops all write CHR, so a quiet frame is
-;  one where the crests and logo are already up, and the last capture before
-;  the emulator quits is the one that reaches the .ram file.
-chrdump_quiet:
-    sep #$20
-    .a8
-    lda a:h_curbank             ; a byte: a 16-bit load here would pick up
-    cmp #$09                    ; h_frame's low byte along with it
-    rep #$20
-    .a16
-    beq :+
-    rts
-:   lda #$5A5A
-    sta f:$A17C00
-    ldx #0
-@shadow:
-    lda f:CHRSHADOW+DUMPTILE*32, x
-    sta f:$A17000, x
-    inx
-    inx
-    cpx #$0600
-    bcc @shadow
-    sep #$20
-    .a8
-    lda #$80
-    sta a:VMAIN                 ; step one word after each high-byte read
-    rep #$20
-    .a16
-    ;  Validate the reader before trusting it: push a known pattern into unused
-    ;  VRAM and pull it back through this very same read path.  If it returns
-    ;  displaced, the displacement is in the reader, not in the DMA.
-    lda #$6000
-    sta a:VMADDL
-    sep #$20
-    .a8
-    ldx #0
-@sentwr:
-    lda f:chrdump_sentinel, x
-    sta a:VMDATAL
-    inx
-    lda f:chrdump_sentinel, x
-    sta a:VMDATAH
-    inx
-    cpx #16
-    bcc @sentwr
-    rep #$20
-    .a16
-    lda #$6000
-    sta a:VMADDL
-    sep #$20
-    .a8
-    lda a:RDVRAML               ; discard a whole word: the read latch reloads
-    lda a:RDVRAMH               ; from the pre-increment address, so the first
-    ldx #0                      ; word is otherwise served twice
-@sentrd:
-    lda a:RDVRAML
-    sta f:$A17C10, x
-    lda a:RDVRAMH
-    sta f:$A17C11, x
-    inx
-    inx
-    cpx #16
-    bcc @sentrd
-    rep #$20
-    .a16
-
-    lda #VRAM_CHR+DUMPTILE*16
-    sta a:VMADDL
-    sep #$20
-    .a8
-    lda a:RDVRAML               ; discard a whole word (see the sentinel above)
-    lda a:RDVRAMH
-    ldx #0
-@vram:
-    lda a:RDVRAML
-    sta f:$A17600, x
-    lda a:RDVRAMH
-    sta f:$A17601, x
-    inx
-    inx
-    cpx #$0600
-    bcc @vram
-    rep #$20
-    .a16
-
-    ;  End-to-end test of the flush itself.  Plant a known pattern in the
-    ;  shadow at tile $2F and mark just that tile dirty; the next frame's
-    ;  ordinary DMA carries it to VRAM, and the capture after that reads back
-    ;  what actually landed.  Faithful means the DMA is exonerated.
-    ldx #0
-@dmapat:
-    lda f:chrdump_dmapat, x
-    sta f:CHRSHADOW+$2F*32, x
-    inx
-    inx
-    cpx #16
-    bcc @dmapat
-    lda #$2F*32
-    sta a:h_chrlo
-    lda #$2F*32+15
-    sta a:h_chrhi
-    rts
-
-chrdump_dmapat:
-    .byte $01,$02,$03,$04,$05,$06,$07,$08
-    .byte $09,$0A,$0B,$0C,$0D,$0E,$0F,$10
-
-chrdump_sentinel:
-    .byte $11,$22,$33,$44,$55,$66,$77,$88
-    .byte $99,$AA,$BB,$CC,$DD,$EE,$FF,$01
-.endif
 
 ; --- tilemap ------------------------------------------------------------
 ;  Each NES row is written to the SNES tilemap twice, at row r and at row
@@ -1913,7 +1612,6 @@ flush_nt:
     cpx #30
     bcc @scan
 
-.if ENABLE_COLUMN_FLUSH
     lda a:h_gcount
     cmp #8                      ; enough rows to be worth it?
     bcc @byrows
@@ -1936,7 +1634,6 @@ flush_nt:
     .a16
     LEAVE16
     rts
-.endif
     ;  LEAVE16 above asserts .a8/.i8 for the assembler.  Execution only reaches
     ;  @byrows by branching *into* here from the scan, which is still 16-bit, so
     ;  the widths have to be restated -- otherwise the whole row path assembles
@@ -2902,8 +2599,8 @@ hal_chrload:
 ;;  on again tmp+4 scanlines later, off again after tmp+5 more, with each switch
 ;;  timed by burning exactly one scanline per call to WaitScanline.
 ;;
-;;  None of that timing survives here -- see the note beside ENABLE_RASTER_SPLITS
-;;  for why the writes cannot be caught where the game means them -- so
+;;  None of that timing survives here -- see the note in snesmap.inc on why the
+;;  game's split positions cannot be recovered -- so
 ;;  ScreenWipeFrame is patched to call this instead.  Nothing has to be inferred:
 ;;  tmp+4 and tmp+5 describe the band exactly, and three spans of an HDMA table
 ;;  over TM draw it in hardware, for nothing, every scanline of the frame.
@@ -3066,16 +2763,6 @@ flush_scroll:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Diagnostics
-;;
-;;  There is no debugger to hand, so the way to find out how far the machine
-;;  got is to paint the backdrop and look at it.  diag_colour takes a NES
-;;  palette index, puts it in CGRAM entry 0 and forces the display on.  Build
-;;  with -D DIAG_STOP=n to stop at checkpoint n with its colour on screen.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Reset
 ;;
 ;;  The SNES reset vector lands here, in bank $00 with the machine in emulation
@@ -3223,23 +2910,6 @@ hal_apu_frame:
     bne :+
     rts
 :
-  .if AUDIO_TEST_TONE
-    lda #<TEST_TONE_PITCH
-    sta a:APUIO2
-    lda #>TEST_TONE_PITCH
-    sta a:APUIO3
-    lda a:h_tonekon
-    bne @hold
-      inc a:h_tonekon
-      lda #$4F                  ; key-on, voice 0, volume 15
-      bra @cmd
-@hold:
-    lda #$0F                    ; voice 0, volume 15, no key event
-@cmd:
-    sta a:APUIO1
-    jsr apu_send
-    rts
-  .endif
     clc
     xce                         ; native: the timer and the table index are 16-bit
     rep #$30
@@ -4192,7 +3862,6 @@ hal_reset:
     pha
     plb                         ; DBR = 0: bank $00 carries the I/O map
 
-    DIAG_CHECKPOINT 0, $001F    ; red: the CPU is executing our reset vector
 
     lda #$8F
     sta a:INIDISP               ; forced blank
@@ -4238,7 +3907,6 @@ hal_reset:
     lda #$01
     sta a:NMITIMEN              ; ...except the automatic controller read
 
-    DIAG_CHECKPOINT 1, $03E0    ; green: the console came up
 
     lda #CHUNK0
     pha

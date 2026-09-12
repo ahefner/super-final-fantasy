@@ -88,12 +88,6 @@ APUIO1          = $2141
 APUIO2          = $2142
 APUIO3          = $2143
 
-; Audio.  With AUDIO_TEST_TONE set the HAL ignores the game's sound entirely
-; and plays a fixed A-440 on voice 0 from reset.  That checks the SPC700
-; upload, the port protocol and the S-DSP set-up as a whole, before any
-; translation of the game's registers exists to muddy the diagnosis.
-AUDIO_TEST_TONE = 0
-TEST_TONE_PITCH = $070A         ; 440 Hz for a 32-sample cycle: 440 * 4.096
 
 RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
                                 ; whether or not NMI is enabled, and cleared by
@@ -158,8 +152,6 @@ altarorb        = $006D
 ;  it covers, and whether it is running at all.  hal_altarband records these
 ;  once a frame from the game's own loop; flush_altar turns them into spans.
 h_altaron       = HAL_VARS+$AB
-h_altartop      = HAL_VARS+$AC
-h_altarht       = HAL_VARS+$AD
 
 ;  The four altars' tile special codes, as altarorb carries them.  Named
 ;  separately from Constants.inc's TP_SPEC_*ORB because the generated banks
@@ -198,7 +190,6 @@ ALTAREARTHR     = 10
 ;  scanlines above that.  Two bytes a line, repeat-mode, so the worst case is
 ;  the tallest band the effect reaches -- 108 lines -- plus the spans above and
 ;  below it: well under the 240 bytes reserved before NTSHADOW at $1000.
-ALTARAPEX       = 1
 
 ;  How many scanlines share one half-width.  The table is built once a frame in
 ;  vblank, so its cost is the number of runs, not the height of the band: at one
@@ -207,7 +198,6 @@ ALTARAPEX       = 1
 ;  Eight lines a step makes the edge a staircase of four-pixel treads, which on
 ;  a beam this size reads as an edge rather than as steps -- and the original
 ;  was a hard-edged rectangle, so the aesthetic has room for it.
-ALTARSTEPLINES  = 4
 
 ;  How far the whole band is lifted from where the NES put it.  The NES counts
 ;  its delay from the top of the frame and lands the bottom edge around
@@ -215,25 +205,21 @@ ALTARSTEPLINES  = 4
 ;  the player, who this game always keeps centred, is what the light is meant
 ;  to be rising out of.  Lifting the band by that much puts the apex under the
 ;  sprite, where a narrow tip disappears behind it.
-ALTARSHIFT      = 28
 
 ;  Where the apex sits horizontally.  Not 128: the picture the port puts on
 ;  screen is not centred on the player quite the way a bare 256-pixel frame
 ;  would be, and 120 is what actually lines the tip up under the sprite.
-ALTARCENTRE     = 119
 
 ;  Pulls the left edge in by this much without moving the right, so the cone
 ;  can sit on a half pixel.  120 read a shade right and 119 a shade left, and
 ;  there is nothing between them: trimming one side is the only way to split
 ;  the difference when the apex is an integer.
-ALTARLTRIM      = 1
 
 ;  A band whose top lands within this many scanlines of the top of the screen
 ;  is taken all the way there, the band growing downward-fixed so its bottom
 ;  does not move.  Full expansion leaves the top around scanline 2, close
 ;  enough that whether it reached the edge looked inconsistent; this removes
 ;  the question rather than relying on the arithmetic landing on zero.
-ALTARSNAP       = 6
 ;  The beam's HDMA tables live in ROM, one per frame of the animation, built
 ;  by tools/genbeam.py and placed by mkrom.py at its own image bank.  HiROM
 ;  maps image bank N to SNES bank $C0+N.
@@ -248,19 +234,12 @@ BEAMOFF0        = $0004         ; plain: earth and fire
 BEAMOFF1        = $0100         ; water: a long, slow ripple
 BEAMOFF2        = $0200         ; air: short crests, reading as rising smoke
 
-h_altarhw       = HAL_VARS+$AE  ; half-width as the table is walked down
-h_altarerr      = HAL_VARS+$AF  ; ...and the error term that narrows it
-h_altarstep     = HAL_VARS+$B0  ; total narrowing across the whole band
-h_altarbot      = HAL_VARS+$B1  ; the band's bottom edge, held through retract
-h_altarrun      = HAL_VARS+$B3  ; lines accumulated at the current width
 h_altarframe    = HAL_VARS+$B4  ; which frame of the animation is showing
-h_altarwid      = HAL_VARS+$B2  ; what the cone's width follows, which is the
                                 ; game's own height even when the band is not
 
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
-SCROLLRING      = $7E5000       ; diagnostic: SCROLLSTAT's per-frame ring
 
 ; Frame at which SCROLLSTAT copies its ring out to SRAM; -D DUMPFRAME=n to move
 .ifndef DUMPFRAME
@@ -351,9 +330,6 @@ NES_TOP_CROP    = 8
 h_emphasis      = HAL_VARS+$3B  ; $2001 bits 7-5, as R/G/B in bits 2-0
 h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
 
-; Diagnostic (CHRDUMP): consecutive frames whose CHR dirty span was huge, and a
-; latch so the capture happens once.  Both are 2 bytes and only ever touched
-; 16-bit -- a byte flag read with a 16-bit load picks up its neighbour.
 ; Diagnostic (SCROLLSTAT): frames that arrived at WaitForVBlank already inside
 ; vblank -- i.e. too late for it, so the game waits out a whole extra frame --
 ; and frames whose flush ran past the end of vblank.
@@ -371,8 +347,6 @@ h_scrollline    = HAL_VARS+$5D   ; scanline at which BG1HOFS was actually writte
 h_late          = HAL_VARS+$44
 h_over          = HAL_VARS+$46
 
-h_dumpcnt       = HAL_VARS+$40
-h_dumpdone      = HAL_VARS+$42
 
 ; DMA channel 1, used for the raster-split HDMA
 DMAP1           = $4310
@@ -386,12 +360,6 @@ BBAD4           = $4341
 A1T4L           = $4342
 A1B4            = $4344
 
-; DMA channel 3, used for the altar beam's HDMA over CGADSUB.  Channel 0 is the
-; flush's own block transfers, 1 the raster split over TM, 2 BG1HOFS.
-DMAP3           = $4330
-BBAD3           = $4331
-A1T3L           = $4332
-A1B3            = $4334
 SLHV            = $2137         ; reading it latches the H/V counters
 OPVCT           = $213D         ; vertical counter
 STAT78          = $213F         ; reading it resets the counter read toggle
@@ -409,7 +377,6 @@ h_tmcur         = HAL_VARS+$3E  ; TM as of the most recent $2001 write
 RASTERLINE      = $0980         ; 16 entries: scanline of each split
 RASTERTM        = $0990         ; 16 entries: TM value from that split
 HDMATAB         = $09A0         ; the HDMA table we build from them
-ALTARTAB        = $0C20         ; ...and the altar beam's own, on its own
                                 ; channel so the two can be live together.
                                 ; $0C20 is past OAMSHADOW's 544 bytes at $0A00
                                 ; and short of NTSHADOW at $1000.
@@ -458,10 +425,9 @@ NES_soft2000    = $00FF
 ; the flush has eaten a variable slice of vblank first, and the picture is
 ; cropped to 224 lines.  The counts cannot land where the game intends.
 ;
-; So the split positions are not recoverable from the game's cycle-counted waits,
-; and this switch cannot be made to work by fixing it.  The wipe needs the window
-; computed from the two variables the game already keeps.  Left off.
-ENABLE_RASTER_SPLITS = 0
+; So the split positions are not recoverable from the game's cycle-counted
+; waits, and no amount of fixing would change that.  The wipe is drawn instead
+; from the two variables the game already keeps -- see hal_wipewindow.
 
 ; DMA channel 2, used for the dialogue box's nametable split
 DMAP2           = $4320
@@ -495,15 +461,8 @@ h_gcol          = HAL_VARS+$53  ; 2 bytes: column being sent
 h_gcount        = HAL_VARS+$55  ; 2 bytes: loop counter / dirty row tally
 h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send
 
-ENABLE_COLUMN_FLUSH = 1    ; single-DMA column path
-h_palwrites     = HAL_VARS+$59  ; $2007 writes into palette space this frame
-h_himin         = HAL_VARS+$5A  ; lowest $2006 high byte seen this frame
-h_himax         = HAL_VARS+$5B  ; highest
-h_hicount       = HAL_VARS+$5C  ; how many high bytes were written
-h_addrhigh      = HAL_VARS+$5E  ; 2 bytes: a CHR write landed at or above $1000
 h_apuseq        = HAL_VARS+$6E  ; audio packet sequence number
 h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
-h_tonekon       = HAL_VARS+$70  ; test tone: has its key-on been sent?
 h_apuon         = HAL_VARS+$71  ; bit per voice: was it sounding last frame?
 h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
 h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
