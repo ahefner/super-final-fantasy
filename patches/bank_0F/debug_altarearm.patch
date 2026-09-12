@@ -1,0 +1,50 @@
+--- OLD
+SMMove_EarthOrb:
+    LDA orb_earth          ; see if orb already lit
+    BNE SMMove_OK          ; if it is, just have player move normally
+    LDA #1
+    STA orb_earth          ; otherwise, light up the orb
+    BNE SMMove_AltarEffect ; and do the altar effect (always branches)
+
+SMMove_FireOrb:
+    LDA orb_fire
+    BNE SMMove_OK
+    LDA #1
+    STA orb_fire
+    BNE SMMove_AltarEffect
+
+SMMove_WaterOrb:
+    LDA orb_water
+    BNE SMMove_OK
+    LDA #1
+    STA orb_water
+    BNE SMMove_AltarEffect
+
+SMMove_AirOrb:
+    LDA orb_air
+    BNE SMMove_OK
+    LDA #1
+    STA orb_air           ; no BNE here because it just flows directly into altar effect
+--- NEW
+SMMove_EarthOrb:
+    ;  DEBUG BUILD ONLY: the "already lit" check is gone from all four altars,
+    ;  so each can be stepped on as many times as you like.  The orb flags are
+    ;  still set, so game state stays honest; what changes is only that a lit
+    ;  orb's altar fires again instead of doing nothing.
+    LDA #1
+    STA orb_earth          ; light up the orb
+    BNE SMMove_AltarEffect ; and do the altar effect (always branches)
+
+SMMove_FireOrb:
+    LDA #1
+    STA orb_fire
+    BNE SMMove_AltarEffect
+
+SMMove_WaterOrb:
+    LDA #1
+    STA orb_water
+    BNE SMMove_AltarEffect
+
+SMMove_AirOrb:
+    LDA #1
+    STA orb_air           ; no BNE here because it just flows directly into altar effect

@@ -59,9 +59,9 @@ the game depends on it and nothing else writes $2000.
 NMI/vblank handshake, the joypad reader, the scanline wait.  A patch whose "old"
 text is not found verbatim is a hard error, so they cannot silently rot.
 
-A patch named `debug_*` applies only when the build is run as `FFDEBUG=1
-./build.sh`.  These change how the game plays, to put an effect that is normally
-hours away in front of a fresh save:
+A patch named `debug_*` applies only when the build is run with FFDEBUG set.
+These change how the game plays, to put an effect that is normally hours away in
+front of a fresh save:
 
     debug_epilogue      entering any standard map runs the ending scene instead
                         (the "The End" pen-plot into CHR RAM); loops forever
@@ -70,6 +70,15 @@ hours away in front of a fresh save:
     debug_weakenemies   every enemy loads with 1 HP and no defence, evasion or
                         strength
     debug_noai          every enemy reads as "no AI script", so none of them cast
+    debug_altartiles    five orb altars in Coneria -- a column at x=$14,
+                        y=$0E..$11, and one on the path at x=$10, y=$14, three
+                        steps up from the town entrance
+    debug_altarearm     altars lose their "already lit" check, so they re-fire
+
+`FFDEBUG=1` (or `all`) turns on every one, which is rarely wanted: debug_epilogue
+takes over every standard map, so it and debug_altartiles cannot both be on and
+still let you walk into a town.  `FFDEBUG=<tag>[,<tag>...]` applies only the
+patches whose names contain a tag -- `FFDEBUG=altar`, `FFDEBUG=chaos`.
 
 The last two add no code: bank $0C is full to the byte, so they re-point the
 ROM-to-RAM stat table and the AI-id read at offsets that already hold the

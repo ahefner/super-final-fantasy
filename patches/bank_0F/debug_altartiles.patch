@@ -1,0 +1,53 @@
+--- OLD
+    JSR LoadSMCHR           ; load all the necessary CHR
+    JSR LoadSMTilesetData   ; load tileset and TSA data
+    JSR LoadMapPalettes     ; load palettes
+--- NEW
+    JSR LoadSMCHR           ; load all the necessary CHR
+    JSR LoadSMTilesetData   ; load tileset and TSA data
+
+    ;  DEBUG BUILD ONLY -- put orb altars in Coneria, so the altar effect can
+    ;  be reached without playing to the bottom of a dungeon.
+    ;
+    ;  Both pokes go into RAM, after the map has been decompressed to mapdata
+    ;  and the tileset copied to tileset_data, so the compressed map in ROM is
+    ;  never touched.  Map 0 uses only 45 of the 128 tile numbers; $06-$09 are
+    ;  among the 83 it does not use, so retagging them cannot turn any tile
+    ;  already on the map into an altar.
+    LDA cur_map
+    BNE @NotConeria
+
+      LDA #TP_SPEC_EARTHORB       ; tile $06 becomes the earth altar...
+      STA tileset_data + $06*2
+      LDA #TP_SPEC_FIREORB        ; ...$07 fire...
+      STA tileset_data + $07*2
+      LDA #TP_SPEC_WATERORB       ; ...$08 water...
+      STA tileset_data + $08*2
+      LDA #TP_SPEC_AIRORB         ; ...and $09 air
+      STA tileset_data + $09*2
+
+      LDA #0                      ; no teleport or battle in the second byte
+      STA tileset_data + $06*2 + 1
+      STA tileset_data + $07*2 + 1
+      STA tileset_data + $08*2 + 1
+      STA tileset_data + $09*2 + 1
+
+      LDA #$06                    ; a column at x=$14, y=$0E..$11, beside the
+      STA mapdata + $0E*64 + $14  ;   river -- walkable, and out of the way
+      LDA #$07
+      STA mapdata + $0F*64 + $14
+      LDA #$08
+      STA mapdata + $10*64 + $14
+      LDA #$09
+      STA mapdata + $11*64 + $14
+
+      ;  ...and a fifth, earth again, planted on the path at x=$10, y=$14.  The
+      ;  town entrance is x=$10, y=$17, so this is three steps straight up from
+      ;  where the player arrives -- a route the test driver can walk without
+      ;  passing a wandering NPC, which is what defeated it the first time.
+      LDA #$06
+      STA mapdata + $14*64 + $10
+
+  @NotConeria:
+
+    JSR LoadMapPalettes     ; load palettes
