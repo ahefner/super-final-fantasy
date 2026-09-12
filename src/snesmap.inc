@@ -296,12 +296,10 @@ h_chrlo         = HAL_VARS+$10  ; 2 bytes: dirty span in the pattern shadow
 h_chrhi         = HAL_VARS+$12
 h_t6            = HAL_VARS+$14  ; 2-byte scratch (nt_attr's row offset)
 h_ntdirty       = HAL_VARS+$16  ; nonzero if any tilemap row changed
-h_render        = HAL_VARS+$17
 h_oamdirty      = HAL_VARS+$18
 h_curbank       = HAL_VARS+$19  ; the NES PRG bank currently selected
 h_frame         = HAL_VARS+$1A  ; 2 bytes
 h_spr0hit       = HAL_VARS+$1C  ; synthesised $2002 bit 6
-h_t7            = HAL_VARS+$1E  ; 2-byte scratch (nt_attr's column index)
 
 ; ------------------------------------------------------------------------
 ;  HAL scalars (continued)
@@ -311,14 +309,11 @@ h_t4            = HAL_VARS+$22
 h_t5            = HAL_VARS+$24
 h_paldirty      = HAL_VARS+$26  ; nonzero when NES palette RAM has changed
 h_sprtable      = HAL_VARS+$27  ; 0 or 1: OBJ tile-number high bit
-h_oambase       = HAL_VARS+$28  ; 2 bytes: source page for the last OAM DMA
 h_pal           = HAL_VARS+$2A  ; 4 bytes: expanded attribute palette bytes
 h_row           = HAL_VARS+$2E  ; 2 bytes
 h_col           = HAL_VARS+$30  ; 2 bytes
-h_brightness    = HAL_VARS+$32  ; INIDISP value to restore after a flush
 h_c0            = HAL_VARS+$34  ; 2 bytes: dirty span, first column
 h_c1            = HAL_VARS+$36  ; 2 bytes: dirty span, last column
-h_dstrow        = HAL_VARS+$38  ; 2 bytes: tilemap row being written
 h_joyshift      = HAL_VARS+$3A  ; serial shift register for raw $4016 reads
 
 WRAMBANK        = $7E           ; DMA source bank for anything in WRAM
@@ -447,7 +442,6 @@ HOFSTAB         = $0C20         ; the HDMA table built from them
 h_ntsplits      = HAL_VARS+$41  ; mid-frame $2000 writes recorded this frame
 h_prevctrl      = HAL_VARS+$42  ; $2000 as it was before the current write
 h_hofsframestart = HAL_VARS+$43 ; 2 bytes: scroll in force at the top of frame
-h_ctrlwrites    = HAL_VARS+$45  ; $2000 writes seen so far this frame
 h_rasterwin     = HAL_VARS+$46  ; nonzero while a deliberate raster split is due
 h_ntsrc         = HAL_VARS+$47  ; 2 bytes: tilemap shadow address being sent
 h_vdst          = HAL_VARS+$49  ; 2 bytes: tilemap row base being written
