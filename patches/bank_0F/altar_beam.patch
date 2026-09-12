@@ -13,10 +13,10 @@
       BNE @LinesIllum
           PAGECHECK @LinesIllum
 --- NEW
-    ;  The beam is HDMA now rather than counted cycles.  Hand the band to the
-    ;  HAL and let the flush draw it; AltarFrame above still waits for vblank,
-    ;  so this loop still runs once a frame and still owns the shake and the
-    ;  sound.  WaitAltarScanline and DoAltarScanline are now unreachable.
-    LDA tmp                ; scanlines of delay above the band
-    LDX tmp+1              ; scanlines lit
+    ;  One call is one frame of the beam.  Its shape is a table in ROM, built
+    ;  by tools/genbeam.py, so nothing about the geometry is worked out at run
+    ;  time -- the HAL only advances the frame.  AltarFrame above still waits
+    ;  for vblank, so this loop still runs once a frame and still owns the
+    ;  screen shake and the sound effect.  WaitAltarScanline and
+    ;  DoAltarScanline are now unreachable.
     JSL hal_altarband + HALFAR

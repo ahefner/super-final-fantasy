@@ -1578,6 +1578,18 @@ flush_pal:
     sep #$20
     .a8
     sta a:h_t4                  ; 8-bit from here: h_greyscale is a single byte,
+  .ifdef FFDARK
+    ;  DEBUG BUILD ONLY, tag "dark".  The dungeons this effect belongs in are
+    ;  mostly black; Coneria is mostly grass.  Swapping the town's green for
+    ;  black is the cheapest way to judge the beam against the background it
+    ;  will really have.  NES $1A is the grass, in two of the four BG palettes
+    ;  -- read off the hardware, not guessed.
+    cmp #$1A
+    bne @nodark
+      lda #$0F                  ; NES black
+      sta a:h_t4
+  @nodark:
+  .endif
     lda a:h_greyscale           ; and a 16-bit load would drag in its neighbour
     beq :+
       lda a:h_t4
@@ -2377,56 +2389,48 @@ emit_span:
     bne @chunk
     rts
 
-;;  Emit one span of A scanlines holding h_t0, into the altar beam's table.
-;;  A copy of emit_span rather than a parameterised version of it: both tables
-;;  are live in the same frame, and the destination is the only difference.
-.a8
-.i8
-emit_aspan:
-    sta a:h_t2
-@chunk:
-    lda a:h_t2
-    cmp #128
-    bcc :+
-      lda #127
-:   sta a:h_t3
-    sta a:ALTARTAB,y
-    iny
-    lda a:h_t0
-    sta a:ALTARTAB,y
-    iny
-    lda a:h_t2
-    sec
-    sbc a:h_t3
-    sta a:h_t2
-    bne @chunk
-    rts
-
 ; --- the altar beam ----------------------------------------------------
 ;;  The NES draws this by toggling the monochrome bit at a counted cycle offset
 ;;  within each scanline: 120 pixels of grey per line, drifting one dot right
 ;;  per line because the loop runs 114 cycles against a scanline's 113.667.
 ;;  None of that timing survives the port, and it was only ever imitating
 ;;  light -- the original shakes the screen a pixel every eight frames
-;;  specifically to hide the raster jitter it could not avoid, which says how
-;;  exact it managed to be.
+;;  specifically to hide the raster jitter it could not avoid.
 ;;
-;;  So the band is recorded here and drawn by the flush, the way the transition
-;;  wipe is: HDMA over CGADSUB switches additive colour maths on for exactly
-;;  the band's scanlines, and COLDATA carries the colour of the orb being lit.
-;;  The game's own loop still paces it -- AltarFrame waits for vblank once an
-;;  iteration -- and still owns the screen shake and the sound effect.
+;;  The shape is not computed here.  Every frame of the animation has its HDMA
+;;  window table built at build time by tools/genbeam.py and laid in its own
+;;  ROM bank, so a frame costs one pointer store and the edges can move a pixel
+;;  a line without vblank paying for it.  Computing them here cost more than
+;;  vblank had: per-scanline the flush overran the interval and put a black
+;;  band across the top of the picture, and quantising the taper into runs
+;;  bought the time back only at the price of visible stairsteps.
 ;;
-;;  IN:  A = scanlines of delay above the band, X = scanlines lit
+;;  Lines outside the beam carry an empty window -- left past right -- which
+;;  switches colour maths off by itself, so the window alone describes the
+;;  beam and CGADSUB can stay put for the whole effect.
+;;
+;;  IN:  nothing.  One call is one frame of the animation.
 .a8
 .i8
 hal_altarband:
     php
     pha
-    sta a:h_altartop
-    stx a:h_altarht
-    lda #1
-    sta a:h_altaron
+    lda a:h_altaron
+    bne @running
+      stz a:h_altarframe        ; the first frame of a new effect
+      lda #1
+      sta a:h_altaron
+      bra @out
+@running:
+    lda a:h_altarframe
+    inc a
+    cmp f:BEAMFAR               ; the frame count is the blob's first word
+    bcc @store
+      lda f:BEAMFAR
+      dec a                     ; hold the last frame rather than run off the end
+@store:
+    sta a:h_altarframe
+@out:
     pla
     plp
     rtl
@@ -2439,16 +2443,19 @@ hal_altaroff:
     php
     pha
     stz a:h_altaron
+    stz a:h_altarframe
     stz a:CGADSUB               ; no colour maths at all
+    stz a:CGWSEL                ; ...nor any colour window to gate it
+    stz a:WOBJSEL
     lda #$E0                    ; and a fixed colour of zero in all three
     sta a:COLDATA
     pla
     plp
     rtl
 
-;;  The band, as three spans over CGADSUB: no colour maths above it, additive
-;;  maths inside it, none below.  The same shape as the wipe's table and built
-;;  the same way, on its own channel so the raster split keeps channel 1.
+;;  Point the window channel at this frame's table and set the maths up.  The
+;;  registers are rewritten every frame rather than once at the start because
+;;  the effect shares them with nothing and this costs a dozen stores.
 .a8
 .i8
 flush_altar:
@@ -2456,52 +2463,33 @@ flush_altar:
     bne @on
     rts
 @on:
-    ldy #0
-    stz a:h_t0                  ; colour maths off above the band
-    lda a:h_altartop
-    beq :+
-      jsr emit_aspan
-:   lda #$31                    ; add, no halve: BG1, sprites and the backdrop
-    sta a:h_t0                  ;
-                                ;  The backdrop bit matters more than it looks.
-                                ;  NES colour 0 converts to 4bpp index 0, which
-                                ;  is transparent on BG1, so every pixel the NES
-                                ;  drew in the universal background colour is
-                                ;  backdrop here -- the black in the road, and
-                                ;  much else.  Without bit 5 the light stopped
-                                ;  dead at all of them, which read as holes
-                                ;  punched through the beam.
-    lda a:h_altarht
-    beq :+
-      jsr emit_aspan
-:   stz a:h_t0                  ; and off again below it
-    lda a:h_altartop
-    clc
-    adc a:h_altarht
-    sta a:h_t1
-    lda #224
-    sec
-    sbc a:h_t1
-    bcc :+
-    beq :+
-      jsr emit_aspan
-:   lda #$00
-    sta a:ALTARTAB,y            ; a zero line count ends the table
-    stz a:CGADSUB               ; what stands above the first span
-    stz a:CGWSEL                ; fixed colour as the addend, no colour window
+    lda #$31                    ; add, no halve: BG1, sprites and the backdrop.
+    sta a:CGADSUB               ;  The backdrop matters: NES colour 0 converts
+                                ;  to 4bpp index 0, which is transparent on BG1,
+                                ;  so every pixel the NES drew in the universal
+                                ;  background colour is backdrop here.  Without
+                                ;  bit 5 the light stopped dead at all of them.
+    lda #$10                    ; colour maths inside the colour window only;
+    sta a:CGWSEL                ;  the addend stays the fixed colour
+    lda #$20                    ; W1 on for the colour window, not inverted
+    sta a:WOBJSEL
     jsr altar_colour
-    lda #$00
-    sta a:DMAP3                 ; write one byte to one register
-    lda #<CGADSUB
-    sta a:BBAD3
-    ldx #<ALTARTAB
-    stx a:A1T3L
-    ldx #>ALTARTAB
-    stx a:A1T3L+1
-    lda #WRAMBANK
-    sta a:A1B3
+
+    lda a:h_altarframe          ; this frame's table, out of the beam bank
+    asl a
+    tax
+    lda f:BEAMFAR+2,x
+    sta a:A1T4L
+    lda f:BEAMFAR+3,x
+    sta a:A1T4L+1
+    lda #BEAMBANK
+    sta a:A1B4
+    lda #$01
+    sta a:DMAP4                 ; mode 1: two bytes into two registers
+    lda #<WH0                   ;  -- WH0 then WH1, which are adjacent
+    sta a:BBAD4
     lda a:h_hdmaen
-    ora #$08                    ; channel 3 -- see the register block
+    ora #$10                    ; channel 4 -- see the register block
     sta a:h_hdmaen
     rts
 
@@ -2528,15 +2516,21 @@ altar_colour:
     beq @water
     cmp #ORB_AIR
     beq @air
-      lda #$40 | ALTARLEVEL     ; earth: green
+      lda #$40 | ALTARLEVEL     ; earth: green...
+      sta a:COLDATA
+      lda #$20 | ALTAREARTHR    ; ...warmed with a little red
       sta a:COLDATA
       rts
 @fire:
-    lda #$20 | ALTARLEVEL       ; red
+    lda #$20 | ALTARLEVEL       ; red...
+    sta a:COLDATA
+    lda #$40 | ALTARFIREG       ; ...with its green lifted toward orange
     sta a:COLDATA
     rts
 @water:
-    lda #$80 | ALTARLEVEL       ; blue
+    lda #$80 | ALTARLEVEL       ; blue...
+    sta a:COLDATA
+    lda #$40 | ALTARWATERG      ; ...with its green lifted toward cyan
     sta a:COLDATA
     rts
 @air:
@@ -4351,8 +4345,7 @@ init_halvars:
     stz a:h_trirel
     stz a:h_trtick
     stz a:h_altaron
-    stz a:h_altartop
-    stz a:h_altarht
+    stz a:h_altarframe
     stz a:h_apufull
     stz a:h_sfxlast
     stz a:h_swacc

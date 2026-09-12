@@ -75,6 +75,11 @@ front of a fresh save:
                         steps up from the town entrance
     debug_altarearm     altars lose their "already lit" check, so they re-fire
 
+One tag is not a patch at all: `dark` blackens the town's grass (NES $1A) in
+flush_pal, so the altar beam can be judged against the black background a
+dungeon would give it rather than against Coneria's green.  It is a HAL change,
+so it rides on a ca65 define set by build.sh rather than the patch-name gate.
+
 `FFDEBUG=1` (or `all`) turns on every one, which is rarely wanted: debug_epilogue
 takes over every standard map, so it and debug_altartiles cannot both be on and
 still let you walk into a town.  `FFDEBUG=<tag>[,<tag>...]` applies only the
