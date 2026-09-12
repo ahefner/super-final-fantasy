@@ -1,0 +1,18 @@
+--- OLD
+    .BYTE ENROMSTAT_HPMAX,      en_hp
+    .BYTE ENROMSTAT_HPMAX+1,    en_hp+1
+    .BYTE ENROMSTAT_ABSORB,     en_defense
+    .BYTE ENROMSTAT_MORALE,     en_morale
+    .BYTE ENROMSTAT_EVADE,      en_evade
+    .BYTE ENROMSTAT_DAMAGE,     en_strength
+--- NEW
+    ;  DEBUG BUILD ONLY -- see patches/bank_0C/debug_weakenemies.patch.
+    ;  These five entries are sourced from offsets that hold $01 and $00 in
+    ;  Chaos's ROM record, so the loop below loads 1 HP and zero defence,
+    ;  evasion and strength.  Originally HPMAX, HPMAX+1, ABSORB, EVADE, DAMAGE.
+    .BYTE ENROMSTAT_CRITRATE,   en_hp
+    .BYTE ENROMSTAT_CATEGORY,   en_hp+1
+    .BYTE ENROMSTAT_EXP,        en_defense
+    .BYTE ENROMSTAT_MORALE,     en_morale
+    .BYTE ENROMSTAT_EXP,        en_evade
+    .BYTE ENROMSTAT_EXP,        en_strength

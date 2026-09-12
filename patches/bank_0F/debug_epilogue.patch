@@ -1,0 +1,21 @@
+--- OLD
+DoStandardMap:
+    JSR EnterStandardMap     ; load and prep map stuff
+                             ;  then flow seamlessly into StandardMapLoop
+     ; no JMP or RTS
+--- NEW
+DoStandardMap:
+    ;  DEBUG BUILD ONLY.  Entering any standard map runs the epilogue instead
+    ;  of the map, so the "The End" pen-plot into CHR RAM can be watched
+    ;  without beating the game.  This loops forever, as the real one does;
+    ;  reset to leave.  Build without FFDEBUG=1 to drop this.
+  @DebugEpilogue:
+      JSR LoadEpilogueSceneGFX
+      LDA #BANK_ENDINGSCENE
+      JSR SwapPRG_L
+      JSR EnterEndingScene
+      JMP @DebugEpilogue
+
+    JSR EnterStandardMap     ; load and prep map stuff
+                             ;  then flow seamlessly into StandardMapLoop
+     ; no JMP or RTS

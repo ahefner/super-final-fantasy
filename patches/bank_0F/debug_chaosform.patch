@@ -1,0 +1,12 @@
+--- OLD
+    LDA (tmp), Y         ; get the desired formation from the given domain
+    STA btlformation     ; record as our battle formation
+--- NEW
+    LDA (tmp), Y         ; get the desired formation from the given domain
+
+    ;  DEBUG BUILD ONLY.  Every random encounter becomes formation $7B --
+    ;  Chaos -- so the end-of-battle dissolve can be reached without playing
+    ;  to the Temple of Fiends.  Build without FFDEBUG=1 to drop this.
+    LDA #$7B
+
+    STA btlformation     ; record as our battle formation

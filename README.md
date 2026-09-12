@@ -59,6 +59,23 @@ the game depends on it and nothing else writes $2000.
 NMI/vblank handshake, the joypad reader, the scanline wait.  A patch whose "old"
 text is not found verbatim is a hard error, so they cannot silently rot.
 
+A patch named `debug_*` applies only when the build is run as `FFDEBUG=1
+./build.sh`.  These change how the game plays, to put an effect that is normally
+hours away in front of a fresh save:
+
+    debug_epilogue      entering any standard map runs the ending scene instead
+                        (the "The End" pen-plot into CHR RAM); loops forever
+    debug_chaosform     every random encounter is formation $7B, Chaos, so the
+                        end-of-battle dissolve can be watched
+    debug_weakenemies   every enemy loads with 1 HP and no defence, evasion or
+                        strength
+    debug_noai          every enemy reads as "no AI script", so none of them cast
+
+The last two add no code: bank $0C is full to the byte, so they re-point the
+ROM-to-RAM stat table and the AI-id read at offsets that already hold the
+constants wanted ($01, $00, $FF in Chaos's record).  A normal build never sees
+any of this -- `./build.sh` alone skips every `debug_*` patch.
+
 ## Testing
 
 ares takes the ROM on its command line; `open -a Snes9x` launches the app but

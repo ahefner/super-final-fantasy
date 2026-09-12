@@ -1,0 +1,8 @@
+--- OLD
+    LDY #ENROMSTAT_AI
+--- NEW
+    LDY #ENROMSTAT_ELEMRESIST   ; DEBUG BUILD ONLY: originally ENROMSTAT_AI.
+                                ;  Chaos's ELEMRESIST byte is $FF, which this
+                                ;  routine reads as "no AI script" -- so it
+                                ;  attacks instead of casting.  See
+                                ;  patches/bank_0C/debug_weakenemies.patch.

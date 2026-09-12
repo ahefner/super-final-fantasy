@@ -109,6 +109,11 @@ def load_patches(bank):
     for name in sorted(os.listdir(d)):
         if not name.endswith(".patch"):
             continue
+        #  Patches named debug_* exist to reach something the game normally
+        #  gates behind hours of play -- they change behaviour and must never
+        #  land in an ordinary build, so they apply only under FFDEBUG=1.
+        if name.startswith("debug_") and not os.environ.get("FFDEBUG"):
+            continue
         text = open(os.path.join(d, name)).read()
         if "--- OLD\n" not in text or "\n--- NEW\n" not in text:
             sys.exit("%s/%s: missing '--- OLD' / '--- NEW' markers" % (d, name))
