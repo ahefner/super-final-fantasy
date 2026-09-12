@@ -110,12 +110,34 @@ character creation.
 
 ## Status
 
-Working: intro, title, character creation, overworld, map transitions, town and
-castle interiors, battles with correct enemy and party graphics.
+Functionally complete.  Intro, title, character creation, overworld, map
+transitions, town and castle interiors, battles, menus, the minimap, shops and
+dialogue, the battle transition with its colour cycling, the map-transition
+wipe, the orb lighting, and the endgame -- Chaos's dissolve and the epilogue,
+including its pen-plot of "The End" into CHR RAM a pixel at a time.
 
-Not done: audio, the map-transition wipe (written, but disabled behind
-ENABLE_RASTER_SPLITS), and the orb lighting effect.  pAPU writes are recorded in
-a shadow register file for the eventual SPC700 driver.
+Audio is an SPC700 driver fed from the pAPU shadow: two pulses with duty, sweep
+and envelope, the triangle with its linear counter, and noise with envelope and
+length counter.  The waveforms are BRR, sized per note, so a bass note carries
+harmonics the Gaussian interpolation would otherwise eat.
+
+Known gaps, none of them observed to matter in play:
+
+  - The triangle's length counter is not modelled.  The linear counter is, and
+    that is what the driver's silence writes actually drive, but the
+    disassembly says "length or linear" -- so the triangle can sound in cases
+    where hardware would not.
+  - h_apuok is a one-way latch.  It is set once at boot and cleared for good if
+    apu_send ever times out, which would take all audio down for the session
+    with no way back.  Nothing has been seen to trigger it.
+  - The triangle stopped sounding once inside the start menu and recovered on
+    leaving it.  Never reproduced.  The orbfx merge commit records what the
+    symptom rules out and where to start if it recurs.
+
+ENABLE_RASTER_SPLITS is off and cannot be made to work; the note beside it
+explains why the game's cycle-counted split positions are not recoverable here.
+The wipe is drawn instead from the two variables the game already keeps, as
+three spans of an HDMA table over TM -- see hal_wipewindow.
 
 Sprite-0 hit needs no emulation: the game never reads it.  Every BVS/BVC in the
 codebase tests map tile properties, and all four BIT $2002 sites are there to
