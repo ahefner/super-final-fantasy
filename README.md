@@ -45,6 +45,7 @@ the game depends on it and nothing else writes $2000.
 
     build.sh              build the ROM
     snes.cfg              link map
+    game/                 the 6502 source, and the game's own binary data
     src/hal.asm           the NES hardware the SNES pretends to be
     src/nesio.inc         macros the converter rewrites hardware accesses into
     src/nesio_thunks.inc  3-byte call sites, so no bank grows
@@ -54,6 +55,12 @@ the game depends on it and nothing else writes $2000.
     tools/genpal.py       NES palette -> CGRAM, from tenes/nespal.c
     patches/              routines that cannot be translated locally
     tools/drive.py        scripted input for testing
+
+`game/` is the 6502 source the port is built from.  It used to be read from a
+sibling checkout, which made the build depend on a path outside the repository
+and left the game's own code somewhere this project could not change.  It is
+vendored now, so a clone builds on its own and bugfixes can edit the game
+directly rather than only through `patches/`.
 
 `patches/` holds whole-routine replacements -- reset, MMC1 bank switching, the
 NMI/vblank handshake, the joypad reader, the scanline wait.  A patch whose "old"

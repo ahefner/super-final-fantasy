@@ -5,6 +5,10 @@ gen/
 *.o
 *.bin
 
+# ...but the vendored 6502 source is not a build product, whatever its
+# extensions happen to be.  bin/ there is the game's own incbin data.
+!game/bin/*.bin
+
 # ares writes save states and cartridge RAM next to the ROM
 *.bs[0-9]
 *.blu

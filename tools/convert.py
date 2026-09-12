@@ -20,7 +20,12 @@ import os, re, sys, shutil
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
 ROOT   = os.path.dirname(HERE)                       # snes/
-SRCDIR = os.path.join(os.path.dirname(ROOT), "FF1Disassembly", "Final Fantasy Disassembly")
+#  The 6502 source, vendored into the tree.  It used to be read from a sibling
+#  checkout of the disassembly, which made a build depend on a path outside the
+#  repository and left the game's own code somewhere this project could not
+#  change.  Both were fine while the port was only translating; neither is,
+#  now that bugfixes and QoL work mean editing the game itself.
+SRCDIR = os.path.join(ROOT, "game")
 GEN    = os.path.join(ROOT, "gen")
 PATCH  = os.path.join(ROOT, "patches")
 
@@ -187,8 +192,14 @@ def main():
 
     # .incbin paths in the source are relative to the file's directory
     link = os.path.join(GEN, "bin")
+    want = os.path.join(SRCDIR, "bin")
+    #  Re-point it if it aims somewhere else: a stale link from before the
+    #  source was vendored would still resolve, and the build would quietly go
+    #  on reading the old tree.
+    if os.path.islink(link) and os.path.realpath(link) != os.path.realpath(want):
+        os.unlink(link)
     if not os.path.exists(link):
-        os.symlink(os.path.join(SRCDIR, "bin"), link)
+        os.symlink(want, link)
 
     total = 0
     for bank in BANKS:

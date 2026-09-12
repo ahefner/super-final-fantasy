@@ -26,7 +26,7 @@ import os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-NES  = os.path.join(os.path.dirname(ROOT), "FF1Disassembly", "Final Fantasy Disassembly")
+NES  = os.path.join(ROOT, "game")        # the vendored 6502 source
 OUT  = os.path.join(ROOT, "out")
 
 BANK   = 0x10000
