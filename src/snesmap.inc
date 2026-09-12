@@ -411,6 +411,19 @@ h_nzdiv         = HAL_VARS+$9D  ; quarter-frames until the level steps
 h_nzstart       = HAL_VARS+$9E  ; a $400F write restarts the envelope
 h_nzlen         = HAL_VARS+$9F  ; length counter; at zero the channel is silent
 h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
+
+;  The triangle's linear counter.  The channel has no volume register, so the
+;  driver silences it by writing $4008 with the control bit clear and a reload
+;  value in the low seven bits -- $30 when a new song starts, $70 when one
+;  ends -- and letting the counter run down to zero at the quarter-frame rate.
+;  The disassembly says so in as many words at each of those writes ("this
+;  will silence the tri on the next linear counter clock").  Treating a
+;  nonzero reload value as "sounding", which is what this did before, means
+;  that countdown never happens and the voice drones on for ever: audible at
+;  the end of the epilogue, where the music stops and no later note re-keys it.
+h_trilin        = HAL_VARS+$A8  ; the counter itself; at zero the channel is mute
+h_trirel        = HAL_VARS+$A9  ; reload flag, set by a write to $400B
+h_trtick        = HAL_VARS+$AA  ; half-frames left to clock this video frame
 ;  The tilemap word ClearNT leaves everywhere: tile 0, and the palette number
 ;  from an attribute byte of $FF, which is 3 in each quadrant.  nt_attr stores
 ;  a palette as (bits & 3) << 2 in the high byte, so that is $0C.

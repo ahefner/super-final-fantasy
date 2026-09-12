@@ -3100,6 +3100,7 @@ hal_apu_frame:
     .a8
     .i16
     jsr apu_noiseenv
+    jsr apu_trilinear
     ldy #0                      ; Y = the channel's register base in the shadow
     lda #$01
     sta a:h_apumask             ; pulse 1 is voice 0: bit 0 of $4015 and of h_apuon
@@ -3221,9 +3222,8 @@ hal_apu_frame:
     lda a:APUSHADOW+$15
     and #$04
     beq @silent
-    lda a:APUSHADOW+8
-    and #$7F                    ; linear counter reload value
-    beq @silent
+    lda a:h_trilin              ; the linear counter, clocked by apu_trilin
+    beq @silent                 ;   below; at zero the NES triangle is mute
     lda #15
     sta a:h_apuvol
     rep #$20
@@ -3520,6 +3520,49 @@ apu_noiseenv:
 @nolen:
     dec a:h_nztick
     bne @half
+@out:
+    rts
+
+;;  The triangle's linear counter, clocked on the same quarter-frames as the
+;;  noise envelope -- two to every half-frame the accumulator handed us.
+.a8
+.i16
+apu_trilinear:
+    lda a:h_swtickn
+    beq @out                    ; no half-frame fell in this video frame
+    sta a:h_trtick
+@half:
+    jsr apu_trilin              ; two quarter-frames to every half-frame
+    jsr apu_trilin
+    dec a:h_trtick
+    bne @half
+@out:
+    rts
+
+;;  One quarter-frame of the linear counter, in the order the hardware does it:
+;;  reload if the flag is set, otherwise count down; then, if the control bit
+;;  is clear, drop the flag so the next clock starts the countdown.  With the
+;;  control bit set -- every ordinary note -- the flag stays set, the counter
+;;  reloads every clock and never reaches zero, so this changes nothing there.
+.a8
+.i16
+apu_trilin:
+    lda a:h_trirel
+    beq @run
+      lda a:APUSHADOW+8
+      and #$7F                  ; the reload value, low seven bits
+      sta a:h_trilin
+      bra @ctrl
+@run:
+    lda a:h_trilin
+    beq @ctrl
+      dec a
+      sta a:h_trilin
+@ctrl:
+    lda a:APUSHADOW+8
+    and #$80                    ; control set: the reload flag stays set
+    bne @out
+      stz a:h_trirel
 @out:
     rts
 
@@ -3839,6 +3882,12 @@ hal_w400b:
     php
     pha
     phx
+    ;  On a NES a write here also sets the triangle's linear-counter reload
+    ;  flag; the countdown itself is clocked in apu_trilin.  The driver writes
+    ;  $400B once per triangle note, so the flag has a source.
+    lda #1
+    sta a:h_trirel
+    lda a:APUSHADOW+$0B         ; apu_ifmuted wants the value that was written
     ldx #$0A
 apu_ifmuted:
     and #$07                    ; the high three bits of the eleven-bit timer
@@ -4129,6 +4178,9 @@ init_halvars:
     stz a:h_nzstart
     stz a:h_nzlen
     stz a:h_nztick
+    stz a:h_trilin
+    stz a:h_trirel
+    stz a:h_trtick
     stz a:h_apufull
     stz a:h_sfxlast
     stz a:h_swacc
