@@ -54,6 +54,7 @@ the game depends on it and nothing else writes $2000.
     tools/convert.py      rewrites the 6502 source; run by build.sh
     tools/genpal.py       NES palette -> CGRAM, from tenes/nespal.c
     patches/              routines that cannot be translated locally
+    patches/debug/        gated behind FFDEBUG; never in a normal build
     tools/drive.py        scripted input for testing
 
 `game/` is the 6502 source the port is built from.  It used to be read from a
@@ -66,31 +67,36 @@ directly rather than only through `patches/`.
 NMI/vblank handshake, the joypad reader, the scanline wait.  A patch whose "old"
 text is not found verbatim is a hard error, so they cannot silently rot.
 
-A patch named `debug_*` applies only when the build is run with FFDEBUG set.
-These change how the game plays, to put an effect that is normally hours away in
-front of a fresh save:
+`patches/debug/` is a separate tree, and the distinction is the point: patches
+under `patches/bank_XX/` are the port, and a build without them is not the game.
+Patches under `patches/debug/bank_XX/` change how the game plays, to put an
+effect that is normally hours away in front of a fresh save, and apply only when
+FFDEBUG asks for them:
 
-    debug_epilogue      entering any standard map runs the ending scene instead
+    epilogue            entering any standard map runs the ending scene instead
                         (the "The End" pen-plot into CHR RAM); loops forever
-    debug_chaosform     every random encounter is formation $7B, Chaos, so the
+    chaos_form          every random encounter is formation $7B, Chaos, so the
                         end-of-battle dissolve can be watched
-    debug_weakenemies   every enemy loads with 1 HP and no defence, evasion or
+    chaos_weakenemies   every enemy loads with 1 HP and no defence, evasion or
                         strength
-    debug_noai          every enemy reads as "no AI script", so none of them cast
-    debug_altartiles    five orb altars in Coneria -- a column at x=$14,
+    chaos_noai          every enemy reads as "no AI script", so none of them cast
+    altar_tiles         five orb altars in Coneria -- a column at x=$14,
                         y=$0E..$11, and one on the path at x=$10, y=$14, three
                         steps up from the town entrance
-    debug_altarearm     altars lose their "already lit" check, so they re-fire
+    altar_rearm         altars lose their "already lit" check, so they re-fire
+
+A tag matches any patch whose name contains it, and the names are grouped so a
+tag brings a whole setup: `FFDEBUG=chaos` fetches chaos_form along with the two
+patches that make the fight survivable, which is the only way it is any use.
 
 One tag is not a patch at all: `dark` blackens the town's grass (NES $1A) in
 flush_pal, so the altar beam can be judged against the black background a
 dungeon would give it rather than against Coneria's green.  It is a HAL change,
-so it rides on a ca65 define set by build.sh rather than the patch-name gate.
+so it rides on a ca65 define set by build.sh rather than the patch tree.
 
-`FFDEBUG=1` (or `all`) turns on every one, which is rarely wanted: debug_epilogue
-takes over every standard map, so it and debug_altartiles cannot both be on and
-still let you walk into a town.  `FFDEBUG=<tag>[,<tag>...]` applies only the
-patches whose names contain a tag -- `FFDEBUG=altar`, `FFDEBUG=chaos`.
+`FFDEBUG=1` (or `all`) turns on everything, which is rarely wanted: epilogue
+takes over every standard map, so it and altar_tiles cannot both be on and still
+let you walk into a town.
 
 The last two add no code: bank $0C is full to the byte, so they re-point the
 ROM-to-RAM stat table and the AI-id read at offsets that already hold the

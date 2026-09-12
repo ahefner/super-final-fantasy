@@ -105,42 +105,55 @@ def convert_line(line):
 # ---------------------------------------------------------------------------
 #  Patches
 # ---------------------------------------------------------------------------
+def debug_wanted(name):
+    """Does FFDEBUG ask for this debug patch?
+
+    FFDEBUG=1 (or "all") turns on every one, which is rarely what is wanted:
+    epilogue takes over every standard map, so it and altar_tiles cannot both
+    be on and still let you walk into a town.  FFDEBUG=<tag>[,<tag>...] applies
+    only the patches whose names contain one of the tags, and the names are
+    grouped so a tag picks up a whole setup -- FFDEBUG=chaos brings chaos_form
+    along with the two patches that make the fight winnable.
+    """
+    want = os.environ.get("FFDEBUG", "")
+    if not want:
+        return False
+    if want in ("1", "all"):
+        return True
+    return any(t.strip() and t.strip() in name for t in want.split(","))
+
+
 def load_patches(bank):
-    """Read snes/patches/bank_XX/*.patch -> list of (name, old, new)."""
-    d = os.path.join(PATCH, "bank_" + bank)
+    """Read this bank's patches -> list of (name, old, new).
+
+    patches/bank_XX/ always applies: those are the routines the port cannot
+    translate locally, and a build without them is not the game.  Everything
+    under patches/debug/ changes how the game plays -- to put an effect that is
+    normally hours away in front of a fresh save -- and applies only when
+    FFDEBUG asks.  The two live in separate trees so that distinction is a
+    property of where a patch is, not of what it was named.
+    """
     out = []
-    if not os.path.isdir(d):
-        return out
-    for name in sorted(os.listdir(d)):
-        if not name.endswith(".patch"):
+    for d, is_debug in ((os.path.join(PATCH, "bank_" + bank), False),
+                        (os.path.join(PATCH, "debug", "bank_" + bank), True)):
+        if not os.path.isdir(d):
             continue
-        #  Patches named debug_* exist to reach something the game normally
-        #  gates behind hours of play -- they change behaviour and must never
-        #  land in an ordinary build, so they apply only under FFDEBUG.
-        #
-        #  FFDEBUG=1 (or "all") turns on every one of them, which is rarely
-        #  what is wanted: debug_epilogue takes over every standard map, so it
-        #  and debug_altartiles cannot both be on and still let you walk into
-        #  a town.  FFDEBUG=<tag>[,<tag>...] applies only the patches whose
-        #  names contain one of the tags -- FFDEBUG=altar, FFDEBUG=chaos.
-        if name.startswith("debug_"):
-            want = os.environ.get("FFDEBUG", "")
-            if not want:
+        for name in sorted(os.listdir(d)):
+            if not name.endswith(".patch"):
                 continue
-            if want not in ("1", "all"):
-                tags = [t.strip() for t in want.split(",") if t.strip()]
-                if not any(t in name for t in tags):
-                    continue
-        text = open(os.path.join(d, name)).read()
-        if "--- OLD\n" not in text or "\n--- NEW\n" not in text:
-            sys.exit("%s/%s: missing '--- OLD' / '--- NEW' markers" % (d, name))
-        body = text.split("--- OLD\n", 1)[1]
-        old, new = body.split("\n--- NEW\n", 1)
-        # a patch file may end with a trailing newline the author did not mean
-        if new.endswith("\n") and not new.endswith("\n\n"):
-            new = new[:-1]
-        out.append((name, old, new))
+            if is_debug and not debug_wanted(name):
+                continue
+            text = open(os.path.join(d, name)).read()
+            if "--- OLD\n" not in text or "\n--- NEW\n" not in text:
+                sys.exit("%s/%s: missing '--- OLD' / '--- NEW' markers" % (d, name))
+            body = text.split("--- OLD\n", 1)[1]
+            old, new = body.split("\n--- NEW\n", 1)
+            # a patch file may end with a trailing newline the author did not mean
+            if new.endswith("\n") and not new.endswith("\n\n"):
+                new = new[:-1]
+            out.append((name, old, new))
     return out
+
 
 
 HEADER = """; ---------------------------------------------------------------------------
