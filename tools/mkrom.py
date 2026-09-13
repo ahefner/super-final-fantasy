@@ -84,14 +84,21 @@ def main():
     # Make the image dense, as a real cartridge is.
     #
     # A real HiROM cart is ROM from end to end; ours had two large regions of
-    # zero fill -- bank 0's low half, and the million bytes past the last chunk.
-    # A flash cart deciding HiROM against LoROM has nothing in the header to go
-    # on here (the mapper fields are identical across builds it has accepted
-    # and refused), so whatever it is keying on is content, and long runs of
-    # zeros are the one thing that makes this image unlike every cartridge it
-    # was built to recognise.  Mirror real data into them instead: the low half
-    # of bank 0 repeats its own high half, which is what a chip with an unwired
-    # address line would show, and the tail repeats the chunks.
+    # zero fill -- bank 0's low half, and the million bytes past the last
+    # chunk.  The low half of bank 0 repeats its own high half, which is what a
+    # chip with an unwired address line would show, and the tail repeats the
+    # chunks.
+    #
+    # The original reason given for this was wrong, and is recorded because the
+    # mistake is instructive.  Lacking a disassembly, it was guessed that the
+    # flash cart keys its HiROM/LoROM decision on content -- that long runs of
+    # zeros were what made the image unlike a cartridge.  It does no such thing:
+    # it reads four bytes at 0x7FDC (see below and NOTES-rom-detect.md).  Worse,
+    # mirroring bank 0 is what put a valid checksum pair at that very offset, so
+    # the change made to cure the misdetection was the thing causing it.
+    #
+    # The mirroring stays because a dense image is harmless and arguably more
+    # faithful, but nothing depends on it.
     rom[0x0000:0x7FB0] = rom[0x8000:0xFFB0]     # ...stopping short of the
                                                 # second header copy above
     tail = used
@@ -100,59 +107,64 @@ def main():
         rom[tail:tail + n] = rom[BANK:BANK + n]
         tail += n
 
-    # A second copy of the header, at the LoROM offset.
+    # A second copy of the header, at the LoROM offset -- with its checksum
+    # pair deliberately left zero.
     #
-    # Some flash-cart firmware reads the header at $7FC0 first and, if it
-    # passes as a header, believes its map-mode byte -- falling back to $FFC0
-    # only when it does not.  A HiROM image therefore maps correctly only if
-    # the $7FC0 slot holds a valid header that itself says HiROM.  Ours held
-    # zeros with a planted $31, which the checksum-pair test rejected before
-    # the $31 was ever read.  So: the same header, twice.  The copy lives in
-    # bank $C0's low half, which nothing in the port addresses.
+    # An earlier revision put a *valid* pair there, on the theory that the
+    # Super EverDrive reads the header at $7FC0 first and believes its map-mode
+    # byte.  Disassembly of the cart's OS (see NOTES-rom-detect.md) shows that
+    # theory was wrong in the one way that mattered.  sub_81B457 never reads
+    # the map-mode byte at all.  What it does is probe ROM offset 0x7FDC, and
+    # if the four bytes there form a consistent checksum pair that is neither
+    # 0000 nor FFFF, it declares the image LoROM and never looks at 0xFFB0.
     #
-    # The checksum must then be computed with BOTH pairs zeroed and both
-    # credited, or the two copies disagree with the sum.  See below.
+    # Because bank 0's low half mirrors its high half here, that copy carried a
+    # perfectly good pair -- so the cart read this HiROM cartridge as LoROM
+    # every single time, and the better the checksum was, the more certain the
+    # misdetection.  Zeroing the pair makes probe 1 fail (chk == 0 is rejected
+    # outright), the loader falls through to 0xFFB0, and the real pair there
+    # answers.  The rest of the header copy is harmless and is left in place.
     rom[0x7FB0:0x8000] = rom[0xFFB0:0x10000]
 
-    # SNES checksum: zero the two fields, total the image, then add the $1FE
-    # the complement and the checksum themselves will contribute.
-    SLOTS = (0xFFDC, 0x7FDC)          # the pair, in both header copies
-    for cs in SLOTS:
-        for i in range(4):
-            rom[cs + i] = 0
-    total = (sum(rom) + 0x01FE * len(SLOTS)) & 0xFFFF
-    comp = total ^ 0xFFFF
-    for cs in SLOTS:
-        rom[cs+0], rom[cs+1] = comp & 0xFF, comp >> 8
-        rom[cs+2], rom[cs+3] = total & 0xFF, total >> 8
-    cs = SLOTS[0]
+    MIRROR, REAL = 0x7FDC, 0xFFDC
 
-    # Check the pair before writing it out.
-    #
-    # A Super Everdrive V2 decides HiROM vs LoROM partly on whether the
-    # complement and the checksum add up to $FFFF, and it weights that far more
-    # heavily than the published heuristics do.  Tested directly: an image whose
-    # checksum value is simply wrong, but whose pair is well formed, is detected
-    # as HiROM and runs; the same image with a malformed pair is detected as
-    # LoROM and black screens.  Four bytes, one variable.  The cart never says a
-    # word about a checksum either way, so a mistake here is invisible until the
-    # console shows nothing.
-    #
-    # The pair is correct by construction above, so this only catches a future
-    # change to that arithmetic -- which is exactly the mistake that would cost
-    # another blind hardware round to find.
-    check = (rom[cs+0] | (rom[cs+1] << 8)) + (rom[cs+2] | (rom[cs+3] << 8))
-    if check != 0xFFFF:
-        sys.exit("header checksum pair is malformed (sums to $%04X, want $FFFF); "
-                 "a cart would read this as LoROM and refuse to boot" % check)
-    verify = bytearray(rom)
-    for c in SLOTS:
+    # SNES checksum: zero both fields, total the image, then add back the $1FE
+    # that the complement and checksum will themselves contribute -- once, now,
+    # because only the real pair is ever filled in.
+    for off in (MIRROR, REAL):
         for i in range(4):
-            verify[c + i] = 0
-    if (sum(verify) + 0x01FE * len(SLOTS)) & 0xFFFF != (rom[cs+2] | (rom[cs+3] << 8)):
+            rom[off + i] = 0
+    total = (sum(rom) + 0x01FE) & 0xFFFF
+    comp = total ^ 0xFFFF
+    rom[REAL+0], rom[REAL+1] = comp & 0xFF, comp >> 8
+    rom[REAL+2], rom[REAL+3] = total & 0xFF, total >> 8
+
+    # Check it the way the cart does, rather than checking the parts.
+    #
+    # This is sub_81B457's test, transcribed: a pair counts only if the
+    # checksum is the one's complement of the complement field and is neither
+    # 0000 nor FFFF.  Probe 1 must fail and probe 2 must pass, or the cart maps
+    # the cartridge wrongly and the console shows nothing -- a failure mode that
+    # says nothing about itself and costs a hardware round-trip to find.
+    def pair_valid(off):
+        cmpl = rom[off + 0] | (rom[off + 1] << 8)
+        chk  = rom[off + 2] | (rom[off + 3] << 8)
+        return chk == (~cmpl & 0xFFFF) and chk not in (0x0000, 0xFFFF)
+
+    if pair_valid(MIRROR):
+        sys.exit("the mirrored checksum pair at 0x%04X is valid; a Super "
+                 "EverDrive would read this as LoROM" % MIRROR)
+    if not pair_valid(REAL):
+        sys.exit("the checksum pair at 0x%04X is not valid (complement $%04X, "
+                 "checksum $%04X)" % (REAL,
+                 rom[REAL] | (rom[REAL+1] << 8), rom[REAL+2] | (rom[REAL+3] << 8)))
+
+    verify = bytearray(rom)
+    for off in (MIRROR, REAL):
+        for i in range(4):
+            verify[off + i] = 0
+    if (sum(verify) + 0x01FE) & 0xFFFF != total:
         sys.exit("header checksum does not match the image")
-    if rom[0x7FDC:0x7FE0] != rom[0xFFDC:0xFFE0] or rom[0x7FC0:0x7FDC] != rom[0xFFC0:0xFFDC]:
-        sys.exit("the two header copies disagree")
 
     dst = os.path.join(ROOT, "FinalFantasy.sfc")
     open(dst, "wb").write(rom)
