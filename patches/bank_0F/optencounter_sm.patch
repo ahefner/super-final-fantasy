@@ -1,0 +1,10 @@
+--- OLD
+    LDX cur_map                 ; use current map to index the rate LUT
+    LDA lut_BattleRates+1, X    ; get this map's rate (+1 because first entry is for overworld [unused])
+    STA battlerate              ; and record it
+--- NEW
+.import opt_setbattlerate
+
+    LDX cur_map                 ; use current map to index the rate LUT
+    LDA lut_BattleRates+1, X    ; get this map's rate (+1 because first entry is for overworld [unused])
+    JSL opt_setbattlerate + OPTFAR  ; scale by the encounter setting, then record it

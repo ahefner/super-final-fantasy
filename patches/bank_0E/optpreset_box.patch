@@ -1,0 +1,19 @@
+--- OLD
+    LDA #<lut_TitleText_RespondRate
+    STA text_ptr
+    LDA #>lut_TitleText_RespondRate
+    STA text_ptr+1
+      JSR DrawComplexString
+--- NEW
+.import opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
+.import opt_titleupdown, opt_titleleftright, opt_settings
+
+    LDA #<lut_TitleText_RespondRate
+    STA text_ptr
+    LDA #>lut_TitleText_RespondRate
+    STA text_ptr+1
+      JSR DrawComplexString
+
+    ;  A fourth box, for the option preset.  Its contents are redrawn every
+    ;  frame from the main loop, like the respond rate digit.
+    JSL opt_drawpresetbox + OPTFAR

@@ -1,0 +1,24 @@
+--- OLD
+    LDX #$00
+    LDA #$00
+    : STA theend_drawbuf       , X
+      STA theend_drawbuf + $100, X
+      STA theend_drawbuf + $200, X
+      STA theend_drawbuf + $300, X
+      STA theend_drawbuf + $400, X
+      STA theend_drawbuf + $500, X
+      STA theend_drawbuf + $600, X
+      INX
+      BNE :-
+--- NEW
+    ;  The draw buffer is in WRAM bank $7F now -- see THEENDBUF in snesmap.inc.
+    ;  Clearing it is a HAL call, because the stores can no longer reach it.
+    ;
+    ;  The padding is not decoration.  This bank places its data by sequential
+    ;  assembly, and other banks reach that data at absolute addresses baked
+    ;  into Constants.inc -- lut_OrbCHR is $B600, right here in bank $0D.  A
+    ;  patch that changes size drags every byte after it, which is exactly what
+    ;  broke the orb graphics and the story text the first time this was tried.
+    ;  Twenty-eight bytes in, twenty-eight bytes out.
+    JSL hal_theendclear + HALFAR
+    .res 28 - 4, $EA

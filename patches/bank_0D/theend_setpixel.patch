@@ -1,0 +1,11 @@
+--- OLD
+    LDY #$00
+    ORA (@bufaddr), Y
+    STA (@bufaddr), Y
+--- NEW
+    ;  The buffer moved to WRAM bank $7F, which (bufaddr),Y cannot reach, so
+    ;  the read-modify-write happens in the HAL and comes back in A for the
+    ;  $2007 write below.  LDY #$00 stays only to keep the six bytes this
+    ;  replaced -- see the note in theend_clear.patch.
+    LDY #$00
+    JSL hal_theendplot + HALFAR

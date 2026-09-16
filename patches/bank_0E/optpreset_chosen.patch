@@ -1,0 +1,24 @@
+--- OLD
+@OptionChosen:              ; Jumps here when the player presses A or Start (selected an option)
+    LDA cursor              ;  this CMP will set C if they selected option 1 (New Game)
+    CMP #1                  ;  and will clear C if they selected option 0 (Continue)
+    RTS                     ;  then exit!
+--- NEW
+@OptionChosen:              ; Jumps here when the player presses A or Start (selected an option)
+    LDA cursor
+    CMP #2
+    BNE @RealChoice         ; the mode row is not a way out of this screen
+
+    ;  Pressing A on a mode opens the settings screen and switches to Custom,
+    ;  seeded from whatever mode was showing -- so "start from Deluxe and
+    ;  change two things" is the natural path in rather than a special case.
+    JSL opt_settings + OPTFAR
+
+    ;  Come back through the top of the title screen rather than into its
+    ;  loop: TitleScreen_Copyright calls IntroTitlePrepare, which reloads the
+    ;  menu CHR the settings screen overwrote and clears the nametable.
+    JMP EnterTitleScreen
+
+  @RealChoice:
+    CMP #1                  ;  this CMP will set C if they selected option 1 (New Game)
+    RTS                     ;  and will clear C if they selected option 0 (Continue)

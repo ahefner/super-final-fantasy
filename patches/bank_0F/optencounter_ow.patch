@@ -1,0 +1,18 @@
+--- OLD
+  @Fighting:
+    LDA #10              ; 10 / 256 chance of getting in a random encounter normally
+    LDX vehicle          ; check the current vehicle
+    CPX #$04             ; see if it's the ship
+    BNE :+               ; if it is....
+       LDA #3            ;   ... 3 / 256 chance instead  (more infrequent battles at sea)
+
+:   STA tmp              ; store chance of battle in tmp
+--- NEW
+.import opt_owrate
+
+  @Fighting:
+    ;  The overworld and ocean rates were two immediates here with a vehicle
+    ;  test between them.  Both are settings now, so the choice and the values
+    ;  come from the options bank -- six bytes smaller than what it replaces.
+    JSL opt_owrate + OPTFAR
+    STA tmp              ; store chance of battle in tmp

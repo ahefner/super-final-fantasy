@@ -70,6 +70,20 @@ APU_SUBS_C = [(re.compile(p, re.I), r) for p, r in APU_SUBS]
 # Lines that define data must never be touched.
 DATA_DIRECTIVE = re.compile(r"^\s*\.?(BYTE|WORD|DBYT|ADDR|RES|ASCIIZ|INCBIN)\b", re.I)
 
+#  Most of the game's data blobs carry their own address in their filename --
+#  bin/0D_B600_orbchr.bin belongs at $B600 of bank $0D.  That is not decoration:
+#  the banks lay their data out by sequential assembly, with no .org and no
+#  .res, and other banks reach it at absolute addresses baked into
+#  Constants.inc (lut_OrbCHR = $B600) or at pointers baked into the data.  So a
+#  patch that changes size by even one byte silently drags every blob after it,
+#  which is how a 24-byte saving in the ending scene's clear loop turned into
+#  wrong orb graphics, broken menu text, and story strings missing their first
+#  24 characters.
+#
+#  Turn that into a build error: assert each blob lands where its name says.
+#  Six blobs predate the convention and are skipped; everything else is covered.
+INCBIN_ADDR = re.compile(r'^(\s*)\.INCBIN\s+"bin/([0-9A-F]{2})_([0-9A-F]{4})_', re.I)
+
 
 def split_comment(line):
     """Split a source line into (code, comment) at the first ';' outside a string."""
@@ -180,6 +194,14 @@ def main():
     shutil.copyfile(os.path.join(SRCDIR, "Constants.inc"),
                     os.path.join(GEN, "Constants.inc"))
     v = open(os.path.join(SRCDIR, "variables.inc"), encoding="latin-1").read()
+    #  The ending scene's draw buffer moves out of PRG-RAM into WRAM bank $7F,
+    #  which frees $6E00-$6EFF -- the only page the buffer claimed on its own --
+    #  for the option block.  The two patches under patches/bank_0D/ put the
+    #  data bank where these stores need it.  This is a port change, not a game
+    #  change, so it is rewritten here rather than edited into the 6502 source.
+    v = v.replace("theend_drawbuf  = $6800     ; $700 bytes!",
+                  "theend_drawbuf  = THEENDBUF ; $700 bytes, in WRAM bank $7F")
+
     v = v.replace("mm_decorchr     = $7000",
                   ".ifdef DECOR_IN_WRAM\n"
                   "mm_decorchr     = $0D00\n"
@@ -229,9 +251,20 @@ def main():
                          % (bank, name, text.count(old)))
             text = text.replace(old, new)
 
-        out, n = [], 0
+        out, n, guards = [], 0, 0
         for line in text.split("\n"):
             l, k = convert_line(line)
+            #  The fixed bank is exempt.  Its contents are reached by linked
+            #  symbol rather than by baked address -- every literal in
+            #  Constants.inc points into $8000-$BFFF, never into $C000-$FFFF --
+            #  and the port's own patches reshape it on purpose, so its blobs
+            #  have long since moved off the addresses their names record.
+            m = None if bank == "0F" else INCBIN_ADDR.match(l)
+            if m:
+                out.append('%s.assert * = $%s, error, "bank %s: data blob moved '
+                           'from $%s -- a patch changed size; see snesmap.inc"'
+                           % (m.group(1), m.group(3), m.group(2), m.group(3)))
+                guards += 1
             out.append(l)
             n += k
         total += n
@@ -241,8 +274,8 @@ def main():
             home = "NESIO_HOME = 1        ; the hardware thunks live in this bank\n" if bank == "0F" else ""
             f.write(HEADER % ("bank_%s.asm" % bank, home))
             f.write("\n".join(out))
-        print("bank_%s: %4d hardware accesses rewritten, %d patches" %
-              (bank, n, len(patches)))
+        print("bank_%s: %4d hardware accesses rewritten, %d patches, "
+              "%d data blobs pinned" % (bank, n, len(patches), guards))
     print("total: %d" % total)
 
 

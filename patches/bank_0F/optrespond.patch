@@ -1,0 +1,15 @@
+--- OLD
+  : LDA #BANK_TITLE                 ; Then swap in the title bank
+    JSR SwapPRG_L                   ; to do the title screen
+    JSR EnterTitleScreen
+--- NEW
+  : ;  The respond rate comes from the option block rather than starting at
+    ;  zero every time.  It is applied here, after the intro story -- which
+    ;  zeroes the variable twice on its way past -- and immediately before the
+    ;  title screen, which is what displays and edits it.
+    LDA OPT_RESPOND
+    STA respondrate
+
+    LDA #BANK_TITLE                 ; Then swap in the title bank
+    JSR SwapPRG_L                   ; to do the title screen
+    JSR EnterTitleScreen

@@ -1,0 +1,27 @@
+--- OLD
+    LDA #$01
+    STA move_speed       ; set movement speed to move in desired direction
+
+    LDA mapflags         ; check map flags
+    LSR A                ; put SM flag in C
+    BCS @Exit            ; if in a SM, just exit
+
+    LDA vehicle          ; otherwise (OW), get current vehicle
+    CMP #$02
+    BCC @Exit            ; if vehicle is < 2 (on foot), exit (speed remains 1)
+
+    LSR A                ; otherwise, replace speed with vehicle/2
+    STA move_speed       ;  which works out to:  canoe=1   ship=2   airship=4
+
+  @Exit:
+    RTS
+--- NEW
+.import opt_movespeed
+
+    ;  Faster Walking and Faster Ship both land here, and the vanilla
+    ;  walking=1 canoe=1 ship=2 airship=4 no longer fits alongside them, so the
+    ;  whole calculation moved to the options bank.  This is twelve bytes
+    ;  smaller than what it replaces, which the fixed bank can use.
+    JSL opt_movespeed + OPTFAR
+    STA move_speed
+    RTS

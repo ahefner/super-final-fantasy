@@ -35,6 +35,7 @@
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_wipewindow, hal_chrload, hal_drawattr
+.export hal_theendclear, hal_theendplot, hal_theendand
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
 .export hal_altarband, hal_altaroff
@@ -4113,3 +4114,102 @@ nespal_snes:
 ; sample data (tools/genspc.py).
 .include "apupitch.inc"
 .include "spcprog.inc"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Clear the ending scene's draw buffer
+;;
+;;  'The End' keeps a RAM shadow of the CHR it is plotting into, because each
+;;  pixel is a read-modify-write.  That buffer moved to WRAM bank $7F when the
+;;  page it used to sit on in PRG-RAM was wanted for the option block, and the
+;;  loop that used to clear it is here rather than in bank $0D because that
+;;  bank is full to the byte -- the four-byte call site replaces twenty-eight
+;;  bytes of loop, which is what made the move fit at all.
+;;
+;;  $700 bytes, so $380 words.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendclear:
+    php
+    ENTER16
+    phx
+    ldx #$0700 - 2
+    lda #$0000
+:   sta f:THEENDBANK * $10000 + THEENDBUF, x
+    dex
+    dex
+    bpl :-
+    plx
+    LEAVE16
+    plp
+    rtl
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Set one pixel in the ending scene's draw buffer
+;;
+;;  The plotter's read-modify-write, which used to be an ORA/STA pair through
+;;  (bufaddr),Y.  That pair resolves through the data bank, and the buffer is
+;;  no longer in a bank the game runs in, so the access comes here instead.
+;;
+;;  Entry: A = the pixel mask, direct page $66/$67 = the buffer address.
+;;  Exit:  A = the merged byte, which the caller goes on to write to $2007.
+;;
+;;  Long-indirect [$66],Y would have been the obvious encoding and is the same
+;;  two bytes, but it needs a third direct-page byte at $68 -- and $68 is
+;;  sm_player_x.  Indexing an absolute-long address by a 16-bit X avoids
+;;  borrowing anything.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendplot:
+    php
+    ENTER16
+    phx
+    ldx $66                     ; the 16-bit buffer address from direct page
+    sep #$20
+    .a8                         ; A's low byte is still the caller's mask
+    ora f:THEENDBANK * $10000, x
+    sta f:THEENDBANK * $10000, x
+    rep #$20
+    .a16
+    plx
+    LEAVE16
+    plp
+    rtl
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Test a pixel in the ending scene's draw buffer
+;;
+;;  The fill pass walks left from the outline setting pixels until it runs into
+;;  one that is already set -- the "left wall".  That test is a *read* of the
+;;  buffer, which is what distinguishes this from hal_theendplot: the outline
+;;  pass only ever writes, so moving the buffer to WRAM left phase one working
+;;  and phase two drawing its fills through walls that were no longer there.
+;;
+;;  Entry: A = the pixel mask, direct page $66/$67 = the buffer address.
+;;  Exit:  A = mask AND buffer, with N and Z set from it -- the caller branches
+;;         on Z -- and X preserved, because the caller still needs it to index
+;;         the mask table.
+;;
+;;  The result goes through h_t0 on the way out so that the PLX which restores
+;;  the caller's X cannot be the last thing to touch the flags.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendand:
+    ENTER16
+    phx
+    ldx $66                     ; the 16-bit buffer address from direct page
+    sep #$20
+    .a8
+    and f:THEENDBANK * $10000, x
+    sta a:h_t0
+    rep #$20
+    .a16
+    plx
+    LEAVE16
+    lda a:h_t0                  ; reload, so N and Z come from the result
+    rtl

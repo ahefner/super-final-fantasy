@@ -1,0 +1,17 @@
+--- OLD
+  @LeftRight:
+    CMP #RIGHT              ; did they press Right?
+    BNE @Left               ;  if not, they must've pressed Left
+    LDA #1                  ; add +1 to rate if right
+    BNE :+
+       @Left:
+         LDA #-1            ; or -1 if left
+:   CLC
+    ADC respondrate         ; add/subtract 1 from respond rate
+    AND #7                  ; mask to wrap it from 0<->7
+    STA respondrate
+--- NEW
+  @LeftRight:
+    ;  Contextual now: the preset on the new row, the respond rate everywhere
+    ;  else -- so nobody who never moves the cursor down sees a change.
+    JSL opt_titleleftright + OPTFAR

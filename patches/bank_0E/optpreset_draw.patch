@@ -1,0 +1,5 @@
+--- OLD
+    JSR TitleScreen_DrawRespondRate
+--- NEW
+    JSL opt_drawpresetname + OPTFAR   ; before the respond rate, so its scroll
+    JSR TitleScreen_DrawRespondRate   ;   reset covers both
