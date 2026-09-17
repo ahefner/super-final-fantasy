@@ -1,0 +1,20 @@
+--- OLD
+      LDA tmp+4             ; move the opened part up by subtracting 2 from the start scanline
+      SEC
+      SBC #2
+      STA tmp+4
+
+      LDA tmp+5             ; move the bottom part down by adding 4 to the visible scanlines
+      CLC                   ;  note this only moves the bottom of the wipe down 2 scanlines
+      ADC #4                ;  because the above -2 offsets this
+      STA tmp+5
+--- NEW
+      LDA tmp+4             ; move the opened part up by the step size, which
+      SEC                   ;  Speed Hacks raises from 2 to 8.  opt_derive
+      SBC OPTD_WIPEOPEN_U   ;  cooks it, so this stays a single load in a loop
+      STA tmp+4             ;  that runs every frame of every transition.
+
+      LDA tmp+5             ; move the bottom part down, likewise 4 or 16.
+      CLC                   ;  Both must divide 224 or the loop below overshoots
+      ADC OPTD_WIPEOPEN_D   ;  its end condition and the wipe runs away.
+      STA tmp+5

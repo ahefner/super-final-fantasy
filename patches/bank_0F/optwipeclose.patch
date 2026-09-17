@@ -1,0 +1,20 @@
+--- OLD
+      LDA tmp+4             ; move the top portion of the wipe down by
+      CLC                   ;  adding 2 to the start line
+      ADC #2
+      STA tmp+4
+
+      LDA tmp+5             ; move the bottom portion up by
+      SEC                   ;  subtracting 4 from the stop line.  Note
+      SBC #4                ;  this only moves the bottom up by 2 scanlines, not 4
+      STA tmp+5             ;  (because adding 2 above offsets this as well)
+--- NEW
+      LDA tmp+4             ; move the top portion of the wipe down by the
+      CLC                   ;  step size: 2, or 10 with Speed Hacks on
+      ADC OPTD_WIPECLOSE_D
+      STA tmp+4
+
+      LDA tmp+5             ; and the bottom portion up by 4, or 20.  These
+      SEC                   ;  must divide 220, not 224 -- the close wipe
+      SBC OPTD_WIPECLOSE_U  ;  starts from a different height than the open
+      STA tmp+5             ;  one, which is why the pairs differ.

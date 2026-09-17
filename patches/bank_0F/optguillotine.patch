@@ -1,0 +1,57 @@
+--- OLD
+ClearBGPalette:
+--- NEW
+.export OptGuillotine
+.import Talk_norm, Talk_CoOGuy
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  NPC Guillotine
+;;
+;;    Talking to an ordinary townsperson removes them from the map.  The
+;;  behaviour already exists: Talk_CoOGuy is the Coneria sage, who hides
+;;  himself and then prints his line, which is exactly what is wanted.  So
+;;  this is a substitution rather than new code -- when the flag is on and
+;;  TalkToObject was about to dispatch Talk_norm, send it to Talk_CoOGuy
+;;  instead.
+;;
+;;    The two plates are exempt.  They are Talk_norm objects, and removing
+;;  them would take the Rod and the Lute out of the game.
+;;
+;;    It replaces the dispatching JMP rather than being called before it, so
+;;  the call sites stay three bytes: bank $0E's object data is pinned at $95D5
+;;  and TalkToObject sits above it.
+;;
+;;    In: (tmp+6) = the handler TalkToObject resolved, tmp = the object id.
+;;    Out: does not return -- it jumps to the handler, as the code it replaced
+;;  did.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptGuillotine:
+    LDA OPTFB_GUILLOTINE
+    AND #OPTFM_GUILLOTINE
+    BEQ @out
+
+    LDA tmp             ; the object's own id, from its talk data
+    CMP #OBJID_RODPLATE
+    BEQ @out
+    CMP #OBJID_LUTEPLATE
+    BEQ @out
+
+    LDA tmp+6           ; only substitute for Talk_norm; every other handler
+    CMP #<Talk_norm     ;   is doing something the game needs
+    BNE @out
+    LDA tmp+7
+    CMP #>Talk_norm
+    BNE @out
+
+    LDA #<Talk_CoOGuy
+    STA tmp+6
+    LDA #>Talk_CoOGuy
+    STA tmp+7
+  @out:
+    JMP (tmp+6)
+
+
+ClearBGPalette:

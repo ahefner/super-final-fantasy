@@ -1,0 +1,27 @@
+--- OLD
+     LDA lut_MapObjTalkJumpTbl+$100, Y  ; copy the desired pointer from the talk jump table
+     STA tmp+6
+     LDA lut_MapObjTalkJumpTbl+$101, Y
+     STA tmp+7
+     JMP (tmp+6)                        ; and jump to it, then exit
+
+:    LDA lut_MapObjTalkJumpTbl, Y       ; same, but with low half of table
+     STA tmp+6
+     LDA lut_MapObjTalkJumpTbl+1, Y
+     STA tmp+7
+     JMP (tmp+6)
+--- NEW
+.import OptGuillotine
+.export Talk_norm, Talk_CoOGuy
+
+     LDA lut_MapObjTalkJumpTbl+$100, Y  ; copy the desired pointer from the talk jump table
+     STA tmp+6
+     LDA lut_MapObjTalkJumpTbl+$101, Y
+     STA tmp+7
+     JMP OptGuillotine                  ; which may redirect, then jumps for us
+
+:    LDA lut_MapObjTalkJumpTbl, Y       ; same, but with low half of table
+     STA tmp+6
+     LDA lut_MapObjTalkJumpTbl+1, Y
+     STA tmp+7
+     JMP OptGuillotine

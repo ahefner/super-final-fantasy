@@ -250,8 +250,66 @@ def test_noshuffle():
                   bool(cpu.p & 0x02), want == 0)
 
 
+OPTF_SPEEDHACKS, OPTF_GUILLOTINE_HI = 0x01, 0x40
+OPTD = 0x10                                  # derived bytes, just past the block
+TMP = 0x10                                   # game's tmp, from variables.inc
+
+
+def test_derive():
+    """The cooked wipe steps, and that they still divide their totals."""
+    for flag, want in ((0, (2, 4, 2, 4)), (OPTF_SPEEDHACKS, (8, 16, 10, 20))):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS, flag)
+        call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
+        got = tuple(blk(bus, OPTD + i) for i in range(4))
+        check("wipe steps, speedhacks=%d" % flag, got, want)
+        #  The open wipe runs to 224 and the close one down from 220; a step
+        #  that does not divide its total overshoots and the wipe runs away.
+        check("open step divides 224, speedhacks=%d" % flag, 224 % got[1], 0)
+        check("close step divides 220, speedhacks=%d" % flag, 220 % got[3], 0)
+
+    #  opt_commit must refresh them, since that is what every edit goes through
+    bus, cpu = machine()
+    setblk(bus, OPT_FLAGS, OPTF_SPEEDHACKS)
+    call(cpu, "opt_commit", dbr=CHUNK_OPT_BANK)
+    check("commit refreshes the derived bytes", blk(bus, OPTD), 8)
+
+
+def test_guillotine():
+    """Talk_norm is redirected only when the flag is on and the object is not
+    one of the two plates."""
+    talk_norm, coo = SYM["Talk_norm"], SYM["Talk_CoOGuy"]
+    RODPLATE, LUTEPLATE, ORDINARY, OTHER = 0x16, 0x17, 0x20, 0x30
+    for flag, objid, handler, want in (
+            (0, ORDINARY, talk_norm, talk_norm),                 # flag off
+            (OPTF_GUILLOTINE_HI, ORDINARY, talk_norm, coo),      # the whole point
+            (OPTF_GUILLOTINE_HI, RODPLATE, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, LUTEPLATE, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, ORDINARY, coo, coo)):           # other handlers alone
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 1, flag)
+        bus.wram[TMP] = objid
+        bus.wram[TMP + 6] = handler & 0xFF
+        bus.wram[TMP + 7] = handler >> 8
+        #  it ends in JMP (tmp+6), so point that at the sentinel-friendly stub:
+        #  run it and see where it lands rather than where it returns
+        cpu.pbr, cpu.pc = 0xA7, SYM["OptGuillotine"]
+        try:
+            for _ in range(200):
+                if cpu.pc in (talk_norm, coo) and cpu.pbr == 0xA7:
+                    break
+                cpu.step()
+        except Exception as e:
+            fails.append("OptGuillotine raised %s" % e)
+            continue
+        got = cpu.pc
+        check("guillotine flag=%d obj=$%02X handler=$%04X" % (flag, objid, handler),
+              "$%04X" % got, "$%04X" % want)
+
+
 def main():
-    for t in (test_block, test_presets, test_movespeed, test_encounter, test_noshuffle):
+    for t in (test_block, test_presets, test_movespeed, test_encounter,
+              test_noshuffle, test_derive, test_guillotine):
         try:
             t()
         except Exception as e:

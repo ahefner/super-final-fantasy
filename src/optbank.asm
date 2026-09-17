@@ -39,7 +39,7 @@
 .export opt_init, opt_commit, opt_movespeed, opt_owrate, opt_setbattlerate
 ;  Reached by tools/test_options.py, which runs them under a 65816
 ;  interpreter and asserts on what comes back.
-.export opt_loadpreset, opt_sum, lut_Presets
+.export opt_loadpreset, opt_sum, lut_Presets, opt_derive
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -173,6 +173,7 @@ opt_loadpreset:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_commit_body:
+    JSR opt_derive              ; the cooked bytes follow the block
     JSR opt_sum
     EOR #$FF
     STA OPT_CKSUM
@@ -181,6 +182,42 @@ opt_commit_body:
 opt_commit:
     JSR opt_commit_body
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_derive -- cook the flags down into the constants the game reads
+;;
+;;  Runs from opt_commit_body, so after anything that changes the block: a
+;;  preset load, a checkbox, a value row.  The derived bytes are outside the
+;;  checksummed block on purpose -- they are a cache of it, not part of it, and
+;;  recomputing them is cheaper than deciding whether they are stale.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_derive:
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BNE @fast
+
+    LDA #WIPE_OPEN_U_SLOW
+    STA OPTD_WIPEOPEN_U
+    LDA #WIPE_OPEN_D_SLOW
+    STA OPTD_WIPEOPEN_D
+    LDA #WIPE_CLOSE_D_SLOW
+    STA OPTD_WIPECLOSE_D
+    LDA #WIPE_CLOSE_U_SLOW
+    STA OPTD_WIPECLOSE_U
+    RTS
+
+  @fast:
+    LDA #WIPE_OPEN_U_FAST
+    STA OPTD_WIPEOPEN_U
+    LDA #WIPE_OPEN_D_FAST
+    STA OPTD_WIPEOPEN_D
+    LDA #WIPE_CLOSE_D_FAST
+    STA OPTD_WIPECLOSE_D
+    LDA #WIPE_CLOSE_U_FAST
+    STA OPTD_WIPECLOSE_U
+    RTS
 
 
 ;;  Sum every byte of the block except the checksum itself.  Plain 8-bit

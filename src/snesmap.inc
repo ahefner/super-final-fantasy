@@ -157,6 +157,35 @@ OPTF_LOK2         = $02000000
 ;  so these are built up a group at a time rather than written as one run-on.
 
 ;  Byte and mask for each flag that something outside the options bank tests.
+;  Derived bytes, recomputed by opt_derive whenever the block changes.
+;
+;  A feature whose only effect is a constant is cheapest to implement by
+;  turning that constant into a load -- but the constants live in code that is
+;  reached far too often to test a flag at.  So the flags are cooked down once,
+;  here, and the use site just loads a byte.
+OPTD            = OPTBLOCK+$10  ; the derived block, below the option block
+OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
+OPTD_WIPEOPEN_D = OPTD+$01
+OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
+OPTD_WIPECLOSE_U= OPTD+$03
+
+;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
+;  or the wipe overshoots its end condition and runs off.
+WIPE_OPEN_U_SLOW  = 2
+WIPE_OPEN_D_SLOW  = 4
+WIPE_OPEN_U_FAST  = 8
+WIPE_OPEN_D_FAST  = 16
+WIPE_CLOSE_D_SLOW = 2
+WIPE_CLOSE_U_SLOW = 4
+WIPE_CLOSE_D_FAST = 10
+WIPE_CLOSE_U_FAST = 20
+
+OPTFB_SPEEDHACKS = OPT_FLAGS+0
+OPTFM_SPEEDHACKS = $01
+
+OPTFB_GUILLOTINE = OPT_FLAGS+1
+OPTFM_GUILLOTINE = $40   ; bit 14
+
 OPTFB_NOSHUFFLE = OPT_FLAGS+0
 OPTFM_NOSHUFFLE = $08
 
