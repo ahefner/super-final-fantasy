@@ -93,8 +93,7 @@ opt_settings:
     JSL hal_clearnt + HALFAR
     JSR opt_menu_fillbg
     JSR opt_menu_loadchr
-    JSR opt_menu_drawall
-    JSR opt_menu_desc
+    JSR opt_menu_drawall        ; ...which ends by drawing the description too
 
     LDA #$08
     STA soft2000                ; sprites from the right pattern table
@@ -545,7 +544,12 @@ opt_menu_drawall:
     LDA OPTMENU_ROWNUM
     CMP #OPTLIST_ROWS
     BCC @row
-    JMP opt_menu_drawdesc
+    ;  The box and then its text.  Redrawing the box blanks its interior, so
+    ;  anything that repaints the list has to put the description back --
+    ;  otherwise toggling a setting, adjusting a value or scrolling all wipe
+    ;  the pane and leave it empty until the cursor next moves.
+    JSR opt_menu_drawdesc
+    JMP opt_menu_desc
 
 
 ;;  Point the PPU at the start of on-screen row OPTMENU_ROWNUM.
