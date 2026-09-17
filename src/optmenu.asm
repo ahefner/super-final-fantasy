@@ -184,7 +184,7 @@ opt_settings:
   @right:
     LDA #RIGHT
   @sideways:
-    JSR opt_value_adjust
+    JSR opt_sideways
     JMP @loop
 
   @done:
@@ -253,21 +253,49 @@ opt_row_selectable:
     RTS
 
 
-;;  Step OPTMENU_SEL forward to the first row the cursor may rest on,
-;;  including where it already is.
-opt_menu_nextsel:
-    LDX OPTMENU_SEL
-  : CPX #OPTROW_COUNT
-    BCS @out
+;;  Seek from row X to the first the cursor may rest on, X included.  Sets
+;;  OPTMENU_SEL and returns C set if one was found, C clear if the scan ran
+;;  off the end without finding one.
+opt_seek_fwd:
+  @loop:
+    CPX #OPTROW_COUNT
+    BCS @none
     TXA
     JSR opt_row_selectable
     BNE @found
     INX
-    JMP :-
+    JMP @loop
   @found:
     STX OPTMENU_SEL
-  @out:
+    SEC
     RTS
+  @none:
+    CLC
+    RTS
+
+;;  The same, walking backwards.
+opt_seek_back:
+  @loop:
+    TXA
+    JSR opt_row_selectable
+    BNE @found
+    CPX #$00
+    BEQ @none
+    DEX
+    JMP @loop
+  @found:
+    STX OPTMENU_SEL
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS
+
+;;  Step OPTMENU_SEL forward to the first row the cursor may rest on,
+;;  including where it already is.
+opt_menu_nextsel:
+    LDX OPTMENU_SEL
+    JMP opt_seek_fwd
 
 
 ;;  Keep the selection inside the visible window, redrawing if it moved.
@@ -279,6 +307,7 @@ opt_menu_nextsel:
 ;;  the list appears to begin mid-section.  Two rows of margin is exactly the
 ;;  heading plus its separator, so scrolling to the top shows the top.
 OPTLIST_MARGIN = 2
+OPTLIST_PAGE   = OPTLIST_ROWS / 2   ; how far left and right jump
 
 opt_menu_scroll:
     LDA OPTMENU_SEL             ; the highest row we are willing to have as TOP
@@ -742,6 +771,60 @@ opt_value_ptr:
     ADC #$00
     STA OPTMENU_VALPTR + 1
     RTS
+
+
+;;  In: A = RIGHT or LEFT.
+;;
+;;  On a value row the press adjusts the value, which is the only thing left
+;;  and right can sensibly mean there.  Everywhere else it pages the list by
+;;  half a screen, so getting from Quality of Life to the variations is two
+;;  presses rather than twenty.  Contextual in the same way the title screen's
+;;  left and right already are.
+opt_sideways:
+    PHA
+    JSR opt_menu_rowptr
+    LDY #$00
+    LDA (OPTMENU_ROWPTR), Y
+    CMP #OPTROW_VAL
+    BEQ @value
+    PLA
+    CMP #RIGHT
+    BEQ @fwd
+
+    LDA OPTMENU_SEL             ; back half a screen, floored at the top
+    SEC
+    SBC #OPTLIST_PAGE
+    BCS @haveback
+    LDA #$00
+  @haveback:
+    TAX
+    JSR opt_seek_back
+    BCS @moved
+    LDX #$00                    ; nothing selectable above; take the first
+    JSR opt_seek_fwd
+    BRA @moved
+
+  @fwd:
+    LDA OPTMENU_SEL             ; on half a screen, capped at the bottom
+    CLC
+    ADC #OPTLIST_PAGE
+    CMP #OPTROW_COUNT
+    BCC @havefwd
+    LDA #OPTROW_COUNT - 1
+  @havefwd:
+    TAX
+    JSR opt_seek_fwd
+    BCS @moved
+    LDX #OPTROW_COUNT - 1       ; nothing selectable below; take the last
+    JSR opt_seek_back
+
+  @moved:
+    JSR opt_menu_scroll
+    JMP opt_menu_desc
+
+  @value:
+    PLA
+    ;  fall through
 
 
 ;;  In: A = RIGHT or LEFT.  Steps a value row, clamped at both ends.
