@@ -453,10 +453,66 @@ def test_lineup():
                           (destx, SLOT_Y[b]))
 
 
+MAPOBJ = 0x6F00                # $100 bytes, sixteen to an object
+
+#  map, slot, x, y -- FFR's list, which lut_NpcMoves has to agree with.
+NPC_MOVES = ((0, 0, 0x11, 0x02), (0, 4, 0x12, 0x14), (0, 7, 0x1E, 0x0B),
+             (1, 4, 0x1F, 0x05), (1, 5, 0x08, 0x0E), (2, 0, 0x24, 0x19),
+             (6, 13, 0x29, 0x1B), (7, 3, 0x21, 0x07), (8, 5, 0x07, 0x0F))
+
+
+def test_npcmove():
+    """Move the townspeople who stand in doorways.
+
+    Three things can go wrong silently: the slot arithmetic can land on the
+    wrong object (a shift too few and everyone shuffles up), the routine can
+    move objects belonging to some other map, and it can set the physical
+    position without the graphical one, which makes the sprite slide back.
+    So: run it on every map that has an entry, and on one that has none, and
+    compare the whole page against what should have changed.
+    """
+    for flag in (0, OPTF_SPEEDHACKS):
+        for cur in range(10):
+            want = {}
+            for (m, slot, x, y) in NPC_MOVES:
+                if m == cur and flag:
+                    base = slot * 16
+                    want[base + 1] = 0x40           # not in a room, stationary
+                    want[base + 2] = want[base + 4] = x
+                    want[base + 3] = want[base + 5] = y
+
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            bus.wram[0x48] = cur                    # cur_map
+            for i in range(0x100):
+                bus.sram[MAPOBJ - 0x6000 + i] = 0xA5
+            call(cpu, "opt_movenpcs", dbr=0xA7)     # as the JSL in bank $0F leaves it
+
+            got = {i: bus.sram[MAPOBJ - 0x6000 + i]
+                   for i in range(0x100)
+                   if bus.sram[MAPOBJ - 0x6000 + i] != 0xA5}
+            check("npc moves, map %d, speedhacks=%d" % (cur, bool(flag)), got, want)
+
+    #  Nine entries and no more: a terminator left off would walk into whatever
+    #  follows the table and scribble on objects from garbage coordinates.
+    total = 0
+    for cur in range(64):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS, OPTF_SPEEDHACKS)
+        bus.wram[0x48] = cur
+        for i in range(0x100):
+            bus.sram[MAPOBJ - 0x6000 + i] = 0xA5
+        call(cpu, "opt_movenpcs", dbr=0xA7)
+        total += sum(1 for i in range(0x100)
+                     if bus.sram[MAPOBJ - 0x6000 + i] != 0xA5)
+    check("npc moves touch 9 objects across all 64 maps", total, 9 * 5)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
-              test_battlespeed, test_lineup, test_respondtable, test_msgdraw):
+              test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
+              test_npcmove):
         try:
             t()
         except Exception as e:

@@ -233,6 +233,10 @@ MSGROWS_FAST    = 2
 MSGROWSREV_SLOW = 2
 MSGROWSREV_FAST = 3
 
+;  Behaviour flags for a repositioned NPC: not in a room, and stationary.
+;  ($80 is inroom, $40 is don't move -- see mapobj_flgs in variables.inc.)
+NPCMOVE_FLAGS   = $40
+
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01
 

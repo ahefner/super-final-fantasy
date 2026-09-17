@@ -41,7 +41,7 @@
 ;  interpreter and asserts on what comes back.
 .export opt_loadpreset, opt_sum, lut_Presets, opt_derive
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
-.export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev
+.export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -831,3 +831,74 @@ opt_msgaudio:
     PLA
     STA cur_bank        ; the battle code still expects its own value
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Speed Hacks: move the NPCs who stand in doorways
+;;
+;;  The last piece of the bundle, and the only one that is not a timing change:
+;;  a handful of townspeople stand where the player has to walk round them, and
+;;  FFR shifts them aside.
+;;
+;;  A patch list applied after the map's objects are loaded, rather than a
+;;  second copy of the object table.  The table is $30 bytes for each of 64
+;;  maps; this is nine entries of four bytes, and it costs nothing when the
+;;  flag is off.  Only EnterStandardMap reloads objects -- ReenterStandardMap,
+;;  which is the path back from a battle or the menu, does not -- so toggling
+;;  the flag takes effect the next time the player enters or changes a map.
+;;
+;;  Each entry is map, slot, x, y.  Every one of them ends up stationary and
+;;  outside a room, so the flags are a constant rather than a fifth byte.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_NpcMoves:
+  .BYTE  0,  0, $11, $02        ; Coneria, north soldier
+  .BYTE  0,  4, $12, $14        ; Coneria, south gal
+  .BYTE  0,  7, $1E, $0B        ; Coneria, east guy
+  .BYTE  1,  4, $1F, $05        ; Pravoka, old man
+  .BYTE  1,  5, $08, $0E        ; Pravoka, woman
+  .BYTE  2,  0, $24, $19        ; Elfland, entrance elf
+  .BYTE  6, 13, $29, $1B        ; Onrac guy
+  .BYTE  7,  3, $21, $07        ; Lefein guy
+  .BYTE  8,  5, $07, $0F        ; Coneria Castle, ghost lady
+lut_NpcMovesEnd:
+
+opt_movenpcs:
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BEQ @out
+    PHB
+    PHK
+    PLB
+    LDX #$00
+  @loop:
+    CPX #lut_NpcMovesEnd - lut_NpcMoves   ; bounded by the table's length; a
+    BEQ @done                             ;   sentinel that went missing would
+    LDA lut_NpcMoves, X                   ;   walk into the code behind it and
+    CMP cur_map                           ;   move objects from nonsense
+    BNE @next
+
+    LDA lut_NpcMoves+1, X       ; the slot, as an offset into mapobj
+    ASL A                       ;   -- sixteen bytes per object
+    ASL A
+    ASL A
+    ASL A
+    TAY
+    LDA #NPCMOVE_FLAGS
+    STA mapobj_flgs, Y
+    LDA lut_NpcMoves+2, X
+    STA mapobj_physX, Y         ; the physical and graphical positions have to
+    STA mapobj_gfxX, Y          ;   agree, or the sprite slides to its old spot
+    LDA lut_NpcMoves+3, X
+    STA mapobj_physY, Y
+    STA mapobj_gfxY, Y
+
+  @next:
+    TXA
+    CLC
+    ADC #4
+    TAX
+    JMP @loop
+  @done:
+    PLB
+  @out:
+    RTL

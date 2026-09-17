@@ -1,0 +1,12 @@
+--- OLD
+    JSR LoadStandardMap   ; decompress the map
+    JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
+    RTS                   ; exit
+--- NEW
+.import opt_movenpcs
+
+    JSR LoadStandardMap   ; decompress the map
+    JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
+    JSL opt_movenpcs + OPTFAR   ; ...then shift the ones Speed Hacks moves out
+    RTS                   ;      of the player's way.  This is the only path
+                          ;      that loads objects, so it cannot compound.
