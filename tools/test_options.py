@@ -257,12 +257,24 @@ TMP = 0x10                                   # game's tmp, from variables.inc
 
 def test_derive():
     """The cooked wipe steps, and that they still divide their totals."""
-    for flag, want in ((0, (2, 4, 2, 4)), (OPTF_SPEEDHACKS, (8, 16, 10, 20))):
+    for flag, want in ((0, (2, 4, 2, 4, 2, 3, 0x41)),
+                       (OPTF_SPEEDHACKS, (8, 16, 10, 20, 11, 11, 0x11))):
         bus, cpu = machine()
         setblk(bus, OPT_FLAGS, flag)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
-        got = tuple(blk(bus, OPTD + i) for i in range(4))
-        check("wipe steps, speedhacks=%d" % flag, got, want)
+        got = tuple(blk(bus, OPTD + i) for i in range(7))
+        check("derived constants, speedhacks=%d" % flag, got, want)
+        #  The battle transition plays a $20-frame noise sweep; a transition
+        #  shorter than that leaves the sound running past the picture, which
+        #  is deliberate, but it must not be zero or the effect never draws.
+        check("battle transition is nonzero, speedhacks=%d" % flag,
+              got[6] > 0, True)
+        #  The dialogue box grows from 8 to $60 and retracts past $12; a step
+        #  larger than the span would skip the animation entirely.
+        check("dialogue open step fits the span, speedhacks=%d" % flag,
+              got[4] <= 0x60 - 0x08, True)
+        check("dialogue close step fits the span, speedhacks=%d" % flag,
+              got[5] <= 0x60 - 0x12, True)
         #  The open wipe runs to 224 and the close one down from 220; a step
         #  that does not divide its total overshoots and the wipe runs away.
         check("open step divides 224, speedhacks=%d" % flag, 224 % got[1], 0)

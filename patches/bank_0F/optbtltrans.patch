@@ -1,0 +1,11 @@
+--- OLD
+    INC tmp+12       ; inc our loop counter
+    LDA tmp+12
+    CMP #$41
+--- NEW
+    INC tmp+12       ; inc our loop counter
+    LDA tmp+12
+    CMP OPTD_BTLTRANS ; $41 normally, $11 with Speed Hacks.  The noise sweep
+                      ;  this plays over lasts $20, so a shorter transition
+                      ;  leaves the sound running past the picture -- which is
+                      ;  what FFR ships, and what players expect.

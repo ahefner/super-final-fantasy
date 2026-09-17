@@ -168,6 +168,9 @@ OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
 OPTD_WIPEOPEN_D = OPTD+$01
 OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
 OPTD_WIPECLOSE_U= OPTD+$03
+OPTD_DLGOPEN    = OPTD+$04      ; the dialogue box's two step sizes
+OPTD_DLGCLOSE   = OPTD+$05
+OPTD_BTLTRANS   = OPTD+$06      ; how long the battle transition runs
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
 ;  or the wipe overshoots its end condition and runs off.
@@ -179,6 +182,19 @@ WIPE_CLOSE_D_SLOW = 2
 WIPE_CLOSE_U_SLOW = 4
 WIPE_CLOSE_D_FAST = 10
 WIPE_CLOSE_U_FAST = 20
+
+;  The dialogue box grows from scanline 8 to $60 and retracts to below $12.
+;  Both loops compare with BCC/BCS rather than for equality, so any step
+;  terminates -- unlike the closing wipe, which tests CMP #1 exactly.
+DLG_OPEN_SLOW   = 2
+DLG_CLOSE_SLOW  = 3
+DLG_OPEN_FAST   = 11
+DLG_CLOSE_FAST  = 11
+
+;  The battle transition runs a counter to this.  The noise sweep it plays
+;  lasts $20, so below that the sound outlives the picture.
+BTLTRANS_SLOW   = $41
+BTLTRANS_FAST   = $11
 
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01

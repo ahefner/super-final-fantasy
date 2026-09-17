@@ -1,0 +1,10 @@
+--- OLD
+      LDA tmp+11
+      CLC
+      ADC #2
+      STA tmp+11           ; increment the visible scanlines by 2 (box grows 2 pixels/frame)
+--- NEW
+      LDA tmp+11           ; grow the box by the step size -- 2 normally, 11
+      CLC                  ;  with Speed Hacks.  The loop below compares with
+      ADC OPTD_DLGOPEN     ;  BCC rather than for equality, so the step does
+      STA tmp+11           ;  not have to divide the 88 lines it covers.

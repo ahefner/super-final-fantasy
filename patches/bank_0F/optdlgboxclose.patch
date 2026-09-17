@@ -1,0 +1,10 @@
+--- OLD
+      LDA tmp+11        ; subtract 3 from the dialogue visibility scanline (move it 3 lines up
+      SEC               ;    retracting box visibility)
+      SBC #3
+      STA tmp+11        ; box closes 3 pixels/frame.
+--- NEW
+      LDA tmp+11        ; retract by the step size -- 3 normally, 11 with
+      SEC               ;   Speed Hacks.  BCS below, so again no divisibility
+      SBC OPTD_DLGCLOSE ;   requirement.
+      STA tmp+11
