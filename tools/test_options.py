@@ -37,6 +37,7 @@ OPT_ENEMY, OPT_BOSS, OPT_RESPOND, OPT_CKSUM = 10, 11, 12, 13
 OPT_SIZE = 14
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
+CUR_BANK = 0x57                # the bank SwapPRG returns to
 
 fails = []
 
@@ -355,6 +356,7 @@ def test_msgdraw():
         setblk(bus, OPT_FLAGS, flag)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
         rows = []
+        bus.wram[CUR_BANK] = 0x0C          # the battle bank, as in play
         cpu2 = CPU(bus); cpu2.dbr = CHUNK_OPT_BANK
         cpu2.pbr, cpu2.pc = CHUNK_OPT_BANK, SYM[name]
         cpu2.push(0xFF); cpu2.push(0xFF); cpu2.push(0xFD)
@@ -363,14 +365,24 @@ def test_msgdraw():
         while cpu2.pc != 0xFFFE and guard < 200000:
             guard += 1
             #  count each entry to a row writer, then return from it immediately
-            if cpu2.pc in draw and cpu2.pbr == CHUNK_OPT_BANK:
+            if cpu2.pbr != CHUNK_OPT_BANK and cpu2.pc < 0xC000:
+                fails.append("%s speedhacks=%d lost the program bank: running "
+                             "$%02X:%04X" % (name, flag, cpu2.pbr, cpu2.pc))
+                break
+            if cpu2.pc in draw and cpu2.pbr in (CHUNK_OPT_BANK, 0xA1 + 0x0C):
                 rows.append(bus.wram[0x8A] | (bus.wram[0x8B] << 8))
                 lo, hi = cpu2.pull(), cpu2.pull()
                 cpu2.pc = (((hi << 8) | lo) + 1) & 0xFFFF
                 continue
             if cpu2.pc == SYM["Battle_UpdatePPU_UpdateAudio_FixedBank"]:
+                #  Do not simply return: this routine ends in CallMusicPlay,
+                #  which swaps to the music bank and comes back to whichever
+                #  bank cur_bank names.  Model that, or the harness cannot see
+                #  a caller that forgot to point cur_bank at itself -- which is
+                #  a freeze on hardware and invisible here.
                 lo, hi = cpu2.pull(), cpu2.pull()
                 cpu2.pc = (((hi << 8) | lo) + 1) & 0xFFFF
+                cpu2.pbr = 0xA1 + bus.wram[CUR_BANK]
                 continue
             cpu2.step()
         check("%s speedhacks=%d draws 12 rows" % (name, flag), len(rows), MSGROWS_TOTAL)

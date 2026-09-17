@@ -689,6 +689,15 @@ opt_respondlookup:
 ;;  forty-odd bytes each in a fixed bank with sixty to its name, and the row
 ;;  writers they call are in the fixed bank, which every chunk carries, so a
 ;;  plain JSR still reaches them from here.
+;;
+;;  The audio update does NOT tolerate being called from here directly.  It
+;;  ends in CallMusicPlay, which swaps to the music bank and comes back to
+;;  whichever bank cur_bank names -- the battle bank, in battle.  That was
+;;  harmless while this code lived in the fixed bank, which every chunk carries
+;;  identically; from here it would return with the program bank pointing
+;;  somewhere else and the next instruction would be another bank's bytes.
+;;  opt_msgaudio points cur_bank at this bank for the duration and puts it
+;;  back, because the battle code still expects its own value afterwards.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_msgdraw:
@@ -721,10 +730,10 @@ opt_msgdraw:
   @nextframe:
     LDA OPTD_MSGROWS
     STA OPTSCRATCH
-    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JSR opt_msgaudio
     JMP @frame
   @done:
-    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JSR opt_msgaudio
     RTL
 
   @advance:
@@ -775,10 +784,10 @@ opt_msgdraw_rev:
   @nextframe:
     LDA OPTD_MSGROWSREV
     STA OPTSCRATCH
-    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JSR opt_msgaudio
     JMP @frame
   @done:
-    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JSR opt_msgaudio
     RTL
 
   @retreat:
@@ -796,4 +805,16 @@ opt_msgdraw_rev:
     LDA $8B
     SBC #$00
     STA $8B
+    RTS
+
+;;  Update the picture and the music without losing the program bank.  See the
+;;  note above opt_msgdraw: the audio path returns through cur_bank.
+opt_msgaudio:
+    LDA cur_bank
+    PHA
+    LDA #CHUNK_OPT
+    STA cur_bank
+    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    PLA
+    STA cur_bank        ; the battle code still expects its own value
     RTS
