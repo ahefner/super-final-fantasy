@@ -1161,8 +1161,8 @@ lut_Desc_16:  ; Chest information
 lut_Desc_17:  ; NPC guillotine
   .BYTE $9D, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $B7, $B2, $FF, $A4, $B1, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $97, $99, $8C, $FF, $FF
   .BYTE $B5, $A8, $B0, $B2, $B9, $A8, $B6, $FF, $AC, $B7, $FF, $A9, $B5, $B2, $B0, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF
-  .BYTE $99, $A8, $B5, $B0, $A4, $B1, $A8, $B1, $B7, $FF, $C2, $FF, $B7, $AB, $A8, $BC, $FF, $B6, $B7, $A4, $BC, $FF, $AA, $B2, $B1, $A8, $FF, $FF
-  .BYTE $A8, $B9, $A8, $B1, $FF, $AC, $A9, $FF, $BC, $B2, $B8, $FF, $B7, $B8, $B5, $B1, $FF, $B7, $AB, $AC, $B6, $FF, $B2, $A9, $A9, $C0, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_18:  ; House MP restoration
@@ -1224,8 +1224,8 @@ lut_Desc_25:  ; Boss stats
 lut_Desc_26:  ; Better Thief and Ninja
   .BYTE $9B, $A4, $AC, $B6, $A8, $B6, $FF, $9D, $AB, $AC, $A8, $A9, $FF, $A4, $B1, $A7, $FF, $97, $AC, $B1, $AD, $A4, $FF, $AB, $AC, $B7, $FF, $FF
   .BYTE $B5, $A4, $B7, $A8, $FF, $A4, $B1, $A7, $FF, $A4, $AA, $AC, $AF, $AC, $B7, $BC, $FF, $AA, $B5, $B2, $BA, $B7, $AB, $C0, $FF, $FF, $FF, $FF
-  .BYTE $8A, $A9, $A9, $A8, $A6, $B7, $B6, $FF, $B1, $A8, $BA, $FF, $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $B6, $FF, $A4, $B1, $A7, $FF, $FF
-  .BYTE $A9, $B8, $B7, $B8, $B5, $A8, $FF, $AF, $A8, $B9, $A8, $AF, $FF, $B8, $B3, $B6, $FF, $B2, $B1, $AF, $BC, $C0, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_27:  ; Double weapon crit
