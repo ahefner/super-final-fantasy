@@ -459,6 +459,17 @@ lut_TitleCursorX:
 
 ;;  Drawn once, with the PPU off, alongside the other three boxes.
 opt_drawpresetbox:
+    ;  DrawBox can stall a frame, and a stall calls CallMusicPlay, which comes
+    ;  back through cur_bank.  It happens not to stall here, because the title
+    ;  screen leaves menustall clear -- but that is the caller's state, not
+    ;  ours, so name this bank and zero the flag rather than rely on it.
+    LDA cur_bank
+    PHA
+    LDA #CHUNK_OPT
+    STA cur_bank
+    LDA #$00
+    STA menustall
+
     LDA #PRESETBOX_X
     STA box_x
     LDA #PRESETBOX_Y
@@ -468,6 +479,8 @@ opt_drawpresetbox:
     LDA #16
     STA box_wd
     JSR DrawBox
+    PLA
+    STA cur_bank                ; the title screen wants its own value back
     RTL
 
 ;;  Redrawn every frame, in vblank, immediately before the respond rate -- so

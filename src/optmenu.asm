@@ -123,15 +123,6 @@ opt_settings:
     JSR opt_waitrelease         ; nothing the title screen was holding carries in
 
   @loop:
-    ;  cur_bank is where CallMusicPlay swaps *back* to.  It has to name this
-    ;  bank, not the one the title screen left in it: the music call switches
-    ;  to BANK_MUSIC and returns through SwapPRG, so with a stale value the
-    ;  program bank comes back pointing at bank $0E and the next instruction
-    ;  at $8xxx is whatever that bank happens to hold.  Set every pass rather
-    ;  than once, so anything else that touches it cannot strand us either.
-    LDA #CHUNK_OPT
-    STA cur_bank
-
     JSR ClearOAM
     LDA OPTMENU_SEL
     SEC
@@ -149,7 +140,17 @@ opt_settings:
     JSR WaitForVBlank_L
     LDA #>oam
     wOAMDMA
+
+    ;  cur_bank is where CallMusicPlay swaps *back* to.  It has to name this
+    ;  bank, not the one the title screen left in it: the music call switches
+    ;  to BANK_MUSIC and returns through SwapPRG, so with a stale value the
+    ;  program bank comes back elsewhere and the next instruction at $8xxx is
+    ;  whatever that bank happens to hold.  Kept next to the call it guards,
+    ;  and set every pass, so nothing else touching it can strand us.
+    LDA #CHUNK_OPT
+    STA cur_bank
     JSR CallMusicPlay
+
     JSR UpdateJoy
 
     ;  Edge detection: down now and not down last frame.
@@ -572,7 +573,9 @@ opt_menu_drawdesc:
     LDA #32
     STA box_wd
     LDA #$00
-    STA menustall
+    STA menustall               ; no stall, so DrawBox will not reach the music
+    LDA #CHUNK_OPT              ;   call -- but name this bank anyway, so the
+    STA cur_bank                ;   safety does not rest on a flag elsewhere
     JMP DrawBox
 
 

@@ -43,7 +43,11 @@ fails = []
 
 
 def labels():
-    if not os.path.exists(LABELS):
+    #  Regenerate whenever the ROM is newer.  A stale label file does not fail
+    #  cleanly: every address is slightly wrong and the tests report a dozen
+    #  unrelated crashes in banks that were never touched.
+    if (not os.path.exists(LABELS)
+            or os.path.getmtime(LABELS) < os.path.getmtime(ROM)):
         subprocess.run(["ld65", "-C", "snes.cfg", "-o", "/dev/null", "-Ln", LABELS]
                        + [os.path.join("out", f) for f in sorted(os.listdir("out"))
                           if f.endswith(".o")], cwd=ROOT, check=True)

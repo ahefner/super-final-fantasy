@@ -57,4 +57,9 @@ ld65 -C snes.cfg -o /dev/null \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o
 
+#  Code in the options bank reaches the fixed bank with a plain JSR, which is
+#  safe until the routine it calls swaps banks.  That is a freeze on hardware
+#  and looks like an ordinary call in the source, so check it every build.
+python3 tools/check_bankswap.py || exit 1
+
 python3 tools/mkrom.py
