@@ -70,6 +70,9 @@ OPTMENU_ROWNUM = $72            ; which on-screen row is being drawn
 OPTMENU_ADDR   = $73            ; 2 bytes: nametable address being built
 OPTMENU_SCAN   = $75            ; row index while walking a section
 OPTMENU_ALLSET = $76            ; was every checkbox in the section already on?
+OPTMENU_VALPTR = $77            ; 2 bytes: into a value-readout table
+OPTMENU_STG    = $79            ; how many bytes are staged for the blit
+OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
 
 opt_settings:
     LDA #PRESET_CUSTOM
@@ -91,6 +94,7 @@ opt_settings:
     JSR opt_menu_fillbg
     JSR opt_menu_loadchr
     JSR opt_menu_drawall
+    JSR opt_menu_desc
 
     LDA #$08
     STA soft2000                ; sprites from the right pattern table
@@ -150,6 +154,14 @@ opt_settings:
     BEQ @down
     CMP #UP
     BEQ @up
+    CMP #RIGHT
+    BEQ @sideways
+    CMP #LEFT
+    BEQ @sideways
+    JMP @loop
+
+  @sideways:
+    JSR opt_value_adjust
     JMP @loop
 
   @done:
@@ -165,28 +177,40 @@ opt_settings:
     JSR opt_menu_toggle
     JMP @loop
 
+  ;  Named labels, not anonymous ones.  An earlier version used ":" here and a
+  ;  later edit inserted another one between the loop top and the branch back,
+  ;  which silently retargeted "BEQ :-" to the wrong place -- the index stopped
+  ;  advancing and the first press onto a blank row hung the menu.
   @down:
     LDX OPTMENU_SEL
-  : INX
+  @dnext:
+    INX
     CPX #OPTROW_COUNT
-    BCS @loop                   ; nothing selectable below; stay put
+    BCC @dtest
+    JMP @loop                   ; nothing selectable below; stay put
+  @dtest:
     TXA
     JSR opt_row_selectable
-    BEQ :-
+    BEQ @dnext
     STX OPTMENU_SEL
     JSR opt_menu_scroll
+    JSR opt_menu_desc
     JMP @loop
 
   @up:
     LDX OPTMENU_SEL
-  : CPX #$00
-    BEQ @loop                   ; nothing selectable above; stay put
+  @unext:
+    CPX #$00
+    BNE @udec
+    JMP @loop                   ; nothing selectable above; stay put
+  @udec:
     DEX
     TXA
     JSR opt_row_selectable
-    BEQ :-
+    BEQ @unext
     STX OPTMENU_SEL
     JSR opt_menu_scroll
+    JSR opt_menu_desc
     JMP @loop
 
 
@@ -417,7 +441,77 @@ opt_menu_loadchr:
     RTS
 
 
-;;  The description box.  Empty for now; the text comes next.
+;;  Write the description for the selected row into the pane.  Five fixed
+;;  blits: the text is wrapped at build time, so there is nothing to measure
+;;  here and nothing to decide.
+DESC_COL = 2
+DESC_ROW = OPTDESC_Y + 2
+
+opt_menu_desc:
+    LDX OPTMENU_SEL
+    LDA lut_DescLo, X
+    STA OPTMENU_DESC
+    LDA lut_DescHi, X
+    STA OPTMENU_DESC + 1
+
+    LDA #DESC_ROW
+    STA OPTMENU_ROWNUM
+  @line:
+    JSR opt_menu_descppu
+    LDA #$00
+    STA OPTMENU_STG
+    LDY #$00
+  @char:
+    LDA (OPTMENU_DESC), Y
+    JSR opt_stage
+    INY
+    CPY #DESC_W
+    BCC @char
+    JSR opt_stage_flush
+
+    LDA OPTMENU_DESC            ; on to the next wrapped line
+    CLC
+    ADC #DESC_W
+    STA OPTMENU_DESC
+    LDA OPTMENU_DESC + 1
+    ADC #$00
+    STA OPTMENU_DESC + 1
+
+    INC OPTMENU_ROWNUM
+    LDA OPTMENU_ROWNUM
+    CMP #DESC_ROW + DESC_LINES
+    BCC @line
+    RTS
+
+
+;;  PPU address for the description line at OPTMENU_ROWNUM, inset by DESC_COL.
+opt_menu_descppu:
+    LDA OPTMENU_ROWNUM
+    STA OPTMENU_ADDR
+    LDA #$00
+    STA OPTMENU_ADDR + 1
+    LDX #$05                    ; * 32, the nametable row stride
+  @sh:
+    ASL OPTMENU_ADDR
+    ROL OPTMENU_ADDR + 1
+    DEX
+    BNE @sh
+    LDA OPTMENU_ADDR
+    CLC
+    ADC #DESC_COL
+    STA OPTMENU_ADDR
+    LDA OPTMENU_ADDR + 1
+    ADC #>$2000
+    STA OPTMENU_ADDR + 1
+    bPPUSTATUS
+    LDA OPTMENU_ADDR + 1
+    wPPUADDR
+    LDA OPTMENU_ADDR
+    wPPUADDR
+    RTS
+
+
+;;  The description box.
 opt_menu_drawdesc:
     LDA #$00
     STA box_x
@@ -482,10 +576,33 @@ opt_menu_ppuaddr:
     RTS
 
 
+;;  Append A to the staging buffer that hal_ntblit reads.
+opt_stage:
+    PHX
+    LDX OPTMENU_STG
+    STA f:NTSTAGE, X
+    INC OPTMENU_STG
+    PLX
+    RTS
+
+
+;;  Hand the staged run to the HAL.  One call replaces a row of single $2007
+;;  writes, each of which was a thunk plus the whole address decode -- which is
+;;  what made scrolling stall the music for two or three frames.
+opt_stage_flush:
+    LDX OPTMENU_STG
+    JSL hal_ntblit + HALFAR
+    LDA #$00
+    STA OPTMENU_STG
+    RTS
+
+
 ;;  In: A = the list index to draw, OPTMENU_ROWNUM = where.
 opt_menu_drawrow:
     JSR opt_menu_ptrfor
     JSR opt_menu_ppuaddr
+    LDA #$00
+    STA OPTMENU_STG
 
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
@@ -504,28 +621,112 @@ opt_menu_drawrow:
   @nobox:
     LDA #$FF                    ; headers and value rows have no checkbox
   @emit:
-    wPPUDATA
+    JSR opt_stage
     LDA #$FF
-    wPPUDATA                    ; the gap column
+    JSR opt_stage               ; the gap column
 
     LDY #OPTROW_LABEL
   @label:
     LDA (OPTMENU_ROWPTR), Y
-    wPPUDATA
+    JSR opt_stage
     INY
     CPY #OPTROW_LABEL + OPTROW_LABELW
     BCC @label
+
+    ;  The readout field closes every row, blank on the ones that have no
+    ;  value.  Writing it unconditionally is what stops a value left behind by
+    ;  a scrolled-away row showing up beside an unrelated label.
+    LDA #$FF
+    JSR opt_stage               ; the gap column
+    LDY #$00
+    LDA (OPTMENU_ROWPTR), Y
+    CMP #OPTROW_VAL
+    BEQ @value
+    LDY #VALFIELD
+  @pad:
+    LDA #$FF
+    JSR opt_stage
+    DEY
+    BNE @pad
+    JMP opt_stage_flush
+  @value:
+    JSR opt_value_ptr           ; -> OPTMENU_VALPTR at this row's readout
+    LDY #$00
+  @vloop:
+    LDA (OPTMENU_VALPTR), Y
+    JSR opt_stage
+    INY
+    CPY #VALFIELD
+    BCC @vloop
+    JMP opt_stage_flush
+
+
+;;  Point OPTMENU_VALPTR at the readout for the value row OPTMENU_ROWPTR
+;;  describes -- table base plus the current step times four.
+opt_value_ptr:
+    LDY #$01
+    LDA (OPTMENU_ROWPTR), Y     ; which scalar, 0..3
+    TAX
+    LDA lut_ValTabLo, X
+    STA OPTMENU_VALPTR
+    LDA lut_ValTabHi, X
+    STA OPTMENU_VALPTR + 1
+    LDA OPT_GOLDXP, X           ; the block's four scalars are consecutive
+    ASL A                       ; four bytes per readout
+    ASL A
+    CLC
+    ADC OPTMENU_VALPTR
+    STA OPTMENU_VALPTR
+    LDA OPTMENU_VALPTR + 1
+    ADC #$00
+    STA OPTMENU_VALPTR + 1
     RTS
+
+
+;;  In: A = RIGHT or LEFT.  Steps a value row, clamped at both ends.
+;;
+;;  Clamped rather than wrapped: these are magnitudes, and running off 500%
+;;  back to 0% is the kind of thing you do by accident and do not notice.
+opt_value_adjust:
+    PHA
+    JSR opt_menu_rowptr
+    LDY #$00
+    LDA (OPTMENU_ROWPTR), Y
+    CMP #OPTROW_VAL
+    BEQ :+
+    PLA
+    RTS                         ; not a value row
+:   LDY #$01
+    LDA (OPTMENU_ROWPTR), Y
+    TAX                         ; X = which scalar
+    PLA
+    CMP #RIGHT
+    BNE @left
+
+    LDA OPT_GOLDXP, X
+    CLC
+    ADC #$01
+    CMP lut_ValCount, X         ; the top step is count-1
+    BCS @done
+    STA OPT_GOLDXP, X
+    JMP @done
+
+  @left:
+    LDA OPT_GOLDXP, X
+    BEQ @done                   ; at the bottom already
+    DEC OPT_GOLDXP, X
+
+  @done:
+    JSR opt_commit_body
+    JMP opt_menu_drawall
 
 
 ;;  Wipe an on-screen row that has no list entry behind it.
 opt_menu_blankrow:
     JSR opt_menu_ppuaddr
-    LDX #OPTROW_LABELW + 2
     LDA #$FF
-  : wPPUDATA
-    DEX
-    BNE :-
+    LDX #OPTROW_LABELW + 2 + 1 + VALFIELD
+    JSL hal_ntfill + HALFAR     ; one identical run; ntfill's own fast path
     RTS
 
 
@@ -759,3 +960,318 @@ lut_CheckboxCHR:
   ; checked -- filled white
   .BYTE $00, $7E, $7E, $7E, $7E, $7E, $7E, $00
   .BYTE $FF, $81, $BD, $BD, $BD, $BD, $81, $FF
+
+;  Generated: the value-row readouts, four characters right-aligned.
+VALFIELD = 4
+
+;  Gold and XP: 0%% to 500%% in 50%% steps
+lut_ValGoldXP:
+  .BYTE $FF, $FF, $80, $E0   ;   0%
+  .BYTE $FF, $85, $80, $E0   ;  50%
+  .BYTE $81, $80, $80, $E0   ; 100%
+  .BYTE $81, $85, $80, $E0   ; 150%
+  .BYTE $82, $80, $80, $E0   ; 200%
+  .BYTE $82, $85, $80, $E0   ; 250%
+  .BYTE $83, $80, $80, $E0   ; 300%
+  .BYTE $83, $85, $80, $E0   ; 350%
+  .BYTE $84, $80, $80, $E0   ; 400%
+  .BYTE $84, $85, $80, $E0   ; 450%
+  .BYTE $85, $80, $80, $E0   ; 500%
+
+;  Encounter rate: labelled by its effect on the overworld
+lut_ValEncounter:
+  .BYTE $FF, $98, $A9, $A9   ;  Off
+  .BYTE $FF, $81, $80, $E0   ;  10%
+  .BYTE $FF, $82, $80, $E0   ;  20%
+  .BYTE $FF, $83, $80, $E0   ;  30%
+  .BYTE $FF, $84, $80, $E0   ;  40%
+  .BYTE $FF, $85, $80, $E0   ;  50%
+  .BYTE $FF, $86, $80, $E0   ;  60%
+  .BYTE $FF, $87, $80, $E0   ;  70%
+  .BYTE $FF, $88, $80, $E0   ;  80%
+  .BYTE $FF, $89, $80, $E0   ;  90%
+  .BYTE $81, $80, $80, $E0   ; 100%
+  .BYTE $81, $85, $80, $E0   ; 150%
+  .BYTE $82, $80, $80, $E0   ; 200%
+  .BYTE $83, $80, $80, $E0   ; 300%
+
+;  Enemy and boss stats: 25%% to 500%% in 25%% steps
+lut_ValStat:
+  .BYTE $FF, $82, $85, $E0   ;  25%
+  .BYTE $FF, $85, $80, $E0   ;  50%
+  .BYTE $FF, $87, $85, $E0   ;  75%
+  .BYTE $81, $80, $80, $E0   ; 100%
+  .BYTE $81, $82, $85, $E0   ; 125%
+  .BYTE $81, $85, $80, $E0   ; 150%
+  .BYTE $81, $87, $85, $E0   ; 175%
+  .BYTE $82, $80, $80, $E0   ; 200%
+  .BYTE $82, $82, $85, $E0   ; 225%
+  .BYTE $82, $85, $80, $E0   ; 250%
+  .BYTE $82, $87, $85, $E0   ; 275%
+  .BYTE $83, $80, $80, $E0   ; 300%
+  .BYTE $83, $82, $85, $E0   ; 325%
+  .BYTE $83, $85, $80, $E0   ; 350%
+  .BYTE $83, $87, $85, $E0   ; 375%
+  .BYTE $84, $80, $80, $E0   ; 400%
+  .BYTE $84, $82, $85, $E0   ; 425%
+  .BYTE $84, $85, $80, $E0   ; 450%
+  .BYTE $84, $87, $85, $E0   ; 475%
+  .BYTE $85, $80, $80, $E0   ; 500%
+
+;  Per-scalar: where its readouts are and how many there are.  The block
+;  fields are consecutive, so the option byte itself is OPT_GOLDXP indexed by
+;  the same number.
+lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat
+lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat
+lut_ValCount: .BYTE 11, 14, 20, 20
+
+;  Generated: the description pane text, pre-wrapped to 28 columns and 5
+;  lines.  Wrapping at build time rather than at runtime keeps the draw to
+;  five fixed blits and keeps the wording under review in the source.
+DESC_W = 28
+DESC_LINES = 5
+DESC_SIZE = 140
+
+lut_DescBlank:
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_0:  ; QUALITY OF LIFE
+  .BYTE $8C, $B2, $B1, $B9, $A8, $B1, $AC, $A8, $B1, $A6, $A8, $FF, $A6, $AB, $A4, $B1, $AA, $A8, $B6, $C0, $FF, $97, $B2, $B1, $A8, $FF, $B2, $A9
+  .BYTE $B7, $AB, $A8, $B6, $A8, $FF, $A4, $AF, $B7, $A8, $B5, $FF, $AB, $B2, $BA, $FF, $B7, $AB, $A8, $FF, $AA, $A4, $B0, $A8, $FF, $FF, $FF, $FF
+  .BYTE $B3, $AF, $A4, $BC, $B6, $FF, $B2, $B8, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_1:  ; BUGFIXES
+  .BYTE $8C, $B2, $B5, $B5, $A8, $A6, $B7, $AC, $B2, $B1, $B6, $FF, $B7, $B2, $FF, $B0, $AC, $B6, $B7, $A4, $AE, $A8, $B6, $FF, $AC, $B1, $FF, $FF
+  .BYTE $B7, $AB, $A8, $FF, $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $AA, $A4, $B0, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_2:  ; VARIATIONS
+  .BYTE $8C, $AB, $A4, $B1, $AA, $A8, $B6, $FF, $B7, $AB, $A4, $B7, $FF, $A7, $A8, $AF, $AC, $A5, $A8, $B5, $A4, $B7, $A8, $AF, $BC, $FF, $FF, $FF
+  .BYTE $A4, $AF, $B7, $A8, $B5, $FF, $AB, $B2, $BA, $FF, $B7, $AB, $A8, $FF, $AA, $A4, $B0, $A8, $FF, $B3, $AF, $A4, $BC, $B6, $C0, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_3:  ; Speed hacks
+  .BYTE $8A, $B5, $A8, $A4, $FF, $B7, $B5, $A4, $B1, $B6, $AC, $B7, $AC, $B2, $B1, $B6, $BF, $FF, $B0, $A8, $B1, $B8, $B6, $BF, $FF, $FF, $FF, $FF
+  .BYTE $A5, $A4, $B7, $B7, $AF, $A8, $FF, $A5, $B2, $BB, $A8, $B6, $FF, $A4, $B1, $A7, $FF, $A4, $B1, $AC, $B0, $A4, $B7, $AC, $B2, $B1, $B6, $FF
+  .BYTE $A4, $AF, $AF, $FF, $B5, $B8, $B1, $FF, $A9, $A4, $B6, $B7, $A8, $B5, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_4:  ; Faster walking
+  .BYTE $A0, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $A4, $B1, $A7, $FF, $A6, $A4, $B1, $B2, $A8, $FF, $B6, $B3, $A8, $A8, $A7, $FF, $AC, $B6, $FF, $FF
+  .BYTE $A7, $B2, $B8, $A5, $AF, $A8, $A7, $C0, $FF, $91, $B2, $AF, $A7, $FF, $8B, $FF, $B7, $B2, $FF, $B0, $B2, $B9, $A8, $FF, $A4, $B7, $FF, $FF
+  .BYTE $B7, $AB, $A8, $FF, $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $B3, $A4, $A6, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_5:  ; Faster ship
+  .BYTE $9D, $AB, $A8, $FF, $B6, $AB, $AC, $B3, $FF, $B6, $A4, $AC, $AF, $B6, $FF, $A4, $B6, $FF, $A9, $A4, $B6, $B7, $FF, $A4, $B6, $FF, $FF, $FF
+  .BYTE $B7, $AB, $A8, $FF, $A4, $AC, $B5, $B6, $AB, $AC, $B3, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_6:  ; No party shuffle
+  .BYTE $9D, $AB, $A8, $FF, $B3, $A4, $B5, $B7, $BC, $FF, $AC, $B6, $FF, $B1, $B2, $B7, $FF, $B5, $A8, $A4, $B5, $B5, $A4, $B1, $AA, $A8, $A7, $FF
+  .BYTE $BA, $AB, $A8, $B1, $FF, $A4, $FF, $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $FF, $A9, $A4, $AF, $AF, $B6, $C0, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_7:  ; Identify treasures
+  .BYTE $8A, $FF, $A9, $B8, $AF, $AF, $FF, $AC, $B1, $B9, $A8, $B1, $B7, $B2, $B5, $BC, $FF, $B6, $B7, $AC, $AF, $AF, $FF, $B7, $A8, $AF, $AF, $B6
+  .BYTE $BC, $B2, $B8, $FF, $BA, $AB, $A4, $B7, $FF, $BA, $A4, $B6, $FF, $AC, $B1, $FF, $B7, $AB, $A8, $FF, $A6, $AB, $A8, $B6, $B7, $C0, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_8:  ; Chests appear opened
+  .BYTE $8C, $AB, $A8, $B6, $B7, $B6, $FF, $BC, $B2, $B8, $FF, $AB, $A4, $B9, $A8, $FF, $A4, $AF, $B5, $A8, $A4, $A7, $BC, $FF, $FF, $FF, $FF, $FF
+  .BYTE $AF, $B2, $B2, $B7, $A8, $A7, $FF, $AF, $B2, $B2, $AE, $FF, $B2, $B3, $A8, $B1, $C0, $FF, $8A, $B3, $B3, $AF, $AC, $A8, $B6, $FF, $FF, $FF
+  .BYTE $B7, $B2, $FF, $A4, $B1, $FF, $A8, $BB, $AC, $B6, $B7, $AC, $B1, $AA, $FF, $B6, $A4, $B9, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_9:  ; Buy quantity
+  .BYTE $8C, $AB, $B2, $B2, $B6, $A8, $FF, $AB, $B2, $BA, $FF, $B0, $A4, $B1, $BC, $FF, $B2, $A9, $FF, $A4, $B1, $FF, $AC, $B7, $A8, $B0, $FF, $FF
+  .BYTE $B7, $B2, $FF, $A5, $B8, $BC, $BF, $FF, $AC, $B1, $B6, $B7, $A8, $A4, $A7, $FF, $B2, $A9, $FF, $B2, $B1, $A8, $FF, $A4, $B7, $FF, $FF, $FF
+  .BYTE $A4, $FF, $B7, $AC, $B0, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_10:  ; Run becomes Wait
+  .BYTE $A0, $AB, $A8, $B1, $FF, $A4, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF, $A6, $A4, $B1, $B1, $B2, $B7, $FF, $A5, $A8, $FF, $FF, $FF, $FF, $FF
+  .BYTE $A8, $B6, $A6, $A4, $B3, $A8, $A7, $BF, $FF, $9B, $9E, $97, $FF, $B5, $A8, $A4, $A7, $B6, $FF, $A0, $8A, $92, $9D, $FF, $A4, $B1, $A7, $FF
+  .BYTE $B6, $A4, $BC, $B6, $FF, $B6, $B2, $FF, $B3, $AF, $A4, $AC, $B1, $AF, $BC, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_11:  ; Magic menu wraparound
+  .BYTE $9D, $AB, $A8, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF, $B0, $A4, $AA, $AC, $A6, $FF, $A6, $B8, $B5, $B6, $B2, $B5, $FF, $FF, $FF, $FF, $FF
+  .BYTE $BA, $B5, $A4, $B3, $B6, $FF, $A9, $B5, $B2, $B0, $FF, $A5, $B2, $B7, $B7, $B2, $B0, $FF, $B7, $B2, $FF, $B7, $B2, $B3, $C0, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_12:  ; Auto retargeting
+  .BYTE $8A, $B7, $B7, $A4, $A6, $AE, $B6, $FF, $A4, $B1, $A7, $FF, $B6, $B3, $A8, $AF, $AF, $B6, $FF, $A4, $AC, $B0, $A8, $A7, $FF, $A4, $B7, $FF
+  .BYTE $A4, $FF, $A7, $A8, $A4, $A7, $FF, $A8, $B1, $A8, $B0, $BC, $FF, $B3, $AC, $A6, $AE, $FF, $A4, $FF, $AF, $AC, $B9, $AC, $B1, $AA, $FF, $FF
+  .BYTE $B2, $B1, $A8, $FF, $AC, $B1, $B6, $B7, $A8, $A4, $A7, $FF, $B2, $A9, $FF, $A5, $A8, $AC, $B1, $AA, $FF, $BA, $A4, $B6, $B7, $A8, $A7, $C0
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_13:  ; Autosort inventory
+  .BYTE $91, $8E, $8A, $95, $BF, $FF, $99, $9E, $9B, $8E, $FF, $A4, $B1, $A7, $FF, $9C, $98, $8F, $9D, $FF, $B3, $B2, $B7, $AC, $B2, $B1, $B6, $FF
+  .BYTE $A4, $B5, $A8, $FF, $AE, $A8, $B3, $B7, $FF, $A4, $B7, $FF, $B7, $AB, $A8, $FF, $B7, $B2, $B3, $FF, $B2, $A9, $FF, $B7, $AB, $A8, $FF, $FF
+  .BYTE $AC, $B7, $A8, $B0, $FF, $AF, $AC, $B6, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_14:  ; Repeated potion use
+  .BYTE $9E, $B6, $A8, $FF, $B6, $A8, $B9, $A8, $B5, $A4, $AF, $FF, $B3, $B2, $B7, $AC, $B2, $B1, $B6, $FF, $AC, $B1, $FF, $A4, $FF, $B5, $B2, $BA
+  .BYTE $BA, $AC, $B7, $AB, $B2, $B8, $B7, $FF, $B5, $A8, $B2, $B3, $A8, $B1, $AC, $B1, $AA, $FF, $B7, $AB, $A8, $FF, $B0, $A8, $B1, $B8, $C0, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_15:  ; Shop information
+  .BYTE $9C, $AB, $B2, $B3, $B6, $FF, $B6, $AB, $B2, $BA, $FF, $BA, $AB, $A8, $B7, $AB, $A8, $B5, $FF, $A8, $A4, $A6, $AB, $FF, $FF, $FF, $FF, $FF
+  .BYTE $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $FF, $A6, $A4, $B1, $FF, $A8, $B4, $B8, $AC, $B3, $FF, $A4, $B1, $FF, $AC, $B7, $A8, $B0, $FF
+  .BYTE $A4, $B1, $A7, $FF, $BA, $AB, $A4, $B7, $FF, $AC, $B7, $FF, $BA, $B2, $B8, $AF, $A7, $FF, $A7, $B2, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_16:  ; Chest information
+  .BYTE $98, $B3, $A8, $B1, $AC, $B1, $AA, $FF, $A4, $FF, $A6, $AB, $A8, $B6, $B7, $FF, $A7, $A8, $B6, $A6, $B5, $AC, $A5, $A8, $B6, $FF, $FF, $FF
+  .BYTE $B7, $AB, $A8, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $FF, $B2, $B5, $FF, $A4, $B5, $B0, $B2, $B8, $B5, $FF, $AC, $B1, $FF, $AC, $B7, $C0, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_17:  ; NPC guillotine
+  .BYTE $9D, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $B7, $B2, $FF, $A4, $B1, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $97, $99, $8C, $FF, $FF
+  .BYTE $B5, $A8, $B0, $B2, $B9, $A8, $B6, $FF, $AC, $B7, $FF, $A9, $B5, $B2, $B0, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF
+  .BYTE $99, $A8, $B5, $B0, $A4, $B1, $A8, $B1, $B7, $FF, $C2, $FF, $B7, $AB, $A8, $BC, $FF, $B6, $B7, $A4, $BC, $FF, $AA, $B2, $B1, $A8, $FF, $FF
+  .BYTE $A8, $B9, $A8, $B1, $FF, $AC, $A9, $FF, $BC, $B2, $B8, $FF, $B7, $B8, $B5, $B1, $FF, $B7, $AB, $AC, $B6, $FF, $B2, $A9, $A9, $C0, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_18:  ; House MP restoration
+  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $91, $98, $9E, $9C, $8E, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $AC, $B1, $AA, $FF, $96, $99, $FF, $FF, $FF, $FF
+  .BYTE $B2, $B1, $AF, $BC, $FF, $A4, $A9, $B7, $A8, $B5, $FF, $B6, $A4, $B9, $AC, $B1, $AA, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $B5, $A8, $AF, $B2, $A4, $A7, $AC, $B1, $AA, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_19:  ; Weapon stats
+  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $A8, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF, $A4, $B1, $A7, $FF, $A6, $B5, $A8, $A4, $B7, $B8, $B5, $A8
+  .BYTE $B7, $BC, $B3, $A8, $FF, $A5, $B2, $B1, $B8, $B6, $A8, $B6, $FF, $B1, $A8, $B9, $A8, $B5, $FF, $A4, $B3, $B3, $AF, $BC, $AC, $B1, $AA, $FF
+  .BYTE $B7, $B2, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_20:  ; Spell fixes
+  .BYTE $8C, $B2, $B5, $B5, $A8, $A6, $B7, $B6, $FF, $95, $98, $8C, $94, $BF, $FF, $95, $98, $94, $82, $BF, $FF, $91, $8E, $95, $82, $BF, $FF, $FF
+  .BYTE $9D, $96, $99, $9B, $BF, $FF, $9C, $8A, $8B, $9B, $FF, $A4, $B1, $A7, $FF, $8C, $9E, $9B, $84, $BF, $FF, $BA, $AB, $AC, $A6, $AB, $FF, $FF
+  .BYTE $A7, $AC, $A7, $FF, $B1, $B2, $B7, $FF, $BA, $B2, $B5, $AE, $FF, $A4, $B6, $FF, $A7, $A8, $B6, $A6, $B5, $AC, $A5, $A8, $A7, $C0, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_21:  ; Enemy status attacks
+  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $A8, $B1, $A8, $B0, $AC, $A8, $B6, $FF, $AC, $B1, $A9, $AF, $AC, $A6, $B7, $AC, $B1, $AA, $FF, $A4, $FF, $FF
+  .BYTE $B6, $B7, $A4, $B7, $B8, $B6, $FF, $A4, $AC, $AF, $B0, $A8, $B1, $B7, $FF, $BA, $AC, $B7, $AB, $FF, $A4, $B7, $B7, $A4, $A6, $AE, $B6, $FF
+  .BYTE $B7, $AB, $A4, $B7, $FF, $B6, $AB, $B2, $B8, $AF, $A7, $FF, $B1, $B2, $B7, $FF, $A6, $A4, $B5, $B5, $BC, $FF, $B2, $B1, $A8, $C0, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_22:  ; Gold and XP
+  .BYTE $9C, $A6, $A4, $AF, $A8, $B6, $FF, $B7, $AB, $A8, $FF, $AA, $B2, $AF, $A7, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $A8, $BB, $B3, $A8, $B5, $AC, $A8, $B1, $A6, $A8, $FF, $B7, $AB, $A4, $B7, $FF, $A8, $B9, $A8, $B5, $BC, $FF, $A5, $A4, $B7, $B7, $AF, $A8
+  .BYTE $A4, $BA, $A4, $B5, $A7, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_23:  ; Encounter rate
+  .BYTE $91, $B2, $BA, $FF, $B2, $A9, $B7, $A8, $B1, $FF, $B5, $A4, $B1, $A7, $B2, $B0, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $B6, $FF, $FF, $FF, $FF
+  .BYTE $AB, $A4, $B3, $B3, $A8, $B1, $BF, $FF, $A4, $B6, $FF, $A4, $FF, $B6, $AB, $A4, $B5, $A8, $FF, $B2, $A9, $FF, $B7, $AB, $A8, $FF, $FF, $FF
+  .BYTE $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $B2, $B9, $A8, $B5, $BA, $B2, $B5, $AF, $A7, $FF, $B5, $A4, $B7, $A8, $C0, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_24:  ; Enemy stats
+  .BYTE $9C, $A6, $A4, $AF, $A8, $B6, $FF, $91, $99, $BF, $FF, $A7, $A4, $B0, $A4, $AA, $A8, $BF, $FF, $A7, $A8, $A9, $A8, $B1, $A6, $A8, $FF, $FF
+  .BYTE $A4, $B1, $A7, $FF, $A4, $A6, $A6, $B8, $B5, $A4, $A6, $BC, $FF, $A9, $B2, $B5, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $FF, $FF
+  .BYTE $A8, $B1, $A8, $B0, $AC, $A8, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_25:  ; Boss stats
+  .BYTE $9D, $AB, $A8, $FF, $B6, $A4, $B0, $A8, $BF, $FF, $A9, $B2, $B5, $FF, $B7, $AB, $A8, $FF, $B7, $AB, $AC, $B5, $B7, $A8, $A8, $B1, $FF, $FF
+  .BYTE $A5, $B2, $B6, $B6, $A8, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_26:  ; Better Thief and Ninja
+  .BYTE $9B, $A4, $AC, $B6, $A8, $B6, $FF, $9D, $AB, $AC, $A8, $A9, $FF, $A4, $B1, $A7, $FF, $97, $AC, $B1, $AD, $A4, $FF, $AB, $AC, $B7, $FF, $FF
+  .BYTE $B5, $A4, $B7, $A8, $FF, $A4, $B1, $A7, $FF, $A4, $AA, $AC, $AF, $AC, $B7, $BC, $FF, $AA, $B5, $B2, $BA, $B7, $AB, $C0, $FF, $FF, $FF, $FF
+  .BYTE $8A, $A9, $A9, $A8, $A6, $B7, $B6, $FF, $B1, $A8, $BA, $FF, $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $B6, $FF, $A4, $B1, $A7, $FF, $FF
+  .BYTE $A9, $B8, $B7, $B8, $B5, $A8, $FF, $AF, $A8, $B9, $A8, $AF, $FF, $B8, $B3, $B6, $FF, $B2, $B1, $AF, $BC, $C0, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_27:  ; Double weapon crit
+  .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $B6, $FF, $A8, $B9, $A8, $B5, $BC, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $BE, $B6, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $A6, $B5, $AC, $B7, $AC, $A6, $A4, $AF, $FF, $AB, $AC, $B7, $FF, $B5, $A4, $B7, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_28:  ; Elemental bonus
+  .BYTE $A0, $A8, $A4, $B3, $B2, $B1, $FF, $A8, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $A6, $B5, $A8, $A4, $B7, $B8, $B5, $A8, $FF, $B7, $BC, $B3, $A8, $FF, $A5, $B2, $B1, $B8, $B6, $A8, $B6, $FF, $A6, $B2, $B8, $B1, $B7, $FF
+  .BYTE $A9, $B2, $B5, $FF, $B0, $B2, $B5, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_29:  ; Improved Cure spells
+  .BYTE $8C, $9E, $9B, $8E, $BF, $FF, $91, $8E, $8A, $95, $FF, $A4, $B1, $A7, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $AB, $AC, $AA, $AB, $A8, $B5, $FF
+  .BYTE $B7, $AC, $A8, $B5, $B6, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $A8, $FF, $B0, $B2, $B5, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_30:  ; Improved Fire spells
+  .BYTE $8F, $92, $9B, $8E, $BF, $FF, $95, $92, $9D, $BF, $FF, $92, $8C, $8E, $FF, $A4, $B1, $A7, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $FF, $FF, $FF
+  .BYTE $AB, $AC, $AA, $AB, $A8, $B5, $FF, $B7, $AC, $A8, $B5, $B6, $FF, $AB, $AC, $B7, $FF, $AB, $A4, $B5, $A7, $A8, $B5, $C0, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_31:  ; Cast Life in battle
+  .BYTE $95, $92, $8F, $8E, $FF, $A4, $B1, $A7, $FF, $95, $92, $8F, $82, $FF, $A6, $A4, $B1, $FF, $A5, $A8, $FF, $B8, $B6, $A8, $A7, $FF, $FF, $FF
+  .BYTE $A7, $B8, $B5, $AC, $B1, $AA, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $BF, $FF, $B1, $B2, $B7, $FF, $B2, $B1, $AF, $BC, $FF, $B2, $B1, $FF, $FF
+  .BYTE $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+lut_Desc_32:  ; LOK2 accuracy
+  .BYTE $95, $98, $8C, $94, $FF, $A4, $B1, $A7, $FF, $95, $98, $94, $82, $FF, $AB, $AC, $B7, $FF, $A9, $A4, $B5, $FF, $B0, $B2, $B5, $A8, $FF, $FF
+  .BYTE $B2, $A9, $B7, $A8, $B1, $BF, $FF, $A4, $B6, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B1, $B8, $A4, $AF, $FF, $A4, $AF, $BA, $A4, $BC, $B6, $FF
+  .BYTE $A6, $AF, $A4, $AC, $B0, $A8, $A7, $FF, $B7, $AB, $A8, $BC, $FF, $A7, $AC, $A7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+
+;  One pointer per list row, so a blank row needs no special case.
+lut_DescLo:
+  .BYTE <lut_Desc_0, <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16, <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24, <lut_Desc_25, <lut_Desc_26, <lut_Desc_27, <lut_Desc_28, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_32
+lut_DescHi:
+  .BYTE >lut_Desc_0, >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16, >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24, >lut_Desc_25, >lut_Desc_26, >lut_Desc_27, >lut_Desc_28, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_32

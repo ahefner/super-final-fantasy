@@ -326,6 +326,17 @@ BEAMOFF2        = $0200         ; air: short crests, reading as rising smoke
 h_altarframe    = HAL_VARS+$B4  ; which frame of the animation is showing
                                 ; game's own height even when the band is not
 
+;  A staging buffer for hal_ntblit, in the free WRAM below NESNT.  Callers
+;  build a row of nametable bytes here and hand the whole run to the HAL at
+;  once, instead of paying the thunk and the full $2007 conversion per tile --
+;  which is the difference between a menu row costing a couple of hundred
+;  cycles and costing several thousand.
+NTSTAGE         = $7E3F00       ; 64 bytes, two more than a row needs
+NTSTAGE_A       = $3F00         ; ...as seen with DBR = $7E, which is how the
+                                ; blit reaches it, NESNT and NTSHADOW with
+                                ; ordinary absolute addressing and both index
+                                ; registers free
+
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
