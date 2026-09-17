@@ -37,6 +37,9 @@
 .include "nesio.inc"
 
 .export opt_init, opt_commit, opt_movespeed, opt_owrate, opt_setbattlerate
+;  Reached by tools/test_options.py, which runs them under a 65816
+;  interpreter and asserts on what comes back.
+.export opt_loadpreset, opt_sum, lut_Presets
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
