@@ -1,0 +1,100 @@
+--- OLD
+DrawCommandBox:
+    LDY #$00
+    LDX #$00
+  @Loop:
+      LDA lua_BattleCommandBoxInfo, Y           ; copy 6*5 bytes (6 blocks)
+      STA btl_msgdraw_hdr, X
+      INX
+      CPX #$05
+      BNE :+                                    ; every 5 bytes, add the block to the
+        JSR BattleDraw_AddBlockToBuffer         ;  output buffer
+        LDX #$00
+    : INY
+      CPY #6*5              ; 6 blocks * 5 bytes per block
+      BNE @Loop
+      
+    JMP DrawBlockBuffer            ; then finally draw it
+--- NEW
+.export OptRunFail, OptRunLabel, lut_WaitString
+.import DrawBtlMsg_ClearCombatBoxes
+
+DrawCommandBox:
+    LDY #$00
+    LDX #$00
+  @Loop:
+      LDA lua_BattleCommandBoxInfo, Y           ; copy 6*5 bytes (6 blocks)
+      STA btl_msgdraw_hdr, X
+      INX
+      CPX #$05
+      BNE :+                                    ; every 5 bytes, add the block to the
+        JSR OptRunLabel                         ;  output buffer -- but the last
+        JSR BattleDraw_AddBlockToBuffer         ;  block may say WAIT, not RUN
+        LDX #$00
+    : INY
+      CPY #6*5              ; 6 blocks * 5 bytes per block
+      BNE @Loop
+      
+    JMP DrawBlockBuffer            ; then finally draw it
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Run -> Wait
+;;
+;;    Some formations cannot be run from at all, and vanilla gives no sign of
+;;  it until a turn has been spent finding out.  With the flag on, those
+;;  fights label the command WAIT and answer with "Nothing happens" rather
+;;  than "Can't run", which reads as a choice instead of a failure.
+;;
+;;    Both halves live here because bank $0C is exactly full and the fixed
+;;  bank is the one place with room.  OptRunFail is reached only from
+;;  Battle_PlayerTryRun, so its jump into that bank is safe in the same way
+;;  CondReSortParty's is.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Called once per block of the command box, with Y on the block's last byte.
+OptRunLabel:
+    CPY #6*5-1                  ; only the last block, whose text is "RUN"
+    BNE @out
+    PHA                         ; vanilla reaches AddBlockToBuffer with the
+    JSR OptRunIsWait            ;   table byte still in A; leave it that way
+    BCC @keep
+      LDA #<lut_WaitString
+      STA btl_msgdraw_hdr+3     ; the block's last two bytes are its text
+      LDA #>lut_WaitString      ;   pointer -- see lua_BattleCommandBoxInfo
+      STA btl_msgdraw_hdr+4
+  @keep:
+    PLA
+  @out:
+    RTS
+
+;  Carry set when this fight should say WAIT: the flag is on and the formation
+;  is one that can never be run from.
+OptRunIsWait:
+    LDA OPTFB_RUNWAIT
+    AND #OPTFM_RUNWAIT
+    BEQ @no
+    LDA btlform_norun
+    AND #$01
+    BEQ @no
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
+
+;  Battle_PlayerTryRun's failure exit.  The no-run bit is the only way to get
+;  here without having rolled for it -- when it is set the roll is skipped
+;  entirely -- so re-reading it is enough to tell the two failures apart.
+OptRunFail:
+    JSR OptRunIsWait
+    LDA #BTLMSG_CANTRUN
+    BCC @draw
+      LDA #BTLMSG_NOTHINGHAPPENS
+  @draw:
+    JMP DrawBtlMsg_ClearCombatBoxes
+
+lut_WaitString:
+  .BYTE $A0, $8A, $92, $9D, $00     ; "WAIT"
+

@@ -720,11 +720,85 @@ def test_retarget():
                   bus.sram[BTL_DEFENDER - 0x6000], target)
 
 
+MSGDRAW_HDR = 0x6A9E
+BTLFORM_NORUN = None           # filled in from the label file below
+OPTF_RUNWAIT = 0x00000080
+BTLMSG_CANTRUN = 0x24
+BTLMSG_NOTHINGHAPPENS = 0x4E
+
+
+def test_runwait():
+    """Label the command WAIT, and answer with something that is not a failure.
+
+    Both halves read the same two conditions, so they are driven through the
+    same four combinations.  The label half also has to leave A holding the
+    table byte: vanilla falls into AddBlockToBuffer with it still there, and a
+    routine inserted in front of that call is exactly the kind of thing that
+    quietly clobbers it.
+    """
+    norun_addr = 0x6D91                  # btlform_norun, the formation's low bit
+    for flag in (0, OPTF_RUNWAIT):
+        for norun in (0x00, 0x01, 0x02, 0x30, 0x31, 0x32):  # the rest is palette
+            wait = bool(flag) and (norun & 1)
+
+            #  the label: Y on the last byte of the last block
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            bus.sram[norun_addr - 0x6000] = norun
+            for i in range(5):
+                bus.sram[MSGDRAW_HDR - 0x6000 + i] = 0x11 + i
+            cpu.y = 29
+            cpu.a = 0x5C
+            call(cpu, "OptRunLabel", bank=BANK_0C, dbr=BANK_0C)
+            ptr = (bus.sram[MSGDRAW_HDR - 0x6000 + 3],
+                   bus.sram[MSGDRAW_HDR - 0x6000 + 4])
+            want = (SYM["lut_WaitString"] & 0xFF, SYM["lut_WaitString"] >> 8) \
+                   if wait else (0x14, 0x15)
+            check("run label, flag=%d norun=$%02X" % (bool(flag), norun), ptr, want)
+            check("run label preserves A", cpu.a & 0xFF, 0x5C)
+            check("run label leaves the block alone",
+                  [bus.sram[MSGDRAW_HDR - 0x6000 + i] for i in range(3)],
+                  [0x11, 0x12, 0x13])
+
+            #  ...and not on any other block
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            bus.sram[norun_addr - 0x6000] = norun
+            for i in range(5):
+                bus.sram[MSGDRAW_HDR - 0x6000 + i] = 0x11 + i
+            for y in (4, 9, 14, 19, 24):
+                cpu.y = y
+                call(cpu, "OptRunLabel", bank=BANK_0C, dbr=BANK_0C)
+            check("run label only touches the last block",
+                  [bus.sram[MSGDRAW_HDR - 0x6000 + i] for i in range(5)],
+                  [0x11, 0x12, 0x13, 0x14, 0x15])
+
+            #  the message
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            bus.sram[norun_addr - 0x6000] = norun
+            #  Step up to the jump rather than through it: past that point is
+            #  the real message drawer, which wants a battle in progress.
+            cpu.pbr, cpu.pc = BANK_0C, SYM["OptRunFail"]
+            target = SYM["DrawBtlMsg_ClearCombatBoxes"]
+            for _ in range(200):
+                if cpu.pc == target and cpu.pbr == BANK_0C:
+                    break
+                cpu.step()
+            else:
+                fails.append("OptRunFail never reached the message drawer")
+                continue
+            check("run message, flag=%d norun=$%02X" % (bool(flag), norun),
+                  cpu.a & 0xFF,
+                  BTLMSG_NOTHINGHAPPENS if wait else BTLMSG_CANTRUN)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
-              test_npcmove, test_magicwrap, test_autosort, test_retarget):
+              test_npcmove, test_magicwrap, test_autosort, test_retarget,
+              test_runwait):
         try:
             t()
         except Exception as e:
