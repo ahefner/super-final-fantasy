@@ -73,10 +73,26 @@ OPTMENU_ALLSET = $76            ; was every checkbox in the section already on?
 OPTMENU_VALPTR = $77            ; 2 bytes: into a value-readout table
 OPTMENU_STG    = $79            ; how many bytes are staged for the blit
 OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
-;  Zero page $6E..$7B is now full, so this one lives in the option block's own
-;  spare page.  It is a flag, not a pointer, so it never needs direct-page
-;  addressing.
-OPTMENU_ARM    = OPTBLOCK + $1F ; nonzero until one frame of input is discarded
+
+;  This screen does its own edge detection rather than using joy_a, joy_start
+;  and joy_ignore.  Those are a counter per button plus a shared mask, updated
+;  by ProcessJoyButtons and owned across screen transitions by whoever ran
+;  last, and a held A was reaching this loop as a fresh press every frame.
+;  Keeping the previous pad state here makes "newly pressed" a property of two
+;  bytes this screen owns outright, and makes waiting for release trivial.
+;  They are flags, not pointers, so they need no direct-page addressing --
+;  which is just as well, as zero page $6E..$7B is now full.
+OPTMENU_PREV   = OPTBLOCK + $1E ; the pad as it read last frame
+OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
+
+;  joy's bit order, which ProcessJoyButtons documents by masking for it.
+PAD_RIGHT = $01
+PAD_LEFT  = $02
+PAD_DOWN  = $04
+PAD_UP    = $08
+PAD_START = $10
+PAD_B     = $40
+PAD_A     = $80
 
 opt_settings:
     LDA #PRESET_CUSTOM
@@ -104,8 +120,7 @@ opt_settings:
     LDA #$1E
     wPPUMASK                    ; ...and back on
 
-    LDA #$01
-    STA OPTMENU_ARM             ; discard the first frame of input -- see below
+    JSR opt_waitrelease         ; nothing the title screen was holding carries in
 
   @loop:
     ;  cur_bank is where CallMusicPlay swaps *back* to.  It has to name this
@@ -137,63 +152,49 @@ opt_settings:
     JSR CallMusicPlay
     JSR UpdateJoy
 
-    ;  Throw the first frame's input away whatever it says.
-    ;
-    ;  The press that opened this screen is supposed to be spent by then --
-    ;  the catchers are cleared on the way in, and ProcessJoyButtons only
-    ;  counts a press edge, with joy_ignore holding off a held button.  It
-    ;  arrives here anyway, and the cursor starts on a section heading, so it
-    ;  came through as "toggle every setting in Quality of Life".  Rather than
-    ;  keep guessing at the path, refuse to act on the frame the screen opens
-    ;  on: nothing is lost, because no human press survives being that early.
-    LDA OPTMENU_ARM
-    BEQ @input
-    LDA #$00
-    STA OPTMENU_ARM
-    STA joy_a
-    STA joy_start
-    STA joy_b
-    STA joy_prevdir
-    JMP @loop
-
-  @input:
-    LDA joy_b
-    BNE @done
-    LDA joy_a
-    ORA joy_start
-    BNE @act
-
+    ;  Edge detection: down now and not down last frame.
     LDA joy
-    AND #$0F
-    CMP joy_prevdir
+    EOR OPTMENU_PREV
+    AND joy
+    STA OPTMENU_EDGE
+    LDA joy
+    STA OPTMENU_PREV
+
+    LDA OPTMENU_EDGE
+    AND #PAD_B
+    BNE @done
+    LDA OPTMENU_EDGE
+    AND #PAD_A | PAD_START
+    BNE @act
+    LDA OPTMENU_EDGE
+    AND #PAD_DOWN
+    BNE @down
+    LDA OPTMENU_EDGE
+    AND #PAD_UP
+    BNE @up
+    LDA OPTMENU_EDGE
+    AND #PAD_LEFT | PAD_RIGHT
     BEQ @loop
-    STA joy_prevdir
-    BEQ @loop                   ; buttons released, not pressed
 
-    CMP #DOWN
-    BEQ @down
-    CMP #UP
-    BEQ @up
-    CMP #RIGHT
-    BEQ @sideways
-    CMP #LEFT
-    BEQ @sideways
-    JMP @loop
-
+    LDA OPTMENU_EDGE            ; left or right: step a value row
+    AND #PAD_RIGHT
+    BNE @right
+    LDA #LEFT
+    BNE @sideways               ; always
+  @right:
+    LDA #RIGHT
   @sideways:
     JSR opt_value_adjust
     JMP @loop
 
   @done:
+    JSR opt_waitrelease         ; ...and nothing carries back out either
     LDA #$00
     wPPUMASK
     PLB
     RTL
 
   @act:
-    LDA #$00
-    STA joy_a
-    STA joy_start
     JSR opt_menu_toggle
     JMP @loop
 
@@ -598,6 +599,41 @@ opt_menu_ppuaddr:
     wPPUADDR
     LDA OPTMENU_ADDR
     wPPUADDR
+    RTS
+
+
+;;  Hold here until the player is not touching anything, then start from a
+;;  clean slate.
+;;
+;;  This is what a screen transition needs, and the reason is structural rather
+;;  than incidental: the button that got us here is still down, and the catchers
+;;  are edge-triggered against joy_ignore, which is state the previous screen
+;;  owned.  Clearing the catchers is not enough, because the release that comes
+;;  a frame or two later is itself a transition.  Waiting for the pad to read
+;;  zero makes the new screen's first press unambiguously a new press.
+;;
+;;  Both ends of the transition want it: on the way in so the A that opened the
+;;  screen is not read as a toggle, and on the way out so the B that closed it
+;;  does not reach the title screen.
+opt_waitrelease:
+    LDA #CHUNK_OPT
+    STA cur_bank                ; CallMusicPlay returns through this
+  @wait:
+    JSR WaitForVBlank_L
+    JSR CallMusicPlay           ; the music should not stop while we wait
+    JSR UpdateJoy
+    LDA joy
+    BNE @wait
+    STA OPTMENU_PREV            ; A is zero here, so nothing reads as newly
+    STA OPTMENU_EDGE            ;   pressed on the frame after this
+    ;  The game's own catchers belong to whichever screen runs next, and with
+    ;  nothing held there is no transition pending for them to lose.
+    STA joy_a
+    STA joy_b
+    STA joy_start
+    STA joy_select
+    STA joy_prevdir
+    STA joy_ignore
     RTS
 
 
