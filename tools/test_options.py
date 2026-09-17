@@ -852,12 +852,52 @@ def chunkbyte(bank, addr):
     return ROMDATA[chunk * 0x10000 + addr]
 
 
+MATH_DMGCALC = 0x6860
+HITSCONNECTED = 0x686A
+OPTF_STATUSATK = 0x00040000
+
+
+def test_statusatk():
+    """Ask whether this swing connected, not whether any has.
+
+    The two answers differ exactly where the bug lives: an enemy that has
+    already landed one hit, swinging again and missing.  Both readings are
+    driven over the same grid so the vanilla answer is pinned too -- this is a
+    flag, and with it off the enemy has to keep its bug.
+    """
+    for flag in (0, OPTF_STATUSATK):
+        for hits in (0, 1, 3):
+            for dmg in (0, 1, 7, 255):
+                bus, cpu = machine()
+                setblk(bus, OPT_FLAGS + 2, (flag >> 16) & 0xFF)
+                bus.sram[HITSCONNECTED - 0x6000] = hits
+                bus.sram[MATH_DMGCALC - 0x6000] = dmg
+                bus.sram[MATH_DMGCALC - 0x6000 + 1] = 0
+                call(cpu, "opt_thishit", dbr=BANK_0C)
+                want = dmg if flag else hits
+                check("thishit flag=%d hits=%d dmg=%d" % (bool(flag), hits, dmg),
+                      cpu.a & 0xFF, want)
+                #  the caller branches on Z straight after, so the flag matters
+                #  as much as the value
+                check("thishit flag=%d hits=%d dmg=%d: Z" % (bool(flag), hits, dmg),
+                      bool(cpu.p & 0x02), want == 0)
+
+    #  The case the bug is about: one hit already landed, this swing missed.
+    bus, cpu = machine()
+    setblk(bus, OPT_FLAGS + 2, (OPTF_STATUSATK >> 16) & 0xFF)
+    bus.sram[HITSCONNECTED - 0x6000] = 1
+    bus.sram[MATH_DMGCALC - 0x6000] = 0
+    call(cpu, "opt_thishit", dbr=BANK_0C)
+    check("a miss after a hit no longer rolls for the ailment",
+          bool(cpu.p & 0x02), True)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
-              test_runwait, test_idtreasure):
+              test_runwait, test_idtreasure, test_statusatk):
         try:
             t()
         except Exception as e:

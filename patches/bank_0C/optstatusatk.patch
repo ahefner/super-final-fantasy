@@ -1,0 +1,10 @@
+--- OLD
+    LDA battle_hitsconnected
+    BEQ @NextHitIteration           ; we're done if no hits connected yet
+--- NEW
+.import OptThisHitConnected
+
+    JSR OptThisHitConnected         ; Enemy Status Attacks: ask whether *this*
+    BEQ @NextHitIteration           ;   swing connected, not whether any has.
+                                    ;   Same three bytes as the load it
+                                    ;   replaces, which this bank requires.

@@ -1,0 +1,21 @@
+--- OLD
+UndrawNBattleBlocks_L:      JMP UndrawNBattleBlocks
+--- NEW
+.export OptThisHitConnected
+.import opt_thishit
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Enemy Status Attacks
+;;
+;;    Three bytes, because that is what the load in bank $0C was and that bank
+;;  cannot grow.  The decision is in the options bank.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptThisHitConnected:
+    JSL opt_thishit + OPTFAR
+    RTS
+
+
+UndrawNBattleBlocks_L:      JMP UndrawNBattleBlocks

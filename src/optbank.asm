@@ -43,7 +43,7 @@
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
-.export opt_retarget, opt_retarget_mag, opt_dlgident
+.export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
@@ -1098,4 +1098,41 @@ opt_dlgident:
     LDA #>lut_CantHoldWhat
     STA text_ptr+1
   @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Enemy Status Attacks
+;;
+;;  An enemy whose attack carries an ailment rolls for it once per swing, and
+;;  the roll is gated on "have any hits connected" rather than "did this one".
+;;  So once the enemy lands a single hit, every miss for the rest of the
+;;  attack still gets a chance to poison or stone you.  The disassembly says
+;;  as much at the call site.
+;;
+;;  Answer the question the code meant to ask.  A miss leaves math_dmgcalc at
+;;  zero: the hit loop zeroes it each iteration, and only the hit path writes
+;;  it -- with a floor of one, so a fully absorbed hit still reads as a hit.
+;;  The crit block that runs in between can add to it, but a crit needs
+;;  critchance >= randhit while a miss needs randhit > hitchance, and the game
+;;  takes it for granted that crit chance never exceeds hit chance; Disch's
+;;  comment on the crit test says it outright.
+;;
+;;  Damage is clipped to 255 before absorb is taken off it, so the high byte
+;;  of math_dmgcalc is always zero here and reading the low byte alone is
+;;  enough.
+;;
+;;  FFR instead retargets the miss branch to skip the rest of the iteration
+;;  outright, which also stops a miss counting toward crits and total damage.
+;;  That needs a spare byte in bank $0C, which there is not; this is the same
+;;  fix aimed only at the bug the comment describes.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_thishit:
+    LDA OPTFB_STATUSATK
+    AND #OPTFM_STATUSATK
+    BEQ @vanilla
+    LDA math_dmgcalc            ; nonzero exactly when this swing landed
+    RTL
+  @vanilla:
+    LDA battle_hitsconnected
     RTL
