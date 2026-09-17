@@ -276,12 +276,12 @@ TMP = 0x10                                   # game's tmp, from variables.inc
 
 def test_derive():
     """The cooked wipe steps, and that they still divide their totals."""
-    for flag, want in ((0, (2, 4, 2, 4, 2, 3, 0x41, 1, 3)),
-                       (OPTF_SPEEDHACKS, (8, 16, 10, 20, 11, 11, 0x11, 4, 0))):
+    for flag, want in ((0, (2, 4, 2, 4, 2, 3, 0x41, 1, 3, 1, 2)),
+                       (OPTF_SPEEDHACKS, (8, 16, 10, 20, 11, 11, 0x11, 4, 0, 2, 3))):
         bus, cpu = machine()
         setblk(bus, OPT_FLAGS, flag)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
-        got = tuple(blk(bus, OPTD + i) for i in range(9))
+        got = tuple(blk(bus, OPTD + i) for i in range(11))
         check("derived constants, speedhacks=%d" % flag, got, want)
         #  The battle transition plays a $20-frame noise sweep; a transition
         #  shorter than that leaves the sound running past the picture, which
@@ -336,6 +336,46 @@ def test_guillotine():
         got = cpu.pc
         check("guillotine flag=%d obj=$%02X handler=$%04X" % (flag, objid, handler),
               "$%04X" % got, "$%04X" % want)
+
+
+MSGROWS_TOTAL = 12
+
+
+def test_msgdraw():
+    """Both message routines must draw all twelve rows and stop, whatever the
+    rows-per-frame setting.  A miscounted inner loop would either leave the box
+    half drawn or run off the end of the buffer, and neither shows up as a
+    crash -- so count the row writes and check the pointers land where the
+    twelfth row ends."""
+    for name, flag, per_frame, start_ppu, step in (
+            ("opt_msgdraw", 0, 1, 0x2240, +1), ("opt_msgdraw", OPTF_SPEEDHACKS, 2, 0x2240, +1),
+            ("opt_msgdraw_rev", 0, 2, 0x23A0, -1),
+            ("opt_msgdraw_rev", OPTF_SPEEDHACKS, 3, 0x23A0, -1)):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS, flag)
+        call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
+        rows = []
+        cpu2 = CPU(bus); cpu2.dbr = CHUNK_OPT_BANK
+        cpu2.pbr, cpu2.pc = CHUNK_OPT_BANK, SYM[name]
+        cpu2.push(0xFF); cpu2.push(0xFF); cpu2.push(0xFD)
+        draw = (SYM["Battle_DrawMessageRow"], SYM["Battle_DrawMessageRow_VBlank"])
+        guard = 0
+        while cpu2.pc != 0xFFFE and guard < 200000:
+            guard += 1
+            #  count each entry to a row writer, then return from it immediately
+            if cpu2.pc in draw and cpu2.pbr == CHUNK_OPT_BANK:
+                rows.append(bus.wram[0x8A] | (bus.wram[0x8B] << 8))
+                lo, hi = cpu2.pull(), cpu2.pull()
+                cpu2.pc = (((hi << 8) | lo) + 1) & 0xFFFF
+                continue
+            if cpu2.pc == SYM["Battle_UpdatePPU_UpdateAudio_FixedBank"]:
+                lo, hi = cpu2.pull(), cpu2.pull()
+                cpu2.pc = (((hi << 8) | lo) + 1) & 0xFFFF
+                continue
+            cpu2.step()
+        check("%s speedhacks=%d draws 12 rows" % (name, flag), len(rows), MSGROWS_TOTAL)
+        want = [start_ppu + step * 0x20 * i for i in range(MSGROWS_TOTAL)]
+        check("%s speedhacks=%d covers every row once" % (name, flag), rows, want)
 
 
 def test_respondtable():
@@ -400,7 +440,7 @@ def test_lineup():
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
-              test_battlespeed, test_lineup, test_respondtable):
+              test_battlespeed, test_lineup, test_respondtable, test_msgdraw):
         try:
             t()
         except Exception as e:

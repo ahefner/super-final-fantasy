@@ -173,6 +173,9 @@ OPTD_DLGCLOSE   = OPTD+$05
 OPTD_BTLTRANS   = OPTD+$06      ; how long the battle transition runs
 OPTD_LINEUP     = OPTD+$07      ; pixels per frame in the lineup menu
 OPTD_PALCYC     = OPTD+$08      ; frame mask for the palette cycle
+OPTD_MSGROWS    = OPTD+$09      ; message rows drawn per frame, opening
+OPTD_MSGROWSREV = OPTD+$0A      ; ...and closing
+OPTSCRATCH      = OPTBLOCK+$20  ; a byte the option code may use freely
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
 ;  or the wipe overshoots its end condition and runs off.
@@ -218,6 +221,17 @@ LINEUP_FAST     = 4
 ;  result is zero, so 3 is every fourth frame and 0 is every frame.
 PALCYC_SLOW     = $03
 PALCYC_FAST     = $00
+
+;  The battle message buffer is twelve rows.  Opening draws one per frame and
+;  closing two, so twelve frames and six; Speed Hacks makes it two and three,
+;  for six and four.  Rows per frame rather than a frame count, because the
+;  twelve rows have to be drawn either way -- shortening the count alone would
+;  leave the box half drawn.
+MSGROWS_TOTAL   = 12
+MSGROWS_SLOW    = 1
+MSGROWS_FAST    = 2
+MSGROWSREV_SLOW = 2
+MSGROWSREV_FAST = 3
 
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01

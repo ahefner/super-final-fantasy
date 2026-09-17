@@ -41,12 +41,16 @@
 ;  interpreter and asserts on what comes back.
 .export opt_loadpreset, opt_sum, lut_Presets, opt_derive
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
-.export opt_respondlookup
+.export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
 
 .import DrawBox
+;  Row writers in the fixed bank, which every chunk carries, so the message
+;  routines below reach them with a plain JSR even from here.
+.import Battle_DrawMessageRow, Battle_DrawMessageRow_VBlank
+.import Battle_UpdatePPU_UpdateAudio_FixedBank
 
 .segment "BANK_OPT"
 
@@ -218,6 +222,10 @@ opt_derive:
     STA OPTD_LINEUP
     LDA #PALCYC_SLOW
     STA OPTD_PALCYC
+    LDA #MSGROWS_SLOW
+    STA OPTD_MSGROWS
+    LDA #MSGROWSREV_SLOW
+    STA OPTD_MSGROWSREV
     RTS
 
   @fast:
@@ -239,6 +247,10 @@ opt_derive:
     STA OPTD_LINEUP
     LDA #PALCYC_FAST
     STA OPTD_PALCYC
+    LDA #MSGROWS_FAST
+    STA OPTD_MSGROWS
+    LDA #MSGROWSREV_FAST
+    STA OPTD_MSGROWSREV
     RTS
 
 
@@ -665,3 +677,123 @@ opt_respondlookup:
     LDA lut_RespondSlow, Y
     PLB
     RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The battle message box, drawn and undrawn
+;;
+;;  Twelve rows either way.  What the flag changes is how many go out per
+;;  frame, not how many frames there are -- the rows all have to be drawn, so
+;;  cutting the frame count alone would leave the box half finished.
+;;
+;;  The whole routines moved here rather than being edited in place.  They are
+;;  forty-odd bytes each in a fixed bank with sixty to its name, and the row
+;;  writers they call are in the fixed bank, which every chunk carries, so a
+;;  plain JSR still reaches them from here.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_msgdraw:
+    LDA #<$2240                 ; bottom row of the enemy bounding box
+    STA $8A
+    LDA #>$2240
+    STA $8B
+    LDA #<btl_msgbuffer
+    STA $88
+    LDA #>btl_msgbuffer
+    STA $89
+    LDA #MSGROWS_TOTAL
+    STA $68B9
+    LDA OPTD_MSGROWS
+    STA OPTSCRATCH
+  @frame:
+    JSR Battle_DrawMessageRow_VBlank    ; waits for vblank, then draws
+    JSR @advance
+    DEC $68B9
+    BEQ @done
+    DEC OPTSCRATCH
+    BEQ @nextframe
+  @extra:
+    JSR Battle_DrawMessageRow           ; more rows in the same frame
+    JSR @advance
+    DEC $68B9
+    BEQ @done
+    DEC OPTSCRATCH
+    BNE @extra
+  @nextframe:
+    LDA OPTD_MSGROWS
+    STA OPTSCRATCH
+    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JMP @frame
+  @done:
+    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    RTL
+
+  @advance:
+    LDA $88
+    CLC
+    ADC #$20
+    STA $88
+    LDA $89
+    ADC #$00
+    STA $89
+    LDA $8A
+    CLC
+    ADC #$20
+    STA $8A
+    LDA $8B
+    ADC #$00
+    STA $8B
+    RTS
+
+
+opt_msgdraw_rev:
+    LDA #<$23A0                 ; the bottom row, drawn upward
+    STA $8A
+    LDA #>$23A0
+    STA $8B
+    LDA #<(btl_msgbuffer + $B*$20)
+    STA $88
+    LDA #>(btl_msgbuffer + $B*$20)
+    STA $89
+    LDA #MSGROWS_TOTAL
+    STA $68B9
+    LDA OPTD_MSGROWSREV
+    STA OPTSCRATCH
+  @frame:
+    JSR Battle_DrawMessageRow_VBlank
+    JSR @retreat
+    DEC $68B9
+    BEQ @done
+    DEC OPTSCRATCH
+    BEQ @nextframe
+  @extra:
+    JSR Battle_DrawMessageRow
+    JSR @retreat
+    DEC $68B9
+    BEQ @done
+    DEC OPTSCRATCH
+    BNE @extra
+  @nextframe:
+    LDA OPTD_MSGROWSREV
+    STA OPTSCRATCH
+    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    JMP @frame
+  @done:
+    JSR Battle_UpdatePPU_UpdateAudio_FixedBank
+    RTL
+
+  @retreat:
+    LDA $88
+    SEC
+    SBC #$20
+    STA $88
+    LDA $89
+    SBC #$00
+    STA $89
+    LDA $8A
+    SEC
+    SBC #$20
+    STA $8A
+    LDA $8B
+    SBC #$00
+    STA $8B
+    RTS
