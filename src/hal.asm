@@ -3570,13 +3570,13 @@ hal_ntblit:
 ;;  indexed addressing would have pinned one of them, because the 65816 has
 ;;  "long,x" and no "long,y".
     phb
-    lda #$7E
-    pha
-    plb
     ldx #$0000
     ldy a:h_t1
     sep #$20
     .a8
+    lda #$7E                    ; the push has to be eight bits wide.  In
+    pha                         ;   sixteen this pushed two bytes against a
+    plb                         ;   one-byte plb and leaked a byte of stack
 @raw:
     lda a:NTSTAGE_A,x
     sta a:NESNT & $FFFF,y
