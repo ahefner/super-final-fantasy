@@ -2,8 +2,9 @@
 DrawCursor:
 --- NEW
 .export SetExplodeCount, SetRespondDelay, CondExtraBattleFrame
+.export GetRespondDelay
 .import BattleFrame
-.import opt_explodecount, opt_responddelay
+.import opt_explodecount, opt_responddelay, opt_respondlookup
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -26,6 +27,12 @@ SetExplodeCount:
 
 SetRespondDelay:
     JSL opt_responddelay + OPTFAR
+    RTS
+
+;;  In: Y = respondrate.  Out: A = the delay for it, from whichever table the
+;;  flag selects.
+GetRespondDelay:
+    JSL opt_respondlookup + OPTFAR
     RTS
 
 ;;  UpdateSprites_TwoFrames runs a battle frame and then one more, to slow the

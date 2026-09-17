@@ -276,12 +276,12 @@ TMP = 0x10                                   # game's tmp, from variables.inc
 
 def test_derive():
     """The cooked wipe steps, and that they still divide their totals."""
-    for flag, want in ((0, (2, 4, 2, 4, 2, 3, 0x41)),
-                       (OPTF_SPEEDHACKS, (8, 16, 10, 20, 11, 11, 0x11))):
+    for flag, want in ((0, (2, 4, 2, 4, 2, 3, 0x41, 1, 3)),
+                       (OPTF_SPEEDHACKS, (8, 16, 10, 20, 11, 11, 0x11, 4, 0))):
         bus, cpu = machine()
         setblk(bus, OPT_FLAGS, flag)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
-        got = tuple(blk(bus, OPTD + i) for i in range(7))
+        got = tuple(blk(bus, OPTD + i) for i in range(9))
         check("derived constants, speedhacks=%d" % flag, got, want)
         #  The battle transition plays a $20-frame noise sweep; a transition
         #  shorter than that leaves the sound running past the picture, which
@@ -338,6 +338,25 @@ def test_guillotine():
               "$%04X" % got, "$%04X" % want)
 
 
+def test_respondtable():
+    """The lookup picks a table from the flag, and both are monotonic -- a
+    higher respond rate setting must never wait longer."""
+    slow = (0x78, 0x50, 0x3C, 0x2D, 0x1E, 0x0F, 0x05, 0x01)
+    fast = (0x30, 0x20, 0x18, 0x10, 0x08, 0x04, 0x02, 0x01)
+    for flag, table in ((0, slow), (OPTF_SPEEDHACKS, fast)):
+        got = []
+        for rate in range(8):
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            cpu.y = rate
+            call(cpu, "opt_respondlookup", dbr=CHUNK_OPT_BANK)
+            got.append(cpu.a & 0xFF)
+        check("respond table, speedhacks=%d" % flag, tuple(got), table)
+        check("respond table descends, speedhacks=%d" % flag,
+              all(got[i] >= got[i + 1] for i in range(7)), True)
+        check("respond table is never zero, speedhacks=%d" % flag, min(got) > 0, True)
+
+
 def test_lineup():
     """Run the lineup animation to convergence.
 
@@ -381,7 +400,7 @@ def test_lineup():
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
-              test_battlespeed, test_lineup):
+              test_battlespeed, test_lineup, test_respondtable):
         try:
             t()
         except Exception as e:

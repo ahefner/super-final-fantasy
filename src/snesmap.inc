@@ -172,6 +172,7 @@ OPTD_DLGOPEN    = OPTD+$04      ; the dialogue box's two step sizes
 OPTD_DLGCLOSE   = OPTD+$05
 OPTD_BTLTRANS   = OPTD+$06      ; how long the battle transition runs
 OPTD_LINEUP     = OPTD+$07      ; pixels per frame in the lineup menu
+OPTD_PALCYC     = OPTD+$08      ; frame mask for the palette cycle
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
 ;  or the wipe overshoots its end condition and runs off.
@@ -212,6 +213,11 @@ RUNDELAY_FAST   = 4
 ;  convergence rather than taking that on trust.
 LINEUP_SLOW     = 1
 LINEUP_FAST     = 4
+
+;  CyclePalettes ANDs a frame counter with this and steps the cycle when the
+;  result is zero, so 3 is every fourth frame and 0 is every frame.
+PALCYC_SLOW     = $03
+PALCYC_FAST     = $00
 
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01

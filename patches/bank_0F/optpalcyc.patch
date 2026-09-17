@@ -1,0 +1,8 @@
+--- OLD
+    AND #$03                  ; mask low bits, and only take a step through the cycle
+    BNE @NoStep               ;   if zero (once every 4 frames)
+--- NEW
+    AND OPTD_PALCYC           ; mask low bits, and only take a step through the
+    BNE @NoStep               ;   cycle if zero -- every fourth frame normally,
+                              ;   every frame with Speed Hacks, since masking
+                              ;   with zero always gives zero

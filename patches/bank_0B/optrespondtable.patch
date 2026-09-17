@@ -1,0 +1,10 @@
+--- OLD
+    LDY a:respondrate
+    LDA lut_RespondDelay, Y     ; prep respond rate
+--- NEW
+.import GetRespondDelay
+
+    LDY a:respondrate
+    JSR GetRespondDelay         ; prep respond rate, from whichever table the
+                                ;  Speed Hacks flag selects.  Same three bytes
+                                ;  as the load it replaces; this bank is full.

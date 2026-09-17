@@ -41,6 +41,7 @@
 ;  interpreter and asserts on what comes back.
 .export opt_loadpreset, opt_sum, lut_Presets, opt_derive
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
+.export opt_respondlookup
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -215,6 +216,8 @@ opt_derive:
     STA OPTD_BTLTRANS
     LDA #LINEUP_SLOW
     STA OPTD_LINEUP
+    LDA #PALCYC_SLOW
+    STA OPTD_PALCYC
     RTS
 
   @fast:
@@ -234,6 +237,8 @@ opt_derive:
     STA OPTD_BTLTRANS
     LDA #LINEUP_FAST
     STA OPTD_LINEUP
+    LDA #PALCYC_FAST
+    STA OPTD_PALCYC
     RTS
 
 
@@ -625,4 +630,38 @@ opt_chkalivey:
       LDA str_buf, Y
       RTL
 :   LDA #$00
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The respond-rate table
+;;
+;;  How long the battle pauses between messages, indexed by the respond rate
+;;  the title screen sets.  Vanilla starts at two full seconds and only reaches
+;;  something brisk at the very top of the range; the Speed Hacks table is the
+;;  one FFR ships, which spreads useful values across all eight settings.
+;;
+;;  A table rather than a constant, so the hook redirects the lookup instead of
+;;  substituting a value.  Both tables live here, which is why this is a
+;;  routine and not two bytes: the call site in bank $0B can only afford the
+;;  three bytes its "LDA lut_RespondDelay, Y" already cost.
+;;
+;;  In: Y = respondrate, 0..7.  Out: A = frames to wait.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_RespondSlow:  .BYTE $78, $50, $3C, $2D, $1E, $0F, $05, $01
+lut_RespondFast:  .BYTE $30, $20, $18, $10, $08, $04, $02, $01
+
+opt_respondlookup:
+    PHB
+    PHK
+    PLB
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BEQ @slow
+    LDA lut_RespondFast, Y
+    PLB
+    RTL
+  @slow:
+    LDA lut_RespondSlow, Y
+    PLB
     RTL
