@@ -17,6 +17,16 @@ case "$FFDEBUG" in
   *dark*) CA65EXTRA="$CA65EXTRA -DFFDARK" ;;
 esac
 
+#  FFDEBUG=vanilla|improved|deluxe forces that option preset on every boot,
+#  ignoring whatever is in SRAM.  Without it there is no way to try a preset
+#  other than the one already written to the cartridge, because a valid block
+#  is deliberately left alone.  Remove once the options menu can do this.
+case "$FFDEBUG" in
+  *vanilla*)  CA65EXTRA="$CA65EXTRA -DOPT_FORCE=0" ;;
+  *improved*) CA65EXTRA="$CA65EXTRA -DOPT_FORCE=1" ;;
+  *deluxe*)   CA65EXTRA="$CA65EXTRA -DOPT_FORCE=2" ;;
+esac
+
 CA65="ca65 --cpu 65816 $CA65EXTRA"
 
 #  The disassembly writes negative immediates (LDA #-1, AND #-33), which ca65
@@ -37,12 +47,14 @@ CA65_GEN="$CA65 --feature force_range"
     $CA65_GEN -I ../src bank_$b.asm -o ../out/bank_$b.o
   done )
 
-( cd src && $CA65 hal.asm    -o ../out/hal.o
+( cd src && $CA65 -I ../gen optbank.asm -o ../out/bank_OPT.o
+           $CA65 -I ../gen optmenu.asm -o ../out/bank_OPTMENU.o
+           $CA65 hal.asm    -o ../out/hal.o
            $CA65 header.asm -o ../out/header.o )
 
 ld65 -C snes.cfg -o /dev/null \
     out/hal.o out/header.o \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
-    out/bank_0D.o out/bank_0E.o out/bank_0F.o
+    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o
 
 python3 tools/mkrom.py

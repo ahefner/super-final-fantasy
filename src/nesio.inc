@@ -25,6 +25,8 @@
 ;  them, so anything the fixed bank's own patches call is imported in
 ;  nesio_thunks.inc instead -- hal_ntfill is, for the box rows.
 .import hal_clearnt, hal_ntfill
+.import hal_theendclear, hal_theendplot, hal_theendand  ; ending scene
+.import hal_ntblit               ; prepared runs of nametable bytes
 
 .import nesio_w2000, nesio_w2001, nesio_w2001y                  ; importing them
 .import nesio_r2002, nesio_r2002x, nesio_r2002y, nesio_b2002

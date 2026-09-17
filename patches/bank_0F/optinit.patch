@@ -1,0 +1,19 @@
+--- OLD
+GameStart:
+    LDA #0                      ; Turn off the PPU
+    STA $2000
+    STA $2001
+--- NEW
+.import opt_init
+
+GameStart:
+    ;  Make the option block trustworthy before anything reads it.  This runs
+    ;  on a cold boot and on every soft reset, and either leaves a good block
+    ;  alone or writes the default preset over a missing or stale one.  The
+    ;  fixed bank is stamped into the options chunk too, so the call gets there
+    ;  and back with nothing but PBR changing.
+    JSL opt_init + OPTFAR
+
+    LDA #0                      ; Turn off the PPU
+    STA $2000
+    STA $2001

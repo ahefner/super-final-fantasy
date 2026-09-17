@@ -1,0 +1,11 @@
+--- OLD
+    LDX cursor              ; Draw the cursor sprite using a fixed X coord of $48
+    LDA #$48                ;  and using the current cursor position to get the Y coord
+    STA spr_x               ;  from a LUT
+    LDA lut_TitleCursor_Y, X
+    STA spr_y
+--- NEW
+    ;  X as well as Y now: the mode box starts three columns left of the other
+    ;  two, so a single fixed X overlapped it.
+    LDX cursor
+    JSL opt_titlecursor + OPTFAR

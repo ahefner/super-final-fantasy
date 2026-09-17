@@ -35,6 +35,8 @@
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export hal_wipewindow, hal_chrload, hal_drawattr
+.export hal_theendclear, hal_theendplot, hal_theendand
+.export hal_ntblit
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
 .export hal_altarband, hal_altaroff
@@ -3486,6 +3488,185 @@ apu_swdiv:
 ;;  byte, which still saves the thunk and the long call around each one.
 ;;
 ;;  Entry: A = the byte, X = how many times to write it.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  hal_ntblit -- write a prepared run of nametable bytes
+;;
+;;  hal_ntfill's fast path, but the bytes come from NTSTAGE instead of all
+;;  being the same.  A caller that would otherwise issue a row of single $2007
+;;  writes -- each one a JSR to a thunk, a JSL into here, and the whole
+;;  address-decode of w2007_core -- builds the row in NTSTAGE and calls this
+;;  once.  The menu's repaint went from visibly stalling the music to not.
+;;
+;;  Two loops rather than one because the raw bytes and the tilemap words
+;;  advance at different rates and the 65816 has only two index registers: the
+;;  first lays the run into NESNT, the second turns NESNT into tilemap words.
+;;  Both are about as tight as the fill loop they are modelled on.
+;;
+;;  Entry: X = how many bytes, NTSTAGE holding them.  Same guards as ntfill --
+;;  anything it would refuse falls back to the per-byte conversion.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_ntblit:
+    php
+    pha
+    phx
+    phy
+    ENTER16
+    txa
+    and #$00FF
+    sta a:h_fillcnt
+    bne @guards
+    jmp @out
+@toslow:
+    jmp @slow
+@guards:
+    lda a:h_ppuctrl
+    and #$0004
+    bne @toslow                 ; writing down a column, not along a row
+    lda a:h_addr
+    and #$3FFF
+    cmp #$2000
+    bcc @toslow
+    cmp #$3F00
+    bcs @toslow
+    and #$07FF
+    sta a:h_t1
+    and #$03FF
+    cmp #$03C0
+    bcs @toslow                 ; attribute table
+    sta a:h_t2
+    and #$001F
+    sta a:h_fillcol
+    clc
+    adc a:h_fillcnt
+    cmp #33
+    bcs @toslow                 ; the run would leave the row
+
+    lda a:h_t2
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta a:h_row
+    lda a:h_t1
+    and #$0400
+    beq :+
+      lda a:h_fillcol
+      clc
+      adc #32
+      sta a:h_fillcol
+:   lda a:h_t1
+    clc
+    adc a:h_fillcnt
+    sta a:h_t2                  ; where the raw-byte index stops
+
+
+;;  the staged bytes into the raw nametable, then the raw nametable into the
+;;  tilemap words.  DBR = $7E for both: low WRAM, NESNT and NTSHADOW all live
+;;  in that bank, so everything is absolute and X and Y are both free.  Long
+;;  indexed addressing would have pinned one of them, because the 65816 has
+;;  "long,x" and no "long,y".
+    phb
+    ldx #$0000
+    ldy a:h_t1
+    sep #$20
+    .a8
+    lda #$7E                    ; the push has to be eight bits wide.  In
+    pha                         ;   sixteen this pushed two bytes against a
+    plb                         ;   one-byte plb and leaked a byte of stack
+@raw:
+    lda a:NTSTAGE_A,x
+    sta a:NESNT & $FFFF,y
+    inx
+    iny
+    cpx a:h_fillcnt
+    bcc @raw
+
+    rep #$20
+    .a16
+    lda a:h_row
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                       ; row * 128
+    clc
+    adc a:h_fillcol
+    adc a:h_fillcol             ; + column * 2
+    tay
+    ldx a:h_t1
+    sep #$20
+    .a8
+@word:
+    lda a:NESNT & $FFFF,x
+    sta a:NTSHADOW,y
+    inx
+    iny
+    iny
+    cpx a:h_t2
+    bcc @word
+    rep #$20
+    .a16
+    plb
+
+    stz a:h_col+1
+    lda a:h_fillcol
+    sta a:h_col
+    jsr mark_dirty8
+    rep #$20
+    .a16
+    lda a:h_fillcol
+    clc
+    adc a:h_fillcnt
+    dec a
+    sta a:h_col
+    sep #$20
+    .a8
+    jsr mark_dirty8
+    rep #$20
+    .a16
+    lda a:h_addr
+    clc
+    adc a:h_fillcnt
+    sta a:h_addr
+@out:
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+@slow:
+    ldy #$0000
+:   sep #$20
+    .a8
+    phx
+    tyx
+    lda f:NTSTAGE,x
+    plx
+    sta a:h_data
+    rep #$20
+    .a16
+    phy
+    jsr w2007_core
+    ply
+    iny
+    cpy a:h_fillcnt
+    bcc :-
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+
 .a8
 .i8
 hal_ntfill:
@@ -4113,3 +4294,102 @@ nespal_snes:
 ; sample data (tools/genspc.py).
 .include "apupitch.inc"
 .include "spcprog.inc"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Clear the ending scene's draw buffer
+;;
+;;  'The End' keeps a RAM shadow of the CHR it is plotting into, because each
+;;  pixel is a read-modify-write.  That buffer moved to WRAM bank $7F when the
+;;  page it used to sit on in PRG-RAM was wanted for the option block, and the
+;;  loop that used to clear it is here rather than in bank $0D because that
+;;  bank is full to the byte -- the four-byte call site replaces twenty-eight
+;;  bytes of loop, which is what made the move fit at all.
+;;
+;;  $700 bytes, so $380 words.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendclear:
+    php
+    ENTER16
+    phx
+    ldx #$0700 - 2
+    lda #$0000
+:   sta f:THEENDBANK * $10000 + THEENDBUF, x
+    dex
+    dex
+    bpl :-
+    plx
+    LEAVE16
+    plp
+    rtl
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Set one pixel in the ending scene's draw buffer
+;;
+;;  The plotter's read-modify-write, which used to be an ORA/STA pair through
+;;  (bufaddr),Y.  That pair resolves through the data bank, and the buffer is
+;;  no longer in a bank the game runs in, so the access comes here instead.
+;;
+;;  Entry: A = the pixel mask, direct page $66/$67 = the buffer address.
+;;  Exit:  A = the merged byte, which the caller goes on to write to $2007.
+;;
+;;  Long-indirect [$66],Y would have been the obvious encoding and is the same
+;;  two bytes, but it needs a third direct-page byte at $68 -- and $68 is
+;;  sm_player_x.  Indexing an absolute-long address by a 16-bit X avoids
+;;  borrowing anything.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendplot:
+    php
+    ENTER16
+    phx
+    ldx $66                     ; the 16-bit buffer address from direct page
+    sep #$20
+    .a8                         ; A's low byte is still the caller's mask
+    ora f:THEENDBANK * $10000, x
+    sta f:THEENDBANK * $10000, x
+    rep #$20
+    .a16
+    plx
+    LEAVE16
+    plp
+    rtl
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Test a pixel in the ending scene's draw buffer
+;;
+;;  The fill pass walks left from the outline setting pixels until it runs into
+;;  one that is already set -- the "left wall".  That test is a *read* of the
+;;  buffer, which is what distinguishes this from hal_theendplot: the outline
+;;  pass only ever writes, so moving the buffer to WRAM left phase one working
+;;  and phase two drawing its fills through walls that were no longer there.
+;;
+;;  Entry: A = the pixel mask, direct page $66/$67 = the buffer address.
+;;  Exit:  A = mask AND buffer, with N and Z set from it -- the caller branches
+;;         on Z -- and X preserved, because the caller still needs it to index
+;;         the mask table.
+;;
+;;  The result goes through h_t0 on the way out so that the PLX which restores
+;;  the caller's X cannot be the last thing to touch the flags.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_theendand:
+    ENTER16
+    phx
+    ldx $66                     ; the 16-bit buffer address from direct page
+    sep #$20
+    .a8
+    and f:THEENDBANK * $10000, x
+    sta a:h_t0
+    rep #$20
+    .a16
+    plx
+    LEAVE16
+    lda a:h_t0                  ; reload, so N and Z come from the result
+    rtl

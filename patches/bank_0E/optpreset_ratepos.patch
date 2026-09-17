@@ -1,0 +1,14 @@
+--- OLD
+TitleScreen_DrawRespondRate:
+    LDA #>$22D6        ; Respond rate is drawn at address $22D6
+    STA $2006
+    LDA #<$22D6
+    STA $2006
+--- NEW
+TitleScreen_DrawRespondRate:
+    ;  $2356 rather than $22D6: the box moved down four rows to make room for
+    ;  the mode box above it, and the digit has to follow.  Same column.
+    LDA #>$2356
+    STA $2006
+    LDA #<$2356
+    STA $2006

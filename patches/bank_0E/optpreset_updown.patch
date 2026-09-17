@@ -1,0 +1,10 @@
+--- OLD
+  @UpDown:
+    LDA cursor              ; if up/down, simply toggle the cursor between New Game
+    EOR #1                  ;  and continue
+    STA cursor
+--- NEW
+  @UpDown:
+    ;  Three rows rather than two, so this is no longer a toggle.  A still
+    ;  holds the direction bits, which is what tells up from down.
+    JSL opt_titleupdown + OPTFAR

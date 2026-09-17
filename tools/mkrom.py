@@ -36,6 +36,10 @@ ROMSZ  = 32 * BANK               # 2MB, the size declared in the header
 ASSEMBLED = {"01", "09", "0B", "0C", "0D", "0E", "0F"}
 ORDER     = ["%02X" % n for n in range(16)]
 
+# Chunks beyond the NES banks: {chunk number: out/bank_<name>.bin}.
+# CHUNK_OPT in src/snesmap.inc must agree with the key here.
+EXTRA_CHUNKS = {0x11: "OPT"}
+
 
 def read(path, want):
     d = open(path, "rb").read()
@@ -68,6 +72,20 @@ def main():
         # rather than leave 32KB of zeros in every chunk (see below).
         rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
 
+    #  Chunks this project adds, beyond the NES's sixteen.  Each one is laid
+    #  out exactly like a game chunk -- new code at $8000-$BFFF, the fixed bank
+    #  stamped into $C000-$FFFF -- so a routine there sees the address space
+    #  the game's own banks see and reaches the fixed bank with a 16-bit JSR.
+    #  Chunk N is image bank 1+N, which is what PBR CHUNK0+N decodes to.
+    #
+    #  $10 is skipped: image bank 17 is the altar beam's tables, below.
+    for chunk, name in EXTRA_CHUNKS.items():
+        base = (1 + chunk) * BANK
+        rom[base + 0x8000:base + 0xC000] = read(
+            os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
+        rom[base + 0xC000:base + 0x10000] = fixed
+        rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
+
     #  The altar beam's HDMA tables, pre-built by genbeam.py.  They get a bank
     #  of their own because HDMA reads them straight out of ROM: nothing has to
     #  copy them anywhere, and the CPU spends nothing per frame beyond pointing
@@ -79,7 +97,7 @@ def main():
     beambank = 1 + len(ORDER)
     rom[beambank * BANK:beambank * BANK + len(beam)] = beam
 
-    used = (2 + len(ORDER)) * BANK
+    used = (2 + len(ORDER) + len(EXTRA_CHUNKS)) * BANK
 
     # Make the image dense, as a real cartridge is.
     #
@@ -166,7 +184,7 @@ def main():
     if (sum(verify) + 0x01FE) & 0xFFFF != total:
         sys.exit("header checksum does not match the image")
 
-    dst = os.path.join(ROOT, "FinalFantasy.sfc")
+    dst = os.path.join(ROOT, "SuperFinalFantasy.sfc")
     open(dst, "wb").write(rom)
     print("%s: %d KB used of %d KB, checksum $%04X"
           % (os.path.basename(dst), used // 1024, ROMSZ // 1024, total))

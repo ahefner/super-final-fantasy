@@ -1,0 +1,6 @@
+--- OLD
+    LDA #20          ; last box is moved left and down a bit (8,20)
+    STA box_y        ;  and is a little fatter (wd=16)
+--- NEW
+    LDA #24          ; moved down to 24, swapping places with the mode box
+    STA box_y        ;  and is a little fatter (wd=16)

@@ -40,6 +40,90 @@ CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+N
                                 ; running up there costs nothing and puts the
                                 ; NES's PRG-RAM somewhere it certainly exists.
 
+;  Chunk numbers above the NES's sixteen.  Chunk N runs at PBR CHUNK0+N, and
+;  in a 2MB image that masks to ROM image bank 1+N, so the usable range is
+;  chunks $00..$1E (PBR $A1..$BF).  $00..$0F are the NES's own banks; chunk $10
+;  is spoken for because image bank 17 is the altar beam's HDMA tables
+;  (BEAMBANK), which is why the first bank this project adds is $11 rather than
+;  $10.  mkrom stamps the fixed bank into $C000-$FFFF of every one of them, so
+;  a routine here sees the same address space the game's own banks do and
+;  reaches the fixed bank with a plain 16-bit JSR.
+CHUNK_OPT       = $11           ; the options bank: menu, presets, option block
+OPTFAR          = (CHUNK0 + CHUNK_OPT) * $10000
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The ending scene's draw buffer, moved out of PRG-RAM
+;;
+;;  'The End' plots itself a pixel at a time and needs a RAM shadow of the CHR
+;;  it is drawing into, because it read-modify-writes each byte.  On the NES
+;;  that shadow sat at $6800 for $700 bytes, overlaid on the battle RAM -- the
+;;  two are never live at once, so the overlap costs nothing.
+;;
+;;  It is moved here so the 256 bytes at $6E00-$6EFF come free.  That page is
+;;  the only part of the 8KB the ending buffer claims *alone*: everything below
+;;  it is also battle RAM or the lineup menu's stat copies (lutmp_ch_magic is a
+;;  full page at $6D00, so $6DB2 is NOT free -- rearranging the party would
+;;  overwrite anything put there).  $6E00 is what the option block uses.
+;;
+;;  EVERY PATCH TO A GAME BANK MUST BE BYTE-NEUTRAL.  The banks position their
+;;  data by sequential assembly -- there is no .org and no .res -- and other
+;;  banks reach that data through absolute addresses baked into Constants.inc
+;;  (lut_OrbCHR = $B600 in this very bank) and through pointer tables inside
+;;  the data itself.  Shrinking this scene's clear loop by 24 bytes moved the
+;;  orb CHR, the story text and the credits, which showed up as wrong orb
+;;  graphics and text strings missing their first 24 characters.  convert.py
+;;  now asserts every .INCBIN lands on the address its filename states, so a
+;;  size change is a build error rather than a corrupted image.
+THEENDBANK      = $7F
+THEENDBUF       = $6800         ; same 16-bit address as before, but in bank
+                                ; $7F.  Keeping the offset identical is what
+                                ; lets TheEnd_SetPixel's "+ $6000" stand and
+                                ; keeps both patches byte-for-byte the same
+                                ; size as the code they replace -- see below.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The option block
+;;
+;;  Battery-backed, global, and deliberately outside the save block at
+;;  $6400-$67FF: SaveGame copies that range wholesale out of unsram and
+;;  VerifyChecksum sums exactly those $400 bytes, so anything living there
+;;  would be per-save and would fight the game's own checksum.  Options are
+;;  global and survive starting a new game.
+;;
+;;  Integrity is the game's own scheme -- two assertion bytes and a sum forced
+;;  to $FF -- plus a format version, because an option block changes shape
+;;  between builds and a stale block that still checksums is worse than one
+;;  that is obviously absent.  A version mismatch falls back to a preset.
+OPTBLOCK        = $6E00
+OPT_MAGIC0      = OPTBLOCK+$00  ; $53 'S'
+OPT_MAGIC1      = OPTBLOCK+$01  ; $46 'F'
+OPT_VERSION     = OPTBLOCK+$02  ; OPT_FORMAT below
+OPT_PRESET      = OPTBLOCK+$03  ; 0..2 preset, 3 = custom
+OPT_FLAGS       = OPTBLOCK+$04  ; 4 bytes: 26 checkbox bits
+OPT_GOLDXP      = OPTBLOCK+$08  ; step indices into the value-row tables
+OPT_ENCOUNTER   = OPTBLOCK+$09
+OPT_ENEMY       = OPTBLOCK+$0A
+OPT_BOSS        = OPTBLOCK+$0B
+OPT_RESPOND     = OPTBLOCK+$0C  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$0D
+OPT_SIZE        = $0E
+
+OPT_MAGIC0_VAL  = $53
+OPT_MAGIC1_VAL  = $46
+OPT_FORMAT      = $02           ; bumped from $01: blocks written before the
+                                ; options bank set its data bank correctly hold
+                                ; garbage flags behind a valid checksum, so the
+                                ; version is what retires them.  Bump this
+                                ; whenever the block's meaning changes, not
+                                ; just its layout.
+OPT_RESPOND_DEFAULT = 7         ; 0-based, so this is the 8 the menu shows
+
+PRESET_VANILLA  = 0
+PRESET_IMPROVED = 1
+PRESET_DELUXE   = 2
+PRESET_CUSTOM   = 3
+
+
 ; --- SNES PPU registers -------------------------------------------------
 INIDISP         = $2100
 OBSEL           = $2101
@@ -100,6 +184,11 @@ RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
 TIMEUP          = $4211
 HVBJOY          = $4212
 RDIO            = $4213
+
+WRMPYA          = $4202         ; 8x8 -> 16 multiply: A x B lands in
+WRMPYB          = $4203         ;   RDMPYL/H eight CPU cycles later
+RDMPYL          = $4216
+RDMPYH          = $4217
 
 NMITIMEN        = $4200
 WRIO            = $4201
@@ -236,6 +325,17 @@ BEAMOFF2        = $0200         ; air: short crests, reading as rising smoke
 
 h_altarframe    = HAL_VARS+$B4  ; which frame of the animation is showing
                                 ; game's own height even when the band is not
+
+;  A staging buffer for hal_ntblit, in the free WRAM below NESNT.  Callers
+;  build a row of nametable bytes here and hand the whole run to the HAL at
+;  once, instead of paying the thunk and the full $2007 conversion per tile --
+;  which is the difference between a menu row costing a couple of hundred
+;  cycles and costing several thousand.
+NTSTAGE         = $7E3F00       ; 64 bytes, two more than a row needs
+NTSTAGE_A       = $3F00         ; ...as seen with DBR = $7E, which is how the
+                                ; blit reaches it, NESNT and NTSHADOW with
+                                ; ordinary absolute addressing and both index
+                                ; registers free
 
 NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM

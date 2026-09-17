@@ -1,0 +1,24 @@
+--- OLD
+    LDY #$00
+    AND (@fillram), Y           ; check to see if the pixel is already set
+    BNE @FillLoop_Next          ; if it was, we're done filling, as we've hit the "left wall"
+    
+    ; Otherwise... we want to draw this pixel to fill!
+    JSR WaitForVBlank_L             ; have to draw in VBlank
+    
+    LDA lut_TheEndPixelMasks, X     ; get pixel mask again
+    ORA (@fillram), Y               ; update RAM
+    STA (@fillram), Y
+--- NEW
+    ;  The fill pass reads the buffer as well as writing it -- this is the
+    ;  "left wall" test -- and the buffer is in WRAM bank $7F now, which
+    ;  (@fillram),Y cannot reach.  Both accesses go through the HAL, which
+    ;  needs no Y, and each call is exactly the four bytes it replaces.
+    JSL hal_theendand + HALFAR
+    BNE @FillLoop_Next          ; if it was set, we've hit the "left wall"
+    
+    ; Otherwise... we want to draw this pixel to fill!
+    JSR WaitForVBlank_L             ; have to draw in VBlank
+    
+    LDA lut_TheEndPixelMasks, X     ; get pixel mask again
+    JSL hal_theendplot + HALFAR     ; update RAM, merged byte comes back in A
