@@ -1,0 +1,61 @@
+--- OLD
+  @MoveRight:
+    ADC #$01
+    STA str_buf+2, Y     ; add 1 to the current X coord
+    SEC                  ; SEC to indicate more movement required
+    RTS                  ; and exit
+
+  @MoveLeft:
+    SBC #$01             ; subtract 1 from X
+    STA str_buf+2, Y     ; and write it back
+    SEC                  ; SEC to indicate more movement required
+    RTS                  ; and exit
+
+  @MoveVertical:
+    BCS @MoveUp          ; if current > desired... move up.  Otherwise, move down
+
+  @MoveDown:
+    ADC #$01
+    STA str_buf+3, Y     ; +1 to Y
+    SEC
+    RTS
+
+  @MoveUp:
+    SBC #$01
+    STA str_buf+3, Y     ; -1 to Y
+    SEC
+    RTS
+--- NEW
+.export LineupMenu_AnimStep
+
+  ;  These four run until the coordinate *equals* its target, so the step has
+  ;  to divide the distance exactly or the sprite steps past and circles
+  ;  forever.  Every distance here is 16 or a multiple of 32, and the fast
+  ;  step is 4.  The carry is already set correctly by the CMP that chose the
+  ;  direction, which is why neither CLC nor SEC appears before the add.
+  @MoveRight:
+    ADC OPTD_LINEUP
+    STA str_buf+2, Y     ; step the current X coord toward the target
+    SEC                  ; SEC to indicate more movement required
+    RTS                  ; and exit
+
+  @MoveLeft:
+    SBC OPTD_LINEUP      ; step X the other way
+    STA str_buf+2, Y     ; and write it back
+    SEC                  ; SEC to indicate more movement required
+    RTS                  ; and exit
+
+  @MoveVertical:
+    BCS @MoveUp          ; if current > desired... move up.  Otherwise, move down
+
+  @MoveDown:
+    ADC OPTD_LINEUP
+    STA str_buf+3, Y     ; step Y down
+    SEC
+    RTS
+
+  @MoveUp:
+    SBC OPTD_LINEUP
+    STA str_buf+3, Y     ; step Y up
+    SEC
+    RTS

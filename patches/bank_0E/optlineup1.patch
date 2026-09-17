@@ -1,0 +1,8 @@
+--- OLD
+    SEC
+    SBC #$01              ; otherwise, subtract 1 from the X coord
+    STA str_buf+2, Y      ; and write it back
+--- NEW
+    SEC
+    SBC OPTD_LINEUP       ; otherwise, step the X coord left.  This loop stops
+    STA str_buf+2, Y      ;  on BCC, so the step need not divide the distance.

@@ -36,6 +36,7 @@ OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 8, 9
 OPT_ENEMY, OPT_BOSS, OPT_RESPOND, OPT_CKSUM = 10, 11, 12, 13
 OPT_SIZE = 14
 CHUNK_OPT_BANK = 0xA1 + 0x11
+BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 
 fails = []
 
@@ -337,10 +338,50 @@ def test_guillotine():
               "$%04X" % got, "$%04X" % want)
 
 
+def test_lineup():
+    """Run the lineup animation to convergence.
+
+    The four AnimStep cases move until the coordinate *equals* its target, so
+    a step that does not divide the distance makes the sprite circle forever.
+    Rather than reason about it, drive the routine and see whether it stops.
+    """
+    SLOT_Y = (0x38, 0x58, 0x78, 0x98)
+    for flag, step in ((0, 1), (OPTF_SPEEDHACKS, 4)):
+        for a in range(4):
+            for b in range(4):
+                if a == b:
+                    continue
+                for startx, destx in ((0x88, 0x98), (0xA8, 0x98)):
+                    bus, cpu = machine()
+                    setblk(bus, OPT_FLAGS, flag)
+                    call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
+                    check("lineup step, speedhacks=%d" % flag, blk(bus, OPTD + 7), step)
+                    #  slot 0's record: +2 X, +3 Y, +4 destX, +5 destY
+                    bus.wram[STR_BUF + 2] = startx
+                    bus.wram[STR_BUF + 3] = SLOT_Y[a]
+                    bus.wram[STR_BUF + 4] = destx
+                    bus.wram[STR_BUF + 5] = SLOT_Y[b]
+                    moved = 0
+                    while moved < 400:
+                        c = CPU(bus); c.dbr = BANK_0E; c.y = 0
+                        c.run(BANK_0E, SYM["LineupMenu_AnimStep"])
+                        moved += 1
+                        if not (c.p & 0x01):            # C clear: it says it is done
+                            break
+                    else:
+                        fails.append("lineup %d->%d x%02X never converged at step %d"
+                                     % (a, b, startx, step))
+                        continue
+                    check("lineup %d->%d x$%02X lands exactly (step %d)"
+                          % (a, b, startx, step),
+                          (bus.wram[STR_BUF + 2], bus.wram[STR_BUF + 3]),
+                          (destx, SLOT_Y[b]))
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
-              test_battlespeed):
+              test_battlespeed, test_lineup):
         try:
             t()
         except Exception as e:

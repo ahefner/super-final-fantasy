@@ -171,6 +171,7 @@ OPTD_WIPECLOSE_U= OPTD+$03
 OPTD_DLGOPEN    = OPTD+$04      ; the dialogue box's two step sizes
 OPTD_DLGCLOSE   = OPTD+$05
 OPTD_BTLTRANS   = OPTD+$06      ; how long the battle transition runs
+OPTD_LINEUP     = OPTD+$07      ; pixels per frame in the lineup menu
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
 ;  or the wipe overshoots its end condition and runs off.
@@ -202,6 +203,15 @@ BTLTRANS_FAST   = $11
 ;  site exactly the size of the "LDA #n / STA x" pair it replaces.
 EXPLODE_FAST    = 4
 RUNDELAY_FAST   = 4
+
+;  The lineup menu slides characters between slots a pixel at a time.  Four of
+;  the six sites compare for equality, so the step has to divide the distances
+;  exactly or the sprite oscillates past its target forever.  The slots sit at
+;  Y $38/$58/$78/$98 -- 32 apart -- and the horizontal moves cover 16, so 4
+;  divides every one of them.  tools/test_options.py runs the animation to
+;  convergence rather than taking that on trust.
+LINEUP_SLOW     = 1
+LINEUP_FAST     = 4
 
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01

@@ -1,0 +1,8 @@
+--- OLD
+    CLC
+    ADC #$01              ; otherwise, add 1 to the X coord
+    STA str_buf+2, Y      ; and write it back
+--- NEW
+    CLC
+    ADC OPTD_LINEUP       ; otherwise, step the X coord right.  Stops on BCS,
+    STA str_buf+2, Y      ;  so again no divisibility requirement.
