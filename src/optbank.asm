@@ -43,7 +43,8 @@
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
-.export opt_retarget, opt_retarget_mag
+.export opt_retarget, opt_retarget_mag, opt_dlgident
+.import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -1071,3 +1072,30 @@ opt_retarget_pick:
     TYA
     TAX
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Identify Treasures
+;;
+;;  Called from DrawDialogueString once the pointer for a string in the upper
+;;  half of the table has been loaded, with X still holding the doubled id.
+;;  Doubling is only ambiguous across the two halves, and this is the upper
+;;  one, so $E2 here means $F1 and nothing else.
+;;
+;;  The vanilla string says "Can't hold anymore." and leaves the player to
+;;  guess what; ours names it.  Swapping the pointer rather than the id keeps
+;;  this out of the dialogue bank, which is a raw blob with its own pointer
+;;  table and no room to grow.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_dlgident:
+    CPX #(DLGID_CANTCARRY * 2) .MOD $100
+    BNE @out
+    LDA OPTFB_IDTREASURE
+    AND #OPTFM_IDTREASURE
+    BEQ @out
+    LDA #<lut_CantHoldWhat
+    STA text_ptr
+    LDA #>lut_CantHoldWhat
+    STA text_ptr+1
+  @out:
+    RTL

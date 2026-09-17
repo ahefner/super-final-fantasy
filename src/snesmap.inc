@@ -258,6 +258,9 @@ OPTFM_AUTORETARGET = $02 ; bit 9
 OPTFB_RUNWAIT   = OPT_FLAGS+0
 OPTFM_RUNWAIT   = $80    ; bit 7
 
+OPTFB_IDTREASURE = OPT_FLAGS+0
+OPTFM_IDTREASURE = $10   ; bit 4
+
 ;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
 ;  writes it as a bare address; it is named here because the option code needs
 ;  it too and a second bare $6AF8 would be unsearchable.

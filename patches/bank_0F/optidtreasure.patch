@@ -1,0 +1,17 @@
+--- OLD
+    @HiTbl:
+      LDA lut_DialoguePtrTbl+$100, X   ; same, but read from 2nd half of pointer table
+      STA text_ptr
+      LDA lut_DialoguePtrTbl+$101, X
+      STA text_ptr+1
+--- NEW
+.export lut_CantHoldWhat
+.import opt_dlgident
+
+    @HiTbl:
+      LDA lut_DialoguePtrTbl+$100, X   ; same, but read from 2nd half of pointer table
+      STA text_ptr
+      LDA lut_DialoguePtrTbl+$101, X
+      STA text_ptr+1
+      JSL opt_dlgident + OPTFAR        ; Identify Treasures swaps one of these
+                                       ;   strings for one of ours

@@ -793,12 +793,71 @@ def test_runwait():
                   BTLMSG_NOTHINGHAPPENS if wait else BTLMSG_CANTRUN)
 
 
+TEXT_PTR = 0x3E
+OPTF_IDTREASURE = 0x00000010
+DLGID_CANTCARRY = 0xF1
+
+
+def test_idtreasure():
+    """Swap the "Can't hold anymore." string for one that says what.
+
+    The hook sits in the upper half of DrawDialogueString's pointer lookup,
+    where the id has already been doubled.  Doubling collides across the two
+    halves but not within one, so the test walks every id the upper half can
+    carry and checks that exactly one of them is redirected.
+    """
+    for flag in (0, OPTF_IDTREASURE):
+        for dlgid in range(0x80, 0x100):
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS, flag)
+            bus.wram[TEXT_PTR] = 0x34           # as the table lookup left it
+            bus.wram[TEXT_PTR + 1] = 0x12
+            cpu.x = (dlgid * 2) & 0xFF
+            call(cpu, "opt_dlgident", dbr=0xA7)
+            got = bus.wram[TEXT_PTR] | (bus.wram[TEXT_PTR + 1] << 8)
+            want = SYM["lut_CantHoldWhat"] \
+                   if (flag and dlgid == DLGID_CANTCARRY) else 0x1234
+            if got != want:
+                check("dialogue $%02X, identify=%d" % (dlgid, bool(flag)),
+                      "$%04X" % got, "$%04X" % want)
+            check("dialogue $%02X leaves X alone" % dlgid, cpu.x & 0xFF,
+                  (dlgid * 2) & 0xFF)
+
+    #  The string itself: it has to end, name the item, and stay inside the
+    #  dialogue drawer's idea of a control code.
+    addr = SYM["lut_CantHoldWhat"]
+    rom = chunkbyte
+    text = []
+    for i in range(32):
+        b = rom(0x0F, addr + i)
+        text.append(b)
+        if b == 0:
+            break
+    else:
+        fails.append("lut_CantHoldWhat is not terminated within 32 bytes")
+        text = []
+    check("the string prints the item name", 0x02 in text, True)
+    check("the string has one line break", text.count(0x01), 1)
+    check("the string is not longer than the box is wide",
+          sum(1 for b in text if b >= 0x7A), 10)
+
+
+def chunkbyte(bank, addr):
+    """One byte of a NES bank as the SNES image holds it.
+
+    Chunk N lives in ROM bank 1+N, and the fixed bank is stamped at $C000 of
+    every one of them, so bank $0F is read out of any chunk.
+    """
+    chunk = 1 + (bank if addr < 0xC000 else 0x0F)
+    return ROMDATA[chunk * 0x10000 + addr]
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
-              test_runwait):
+              test_runwait, test_idtreasure):
         try:
             t()
         except Exception as e:
