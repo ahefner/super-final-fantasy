@@ -1,0 +1,9 @@
+--- OLD
+    STX btl_defender            ; X contains the defender, record them as well
+--- NEW
+.import OptRetargetMag
+
+    JSR OptRetargetMag          ; X contains the defender, record them as well
+                                ;   -- after Auto Retargeting has had a look at
+                                ;   it.  Three bytes, so the test cannot live
+                                ;   here; the fixed bank holds the stub.

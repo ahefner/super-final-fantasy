@@ -1,0 +1,25 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptRetargetMag
+.import opt_retarget_mag
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Auto Retargeting, the magic half
+;;
+;;    Player_DoMagicEffect records its defender with a three-byte store, and
+;;  bank $0C has no room to grow, so the call that replaces it has to be three
+;;  bytes too.  A JSR here and a JSL onward costs five bytes of the fixed bank
+;;  and none of that one.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptRetargetMag:
+    JSL opt_retarget_mag + OPTFAR
+    RTS
+
+
+DrawPalette:

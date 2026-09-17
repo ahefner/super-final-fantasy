@@ -246,6 +246,20 @@ OPTFM_GUILLOTINE = $40   ; bit 14
 OPTFB_NOSHUFFLE = OPT_FLAGS+0
 OPTFM_NOSHUFFLE = $08
 
+OPTFB_MAGICWRAP = OPT_FLAGS+1
+OPTFM_MAGICWRAP = $01    ; bit 8
+
+OPTFB_AUTOSORT  = OPT_FLAGS+1
+OPTFM_AUTOSORT  = $04    ; bit 10
+
+OPTFB_AUTORETARGET = OPT_FLAGS+1
+OPTFM_AUTORETARGET = $02 ; bit 9
+
+;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
+;  writes it as a bare address; it is named here because the option code needs
+;  it too and a second bare $6AF8 would be unsearchable.
+btl_magicpage   = $6AF8
+
 PRESET_VANILLA  = 0
 PRESET_IMPROVED = 1
 PRESET_DELUXE   = 2

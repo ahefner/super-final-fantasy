@@ -42,6 +42,8 @@
 .export opt_loadpreset, opt_sum, lut_Presets, opt_derive
 .export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
+.export opt_magicpgdn, opt_magicpgup, opt_sortinv
+.export opt_retarget, opt_retarget_mag
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -902,3 +904,170 @@ opt_movenpcs:
     PLB
   @out:
     RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Battle Magic Menu Wraparound
+;;
+;;  Two entry points, one per direction, each answering one question: the
+;;  cursor is on the last row of the page it can move off -- may it?
+;;
+;;  Vanilla says yes only when the page it would land on exists, which is page
+;;  1 going down and page 0 going up.  The flag says yes always, and in the two
+;;  cases vanilla refuses, leaves $6AF8 holding a value the caller's own INC or
+;;  DEC turns into the page across the seam.  The caller does the drawing; all
+;;  that happens here is the decision.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_magicpgdn:
+    LDA btl_magicpage
+    BEQ opt_magicyes            ; on page 0: vanilla turns to page 1 unaided
+    JSR opt_magicwrapon
+    BCC opt_magicno
+    LDA #$FF                    ; the caller's INC makes this page 0
+    STA btl_magicpage
+    BRA opt_magicyes
+
+opt_magicpgup:
+    LDA btl_magicpage
+    BNE opt_magicyes            ; on page 1: vanilla turns to page 0 unaided
+    JSR opt_magicwrapon
+    BCC opt_magicno
+    LDA #$02                    ; the caller's DEC makes this page 1
+    STA btl_magicpage
+
+opt_magicyes:
+    SEC
+    RTL
+opt_magicno:
+    CLC
+    RTL
+
+;  Carry set if the wraparound flag is on.  A subroutine rather than six bytes
+;  written twice, because both entry points want the same answer.
+opt_magicwrapon:
+    LDA OPTFB_MAGICWRAP
+    AND #OPTFM_MAGICWRAP
+    BEQ @off
+    SEC
+    RTS
+  @off:
+    CLC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Autosort Inventory
+;;
+;;  DrawItemBox walks the items buffer from one end to the other, so the list
+;;  comes out in item-number order: sixteen key items the player will touch
+;;  once each, and only then the tents and potions they open the menu for.
+;;
+;;  This rebuilds the same list grouped by what it is -- potions, lodgings,
+;;  key items -- which is the order FFR uses.  It runs after the vanilla fill
+;;  rather than in place of it, so with the flag off nothing here executes at
+;;  all, and it enumerates exactly the set the vanilla loop does: $01-$11 and
+;;  $16-$1B, skipping the orbs at $12-$15, which have no menu entries.
+;;
+;;  Because the set is the same, the count cannot change; it is written again
+;;  anyway, along with the terminator, so that a future edit to one loop
+;;  cannot leave the list and the cursor limit disagreeing.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_sortinv:
+    LDA OPTFB_AUTOSORT
+    AND #OPTFM_AUTOSORT
+    BEQ @out
+
+    LDY #$00                    ; Y walks the list being built
+
+    LDX #$19                    ; HEAL, PURE, SOFT
+  @potions:
+    JSR opt_sortinv_one
+    CPX #$1C
+    BNE @potions
+
+    LDX #$16                    ; TENT, CABIN, HOUSE
+  @lodgings:
+    JSR opt_sortinv_one
+    CPX #$19
+    BNE @lodgings
+
+    LDX #$01                    ; the key items, in their own order; $00 is
+  @unique:                      ;   unused and $12-$15 are the orbs
+    JSR opt_sortinv_one
+    CPX #$12
+    BNE @unique
+
+    STY cursor_max
+    LDA #$00
+    STA item_box, Y
+  @out:
+    RTL
+
+;  One item: add its number to the list if the player has any, then step X.
+opt_sortinv_one:
+    LDA items, X
+    BEQ @none
+    TXA
+    STA item_box, Y
+    INY
+  @none:
+    INX
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Auto Retargeting
+;;
+;;  Commands are chosen for the whole party before the round runs, so an enemy
+;;  can die between the moment a character is told to hit it and the moment
+;;  they swing.  Vanilla swings anyway and the turn is wasted.  This moves the
+;;  target to a slot that still holds something.
+;;
+;;  Two entry points, because the two callers record the defender differently:
+;;  the physical attack writes both the index and btl_defender, and magic
+;;  writes only btl_defender and may be aimed at a party member.  Doing the
+;;  stores here is what lets the physical call site stay the same size as the
+;;  pair of stores it replaces.
+;;
+;;  Where FFR hands back slot $FF when every enemy is gone, this leaves the
+;;  target alone.  CheckForBattleEnd runs after every turn and breaks out of
+;;  the round once the last slot empties, so the case should be unreachable --
+;;  but if it ever is reached, swinging at an empty slot is what vanilla does,
+;;  and $FF is a slot number the caller would turn straight into a stat
+;;  pointer.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_retarget:
+    JSR opt_retarget_pick
+    STX battle_defender_index
+    STX btl_defender
+    RTL
+
+opt_retarget_mag:
+    CPX #$09                    ; 9 and up is a party member -- healing, and
+    BCS @store                  ;   not something to second-guess
+    JSR opt_retarget_pick
+  @store:
+    STX btl_defender
+    RTL
+
+;  X = the chosen enemy slot, in and out.
+opt_retarget_pick:
+    LDA OPTFB_AUTORETARGET
+    AND #OPTFM_AUTORETARGET
+    BEQ @keep
+    LDA btl_enemyIDs, X
+    CMP #$FF                    ; $FF is how a defeated enemy leaves the lineup
+    BNE @keep                   ;   -- see CheckForBattleEnd
+    LDY #$08                    ; highest slot first, as FFR picks it
+  @scan:
+    LDA btl_enemyIDs, Y
+    CMP #$FF
+    BNE @take
+    DEY
+    BPL @scan
+  @keep:
+    RTS
+  @take:
+    TYA
+    TAX
+    RTS

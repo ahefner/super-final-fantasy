@@ -508,11 +508,223 @@ def test_npcmove():
     check("npc moves touch 9 objects across all 64 maps", total, 9 * 5)
 
 
+MAGICPAGE = 0x6AF8
+BANK_0C = 0xA1 + 0x0C
+OPTF_MAGICWRAP = 0x00000100
+
+
+def test_magicwrap():
+    """Down off the bottom of the magic list, and up off the top.
+
+    The two routines only answer "may the cursor leave this page", and when
+    the wrap is what allows it they leave a value in the page byte that the
+    caller's own INC or DEC turns into the page across the seam.  So the test
+    has to do the caller's half too, or it proves nothing: what matters is the
+    page that ends up in $6AF8 after the INC/DEC, not the one the routine
+    wrote.
+    """
+    #  flag, entry, starting page -> (may move, page after the caller's step)
+    cases = (
+        (0, "opt_magicpgdn", 0, (True, 1)),     # vanilla: page 0 -> page 1
+        (0, "opt_magicpgdn", 1, (False, 1)),    # vanilla: bottom of the list
+        (0, "opt_magicpgup", 1, (True, 0)),     # vanilla: page 1 -> page 0
+        (0, "opt_magicpgup", 0, (False, 0)),    # vanilla: top of the list
+        (OPTF_MAGICWRAP, "opt_magicpgdn", 0, (True, 1)),
+        (OPTF_MAGICWRAP, "opt_magicpgdn", 1, (True, 0)),   # wraps to the top
+        (OPTF_MAGICWRAP, "opt_magicpgup", 1, (True, 0)),
+        (OPTF_MAGICWRAP, "opt_magicpgup", 0, (True, 1)),   # wraps to the bottom
+    )
+    for flag, entry, page, want in cases:
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 1, flag >> 8)
+        bus.sram[MAGICPAGE - 0x6000] = page
+        call(cpu, entry, dbr=BANK_0C)       # JSL from bank $0C leaves DBR alone
+        moved = bool(cpu.p & 0x01)          # carry
+        after = bus.sram[MAGICPAGE - 0x6000]
+        if moved:                           # the caller's own INC or DEC
+            after = (after + (1 if entry.endswith("dn") else -1)) & 0xFF
+        check("%s page %d, wrap=%d" % (entry[-2:], page, bool(flag)),
+              (moved, after), want)
+
+    #  Vanilla must be bit-for-bit vanilla: the flag off may never move the
+    #  page byte on a refusal.
+    for entry, page in (("opt_magicpgdn", 1), ("opt_magicpgup", 0)):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 1, 0)
+        bus.sram[MAGICPAGE - 0x6000] = page
+        call(cpu, entry, dbr=BANK_0C)
+        check("%s leaves the page alone when it refuses" % entry,
+              bus.sram[MAGICPAGE - 0x6000], page)
+
+
+ITEMS = 0x6020                 # unsram + $20
+ITEM_BOX = 0x0300
+CURSOR_MAX = 0x63
+BANK_FIXED = 0xA7              # DrawItemBox runs with whatever the menu left
+OPTF_AUTOSORT = 0x00000400
+
+
+def test_autosort():
+    """Reorder the item list, and prove it is a reordering.
+
+    The risk here is not the order -- that is a matter of taste -- but that
+    the rebuilt list is not the same *set* as the one DrawItemBox just filled
+    in.  An item dropped or a count that disagrees with the list would show up
+    as an inventory entry the cursor cannot reach, or a blank row past the end
+    of the list, and neither is obvious until it happens to you.
+    """
+    import random
+    rng = random.Random(1234)
+
+    def vanilla(inv):
+        #  What DrawItemBox's own loop produces: $01 upward, orbs skipped.
+        out = []
+        for i in list(range(1, 0x12)) + list(range(0x16, 0x1C)):
+            if inv[i]:
+                out.append(i)
+        return out
+
+    def sorted_order(inv):
+        out = []
+        for grp in (range(0x19, 0x1C), range(0x16, 0x19), range(0x01, 0x12)):
+            for i in grp:
+                if inv[i]:
+                    out.append(i)
+        return out
+
+    for trial in range(60):
+        inv = [0] * 0x1C
+        for i in range(1, 0x1C):
+            if 0x12 <= i <= 0x15:
+                continue                       # orbs; the menu never lists them
+            inv[i] = rng.choice((0, 0, 1, 5, 99))
+        want = sorted_order(inv)
+        van = vanilla(inv)
+        check("trial %d: the sort is a permutation" % trial,
+              sorted(want), sorted(van))
+
+        for flag in (0, OPTF_AUTOSORT):
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS + 1, flag >> 8)
+            for i, q in enumerate(inv):
+                bus.sram[ITEMS - 0x6000 + i] = q
+            #  leave the buffer as DrawItemBox leaves it
+            for i, v in enumerate(van + [0]):
+                bus.wram[ITEM_BOX + i] = v
+            bus.wram[CURSOR_MAX] = len(van)
+            #  a sentinel past the terminator: nothing may write there
+            bus.wram[ITEM_BOX + len(van) + 1] = 0x5A
+
+            call(cpu, "opt_sortinv", dbr=BANK_FIXED)
+
+            expect = want if flag else van
+            got = [bus.wram[ITEM_BOX + i] for i in range(len(expect))]
+            check("trial %d autosort=%d: list" % (trial, bool(flag)), got, expect)
+            check("trial %d autosort=%d: terminator" % (trial, bool(flag)),
+                  bus.wram[ITEM_BOX + len(expect)], 0)
+            check("trial %d autosort=%d: count" % (trial, bool(flag)),
+                  bus.wram[CURSOR_MAX], len(expect))
+            check("trial %d autosort=%d: nothing past the terminator" % (trial, bool(flag)),
+                  bus.wram[ITEM_BOX + len(expect) + 1], 0x5A)
+
+    #  An empty inventory never reaches this routine -- DrawItemBox exits early
+    #  -- but it must not run off if it ever does.
+    bus, cpu = machine()
+    setblk(bus, OPT_FLAGS + 1, OPTF_AUTOSORT >> 8)
+    bus.wram[ITEM_BOX] = 0x5A
+    call(cpu, "opt_sortinv", dbr=BANK_FIXED)
+    check("empty inventory: empty list", bus.wram[ITEM_BOX], 0)
+    check("empty inventory: count 0", bus.wram[CURSOR_MAX], 0)
+
+    #  The orbs have no menu entry, and picking them up must not create one.
+    bus, cpu = machine()
+    setblk(bus, OPT_FLAGS + 1, OPTF_AUTOSORT >> 8)
+    for i in range(0x12, 0x16):
+        bus.sram[ITEMS - 0x6000 + i] = 1
+    bus.sram[ITEMS - 0x6000 + 0x19] = 1
+    call(cpu, "opt_sortinv", dbr=BANK_FIXED)
+    check("orbs stay out of the list",
+          [bus.wram[ITEM_BOX + i] for i in range(2)], [0x19, 0])
+
+
+ENEMY_IDS = 0x6BB7             # nine slots; $FF means the slot is empty
+BTL_DEFENDER = 0x6C8A
+DEFENDER_INDEX = 0x6885        # in SRAM, like the rest of the battle block
+OPTF_AUTORETARGET = 0x00000200
+
+
+def test_retarget():
+    """Move an attack off an enemy that died earlier in the round.
+
+    Both entry points have to agree with the call sites they replaced: the
+    physical one writes two variables and the magic one writes one, and the
+    magic one must leave a party member -- slot 9 and up -- alone, or healing
+    a character turns into hitting an enemy.
+    """
+    def setup(flag, lineup, target):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 1, flag >> 8)
+        for i in range(9):
+            bus.sram[ENEMY_IDS - 0x6000 + i] = lineup[i]
+        bus.sram[BTL_DEFENDER - 0x6000] = 0xA5
+        bus.sram[DEFENDER_INDEX - 0x6000] = 0xA5
+        cpu.x = target
+        return bus, cpu
+
+    DEAD = 0xFF
+    full = [3] * 9
+    only4 = [DEAD] * 9
+    only4[4] = 7
+    gone = [DEAD] * 9
+    top = [DEAD] * 9
+    top[0] = 1
+    top[8] = 2
+
+    cases = (
+        #  lineup,  target, autoretarget -> slot the attack lands on
+        (full,  2, False, 2),
+        (full,  2, True,  2),      # alive: never moved
+        (only4, 2, False, 2),      # vanilla swings at the empty slot
+        (only4, 2, True,  4),      # the only one left
+        (top,   3, True,  8),      # highest slot first, as FFR picks it
+        (gone,  3, True,  3),      # nobody left: leave it, do not invent $FF
+    )
+    for lineup, target, on, want in cases:
+        flag = OPTF_AUTORETARGET if on else 0
+        bus, cpu = setup(flag, lineup, target)
+        call(cpu, "opt_retarget", dbr=BANK_0C)
+        check("melee target %d, on=%d" % (target, on), cpu.x & 0xFF, want)
+        check("melee writes the index", bus.sram[DEFENDER_INDEX - 0x6000], want)
+        check("melee writes btl_defender", bus.sram[BTL_DEFENDER - 0x6000], want)
+
+        bus, cpu = setup(flag, lineup, target)
+        call(cpu, "opt_retarget_mag", dbr=BANK_0C)
+        check("magic target %d, on=%d" % (target, on), cpu.x & 0xFF, want)
+        check("magic writes btl_defender", bus.sram[BTL_DEFENDER - 0x6000], want)
+        check("magic leaves the index alone", bus.sram[DEFENDER_INDEX - 0x6000], 0xA5)
+
+    #  A spell aimed at a party member is slot 9..12, and must survive
+    #  unchanged.  The slot guard is the only thing protecting it: reading
+    #  btl_enemyIDs at index 9 walks into btl_enemygfxplt, and a $FF there
+    #  would send the spell to an enemy instead of the character it was cast
+    #  on.  So the hostile case is a live lineup with $FF in those four bytes.
+    for target in range(9, 13):
+        for lineup, label in ((gone, "no enemies"), (full, "a full lineup")):
+            bus, cpu = setup(OPTF_AUTORETARGET, lineup, target)
+            for i in range(9, 13):
+                bus.sram[ENEMY_IDS - 0x6000 + i] = 0xFF
+            call(cpu, "opt_retarget_mag", dbr=BANK_0C)
+            check("magic on party member %d, %s" % (target, label),
+                  cpu.x & 0xFF, target)
+            check("magic on party member %d, %s: btl_defender" % (target, label),
+                  bus.sram[BTL_DEFENDER - 0x6000], target)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
-              test_npcmove):
+              test_npcmove, test_magicwrap, test_autosort, test_retarget):
         try:
             t()
         except Exception as e:

@@ -1,0 +1,83 @@
+--- OLD
+  @Cursor_Down:
+    LDA btlcurs_y
+    AND #$03
+    CMP #$03                    ; see if it's at the bottom of the page
+    BNE @NormalMove_Down        ; if not, do a normal move
+    LDA $6AF8                   ; otherwise, check the page
+    BEQ :+
+      RTS                       ; page 1 = do nothing
+  : INC $6AF8                   ; page 0 = inc to page 1
+    LDA #$01
+    JSR UndrawNBattleBlocks_L   ; undraw the page 0 magic box
+    JSR DrawBattleMagicBox_L    ; draw the page 1 magic box
+  @NormalMove_Down:
+    INC btlcurs_y
+    RTS
+
+  @Cursor_Up:
+    LDA btlcurs_y
+    AND #$03                    ; top row of page?
+    BNE @NormalMove_Up          ; no?  then normal move
+    LDA $6AF8                   ; yes?  check page
+    CMP #$01
+    BEQ :+
+      RTS                       ; page 0?  exit
+  : DEC $6AF8                   ; page 1?  move to page 0, and redraw it
+    LDA #$01
+    JSR UndrawNBattleBlocks_L
+    JSR DrawBattleMagicBox_L
+  @NormalMove_Up:
+    DEC btlcurs_y
+    RTS
+--- NEW
+.import opt_magicpgdn, opt_magicpgup
+
+;  Battle Magic Menu Wraparound.
+;
+;    Vanilla stops at both ends of the two-page list: down on the last row of
+;  page 1 and up on the first row of page 0 do nothing at all.  The flag makes
+;  each of those turn the page instead, so the list is a loop.
+;
+;    The page byte is INCed or DECed here, exactly as vanilla does, and the
+;  option routine only answers whether the move is allowed -- and, when it is
+;  the wrap that allows it, leaves a value in $6AF8 that this INC or DEC turns
+;  into the page we actually want.  That keeps the drawing calls in this bank,
+;  where they already are, and keeps the patch inside its original 60 bytes.
+;
+;    btlcurs_y is masked with #$03 everywhere it is read, so running it off
+;  either end is harmless: 8 reads as row 0 and $FF as row 3.  That is the
+;  whole reason the wrap costs nothing.
+
+  @Cursor_Down:
+    LDA btlcurs_y
+    AND #$03
+    CMP #$03                    ; see if it's at the bottom of the page
+    BNE @NormalMove_Down        ; if not, do a normal move
+    JSL opt_magicpgdn + OPTFAR  ; carry set = leave this page
+    BCC @DownDone
+    INC $6AF8
+    LDA #$01
+    JSR UndrawNBattleBlocks_L   ; undraw the old magic box
+    JSR DrawBattleMagicBox_L    ; draw the new one
+  @NormalMove_Down:
+    INC btlcurs_y
+  @DownDone:
+    RTS
+
+  @Cursor_Up:
+    LDA btlcurs_y
+    AND #$03                    ; top row of page?
+    BNE @NormalMove_Up          ; no?  then normal move
+    JSL opt_magicpgup + OPTFAR
+    BCC @UpDone
+    DEC $6AF8
+    LDA #$01
+    JSR UndrawNBattleBlocks_L
+    JSR DrawBattleMagicBox_L
+  @NormalMove_Up:
+    DEC btlcurs_y
+  @UpDone:
+    RTS
+    .res 2, $EA                 ; two bytes shorter than what it replaces, and
+                                ; this bank has to stay exactly $4000

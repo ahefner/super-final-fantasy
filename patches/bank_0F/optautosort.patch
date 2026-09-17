@@ -1,0 +1,22 @@
+--- OLD
+  @StartDrawingItems:
+    STX cursor_max     ; the number of items they have becomes the cursor maximum
+    LDA #0
+    STA item_box, X    ; put a null terminator at the end of the item box (needed for following loop)
+    LDA #0
+    STA cursor         ; also reset the cursor to 0 (which will be used as a loop counter below)
+--- NEW
+.import opt_sortinv
+
+  @StartDrawingItems:
+    STX cursor_max     ; the number of items they have becomes the cursor maximum
+    LDA #0
+    STA item_box, X    ; put a null terminator at the end of the item box (needed for following loop)
+    LDA #0
+    STA cursor         ; also reset the cursor to 0 (which will be used as a loop counter below)
+
+    JSL opt_sortinv + OPTFAR   ; Autosort Inventory rebuilds the list just
+                               ;   filled, in a more useful order.  After it,
+                               ;   not instead of it: the same items come out,
+                               ;   so the count and terminator above still hold
+                               ;   and the vanilla path is untouched.

@@ -1,0 +1,11 @@
+--- OLD
+    STX battle_defender_index       ; set defender index
+    STX btl_defender
+--- NEW
+.import opt_retarget
+
+    JSL opt_retarget + OPTFAR       ; set defender index -- but first, if Auto
+    .res 2, $EA                     ;   Retargeting is on and that enemy is
+                                    ;   already gone, pick one that is not.
+                                    ;   The two stores happen there, which is
+                                    ;   what keeps this exactly six bytes.
