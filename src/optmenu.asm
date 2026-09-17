@@ -73,6 +73,10 @@ OPTMENU_ALLSET = $76            ; was every checkbox in the section already on?
 OPTMENU_VALPTR = $77            ; 2 bytes: into a value-readout table
 OPTMENU_STG    = $79            ; how many bytes are staged for the blit
 OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
+;  Zero page $6E..$7B is now full, so this one lives in the option block's own
+;  spare page.  It is a flag, not a pointer, so it never needs direct-page
+;  addressing.
+OPTMENU_ARM    = OPTBLOCK + $1F ; nonzero until one frame of input is discarded
 
 opt_settings:
     LDA #PRESET_CUSTOM
@@ -100,11 +104,8 @@ opt_settings:
     LDA #$1E
     wPPUMASK                    ; ...and back on
 
-    LDA #$00                    ; the A or Start that opened this screen is
-    STA joy_a                   ;   still latched; without clearing it the
-    STA joy_start               ;   first frame would act on it
-    STA joy_b
-    STA joy_prevdir
+    LDA #$01
+    STA OPTMENU_ARM             ; discard the first frame of input -- see below
 
   @loop:
     ;  cur_bank is where CallMusicPlay swaps *back* to.  It has to name this
@@ -136,6 +137,26 @@ opt_settings:
     JSR CallMusicPlay
     JSR UpdateJoy
 
+    ;  Throw the first frame's input away whatever it says.
+    ;
+    ;  The press that opened this screen is supposed to be spent by then --
+    ;  the catchers are cleared on the way in, and ProcessJoyButtons only
+    ;  counts a press edge, with joy_ignore holding off a held button.  It
+    ;  arrives here anyway, and the cursor starts on a section heading, so it
+    ;  came through as "toggle every setting in Quality of Life".  Rather than
+    ;  keep guessing at the path, refuse to act on the frame the screen opens
+    ;  on: nothing is lost, because no human press survives being that early.
+    LDA OPTMENU_ARM
+    BEQ @input
+    LDA #$00
+    STA OPTMENU_ARM
+    STA joy_a
+    STA joy_start
+    STA joy_b
+    STA joy_prevdir
+    JMP @loop
+
+  @input:
     LDA joy_b
     BNE @done
     LDA joy_a
