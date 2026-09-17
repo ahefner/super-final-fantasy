@@ -1,0 +1,22 @@
+--- OLD
+      LDX lu_cursor2  ;  cursor2 in X (if cursor is slot 0, cursor2 is BECOMING slot 0)
+      LDA str_buf, X  ;  make sure cursor2's character is alive
+      BNE @KillSwap   ;  if not... don't make any change
+
+  @LeaderCheck2:
+    LDX lu_cursor2    ; put cursor2 in X
+    BNE @SwapSafe     ; if nonzero, isn't lead slot, so the swap is safe.  Otherwise...
+      LDA str_buf, Y  ;   get slot 1's alive status
+      BNE @KillSwap   ;   if slot 1 is dead... cancel the swap
+--- NEW
+.import ChkAliveX, ChkAliveY
+
+      LDX lu_cursor2  ;  cursor2 in X (if cursor is slot 0, cursor2 is BECOMING slot 0)
+      JSR ChkAliveX   ;  make sure cursor2's character is alive -- or that No
+      BNE @KillSwap   ;  Party Shuffle has made the question moot
+
+  @LeaderCheck2:
+    LDX lu_cursor2    ; put cursor2 in X
+    BNE @SwapSafe     ; if nonzero, isn't lead slot, so the swap is safe.  Otherwise...
+      JSR ChkAliveY   ;   get slot 1's alive status, same proviso
+      BNE @KillSwap   ;   if slot 1 is dead... cancel the swap

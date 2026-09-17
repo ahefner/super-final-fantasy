@@ -1,0 +1,9 @@
+--- OLD
+    JSR ReSortPartyByAilment        ; rearrange party to put sick/dead members in the back
+--- NEW
+.import CondReSortParty
+.export ReSortPartyByAilment
+
+    JSR CondReSortParty             ; ...unless No Party Shuffle says otherwise.
+                                    ; Same three bytes; the test is in the fixed
+                                    ; bank, because this one has none to spare.

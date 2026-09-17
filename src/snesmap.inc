@@ -118,6 +118,48 @@ OPT_FORMAT      = $02           ; bumped from $01: blocks written before the
                                 ; just its layout.
 OPT_RESPOND_DEFAULT = 7         ; 0-based, so this is the 8 the menu shows
 
+;  The option flags, one bit each.  Here rather than in optbank.asm because a
+;  feature's hook is wherever the feature lives -- the fixed bank and the game
+;  banks test these too, not just the options bank.
+;
+;  Bits 0..7 are in OPT_FLAGS+0, 8..15 in +1, and so on, so a test is
+;  "LDA OPT_FLAGS+n / AND #mask".  The OPTFB_/OPTFM_ pairs below give the
+;  byte and the mask for the ones that have hooks so far.
+;  Flag bits, low byte first.  26 of the 32 are spoken for.
+OPTF_SPEEDHACKS   = $00000001
+OPTF_FASTWALK     = $00000002
+OPTF_FASTSHIP     = $00000004
+OPTF_NOSHUFFLE    = $00000008
+OPTF_IDTREASURE   = $00000010
+OPTF_OPENCHESTS   = $00000020
+OPTF_BUYQTY       = $00000040
+OPTF_RUNWAIT      = $00000080
+OPTF_MAGICWRAP    = $00000100
+OPTF_AUTORETARGET = $00000200
+OPTF_AUTOSORT     = $00000400
+OPTF_REPEATPOTION = $00000800
+OPTF_SHOPINFO     = $00001000
+OPTF_CHESTINFO    = $00002000
+OPTF_GUILLOTINE   = $00004000
+OPTF_HOUSEMP      = $00008000
+OPTF_WEAPONSTATS  = $00010000
+OPTF_SPELLFIXES   = $00020000
+OPTF_STATUSATK    = $00040000
+OPTF_THIEFNINJA   = $00080000
+OPTF_CRITRATE     = $00100000
+OPTF_ELEMBONUS    = $00200000
+OPTF_IMPCURE      = $00400000
+OPTF_IMPFIRE      = $00800000
+OPTF_CASTLIFE     = $01000000
+OPTF_LOK2         = $02000000
+
+;  The three groups, as the menu lists them.  ca65 has no line continuation,
+;  so these are built up a group at a time rather than written as one run-on.
+
+;  Byte and mask for each flag that something outside the options bank tests.
+OPTFB_NOSHUFFLE = OPT_FLAGS+0
+OPTFM_NOSHUFFLE = $08
+
 PRESET_VANILLA  = 0
 PRESET_IMPROVED = 1
 PRESET_DELUXE   = 2
