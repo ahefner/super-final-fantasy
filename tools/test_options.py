@@ -234,17 +234,35 @@ OPTF_NOSHUFFLE = 0x08
 STR_BUF = 0x0300
 
 
+EXPLODE_COUNT, BTL_RESPONDDELAY = 0x6D18, 0x6BAC
+
+
+def test_battlespeed():
+    """The two setters take the vanilla value in A and either keep it or
+    substitute the fast one."""
+    for name, addr, vanilla, fast in (("opt_explodecount", EXPLODE_COUNT, (6, 8, 15), 4),
+                                      ("opt_responddelay", BTL_RESPONDDELAY, (15,), 4)):
+        for v in vanilla:
+            for flag, want in ((0, v), (OPTF_SPEEDHACKS, fast)):
+                bus, cpu = machine()
+                setblk(bus, OPT_FLAGS, flag)
+                cpu.a = v
+                call(cpu, name, dbr=CHUNK_OPT_BANK)
+                got = bus.sram[addr - 0x6000] if addr >= 0x6000 else bus.wram[addr]
+                check("%s in=%d speedhacks=%d" % (name, v, flag), got, want)
+
+
 def test_noshuffle():
     #  ChkAliveX/Y report the real value when the flag is clear, and "alive"
     #  when it is set -- which is what lets the lineup menu allow the swap.
-    for name, reg in (("ChkAliveX", "x"), ("ChkAliveY", "y")):
+    for name, reg in (("opt_chkalivex", "x"), ("opt_chkalivey", "y")):
         for flag, stored, want in ((0, 0x11, 0x11), (0, 0, 0),
                                    (OPTF_NOSHUFFLE, 0x11, 0)):
             bus, cpu = machine()
             setblk(bus, OPT_FLAGS, flag)
             bus.wram[STR_BUF + 3] = stored
             setattr(cpu, reg, 3)
-            call(cpu, name, bank=0xA7)
+            call(cpu, name, dbr=CHUNK_OPT_BANK)
             check("%s flag=%d stored=$%02X" % (name, flag, stored), cpu.a & 0xFF, want)
             check("%s sets Z for the branch" % name,
                   bool(cpu.p & 0x02), want == 0)
@@ -321,7 +339,8 @@ def test_guillotine():
 
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine):
+              test_noshuffle, test_derive, test_guillotine,
+              test_battlespeed):
         try:
             t()
         except Exception as e:

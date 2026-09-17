@@ -1,0 +1,6 @@
+--- OLD
+    LDA #$06                ; set the number of explosions for this enemy
+    STA explode_count
+--- NEW
+    LDA #$06                ; set the number of explosions for this enemy
+    JSR SetExplodeCount     ;  ...which Speed Hacks cuts to 4

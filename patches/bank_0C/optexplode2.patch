@@ -1,0 +1,6 @@
+--- OLD
+    LDA #$08
+    STA explode_count
+--- NEW
+    LDA #$08
+    JSR SetExplodeCount

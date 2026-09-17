@@ -40,6 +40,7 @@
 ;  Reached by tools/test_options.py, which runs them under a 65816
 ;  interpreter and asserts on what comes back.
 .export opt_loadpreset, opt_sum, lut_Presets, opt_derive
+.export opt_explodecount, opt_responddelay, opt_chkalivex, opt_chkalivey
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -558,4 +559,66 @@ opt_titleleftright:
     JSR opt_commit_body
   @out:
     PLB
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Helpers for hooks in banks that have no room
+;;
+;;  Each of these is reached through a five-byte trampoline in the fixed bank
+;;  -- a JSL here and an RTS -- because the call sites are in banks with no
+;;  free bytes and can only afford a three-byte JSR.  The trampoline is what
+;;  has to be in the fixed bank; the thinking does not, and the fixed bank is
+;;  stamped into every chunk, so it is the one budget that never recovers.
+;;
+;;  Routines that finish by jumping back into a swappable bank cannot live
+;;  here, because a JSL leaves the program bank pointing at this one.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  In: A = the count this formation would normally use.
+opt_explodecount:
+    PHA
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BEQ :+
+      PLA
+      LDA #EXPLODE_FAST
+      STA explode_count
+      RTL
+:   PLA
+    STA explode_count
+    RTL
+
+;;  In: A = the delay in frames the game would normally wait.
+opt_responddelay:
+    PHA
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BEQ :+
+      PLA
+      LDA #RUNDELAY_FAST
+      STA btl_responddelay
+      RTL
+:   PLA
+    STA btl_responddelay
+    RTL
+
+;;  The lineup menu's "is the character in this slot alive?" reads.  Reporting
+;;  zero means alive, which is what lets No Party Shuffle allow the swap.  Both
+;;  leave Z set from the value, because the call site branches on it.
+opt_chkalivex:
+    LDA OPTFB_NOSHUFFLE
+    AND #OPTFM_NOSHUFFLE
+    BNE :+
+      LDA str_buf, X
+      RTL
+:   LDA #$00
+    RTL
+
+opt_chkalivey:
+    LDA OPTFB_NOSHUFFLE
+    AND #OPTFM_NOSHUFFLE
+    BNE :+
+      LDA str_buf, Y
+      RTL
+:   LDA #$00
     RTL

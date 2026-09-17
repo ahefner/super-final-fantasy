@@ -196,6 +196,13 @@ DLG_CLOSE_FAST  = 11
 BTLTRANS_SLOW   = $41
 BTLTRANS_FAST   = $11
 
+;  Explosions per enemy, and the delay after running.  These live in banks
+;  $0B and $0C, which have no free bytes, so the sites pass the vanilla value
+;  in A and a stand-in in the fixed bank decides -- which keeps every call
+;  site exactly the size of the "LDA #n / STA x" pair it replaces.
+EXPLODE_FAST    = 4
+RUNDELAY_FAST   = 4
+
 OPTFB_SPEEDHACKS = OPT_FLAGS+0
 OPTFM_SPEEDHACKS = $01
 

@@ -1,0 +1,11 @@
+--- OLD
+UpdateSprites_TwoFrames:
+    JSR UpdateSprites_BattleFrame
+    JMP BattleFrame
+--- NEW
+.import SetExplodeCount, CondExtraBattleFrame
+.export BattleFrame
+
+UpdateSprites_TwoFrames:
+    JSR UpdateSprites_BattleFrame
+    JMP CondExtraBattleFrame    ; the second frame, unless Speed Hacks is on

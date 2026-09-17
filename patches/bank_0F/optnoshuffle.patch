@@ -5,24 +5,20 @@ DrawPalette:
 --- NEW
 .export CondReSortParty, ChkAliveX, ChkAliveY
 .import ReSortPartyByAilment
+.import opt_chkalivex, opt_chkalivey
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 ;;  No Party Shuffle
 ;;
-;;    Three hooks, all of them sited here rather than in the banks they are
-;;  called from.  Bank $0C has no free bytes at all and bank $0E has forty, so
-;;  the call sites stay exactly the size of what they replace and the thinking
-;;  happens up here, where the fixed bank has room.
+;;    Three hooks for banks $0C and $0E, which have no room between them.  The
+;;  call sites keep the size of what they replace, so the decision happens
+;;  here.  Two of the three are only trampolines: the fixed bank is stamped
+;;  into every chunk, so a byte spent here is spent thirty times over and
+;;  never comes back, while the options bank has thousands going spare.
 ;;
-;;    CondReSortParty stands in for the JSR at the top of ExitBattle that
-;;  rearranges the party to put the dead and the stoned at the back.
-;;
-;;    ChkAliveX and ChkAliveY stand in for the two loads in the lineup menu
-;;  that decide whether a swap would leave a dead character in the lead slot.
-;;  Reporting zero means "alive", which is what lets the swap through.  Both
-;;  set Z from the value they return, because the branch that follows the call
-;;  site is reading it.
+;;    CondReSortParty has to stay, because it finishes by jumping into bank
+;;  $0C and a JSL would leave the program bank pointing at the options bank.
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -34,23 +30,12 @@ CondReSortParty:
 :   RTS
 
 ChkAliveX:
-    LDA OPTFB_NOSHUFFLE
-    AND #OPTFM_NOSHUFFLE
-    BNE :+
-      LDA str_buf, X
-      RTS
-:   LDA #$00              ; "alive", so the lineup menu allows the swap
+    JSL opt_chkalivex + OPTFAR
     RTS
 
 ChkAliveY:
-    LDA OPTFB_NOSHUFFLE
-    AND #OPTFM_NOSHUFFLE
-    BNE :+
-      LDA str_buf, Y
-      RTS
-:   LDA #$00
+    JSL opt_chkalivey + OPTFAR
     RTS
-
 
 
 DrawPalette:

@@ -1,0 +1,43 @@
+--- OLD
+DrawCursor:
+--- NEW
+.export SetExplodeCount, SetRespondDelay, CondExtraBattleFrame
+.import BattleFrame
+.import opt_explodecount, opt_responddelay
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Speed Hacks, battle side
+;;
+;;    Trampolines for banks $0B and $0C, which between them have no free bytes
+;;  at all.  Each call site keeps the size of what it replaced: the setters
+;;  take the vanilla value in A, so "LDA #n / STA x" becomes "LDA #n / JSR
+;;  helper", and the frame one replaces a JMP with a JMP.
+;;
+;;    Only CondExtraBattleFrame does its own work, because it finishes by
+;;  jumping back into bank $0C and a JSL would have left the program bank
+;;  pointing at the options bank.  The other two are five bytes each.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+SetExplodeCount:
+    JSL opt_explodecount + OPTFAR
+    RTS
+
+SetRespondDelay:
+    JSL opt_responddelay + OPTFAR
+    RTS
+
+;;  UpdateSprites_TwoFrames runs a battle frame and then one more, to slow the
+;;  animation down.  Speed Hacks drops the second.  Reached by JMP, so falling
+;;  through to RTS returns to whoever called UpdateSprites_TwoFrames, exactly
+;;  as the JMP it replaces did.
+CondExtraBattleFrame:
+    LDA OPTFB_SPEEDHACKS
+    AND #OPTFM_SPEEDHACKS
+    BNE :+
+      JMP BattleFrame
+:   RTS
+
+
+DrawCursor:

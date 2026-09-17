@@ -1,0 +1,6 @@
+--- OLD
+    LDA #$0F                    ; way more explosions for small enemies in the mix formation than in the 9small formation
+    STA explode_count           ;  is this BUGGED?
+--- NEW
+    LDA #$0F                    ; way more explosions for small enemies in the mix formation than in the 9small formation
+    JSR SetExplodeCount         ;  is this BUGGED?  Speed Hacks cuts it to 4

@@ -1,0 +1,9 @@
+--- OLD
+      LDA #15
+      STA btl_responddelay      ; change respond delay to 15 (battle is over, so respond rate doesn't matter anymore)
+--- NEW
+.import SetRespondDelay
+
+      LDA #15                   ; ...or 4, if Speed Hacks is on.  Same five
+      JSR SetRespondDelay       ;   bytes as the store it replaces; this bank
+                                ;   has none to spare.
