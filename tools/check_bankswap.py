@@ -13,6 +13,23 @@ So: for every routine the options bank JSRs into, walk the fixed bank's source
 from that label and report any that reach SwapPRG, directly or through another
 call.  A reported routine is not necessarily a bug -- it is a call that must
 set cur_bank first, and the report says which ones do.
+
+The walk has to follow fallthrough as well as JSR and JMP.  Disch's code ends
+a routine by running off the end of it into the next one all over the place:
+
+    Battle_UpdatePPU_UpdateAudio_FixedBank:
+        ...
+      ; JMP BattleUpdateAudio_FixedBank  ; <- flow continues to this routine
+
+    BattleUpdateAudio_FixedBank:
+        ...
+        JSR CallMusicPlay
+
+There is no call to follow, so an earlier version of this script walked the
+first routine, found nothing, and pronounced it safe -- while that very call
+was freezing battles on entry.  A routine whose last instruction is not a
+return or an unconditional jump continues into the label below it, and is
+treated here as calling it.
 """
 import os, re, sys
 
@@ -24,17 +41,42 @@ OPT = [os.path.join(ROOT, "src", "optbank.asm"),
 SWAPPERS = ("SwapPRG", "CallMusicPlay", "MusicPlay_L")
 
 
+#  Instructions after which control does not continue to the next line.
+TERMINATORS = re.compile(r"\b(RTS|RTL|RTI|JMP|BRA|BRL)\b", re.I)
+
+
 def fixed_bodies():
-    """label -> the source lines of its routine, up to the next label."""
+    """label -> (source lines of its routine, the label it falls through to)."""
     lines = open(FIXED, encoding="latin-1").read().split("\n")
-    out, cur = {}, None
+    bodies, order, cur = {}, [], None
     for l in lines:
         m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):", l)
         if m:
             cur = m.group(1)
-            out[cur] = []
+            bodies[cur] = []
+            order.append(cur)
+            #  a label may carry code on the same line
+            rest = l[m.end():].split(";")[0].strip()
+            if rest:
+                bodies[cur].append(rest)
         elif cur:
-            out[cur].append(l)
+            bodies[cur].append(l)
+
+    out = {}
+    for i, label in enumerate(order):
+        body = bodies[label]
+        last = None
+        for l in reversed(body):
+            code = l.split(";")[0].strip()
+            if code and not code.startswith("."):
+                last = code
+                break
+        falls = None
+        if last is None or not TERMINATORS.search(last):
+            #  runs off the end into whatever is defined next
+            if i + 1 < len(order):
+                falls = order[i + 1]
+        out[label] = (body, falls)
     return out
 
 
@@ -42,10 +84,11 @@ def reaches_swap(label, bodies, seen=None, depth=0):
     """Does this routine reach a bank swap, directly or a few calls down?"""
     if seen is None:
         seen = set()
-    if label in seen or depth > 3 or label not in bodies:
+    if label in seen or depth > 6 or label not in bodies:
         return None
     seen.add(label)
-    for l in bodies[label]:
+    body, falls = bodies[label]
+    for l in body:
         code = l.split(";")[0]
         for s in SWAPPERS:
             if s in code:
@@ -55,6 +98,8 @@ def reaches_swap(label, bodies, seen=None, depth=0):
             hit = reaches_swap(m.group(1), bodies, seen, depth + 1)
             if hit:
                 return hit
+    if falls:                      # runs off the end into the next routine
+        return reaches_swap(falls, bodies, seen, depth + 1)
     return None
 
 
