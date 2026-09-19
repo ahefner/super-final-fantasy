@@ -1101,13 +1101,142 @@ def test_buyqty():
                   bus.sram[ITEMS - 0x6000 + 0x19], (held + qty) & 0xFF)
 
 
+from fractions import Fraction
+OPT_ENEMY, OPT_BOSS = 10, 11
+OPT_STATV, OPT_STATNUM, OPT_STATSH, OPT_STATOVF = 0x32, 0x34, 0x35, 0x3E
+ADJ = {"1.00": (lambda n: (n, 2)), "0.50": (lambda n: (n + 4, 3)),
+       "0.25": (lambda n: (n + 12, 4))}
+
+
+def ffr_scale(value, n, adj):
+    """FFR's RangeScale with a single percentage, as an exact rational.
+
+    RangeScale's random exponent drops out when low == high, leaving
+    value * (1 + (p-1)*adj) with p = n/4.  C# rounds a double half to even.
+    """
+    p = Fraction(n, 4)
+    scale = 1 + (p - 1) * Fraction(adj).limit_denominator()
+    return round(value * scale)          # Python rounds half to even too
+
+
+def test_statscale():
+    """The scaling arithmetic, against FFR's formula."""
+    for adjname, mk in ADJ.items():
+        for n in range(1, 21):
+            num, sh = mk(n)
+            for value in (0, 1, 2, 3, 7, 10, 99, 100, 255, 1000, 32767):
+                bus, cpu = machine()
+                setblk(bus, OPT_STATV, value & 0xFF)
+                setblk(bus, OPT_STATV + 1, value >> 8)
+                setblk(bus, OPT_STATNUM, num)
+                setblk(bus, OPT_STATSH, sh)
+                cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
+                got = (blk(bus, OPT_STATV) | (blk(bus, OPT_STATV + 1) << 8)
+                       | (blk(bus, OPT_STATOVF) << 16))
+                want = ffr_scale(value, n, adjname)
+                check("scale %s n=%d of %d" % (adjname, n, value), got, want)
+
+    #  100% must be the identity, which is FFR's early return
+    for adjname, mk in ADJ.items():
+        num, sh = mk(4)
+        for value in (1, 7, 99, 255, 1000, 32767):
+            bus, cpu = machine()
+            setblk(bus, OPT_STATV, value & 0xFF)
+            setblk(bus, OPT_STATV + 1, value >> 8)
+            setblk(bus, OPT_STATNUM, num)
+            setblk(bus, OPT_STATSH, sh)
+            cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
+            check("100%% %s leaves %d alone" % (adjname, value),
+                  blk(bus, OPT_STATV) | (blk(bus, OPT_STATV + 1) << 8), value)
+
+
+BOSSES = {15, 105, 113} | set(range(118, 128))
+
+
+def test_isboss():
+    """FFR's boss list, and nothing else."""
+    wrong = []
+    for eid in range(128):
+        bus, cpu = machine()
+        cpu.a = eid
+        cpu.run(CHUNK_OPT_BANK, SYM["opt_isboss"])
+        if bool(cpu.p & 0x01) != (eid in BOSSES):
+            wrong.append(eid)
+    check("boss list matches FFR", wrong, [])
+
+
+BTL_ENEMYSTATS = 0x6BD3        # $14 bytes each, nine of them
+EN_HP, EN_DEF, EN_EVADE, EN_STR, EN_ID = 0x02, 0x04, 0x0A, 0x0B, 0x11
+
+
+def test_scaleenemies():
+    """The pass over the battle's copy of the enemy stats.
+
+    This is where a wrong field offset would hide: the arithmetic is already
+    checked against FFR's formula, so what is left is whether each stat gets
+    the adjustment FFR gives it, whether bosses take the other setting, and
+    whether the clamps hold.
+    """
+    def setup(enemy_step, boss_step, slots):
+        bus, cpu = machine()
+        setblk(bus, OPT_ENEMY, enemy_step)
+        setblk(bus, OPT_BOSS, boss_step)
+        for i in range(9):
+            bus.sram[ENEMY_IDS - 0x6000 + i] = 0xFF
+        for slot, (eid, hp, dfn, ev, st) in slots.items():
+            bus.sram[ENEMY_IDS - 0x6000 + slot] = eid
+            b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
+            bus.sram[b + EN_ID] = eid
+            bus.sram[b + EN_HP] = hp & 0xFF
+            bus.sram[b + EN_HP + 1] = hp >> 8
+            bus.sram[b + EN_DEF] = dfn
+            bus.sram[b + EN_EVADE] = ev
+            bus.sram[b + EN_STR] = st
+        return bus, cpu
+
+    def read(bus, slot):
+        b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
+        return (bus.sram[b + EN_HP] | (bus.sram[b + EN_HP + 1] << 8),
+                bus.sram[b + EN_DEF], bus.sram[b + EN_EVADE], bus.sram[b + EN_STR])
+
+    #  slot 0 an ordinary enemy, slot 3 a boss (Lich), slot 8 empty
+    slots = {0: (0x20, 500, 40, 60, 30), 3: (119, 1200, 80, 100, 90)}
+    for estep, bstep in ((3, 3), (7, 3), (3, 7), (0, 19), (19, 0)):
+        bus, cpu = setup(estep, bstep, slots)
+        call(cpu, "opt_scaleenemies", dbr=BANK_0C)
+        for slot, (eid, hp, dfn, ev, st) in slots.items():
+            n = (bstep if eid in BOSSES else estep) + 1
+            want = (min(ffr_scale(hp, n, "1.00"), 0x7FFF),
+                    min(ffr_scale(dfn, n, "0.50"), 0xFF),
+                    min(ffr_scale(ev, n, "1.00"), 0xF0),
+                    min(ffr_scale(st, n, "0.25"), 0xFF))
+            check("slot %d, enemy=%d boss=%d" % (slot, estep, bstep),
+                  read(bus, slot), want)
+
+    #  an empty slot must be left exactly alone
+    bus, cpu = setup(19, 19, slots)
+    b = BTL_ENEMYSTATS - 0x6000 + 8 * 0x14
+    for i in range(0x14):
+        bus.sram[b + i] = 0x5A
+    call(cpu, "opt_scaleenemies", dbr=BANK_0C)
+    check("empty slots untouched",
+          list(bus.sram[b:b + 0x14]), [0x5A] * 0x14)
+
+    #  and 100% on both settings must change nothing at all
+    bus, cpu = setup(3, 3, slots)
+    before = {s: read(bus, s) for s in slots}
+    call(cpu, "opt_scaleenemies", dbr=BANK_0C)
+    check("100%% is a no-op", {s: read(bus, s) for s in slots}, before)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
-              test_fardata, test_repeatpotion, test_buyqty):
+              test_fardata, test_repeatpotion, test_buyqty,
+              test_statscale, test_isboss, test_scaleenemies):
         try:
             t()
         except Exception as e:

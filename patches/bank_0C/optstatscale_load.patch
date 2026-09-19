@@ -1,0 +1,8 @@
+--- OLD
+    JSR LoadEnemyStats              ; this is all pretty self explanitory
+--- NEW
+.export LoadEnemyStats
+.import OptLoadEnemyStats
+
+    JSR OptLoadEnemyStats           ; this is all pretty self explanitory
+                                    ;   -- plus Enemy/Boss Stats scaling

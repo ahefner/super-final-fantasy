@@ -1,0 +1,11 @@
+--- OLD
+    LDY #ENROMSTAT_CRITRATE     ; crit rate from ROM
+    LDA ($86), Y
+    STA btl_attacker_critrate
+--- NEW
+.import OptScaleEnemyAttack
+
+    LDY #ENROMSTAT_CRITRATE     ; crit rate from ROM
+    LDA ($86), Y
+    JSR OptScaleEnemyAttack     ; stores it, then scales the three stats the
+                                ;   battle takes from ROM rather than its copy

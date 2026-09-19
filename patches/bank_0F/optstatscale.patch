@@ -1,0 +1,30 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptLoadEnemyStats, OptScaleEnemyAttack
+.import LoadEnemyStats, opt_scaleenemies, opt_scaleatk
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Enemy and boss stat scaling
+;;
+;;    Both call sites are in bank $0C, which is exactly full, so both are
+;;  three bytes there and the trampolines are here.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptLoadEnemyStats:
+    JSR LoadEnemyStats
+    JSL opt_scaleenemies + OPTFAR
+    RTS
+
+;  A holds the crit rate the caller was about to store.
+OptScaleEnemyAttack:
+    STA btl_attacker_critrate
+    JSL opt_scaleatk + OPTFAR
+    RTS
+
+
+DrawPalette:

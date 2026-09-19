@@ -284,6 +284,29 @@ OPTSHOPTY       = OPTBLOCK+$2E
 OPTSHOPQX       = OPTBLOCK+$2F  ; the count, in the command box
 OPTSHOPQY       = OPTBLOCK+$30
 
+;  Enemy/boss stat scaling.  FFR's RangeScale, with one percentage rather than
+;  a range, reduces to  value * (1 + (p-1)*adj)  -- the random exponent drops
+;  out when low and high are equal.  Our steps are 25% apart, so p = n/4 and
+;  every scale is an exact fraction:
+;
+;      adjustment 1.00 (HP, evade, hit%)          n / 4
+;      adjustment 0.50 (absorb, hits, crit%)    (n+4) / 8
+;      adjustment 0.25 (damage)                (n+12) / 16
+;
+;  n is the step index plus one, so STAT_100 (3) gives n=4 and every fraction
+;  is 1 -- which is FFR's "100% changes nothing" early exit, for free.
+OPTSTATV        = OPTBLOCK+$32  ; 2 bytes: the value being scaled
+OPTSTATNUM      = OPTBLOCK+$34  ; numerator
+OPTSTATSH       = OPTBLOCK+$35  ; log2 of the denominator
+OPTSTATACC      = OPTBLOCK+$36  ; 3 bytes of accumulator
+OPTSTATN        = OPTBLOCK+$39  ; n for whichever of the two settings applies
+OPTSTATSLOT     = OPTBLOCK+$3A  ; which enemy slot the scaling loop is on
+OPTSTATREM      = OPTBLOCK+$3B  ; remainder, for rounding half to even
+OPTSTATHALF     = OPTBLOCK+$3C
+OPTSTATMASK     = OPTBLOCK+$3D
+OPTSTATOVF      = OPTBLOCK+$3E  ; bits 16-23 of the product: HP can
+                                ;   exceed 16 bits before it is clamped
+
 ;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
 ;  writes it as a bare address; it is named here because the option code needs
 ;  it too and a second bare $6AF8 would be unsearchable.

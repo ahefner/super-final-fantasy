@@ -46,6 +46,8 @@
 .export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
 .export opt_runlabel, opt_runiswait, opt_scalereward, opt_usedpotion
 .export opt_shopmax, opt_shopscale
+.export opt_scaleenemies, opt_scaleatk
+.export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1353,5 +1355,286 @@ opt_shopscale:
     STA shop_curprice+1
     DEY
     BNE @add
+  @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Enemy and boss stat scaling
+;;
+;;  FFR scales the enemy table in the ROM when it builds a seed.  A runtime
+;;  flag cannot, so this scales the copy the battle makes -- and, for the three
+;;  stats the battle reads straight out of ROM rather than that copy, the
+;;  values after they are loaded.  Same stats, same factors, same clamps.
+;;
+;;  Which stats, and with which of FFR's adjustment factors:
+;;
+;;      HP        1.00      absorb   0.50      damage   0.25
+;;      evade     1.00      hits     0.50      crit%    0.50
+;;      hit%      1.00
+;;
+;;  Morale is not scaled: FFR only touches it when IncludeMorale is set, and
+;;  that flag defaults off.  Evade is clamped to $F0, which is FFR's default
+;;  EvadeCap of "medium".  Neither has a control of its own here.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+BOSS_PIRATE  = 15
+BOSS_GARLAND = 105
+BOSS_ASTOS   = 113
+BOSS_FIRST   = 118             ; WarMech through Chaos are contiguous
+
+;  Carry set if the enemy id in A is one FFR counts as a boss.
+opt_isboss:
+    CMP #BOSS_FIRST
+    BCS @yes
+    CMP #BOSS_PIRATE
+    BEQ @yes
+    CMP #BOSS_GARLAND
+    BEQ @yes
+    CMP #BOSS_ASTOS
+    BEQ @yes
+    CLC
+    RTS
+  @yes:
+    SEC
+    RTS
+
+;  A = enemy id.  Picks the setting that applies and leaves n in OPTSTATN.
+opt_statn:
+    JSR opt_isboss
+    LDA OPT_ENEMY
+    BCC @got
+    LDA OPT_BOSS
+  @got:
+    CLC
+    ADC #$01                    ; step 3 is 100%, so n = step + 1
+    STA OPTSTATN
+    RTS
+
+;  OPTSTATV *= OPTSTATNUM / (1 << OPTSTATSH), rounded to nearest.
+opt_statmul:
+    LDA #$00
+    STA OPTSTATACC
+    STA OPTSTATACC+1
+    STA OPTSTATACC+2
+    LDY OPTSTATNUM
+    BEQ @round
+  @add:
+    CLC
+    LDA OPTSTATACC
+    ADC OPTSTATV
+    STA OPTSTATACC
+    LDA OPTSTATACC+1
+    ADC OPTSTATV+1
+    STA OPTSTATACC+1
+    LDA OPTSTATACC+2
+    ADC #$00
+    STA OPTSTATACC+2
+    DEY
+    BNE @add
+  @round:
+    ;  C# rounds a double half to even, and Math.Round's default is what FFR
+    ;  gets, so halves go to the even neighbour rather than always up.
+    LDA #$01                    ; den = 1 << shift
+    LDY OPTSTATSH
+  @den:
+    ASL A
+    DEY
+    BNE @den
+    STA OPTSTATMASK
+    LSR A
+    STA OPTSTATHALF
+    DEC OPTSTATMASK             ; mask = den - 1
+
+    LDA OPTSTATACC
+    AND OPTSTATMASK
+    STA OPTSTATREM              ; what the shift is about to throw away
+
+    LDY OPTSTATSH
+  @shift:
+    LSR OPTSTATACC+2
+    ROR OPTSTATACC+1
+    ROR OPTSTATACC
+    DEY
+    BNE @shift
+
+    LDA OPTSTATREM
+    CMP OPTSTATHALF
+    BCC @keep                   ; below half: down
+    BNE @bump                   ; above half: up
+    LDA OPTSTATACC
+    AND #$01
+    BEQ @keep                   ; exactly half: only bump an odd result
+  @bump:
+    INC OPTSTATACC
+    BNE @keep
+    INC OPTSTATACC+1
+  @keep:
+    LDA OPTSTATACC
+    STA OPTSTATV
+    LDA OPTSTATACC+1
+    STA OPTSTATV+1
+    LDA OPTSTATACC+2            ; FFR scales into an int and clamps after, so
+    STA OPTSTATOVF              ;   the callers need what did not fit
+    RTS
+
+;  Set up OPTSTATNUM/OPTSTATSH for each of FFR's three adjustments.
+opt_adj100:
+    LDA OPTSTATN                ; n / 4
+    STA OPTSTATNUM
+    LDA #$02
+    STA OPTSTATSH
+    RTS
+opt_adj50:
+    LDA OPTSTATN                ; (n + 4) / 8
+    CLC
+    ADC #$04
+    STA OPTSTATNUM
+    LDA #$03
+    STA OPTSTATSH
+    RTS
+opt_adj25:
+    LDA OPTSTATN                ; (n + 12) / 16
+    CLC
+    ADC #$0C
+    STA OPTSTATNUM
+    LDA #$04
+    STA OPTSTATSH
+    RTS
+
+;  Scale one byte through the adjustment already set up, clamping at A's
+;  value on entry to @clamp.  In: OPTSTATV low byte.  Out: A.
+opt_statbyte:
+    LDA #$00
+    STA OPTSTATV+1
+    JSR opt_statmul
+    LDA OPTSTATV+1              ; anything above the low byte is over 255
+    ORA OPTSTATOVF
+    BEQ @fits
+    LDA #$FF
+    RTS
+  @fits:
+    LDA OPTSTATV
+    RTS
+
+;  Nothing to do when both settings are 100%: that is FFR's early return, and
+;  every fraction above would be 1 anyway.
+opt_statoff:
+    LDA OPT_ENEMY
+    CMP #STAT_100
+    BNE @on
+    LDA OPT_BOSS
+    CMP #STAT_100
+    BNE @on
+    SEC
+    RTS
+  @on:
+    CLC
+    RTS
+
+;  The four stats the battle keeps in its RAM copy, scaled once per battle.
+opt_scaleenemies:
+    JSR opt_statoff
+    BCC @go
+    RTL                         ; the loop below is too long to branch over
+  @go:
+    LDA #$00
+    STA OPTSTATSLOT
+    LDX #$00                    ; X walks the records, $14 bytes each
+  @slot:
+    LDY OPTSTATSLOT
+    LDA btl_enemyIDs, Y
+    CMP #$FF
+    BNE @live
+    JMP @next                   ; empty slot; too far to branch
+  @live:
+    LDA btl_enemystats + en_enemyid, X
+    JSR opt_statn
+
+    LDA btl_enemystats + en_hp, X       ; HP, adjustment 1.00, capped $7FFF
+    STA OPTSTATV
+    LDA btl_enemystats + en_hp + 1, X
+    STA OPTSTATV+1
+    JSR opt_adj100
+    JSR opt_statmul
+    LDA OPTSTATOVF              ; past 16 bits, or past $7FFF: peg it
+    BNE @hpcap
+    LDA OPTSTATV+1
+    CMP #$80
+    BCC @hpok
+  @hpcap:
+    LDA #$FF
+    STA OPTSTATV
+    LDA #$7F
+    STA OPTSTATV+1
+  @hpok:
+    LDA OPTSTATV
+    STA btl_enemystats + en_hp, X
+    LDA OPTSTATV+1
+    STA btl_enemystats + en_hp + 1, X
+
+    LDA btl_enemystats + en_defense, X  ; absorb, adjustment 0.50
+    STA OPTSTATV
+    JSR opt_adj50
+    JSR opt_statbyte
+    STA btl_enemystats + en_defense, X
+
+    LDA btl_enemystats + en_evade, X    ; evade, 1.00, capped at FFR's
+    STA OPTSTATV                        ;   default EvadeCap of "medium"
+    JSR opt_adj100
+    JSR opt_statbyte
+    CMP #$F0
+    BCC @evok
+    LDA #$F0
+  @evok:
+    STA btl_enemystats + en_evade, X
+
+    LDA btl_enemystats + en_strength, X ; damage, adjustment 0.25
+    STA OPTSTATV
+    JSR opt_adj25
+    JSR opt_statbyte
+    STA btl_enemystats + en_strength, X
+
+  @next:
+    TXA
+    CLC
+    ADC #$14
+    TAX
+    INC OPTSTATSLOT
+    LDA OPTSTATSLOT
+    CMP #$09
+    BEQ @done
+    JMP @slot
+  @done:
+    RTL
+
+;  The three the battle reads straight out of ROM each time an enemy attacks,
+;  scaled after they are loaded.  $84 still points at that enemy's RAM stats.
+opt_scaleatk:
+    JSR opt_statoff
+    BCS @out
+    LDY #en_enemyid
+    LDA ($84), Y
+    JSR opt_statn
+
+    LDA btl_attacker_hitrate            ; hit%, adjustment 1.00
+    STA OPTSTATV
+    JSR opt_adj100
+    JSR opt_statbyte
+    STA btl_attacker_hitrate
+
+    LDA btl_attacker_numhits            ; hits, adjustment 0.50, floored at 1
+    STA OPTSTATV
+    JSR opt_adj50
+    JSR opt_statbyte
+    BNE @hitsok
+    LDA #$01
+  @hitsok:
+    STA btl_attacker_numhits
+
+    LDA btl_attacker_critrate           ; crit%, adjustment 0.50
+    STA OPTSTATV
+    JSR opt_adj50
+    JSR opt_statbyte
+    STA btl_attacker_critrate
   @out:
     RTL
