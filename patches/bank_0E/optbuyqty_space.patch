@@ -1,0 +1,14 @@
+--- OLD
+  @CheckForSpace:
+    LDX shop_curitem            ; get the item ID in X
+    LDA items, X                ; use it to get the qty of this item that the player has
+    CMP #99                     ; do they have less than 99 of this item?
+    BCC @CompletePurchase       ; if yes, jump ahead to complete the purchase.  Otherwise...
+--- NEW
+.import OptShopHasRoom
+
+  @CheckForSpace:
+    LDX shop_curitem            ; get the item ID in X
+    JSR OptShopHasRoom          ; room for the whole order under 99?
+    BCC @CompletePurchase       ; if yes, jump ahead to complete the purchase.  Otherwise...
+    .res 2, $EA

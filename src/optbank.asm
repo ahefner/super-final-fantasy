@@ -45,6 +45,7 @@
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
 .export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
 .export opt_runlabel, opt_runiswait, opt_scalereward, opt_usedpotion
+.export opt_shopmax, opt_shopscale
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1292,4 +1293,65 @@ opt_usedpotion:
     RTL
   @no:
     CLC
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Buy Quantity: the arithmetic
+;;
+;;  shop_curprice is two bytes and both Shop_CanAfford and ShopPayPrice treat
+;;  it as sixteen bits, so a total has to fit there.  Rather than widen those
+;;  -- they are shared with every other shop -- the quantity is capped so the
+;;  total cannot overflow.  FFR instead carries a three-byte price and pegs it
+;;  at $FFFFFF, which makes an over-large order simply unaffordable; capping
+;;  lets the player still buy as many as the money could ever cover, and never
+;;  undercharges.
+;;
+;;  For potions, which is what anyone wants this for, the cap is 99 anyway.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  In: OPTSHOPUNIT.  Out: OPTSHOPMAX, the largest 1..99 whose total fits.
+opt_shopmax:
+    LDA #$01
+    STA OPTSHOPMAX
+    LDA OPTSHOPUNIT
+    STA OPTSCRATCH
+    LDA OPTSHOPUNIT+1
+    STA OPTSCRATCH+1
+  @try:
+    LDA OPTSHOPMAX
+    CMP #99
+    BCS @done
+    CLC
+    LDA OPTSCRATCH
+    ADC OPTSHOPUNIT
+    TAX
+    LDA OPTSCRATCH+1
+    ADC OPTSHOPUNIT+1
+    BCS @done                   ; one more would pass $FFFF
+    STA OPTSCRATCH+1
+    STX OPTSCRATCH
+    INC OPTSHOPMAX
+    BNE @try                    ; always: OPTSHOPMAX stops at 99
+  @done:
+    RTL
+
+;  shop_curprice = OPTSHOPUNIT * OPTSHOPQTY.  Cannot overflow: the quantity
+;  was held to OPTSHOPMAX while it was being chosen.
+opt_shopscale:
+    LDA #$00
+    STA shop_curprice
+    STA shop_curprice+1
+    LDY OPTSHOPQTY
+    BEQ @out
+  @add:
+    CLC
+    LDA shop_curprice
+    ADC OPTSHOPUNIT
+    STA shop_curprice
+    LDA shop_curprice+1
+    ADC OPTSHOPUNIT+1
+    STA shop_curprice+1
+    DEY
+    BNE @add
+  @out:
     RTL

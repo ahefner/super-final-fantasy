@@ -1,0 +1,210 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptShopConfirmQty, OptShopHasRoom, OptShopAddItems
+.export OptShopTotalFast, OptShopQtyFast
+.import DrawShopBuyItemConfirm, DrawShopBox, ShopFrameNoCursor
+.import PrintNumber_2Digit, PrintNumber_5Digit, DrawShopComplexString
+.import DrawShopDialogueBox
+.import opt_shopmax, opt_shopscale
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Buy Quantity
+;;
+;;    The loop has to live here rather than in the options bank: everything it
+;;  draws with is in bank $0E, and a routine running in the options chunk sees
+;;  its own bank at $8000, not that one.  The fixed bank is in every chunk, so
+;;  code here runs with whatever bank the caller had -- bank $0E, in a shop.
+;;
+;;    Only the arithmetic went to the options bank, which this reaches by JSL.
+;;
+;;    The confirm box ends up showing the total rather than the item's name.
+;;  That is what FFR does, and it is forced: the price on screen is drawn by
+;;  the complex-string code from the item id, not from shop_curprice, so the
+;;  only way to show a total is to put a number there instead.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Replaces the item shop's "JSR DrawShopBuyItemConfirm".
+;  Out: C set if the player backed out.
+OptShopConfirmQty:
+    JSR DrawShopBuyItemConfirm  ; sets shop_curitem and shop_curprice, and
+                                ;   draws the item and its unit price
+    LDA #$01
+    STA OPTSHOPQTY              ; one, unless the flag says otherwise
+    LDA OPTFB_BUYQTY
+    AND #OPTFM_BUYQTY
+    BEQ @one
+    LDA shop_curprice           ; keep the unit price; shop_curprice becomes
+    STA OPTSHOPUNIT             ;   the total below
+    LDA shop_curprice+1
+    STA OPTSHOPUNIT+1
+    JSL opt_shopmax + OPTFAR
+    JSR OptShopQtyLoop          ; leaves shop_curprice holding the total
+    BCS @cancel
+  @one:
+    CLC
+    RTS
+  @cancel:
+    LDA #$01
+    STA OPTSHOPQTY              ; leave nothing behind for the next purchase
+    SEC
+    RTS
+
+;  The picker itself.  Left/right step by one, up/down by ten, as FFR has it.
+OptShopQtyLoop:
+    LDA joy
+    AND #$0F
+    STA OPTSHOPPREV             ; a direction already held must not act at once
+    JSL opt_shopscale + OPTFAR  ; the boxes, once
+    JSR OptShopShowTotal
+    JSR OptShopDrawQty
+    BRA @wait
+  @show:
+    JSL opt_shopscale + OPTFAR  ; and from here only the digits inside them
+    JSR OptShopTotalFast
+    JSR OptShopQtyFast
+  @wait:
+    JSR ShopFrameNoCursor       ; one frame; it keeps the music going and
+    LDA joy_b                   ;   sets cur_bank itself
+    BNE @cancel
+    LDA joy_a
+    BNE @buy
+    LDA joy
+    AND #$0F
+    CMP OPTSHOPPREV
+    BEQ @wait                   ; nothing new pressed
+    STA OPTSHOPPREV
+    CMP #$00                    ; STA sets no flags, and without this the
+    BEQ @wait                   ;   release fell through into "left"
+
+    CMP #$04
+    BEQ @down
+    CMP #$08
+    BEQ @up
+    CMP #$01
+    BEQ @right
+  @left:
+    LDA OPTSHOPQTY
+    SEC
+    SBC #$01
+    BNE @set
+    LDA #$01
+    BNE @set                    ; always
+  @right:
+    LDA OPTSHOPQTY
+    CLC
+    ADC #$01
+    BNE @set                    ; always; @set clamps to OPTSHOPMAX
+  @up:
+    LDA OPTSHOPQTY
+    CLC
+    ADC #10
+    BCC @set
+    LDA #99                     ; wrapped past 255: hand @set something to clamp
+    BNE @set
+  @down:
+    LDA OPTSHOPQTY
+    SEC
+    SBC #10
+    BCC @toone
+    BEQ @toone
+    BNE @set
+  @toone:
+    LDA #$01
+  @set:
+    CMP OPTSHOPMAX              ; never more than the price can carry
+    BCC @store
+    LDA OPTSHOPMAX
+  @store:
+    STA OPTSHOPQTY
+    JMP @show
+  @buy:
+    CLC
+    BRA @done
+  @cancel:
+    SEC
+  @done:
+    LDA #$00
+    STA joy_a                   ; the shop loop reads these next; it must not
+    STA joy_b                   ;   see the press that ended this one
+    RTS
+
+;  The count, in the box the Yes/No prompt normally occupies.
+OptShopDrawQty:
+    LDA #$03
+    JSR DrawShopBox
+    LDA dest_x
+    STA OPTSHOPQX
+    LDA dest_y
+    STA OPTSHOPQY
+    BRA OptShopQtyNum
+
+OptShopQtyFast:
+    LDA OPTSHOPQX
+    STA dest_x
+    LDA OPTSHOPQY
+    STA dest_y
+OptShopQtyNum:
+    LDA OPTSHOPQTY
+    STA tmp
+    JSR PrintNumber_2Digit
+    JMP DrawShopComplexString
+
+;  The message box, with the running total in place of the item's name.  The
+;  dialogue box has to be drawn first: a complex string lands wherever the
+;  last box drawn left the cursor, which is how the total ended up in the
+;  command box the first time.
+;
+;  Drawing a box is expensive -- it writes every tile of it -- and the box
+;  does not change while the player is dialling a quantity, only the number
+;  inside it does.  So the full version runs once and notes where the number
+;  landed, and each change after that redraws five digits.  Both numbers come
+;  out of TrimZeros a fixed width, padded with spaces rather than trimmed
+;  short, so a 9 after a 10 cannot leave the 0 behind.
+OptShopShowTotal:
+    LDA #$0E
+    JSR DrawShopDialogueBox
+    LDA dest_x                  ; where the box left the cursor is where the
+    STA OPTSHOPTX               ;   number goes, now and every time after
+    LDA dest_y
+    STA OPTSHOPTY
+    BRA OptShopTotalNum
+
+OptShopTotalFast:
+    LDA OPTSHOPTX
+    STA dest_x
+    LDA OPTSHOPTY
+    STA dest_y
+OptShopTotalNum:
+    LDA shop_curprice
+    STA tmp
+    LDA shop_curprice+1
+    STA tmp+1
+    LDA #$00
+    STA tmp+2
+    JSR PrintNumber_5Digit
+    JMP DrawShopComplexString
+
+;  In: X = item.  Out: C clear if that many more will fit under 99.
+OptShopHasRoom:
+    LDA items, X
+    CLC
+    ADC OPTSHOPQTY
+    CMP #100
+    RTS                         ; C set means too many, which is what the
+                                ;   caller's BCC already expects
+
+;  In: X = item.  Adds the quantity bought.
+OptShopAddItems:
+    LDA items, X
+    CLC
+    ADC OPTSHOPQTY
+    STA items, X
+    RTS
+
+
+DrawPalette:

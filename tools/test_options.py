@@ -1044,13 +1044,70 @@ def test_repeatpotion():
                       [7, 7])
 
 
+SHOP_CURPRICE = 0x030E
+OPT_SHOPQTY, OPT_SHOPMAX, OPT_SHOPUNIT = 0x28, 0x2A, 0x2B
+OPTF_BUYQTY = 0x00000040
+
+
+def test_buyqty():
+    """The quantity cap, the total, and the inventory arithmetic.
+
+    shop_curprice is sixteen bits and both Shop_CanAfford and ShopPayPrice
+    read it that way, so the cap exists to stop a total wrapping -- which
+    would charge the player almost nothing for a large order.  That is the
+    failure worth pinning: undercharging looks like a gift, not a bug.
+    """
+    for unit in (1, 6, 60, 375, 1500, 5000, 20000, 40000, 65535):
+        bus, cpu = machine()
+        setblk(bus, OPT_SHOPUNIT, unit & 0xFF)
+        setblk(bus, OPT_SHOPUNIT + 1, unit >> 8)
+        call(cpu, "opt_shopmax", dbr=BANK_0C)
+        want = min(99, 65535 // unit)
+        got = blk(bus, OPT_SHOPMAX)
+        check("cap for a %d gold item" % unit, got, want)
+        #  the cap must be honest in both directions: one more must not fit
+        check("cap for %d is the largest that fits" % unit,
+              (got + 1) * unit > 0xFFFF or got == 99, True)
+
+        #  only quantities the cap allows: opt_shopscale is documented not to
+        #  handle more, which is precisely what the cap is for
+        for qty in sorted({1, min(2, got), got}):
+            bus2, cpu2 = machine()
+            setblk(bus2, OPT_SHOPUNIT, unit & 0xFF)
+            setblk(bus2, OPT_SHOPUNIT + 1, unit >> 8)
+            setblk(bus2, OPT_SHOPQTY, qty)
+            call(cpu2, "opt_shopscale", dbr=BANK_0C)
+            total = bus2.wram[SHOP_CURPRICE] | (bus2.wram[SHOP_CURPRICE + 1] << 8)
+            check("%d x %d gold" % (qty, unit), total, unit * qty)
+            check("%d x %d fits in sixteen bits" % (qty, unit), unit * qty <= 0xFFFF, True)
+
+    #  room and the purchase itself
+    for held in (0, 1, 50, 98, 99):
+        for qty in (1, 2, 50):
+            bus, cpu = machine()
+            setblk(bus, OPT_SHOPQTY, qty)
+            bus.sram[ITEMS - 0x6000 + 0x19] = held
+            cpu.x = 0x19
+            call(cpu, "OptShopHasRoom", bank=BANK_0C, dbr=BANK_0C)
+            check("room for %d when holding %d" % (qty, held),
+                  not (cpu.p & 0x01), held + qty <= 99)
+
+            bus, cpu = machine()
+            setblk(bus, OPT_SHOPQTY, qty)
+            bus.sram[ITEMS - 0x6000 + 0x19] = held
+            cpu.x = 0x19
+            call(cpu, "OptShopAddItems", bank=BANK_0C, dbr=BANK_0C)
+            check("buying %d onto %d" % (qty, held),
+                  bus.sram[ITEMS - 0x6000 + 0x19], (held + qty) & 0xFF)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
-              test_fardata, test_repeatpotion):
+              test_fardata, test_repeatpotion, test_buyqty):
         try:
             t()
         except Exception as e:

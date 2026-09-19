@@ -267,6 +267,23 @@ OPTFM_STATUSATK = $04    ; bit 18
 OPTFB_REPEATPOTION = OPT_FLAGS+1
 OPTFM_REPEATPOTION = $08 ; bit 11
 
+OPTFB_BUYQTY    = OPT_FLAGS+0
+OPTFM_BUYQTY    = $40    ; bit 6
+
+;  Buy Quantity's working bytes, in the option block's spare page.  None of
+;  them outlive a single purchase; they are here rather than in zero page
+;  because the shop already uses most of it.
+OPTSHOPQTY      = OPTBLOCK+$28  ; how many the player has dialled up
+OPTSHOPPREV     = OPTBLOCK+$29  ; the d-pad last frame, for edge detection
+OPTSHOPMAX      = OPTBLOCK+$2A  ; most we can charge for without overflowing
+OPTSHOPUNIT     = OPTBLOCK+$2B  ; 2 bytes: the price of one
+;  Where each number goes, so that changing the quantity redraws the digits
+;  and not the boxes around them.
+OPTSHOPTX       = OPTBLOCK+$2D  ; the total, in the message box
+OPTSHOPTY       = OPTBLOCK+$2E
+OPTSHOPQX       = OPTBLOCK+$2F  ; the count, in the command box
+OPTSHOPQY       = OPTBLOCK+$30
+
 ;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
 ;  writes it as a bare address; it is named here because the option code needs
 ;  it too and a second bare $6AF8 would be unsearchable.

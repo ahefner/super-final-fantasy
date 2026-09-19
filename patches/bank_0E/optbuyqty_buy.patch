@@ -1,0 +1,8 @@
+--- OLD
+  @CompletePurchase:
+    INC items, X                ; add one of this item to their inventory
+--- NEW
+.import OptShopAddItems
+
+  @CompletePurchase:
+    JSR OptShopAddItems         ; add the order to their inventory

@@ -1,0 +1,12 @@
+--- OLD
+    JSR DrawShopBuyItemConfirm  ; confirm price dialogue
+    JSR ShopLoop_YesNo          ; give them the yes/no option
+--- NEW
+.export DrawShopBuyItemConfirm, DrawShopBox, ShopFrameNoCursor
+.export DrawShopDialogueBox
+.export PrintNumber_2Digit, PrintNumber_5Digit, DrawShopComplexString
+.import OptShopConfirmQty
+
+    JSR OptShopConfirmQty       ; confirm price dialogue -- and, with Buy
+    BCS ItemShop_CancelBuy      ;   Quantity on, how many
+    JSR ShopLoop_YesNo          ; give them the yes/no option
