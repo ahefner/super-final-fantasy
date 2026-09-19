@@ -44,6 +44,8 @@
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
 .export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
+.export opt_runlabel, opt_runiswait
+.import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
@@ -1136,3 +1138,54 @@ opt_thishit:
   @vanilla:
     LDA battle_hitsconnected
     RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Run -> Wait
+;;
+;;  Some formations cannot be run from at all and vanilla gives no sign of it
+;;  until a turn has been spent finding out.  With the flag on those fights
+;;  label the command WAIT and answer it with "Nothing happens" -- the same
+;;  turn is spent, but it reads as a choice rather than a failure.
+;;
+;;  The body is here rather than in the fixed bank, which has 28 bytes left.
+;;  Only OptRunFail and the string itself stay there, and for reasons: see the
+;;  note beside them.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Called for each block of the command box, with Y on the block's last byte.
+opt_runlabel:
+    CPY #6*5-1                  ; only the last block, whose text is "RUN"
+    BNE @out
+    PHA                         ; vanilla reaches AddBlockToBuffer with the
+    JSR opt_iswait              ;   table byte still in A; leave it that way
+    BCC @keep
+      LDA #<lut_WaitString      ; the block's last two bytes are its text
+      STA btl_msgdraw_hdr+3     ;   pointer -- see lua_BattleCommandBoxInfo
+      LDA #>lut_WaitString
+      STA btl_msgdraw_hdr+4
+  @keep:
+    PLA
+  @out:
+    RTL
+
+;  The same question, for OptRunFail over in the fixed bank.  Carry survives
+;  RTL, which touches no flags.
+opt_runiswait:
+    JSR opt_iswait
+    RTL
+
+;  Carry set when this fight should say WAIT: the flag is on and the formation
+;  is one that can never be run from.  Reaching Battle_PlayerTryRun's failure
+;  exit with the no-run bit still set means the fight was never runnable --
+;  when it is set the luck roll is skipped entirely -- so reading it a second
+;  time is enough to tell the two failures apart.
+opt_iswait:
+    LDA OPTFB_RUNWAIT
+    AND #OPTFM_RUNWAIT
+    BEQ @no
+    LDA btlform_norun
+    LSR A                       ; the no-run flag is bit 0; straight to carry
+    RTS
+  @no:
+    CLC
+    RTS

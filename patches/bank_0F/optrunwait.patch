@@ -16,10 +16,8 @@ DrawCommandBox:
       
     JMP DrawBlockBuffer            ; then finally draw it
 --- NEW
-;  Run -> Wait is off for now: putting the vanilla message-box loops back
-;  needed 32 bytes the fixed bank did not have, and this feature was the
-;  largest thing in it.  Restored next, with its body moved to the
-;  options bank so it costs the fixed bank almost nothing.
+.import opt_runlabel
+
 DrawCommandBox:
     LDY #$00
     LDX #$00
@@ -29,7 +27,8 @@ DrawCommandBox:
       INX
       CPX #$05
       BNE :+                                    ; every 5 bytes, add the block to the
-        JSR BattleDraw_AddBlockToBuffer         ;  output buffer
+        JSL opt_runlabel + OPTFAR               ;  output buffer -- but the last
+        JSR BattleDraw_AddBlockToBuffer         ;  block may say WAIT, not RUN
         LDX #$00
     : INY
       CPY #6*5              ; 6 blocks * 5 bytes per block

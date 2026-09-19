@@ -3,6 +3,13 @@
     LDA #BTLMSG_CANTRUN             ; on failure, print 'Can't Run' 
     JMP DrawBtlMsg_ClearCombatBoxes ; then clear all combat boxes and exit
 --- NEW
+.import OptRunFail
+.export DrawBtlMsg_ClearCombatBoxes
+
   @Fail:
-    LDA #BTLMSG_CANTRUN             ; DEBUG: Run -> Wait off
-    JMP DrawBtlMsg_ClearCombatBoxes ; then clear all combat boxes and exit
+    JMP OptRunFail                  ; on failure, print 'Can't Run' -- or, if
+    .res 2, $EA                     ;   Run -> Wait is on and the fight was
+                                    ;   never runnable, something that does not
+                                    ;   sound like a failure.  Three bytes
+                                    ;   where there were five; this bank is
+                                    ;   exactly full.

@@ -737,7 +737,7 @@ def test_runwait():
     routine inserted in front of that call is exactly the kind of thing that
     quietly clobbers it.
     """
-    if "OptRunLabel" not in SYM:
+    if "opt_runlabel" not in SYM:
         #  The feature is switched off in the build (it lends its fixed-bank
         #  space to the vanilla message-box loops).  Say so rather than
         #  failing, so a real regression still stands out.
@@ -757,7 +757,7 @@ def test_runwait():
                 bus.sram[MSGDRAW_HDR - 0x6000 + i] = 0x11 + i
             cpu.y = 29
             cpu.a = 0x5C
-            call(cpu, "OptRunLabel", bank=BANK_0C, dbr=BANK_0C)
+            call(cpu, "opt_runlabel", dbr=BANK_0C)
             ptr = (bus.sram[MSGDRAW_HDR - 0x6000 + 3],
                    bus.sram[MSGDRAW_HDR - 0x6000 + 4])
             want = (SYM["lut_WaitString"] & 0xFF, SYM["lut_WaitString"] >> 8) \
@@ -776,7 +776,7 @@ def test_runwait():
                 bus.sram[MSGDRAW_HDR - 0x6000 + i] = 0x11 + i
             for y in (4, 9, 14, 19, 24):
                 cpu.y = y
-                call(cpu, "OptRunLabel", bank=BANK_0C, dbr=BANK_0C)
+                call(cpu, "opt_runlabel", dbr=BANK_0C)
             check("run label only touches the last block",
                   [bus.sram[MSGDRAW_HDR - 0x6000 + i] for i in range(5)],
                   [0x11, 0x12, 0x13, 0x14, 0x15])
