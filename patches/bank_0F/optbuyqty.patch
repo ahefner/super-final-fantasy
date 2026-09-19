@@ -5,7 +5,7 @@ DrawPalette:
 --- NEW
 .export OptShopConfirmQty, OptShopHasRoom, OptShopAddItems
 .export OptShopTotalFast, OptShopQtyFast
-.import DrawShopBuyItemConfirm, DrawShopBox, ShopFrameNoCursor
+.import DrawShopBuyItemConfirm, ShopBuyItemSetup, DrawShopBox, ShopFrameNoCursor
 .import PrintNumber_2Digit, PrintNumber_5Digit, DrawShopComplexString
 .import DrawShopDialogueBox
 .import opt_shopmax, opt_shopscale
@@ -31,13 +31,20 @@ DrawPalette:
 ;  Replaces the item shop's "JSR DrawShopBuyItemConfirm".
 ;  Out: C set if the player backed out.
 OptShopConfirmQty:
-    JSR DrawShopBuyItemConfirm  ; sets shop_curitem and shop_curprice, and
-                                ;   draws the item and its unit price
     LDA #$01
     STA OPTSHOPQTY              ; one, unless the flag says otherwise
     LDA OPTFB_BUYQTY
     AND #OPTFM_BUYQTY
-    BEQ @one
+    BNE @qty
+    JSR DrawShopBuyItemConfirm  ; flag off: exactly what was here before.
+    CLC                         ;   Not a tail call -- that routine ends in
+    RTS                         ;   DrawShopComplexString, which leaves carry
+                                ;   anywhere, and the caller reads it as
+                                ;   "the player backed out"
+  @qty:
+    JSR ShopBuyItemSetup        ; the item and its price, without drawing:
+                                ;   the loop below draws the box once, and
+                                ;   doing both meant drawing it twice
     LDA shop_curprice           ; keep the unit price; shop_curprice becomes
     STA OPTSHOPUNIT             ;   the total below
     LDA shop_curprice+1
@@ -45,7 +52,6 @@ OptShopConfirmQty:
     JSL opt_shopmax + OPTFAR
     JSR OptShopQtyLoop          ; leaves shop_curprice holding the total
     BCS @cancel
-  @one:
     CLC
     RTS
   @cancel:

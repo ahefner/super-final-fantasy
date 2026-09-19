@@ -1,0 +1,84 @@
+--- OLD
+DrawShopBuyItemConfirm:
+    LDA #$0E
+    JSR DrawShopDialogueBox  ; draws "Gold  OK?" -- IE:  all the non-price text
+
+    LDA cursor            ; get the cursor
+    ASL A
+    ASL A
+    ASL A                 ; multiply by 8
+    CLC
+    ADC #<(str_buf+$15)   ; add str_buf+$15
+    STA text_ptr          ; use as low byte of pointer.  See routine description
+                          ; for details of why its doing this
+
+    CLC                   ; add 2 and put in X.  X will now be
+    ADC #$02              ;  where we need to put the null terminator (2 bytes after
+    TAX                   ;  the start of the string -- all we're drawing is "03 XX")
+
+    LDA #0
+    STA str_buf, X        ; put the null terminator there
+
+    DEX                   ; decrement X...
+    LDA str_buf, X        ;   this gets the item ID from the string
+    STA shop_curitem      ;  store in the current item
+
+    LDA #>(str_buf+$15)   ; record high byte of our string pointer
+    STA text_ptr+1
+
+    LDA shop_curitem      ; get the current item
+    JSR LoadPrice         ; load its price (gets put in tmp, tmp+1)
+
+    LDA tmp               ; copy the price to shop_curprice
+    STA shop_curprice
+    LDA tmp+1
+    STA shop_curprice+1
+
+    JMP DrawShopComplexString  ; draw our complex string (item price), and exit
+--- NEW
+.export ShopBuyItemSetup
+
+DrawShopBuyItemConfirm:
+    LDA #$0E
+    JSR DrawShopDialogueBox  ; draws "Gold  OK?" -- IE:  all the non-price text
+    JSR ShopBuyItemSetup     ; work out which item and what it costs
+    JMP DrawShopComplexString  ; draw our complex string (item price), and exit
+
+;  Split out so Buy Quantity can have the item and the price without the
+;  drawing.  It needs them to work out its cap before it draws anything, and
+;  calling the whole routine first meant the message box was drawn twice --
+;  once with the item, then immediately again with the running total.
+ShopBuyItemSetup:
+
+    LDA cursor            ; get the cursor
+    ASL A
+    ASL A
+    ASL A                 ; multiply by 8
+    CLC
+    ADC #<(str_buf+$15)   ; add str_buf+$15
+    STA text_ptr          ; use as low byte of pointer.  See routine description
+                          ; for details of why its doing this
+
+    CLC                   ; add 2 and put in X.  X will now be
+    ADC #$02              ;  where we need to put the null terminator (2 bytes after
+    TAX                   ;  the start of the string -- all we're drawing is "03 XX")
+
+    LDA #0
+    STA str_buf, X        ; put the null terminator there
+
+    DEX                   ; decrement X...
+    LDA str_buf, X        ;   this gets the item ID from the string
+    STA shop_curitem      ;  store in the current item
+
+    LDA #>(str_buf+$15)   ; record high byte of our string pointer
+    STA text_ptr+1
+
+    LDA shop_curitem      ; get the current item
+    JSR LoadPrice         ; load its price (gets put in tmp, tmp+1)
+
+    LDA tmp               ; copy the price to shop_curprice
+    STA shop_curprice
+    LDA tmp+1
+    STA shop_curprice+1
+
+    RTS
