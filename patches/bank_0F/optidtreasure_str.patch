@@ -1,5 +1,7 @@
 --- OLD
-lut_DTE1:
+
+
+DrawPalette:
 --- NEW
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
@@ -27,4 +29,5 @@ lut_CantHoldWhat:
   .BYTE $02                          ; the item's name
   .BYTE $00
 
-lut_DTE1:
+
+DrawPalette:

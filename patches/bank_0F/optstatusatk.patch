@@ -1,5 +1,7 @@
 --- OLD
-UndrawNBattleBlocks_L:      JMP UndrawNBattleBlocks
+
+
+DrawPalette:
 --- NEW
 .export OptThisHitConnected
 .import opt_thishit
@@ -18,4 +20,4 @@ OptThisHitConnected:
     RTS
 
 
-UndrawNBattleBlocks_L:      JMP UndrawNBattleBlocks
+DrawPalette:

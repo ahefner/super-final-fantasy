@@ -24,10 +24,28 @@ BattleDrawMessageBuffer_Reverse:
       BNE @Loop         ; loop until all rows drawn
     RTS
 --- NEW
-.import opt_msgdraw_rev
-
-;  Likewise.  This one already sent two rows a frame, so six frames; Speed
-;  Hacks makes it three, for four.
+;  REVERTED alongside optmsgdraw.patch; see the note there.
 BattleDrawMessageBuffer_Reverse:
-    JSL opt_msgdraw_rev + OPTFAR
+    LDA #<$23A0         ; start drawing at the bottom row
+    STA $8A
+    LDA #>$23A0
+    STA $8B
+    
+    LDA #<(btl_msgbuffer + $B*$20)  ; start with the last row of source data
+    STA $88
+    LDA #>(btl_msgbuffer + $B*$20)
+    STA $89
+    
+    LDA #$06                ; loop down counter.  6 iterations, 2 rows per iterations
+    STA $68B9               ;    = $C rows
+    
+  @Loop:
+      JSR Battle_DrawMessageRow_VBlank  ; draw a row
+      JSR @AdjustPointers               ; move ptrs to prev row
+      JSR Battle_DrawMessageRow         ; draw another one
+      JSR @AdjustPointers               ; move ptrs again
+      JSR Battle_UpdatePPU_UpdateAudio_FixedBank    ; update audio and stuffs
+      
+      DEC $68B9
+      BNE @Loop         ; loop until all rows drawn
     RTS

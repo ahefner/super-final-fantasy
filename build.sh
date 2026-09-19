@@ -62,4 +62,14 @@ ld65 -C snes.cfg -o /dev/null \
 #  and looks like an ordinary call in the source, so check it every build.
 python3 tools/check_bankswap.py || exit 1
 
+#  The fixed bank's '_L' tables are runs of three-byte JMPs that other banks
+#  index by arithmetic.  ca65 resolves them by name, so a routine tucked into
+#  one assembles cleanly and silently shifts every entry after it.  That cost a
+#  long debugging session; check the spacing instead.
+ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
+    out/hal.o out/header.o \
+    out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
+    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o
+python3 tools/check_tables.py out/labels.txt || exit 1
+
 python3 tools/mkrom.py

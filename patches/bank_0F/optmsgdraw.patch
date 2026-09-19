@@ -37,13 +37,50 @@ BattleDrawMessageBuffer:
       BNE @Loop
     RTS
 --- NEW
-.import opt_msgdraw
 .export Battle_DrawMessageRow, Battle_DrawMessageRow_VBlank
 .export Battle_UpdatePPU_UpdateAudio_FixedBank
-
-;  Moved to the options bank, where there is room to vary how many rows go out
-;  per frame.  Twelve rows either way; Speed Hacks sends two at a time instead
-;  of one, so the box opens in six frames rather than twelve.
+;  REVERTED.  Moving these two loops to the options bank broke battle -- box
+;  draws, attack animations, the enemy-name box and eventually control flow
+;  itself, on every preset including Vanilla.  A bisect pinned it to the commit
+;  that moved them; putting the vanilla loops back cures it.  The cause inside
+;  that move is still unknown: the row logic traces out identical to vanilla on
+;  the slow path, and the bank handling looked sound.  See options-design.md.
+;
+;  The exports stay because the options bank still imports the row writers.
 BattleDrawMessageBuffer:
-    JSL opt_msgdraw + OPTFAR
+    LDA #<$2240     ; set target PPU address to $2240
+    STA $8A         ; This has the start of the bottom row of the bounding box for 
+    LDA #>$2240     ;  enemies
+    STA $8B
+    
+    LDA #<btl_msgbuffer     ; set source pointer to point to message data buffer
+    STA $88
+    LDA #>btl_msgbuffer
+    STA $89
+    
+    LDA #$0C
+    STA $68B9               ; loop down-counter ($0C rows)
+  @Loop:
+      JSR Battle_DrawMessageRow_VBlank  ; draw a row
+      
+      LDA $88           ; add $20 to the source pointer to draw next row
+      CLC
+      ADC #$20
+      STA $88
+      LDA $89
+      ADC #$00
+      STA $89
+      
+      LDA $8A           ; add $20 to the target PPU address
+      CLC
+      ADC #$20
+      STA $8A
+      LDA $8B
+      ADC #$00
+      STA $8B
+      
+      JSR Battle_UpdatePPU_UpdateAudio_FixedBank    ; update audio (since we did a frame), and reset scroll
+      
+      DEC $68B9         ; loop for each row
+      BNE @Loop
     RTS

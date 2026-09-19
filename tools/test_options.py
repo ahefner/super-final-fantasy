@@ -40,6 +40,7 @@ BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $
 CUR_BANK = 0x57                # the bank SwapPRG returns to
 
 fails = []
+skipped = []
 
 
 def labels():
@@ -736,6 +737,13 @@ def test_runwait():
     routine inserted in front of that call is exactly the kind of thing that
     quietly clobbers it.
     """
+    if "OptRunLabel" not in SYM:
+        #  The feature is switched off in the build (it lends its fixed-bank
+        #  space to the vanilla message-box loops).  Say so rather than
+        #  failing, so a real regression still stands out.
+        skipped.append("run -> wait: not in this build")
+        return
+
     norun_addr = 0x6D91                  # btlform_norun, the formation's low bit
     for flag in (0, OPTF_RUNWAIT):
         for norun in (0x00, 0x01, 0x02, 0x30, 0x31, 0x32):  # the rest is palette
@@ -907,6 +915,8 @@ def main():
         for f in fails:
             print("   " + f)
         return 1
+    for s_ in skipped:
+        print("   skipped: " + s_)
     print("option hooks: all checks passed")
     return 0
 

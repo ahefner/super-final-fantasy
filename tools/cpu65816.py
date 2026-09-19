@@ -163,6 +163,24 @@ class CPU:
     def a_dpx(self):
         return (0, (self.d + self.fetch() + self.x) & 0xFFFF)
 
+    def a_dpx_ind(self):
+        """(dp,X) -- the pointer is picked out of direct page by X, and only
+        then dereferenced.  The battle drawing code uses it, which is why the
+        harness could not run past DrawBlockBuffer before."""
+        p = (self.d + self.fetch() + self.x) & 0xFFFF
+        base = self.rd(0, p) | (self.rd(0, (p + 1) & 0xFFFF) << 8)
+        return (self.dbr, base)
+
+    def a_dpind(self):
+        p = (self.d + self.fetch()) & 0xFFFF
+        base = self.rd(0, p) | (self.rd(0, (p + 1) & 0xFFFF) << 8)
+        return (self.dbr, base)
+
+    def a_dpindlong(self):
+        p = (self.d + self.fetch()) & 0xFFFF
+        base = self.rd(0, p) | (self.rd(0, (p + 1) & 0xFFFF) << 8)
+        return (self.rd(0, (p + 2) & 0xFFFF), base)
+
     def a_dpind_y(self):
         p = (self.d + self.fetch()) & 0xFFFF
         base = self.rd(0, p) | (self.rd(0, (p + 1) & 0xFFFF) << 8)
@@ -251,6 +269,9 @@ class CPU:
         elif op == 0xBF: v = self.load(self.a_longx(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xB1: v = self.load(self.a_dpind_y(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xB7: v = self.load(self.a_dpindlong_y(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
+        elif op == 0xA1: v = self.load(self.a_dpx_ind(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
+        elif op == 0xB2: v = self.load(self.a_dpind(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
+        elif op == 0xA7: v = self.load(self.a_dpindlong(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0x8D: self.store(self.a_abs(), self.a, m8)
         elif op == 0x9D: self.store(self.a_absx(), self.a, m8)
         elif op == 0x99: self.store(self.a_absy(), self.a, m8)
@@ -260,6 +281,9 @@ class CPU:
         elif op == 0x9F: self.store(self.a_longx(), self.a, m8)
         elif op == 0x91: self.store(self.a_dpind_y(), self.a, m8)
         elif op == 0x97: self.store(self.a_dpindlong_y(), self.a, m8)
+        elif op == 0x81: self.store(self.a_dpx_ind(), self.a, m8)
+        elif op == 0x92: self.store(self.a_dpind(), self.a, m8)
+        elif op == 0x87: self.store(self.a_dpindlong(), self.a, m8)
         elif op == 0x64: self.store(self.a_dp(), 0, m8)
         elif op == 0x9C: self.store(self.a_abs(), 0, m8)
         elif op == 0xA2: v = self.a_imm(x8); self.x = v; self.setzn(v, x8)
