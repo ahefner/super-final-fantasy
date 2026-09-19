@@ -1,0 +1,4 @@
+--- OLD
+      LDA lut_DTE1, X ;  load and draw the first character in DTE
+--- NEW
+      LDA f:lut_DTE1+OPTFAR, X ;  load and draw the first character in DTE

@@ -1,0 +1,6 @@
+--- OLD
+  : LDY #en_gp                  ; get the GP reward and store it in eob_gp_reward for it to be printed
+    JSR SumBattleReward         ; this is *kind of* bugged, as the game will properly award a 3-byte
+--- NEW
+  : LDY #en_gp                  ; get the GP reward and store it in eob_gp_reward for it to be printed
+    JSR OptSumScaledReward      ; this is *kind of* bugged, as the game will properly award a 3-byte

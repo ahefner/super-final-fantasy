@@ -1,0 +1,9 @@
+--- OLD
+    LDY #en_exp                 ; get the EXP reward for this battle
+    JSR SumBattleReward
+--- NEW
+.import OptSumScaledReward
+.export SumBattleReward
+
+    LDY #en_exp                 ; get the EXP reward for this battle
+    JSR OptSumScaledReward      ; ...scaled by Gold + XP, if that is not 100%

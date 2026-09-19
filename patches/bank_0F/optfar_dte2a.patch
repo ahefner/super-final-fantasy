@@ -1,0 +1,4 @@
+--- OLD
+      LDA lut_DTE2, X    ; get second byte in DTE pair
+--- NEW
+      LDA f:lut_DTE2+OPTFAR, X    ; and the second

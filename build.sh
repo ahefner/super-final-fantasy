@@ -49,13 +49,15 @@ CA65_GEN="$CA65 --feature force_range"
 
 ( cd src && $CA65 -I ../gen optbank.asm -o ../out/bank_OPT.o
            $CA65 -I ../gen optmenu.asm -o ../out/bank_OPTMENU.o
+           $CA65 -I ../gen optdata.asm -o ../out/bank_OPTDATA.o
            $CA65 hal.asm    -o ../out/hal.o
            $CA65 header.asm -o ../out/header.o )
 
-ld65 -C snes.cfg -o /dev/null \
+ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/hal.o out/header.o \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
-    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o
+    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
+    out/bank_OPTDATA.o
 
 #  Code in the options bank reaches the fixed bank with a plain JSR, which is
 #  safe until the routine it calls swaps banks.  That is a freeze on hardware
@@ -66,10 +68,6 @@ python3 tools/check_bankswap.py || exit 1
 #  index by arithmetic.  ca65 resolves them by name, so a routine tucked into
 #  one assembles cleanly and silently shifts every entry after it.  That cost a
 #  long debugging session; check the spacing instead.
-ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
-    out/hal.o out/header.o \
-    out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
-    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o
 python3 tools/check_tables.py out/labels.txt || exit 1
 
 python3 tools/mkrom.py

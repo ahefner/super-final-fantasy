@@ -1,0 +1,7 @@
+--- OLD
+      LDA lut_DTE1, X    ; get the first byte in the DTE pair
+--- NEW
+.import lut_DTE1, lut_DTE2
+
+      LDA f:lut_DTE1+OPTFAR, X    ; first byte of the DTE pair, read out
+                                      ;   of the options chunk -- see optdata.asm

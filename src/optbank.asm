@@ -44,7 +44,7 @@
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
 .export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
-.export opt_runlabel, opt_runiswait
+.export opt_runlabel, opt_runiswait, opt_scalereward
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1194,3 +1194,77 @@ opt_iswait:
   @no:
     CLC
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Gold and XP scaling
+;;
+;;  SumBattleReward adds up one field across the nine enemy slots and leaves
+;;  the total in battlereward.  It is called twice at the end of a battle,
+;;  once for experience and once for gold, so scaling its result covers both
+;;  -- and covers the figures the end-of-battle boxes print as well as the
+;;  amounts actually awarded, which would otherwise disagree.
+;;
+;;  The setting counts halves: 2 is 100%, 5 is 250%, 0 is nothing at all.  So
+;;  the arithmetic is "add the total to itself <step> times, then halve".
+;;  Repeated addition rather than the S-PPU multiplier because the step is at
+;;  most ten and this runs once per battle, which makes the multiplier's
+;;  eight-cycle window a hazard bought for no gain.
+;;
+;;  FFR does this by scaling every enemy's reward in the ROM when it builds a
+;;  seed.  That is not open to a runtime flag, so this scales the sum instead.
+;;  The two differ in rounding: per-enemy scaling rounds nine times and this
+;;  rounds once, so this is very slightly the more generous of the two.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_scalereward:
+    LDA OPT_GOLDXP
+    CMP #GOLDXP_100
+    BEQ @out                    ; 100%: exactly what the game just computed
+    TAY                         ; Y = the number of halves to add up
+
+    LDA #$00                    ; a 32-bit accumulator; the reward is 24, and
+    STA OPTSCRATCH              ;   ten times a 24-bit value still fits
+    STA OPTSCRATCH+1
+    STA OPTSCRATCH+2
+    STA OPTSCRATCH+3
+    CPY #$00
+    BEQ @store                  ; 0%: the zeroed accumulator is the answer
+
+  @add:
+    CLC
+    LDA OPTSCRATCH
+    ADC battlereward
+    STA OPTSCRATCH
+    LDA OPTSCRATCH+1
+    ADC battlereward+1
+    STA OPTSCRATCH+1
+    LDA OPTSCRATCH+2
+    ADC battlereward+2
+    STA OPTSCRATCH+2
+    LDA OPTSCRATCH+3
+    ADC #$00
+    STA OPTSCRATCH+3
+    DEY
+    BNE @add
+
+    LSR OPTSCRATCH+3            ; halve, because the step counts 50% units
+    ROR OPTSCRATCH+2
+    ROR OPTSCRATCH+1
+    ROR OPTSCRATCH
+
+    LDA OPTSCRATCH+3            ; battlereward is three bytes and the game has
+    BEQ @store                  ;   nowhere to put a fourth, so peg it
+    LDA #$FF
+    STA OPTSCRATCH
+    STA OPTSCRATCH+1
+    STA OPTSCRATCH+2
+
+  @store:
+    LDA OPTSCRATCH
+    STA battlereward
+    LDA OPTSCRATCH+1
+    STA battlereward+1
+    LDA OPTSCRATCH+2
+    STA battlereward+2
+  @out:
+    RTL

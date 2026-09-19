@@ -44,14 +44,25 @@ skipped = []
 
 
 def labels():
-    #  Regenerate whenever the ROM is newer.  A stale label file does not fail
-    #  cleanly: every address is slightly wrong and the tests report a dozen
-    #  unrelated crashes in banks that were never touched.
-    if (not os.path.exists(LABELS)
-            or os.path.getmtime(LABELS) < os.path.getmtime(ROM)):
-        subprocess.run(["ld65", "-C", "snes.cfg", "-o", "/dev/null", "-Ln", LABELS]
-                       + [os.path.join("out", f) for f in sorted(os.listdir("out"))
-                          if f.endswith(".o")], cwd=ROOT, check=True)
+    """The label file build.sh wrote, never one of our own making.
+
+    ld65 writes out/bank_*.bin from the memory areas in snes.cfg, so *any*
+    ld65 run rewrites them -- and the addresses it assigns depend on the order
+    the object files are given.  This used to relink with the objects sorted,
+    which differs from build.sh's order once a segment has three files in it.
+    The result was a label file that disagreed with the ROM beside it: the
+    tests read symbol addresses from one layout and instructions from another,
+    and quietly checked the wrong bytes.  There is one link, in build.sh, and
+    this reads what it left.
+    """
+    if not os.path.exists(LABELS):
+        sys.exit("no %s -- run ./build.sh" % LABELS)
+    #  The ROM is written after the link, so it is always the newer of the two;
+    #  compare against what the link consumed instead.
+    objs = [os.path.join(ROOT, "out", f) for f in os.listdir(os.path.join(ROOT, "out"))
+            if f.endswith(".o")]
+    if objs and os.path.getmtime(LABELS) < max(os.path.getmtime(o) for o in objs):
+        sys.exit("%s is older than the objects -- run ./build.sh" % LABELS)
     out = {}
     for line in open(LABELS):
         parts = line.split()
@@ -901,12 +912,111 @@ def test_statusatk():
           bool(cpu.p & 0x02), True)
 
 
+BATTLEREWARD = 0x88            # three bytes of zero page
+
+
+def test_goldxp():
+    """Scale the end-of-battle reward.
+
+    The setting counts halves -- 2 is 100% -- so the answer is
+    total * step / 2, and the one case that has to be exact is step 2, where
+    the routine must not touch the number at all.  The reward is three bytes
+    with nowhere to put a fourth, so a total that scales past $FFFFFF pegs
+    there rather than wrapping to something small, which is the failure that
+    would look like a bug in the game rather than in the flag.
+    """
+    for step in range(11):
+        #  0x300000 and 0x400000 matter: scaled up they carry into the top
+        #  byte of the accumulator but come back under $FFFFFF once halved, so
+        #  they are the only values that tell a halve from a double.
+        for total in (0, 1, 2, 3, 1000, 0x123456, 0x300000, 0x400000, 0xFFFFFF):
+            bus, cpu = machine()
+            setblk(bus, OPT_GOLDXP, step)
+            for i in range(3):
+                bus.wram[BATTLEREWARD + i] = (total >> (8 * i)) & 0xFF
+            call(cpu, "opt_scalereward", dbr=BANK_0C)
+            got = sum(bus.wram[BATTLEREWARD + i] << (8 * i) for i in range(3))
+            want = min((total * step) // 2, 0xFFFFFF)
+            check("goldxp step %d of %d" % (step, total), got, want)
+
+    #  100% must be bit-for-bit untouched, not merely arithmetically equal:
+    #  it is the path every vanilla game takes.
+    bus, cpu = machine()
+    setblk(bus, OPT_GOLDXP, 2)
+    for i, v in enumerate((0x9A, 0xBC, 0xDE)):
+        bus.wram[BATTLEREWARD + i] = v
+    call(cpu, "opt_scalereward", dbr=BANK_0C)
+    check("goldxp 100% leaves the reward alone",
+          [bus.wram[BATTLEREWARD + i] for i in range(3)], [0x9A, 0xBC, 0xDE])
+
+
+BTL_RNGSTATE = 0x688A
+
+
+def test_fardata():
+    """The tables that moved out of the fixed bank, read long.
+
+    lut_DTE1, lut_DTE2 and the battle RNG's scrambling table live in the
+    options chunk now and the fixed bank reaches them with LDA f:addr,X.  Two
+    things can go wrong and neither shows up as a build error: the table can
+    land somewhere other than where the reading instruction names, and the
+    read can assemble as a 3-byte absolute load that silently fetches from
+    whatever is at that address in the current bank.  So this runs the real
+    instruction and checks the value that comes back.
+    """
+    blob = open(os.path.join(ROOT, "game", "bin", "0F_FCF1_rngtable.bin"), "rb").read()
+
+    #  BattleRNG is the whole path: it does nothing but the long read.  All
+    #  256 entries, because a wrong table is not something anyone would notice
+    #  playing -- bad luck looks like bad luck.
+    wrong = []
+    for state in range(256):
+        bus, cpu = machine()
+        bus.sram[BTL_RNGSTATE - 0x6000] = state
+        call(cpu, "BattleRNG_L", bank=BANK_0C, dbr=BANK_0C)
+        if (cpu.a & 0xFF) != blob[state]:
+            wrong.append(state)
+        check("BattleRNG state $%02X advances" % state,
+              bus.sram[BTL_RNGSTATE - 0x6000], (state + 1) & 0xFF)
+    check("BattleRNG returns the table for all 256 states", wrong, [])
+
+    #  Walking the state through all 256 values must reproduce the table as a
+    #  multiset -- a second, independent check that the loop reads the whole of
+    #  it and nothing else.
+    #
+    #  Disch notes that ChaosDeath in bank $0B assumes 256 consecutive calls
+    #  produce every value exactly once.  The original table does not quite
+    #  manage it: 0 appears twice and 149 never appears at all.  That is
+    #  vanilla's quirk, not the port's -- the bytes here are the original
+    #  bytes -- but it is worth knowing before anyone leans on the assumption.
+    bus, _ = machine()
+    seen = []
+    for state in range(256):
+        cpu = CPU(bus); cpu.dbr = BANK_0C
+        bus.sram[BTL_RNGSTATE - 0x6000] = state
+        cpu.run(BANK_0C, SYM["BattleRNG_L"])
+        seen.append(cpu.a & 0xFF)
+    check("256 consecutive calls walk the whole table",
+          sorted(seen), sorted(blob))
+    check("vanilla's quirk is intact: 0 twice, 149 never",
+          (seen.count(0), seen.count(149)), (2, 0))
+
+    #  ...and the DTE tables, read the same way the drawers read them.
+    bus, _ = machine()
+    for name in ("lut_DTE1", "lut_DTE2"):
+        got = bytes(bus.read(0xB2, SYM[name] + i) for i in range(80))
+        check("%s reachable at bank $B2" % name, len(set(got)) > 1, True)
+        check("%s is 80 bytes of text codes" % name,
+              all(0x7A <= b <= 0xFF for b in got), True)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
-              test_runwait, test_idtreasure, test_statusatk):
+              test_runwait, test_idtreasure, test_statusatk, test_goldxp,
+              test_fardata):
         try:
             t()
         except Exception as e:

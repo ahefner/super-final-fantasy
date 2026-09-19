@@ -1,0 +1,17 @@
+--- OLD
+BattleRNG:
+    LDX btl_rngstate
+    INC btl_rngstate
+    LDA @Scramble_lut, X
+    RTS
+    
+  @Scramble_lut:
+    .INCBIN "bin/0F_FCF1_rngtable.bin"
+--- NEW
+.import lut_BattleScramble
+
+BattleRNG:
+    LDX btl_rngstate
+    INC btl_rngstate
+    LDA f:lut_BattleScramble+OPTFAR, X   ; the table moved to the options
+    RTS                                      ;   chunk; see optdata.asm

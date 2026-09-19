@@ -1,0 +1,25 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptSumScaledReward
+.import SumBattleReward, opt_scalereward
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Gold and XP scaling
+;;
+;;    Three bytes at the call site, because bank $0B is full and the JSR this
+;;  replaces was three.  Reached only from that bank, so the JSR back into it
+;;  lands in the right chunk.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptSumScaledReward:
+    JSR SumBattleReward
+    JSL opt_scalereward + OPTFAR
+    RTS
+
+
+DrawPalette:

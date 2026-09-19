@@ -1,0 +1,4 @@
+--- OLD
+      LDA lut_DTE2, X ;  load the second DTE character to be drawn in a bit
+--- NEW
+      LDA f:lut_DTE2+OPTFAR, X ;  load the second DTE character
