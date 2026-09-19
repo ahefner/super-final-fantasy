@@ -1,0 +1,14 @@
+--- OLD
+    DEC item_soft              ; remove soft from inventory
+    JSR DrawItemTargetMenu
+    JSR MenuWaitForBtn_SFX
+    JMP EnterItemMenu
+--- NEW
+    LDX #item_soft - items     ; remove soft from inventory
+    JSR OptUsedPotion
+    PHP
+    JSR DrawItemTargetMenu
+    JSR MenuWaitForBtn_SFX
+    PLP
+    BCS @Loop                  ; Repeated Potion Use: stay on the target menu
+    JMP EnterItemMenu

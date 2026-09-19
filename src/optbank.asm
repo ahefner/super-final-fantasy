@@ -44,7 +44,7 @@
 .export opt_respondlookup, opt_msgdraw, opt_msgdraw_rev, opt_movenpcs
 .export opt_magicpgdn, opt_magicpgup, opt_sortinv
 .export opt_retarget, opt_retarget_mag, opt_dlgident, opt_thishit
-.export opt_runlabel, opt_runiswait, opt_scalereward
+.export opt_runlabel, opt_runiswait, opt_scalereward, opt_usedpotion
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1267,4 +1267,29 @@ opt_scalereward:
     LDA OPTSCRATCH+2
     STA battlereward+2
   @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Repeated Potion Use
+;;
+;;  Vanilla drops back to the item menu after every potion, so healing a party
+;;  of four is four trips through it.  With the flag on the target menu stays
+;;  up while any of that potion remain.
+;;
+;;  In: X = the item's offset from items.  Out: carry set to offer another.
+;;  The potion is spent either way -- the decrement is the caller's old
+;;  instruction, moved in here so the call site stays small.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_usedpotion:
+    DEC items, X
+    LDA OPTFB_REPEATPOTION
+    AND #OPTFM_REPEATPOTION
+    BEQ @no
+    LDA items, X                ; none left is the end of it either way
+    BEQ @no
+    SEC
+    RTL
+  @no:
+    CLC
     RTL

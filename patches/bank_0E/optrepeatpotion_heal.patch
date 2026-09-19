@@ -1,0 +1,8 @@
+--- OLD
+    DEC item_heal              ; then remove a heal potion from the inventory
+--- NEW
+.import OptUsedPotion
+
+    LDX #item_heal - items     ; then remove a heal potion from the inventory
+    JSR OptUsedPotion          ;   -- and with Repeated Potion Use on, offer
+    BCS _UseItem_Heal_Loop     ;   another while any are left

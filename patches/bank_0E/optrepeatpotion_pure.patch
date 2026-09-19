@@ -1,0 +1,14 @@
+--- OLD
+    DEC item_pure              ; if we could... remove one from the inventory
+    JSR DrawItemTargetMenu     ; redraw the target menu to reflect the changes
+    JSR MenuWaitForBtn_SFX     ; then wait for the player to press a button
+    JMP EnterItemMenu          ; before re-entering the item menu (redrawing item menu)
+--- NEW
+    LDX #item_pure - items     ; if we could... remove one from the inventory
+    JSR OptUsedPotion
+    PHP                        ; the answer has to survive the redraw below
+    JSR DrawItemTargetMenu     ; redraw the target menu to reflect the changes
+    JSR MenuWaitForBtn_SFX     ; then wait for the player to press a button
+    PLP
+    BCS @Loop                  ; Repeated Potion Use: stay on the target menu
+    JMP EnterItemMenu          ; before re-entering the item menu (redrawing item menu)

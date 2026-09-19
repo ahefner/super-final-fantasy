@@ -1012,13 +1012,45 @@ def test_fardata():
               all(0x7A <= b <= 0xFF for b in got), True)
 
 
+OPTF_REPEATPOTION = 0x00000800
+POTIONS = {"heal": 0x19, "pure": 0x1A, "soft": 0x1B}
+
+
+def test_repeatpotion():
+    """Spend a potion, and say whether to offer another.
+
+    The decrement is the caller's old instruction moved in here, so it has to
+    happen whatever the flag says -- a flag that quietly stopped consuming
+    potions would be a far worse bug than one that failed to repeat.
+    """
+    for name, off in POTIONS.items():
+        for flag in (0, OPTF_REPEATPOTION):
+            for held in (1, 2, 99):
+                bus, cpu = machine()
+                setblk(bus, OPT_FLAGS + 1, flag >> 8)
+                bus.sram[ITEMS - 0x6000 + off] = held
+                #  the other two must not move
+                for other in POTIONS.values():
+                    if other != off:
+                        bus.sram[ITEMS - 0x6000 + other] = 7
+                cpu.x = off
+                call(cpu, "opt_usedpotion", dbr=BANK_0C)
+                check("%s x%d flag=%d: spent" % (name, held, bool(flag)),
+                      bus.sram[ITEMS - 0x6000 + off], held - 1)
+                check("%s x%d flag=%d: offer another" % (name, held, bool(flag)),
+                      bool(cpu.p & 0x01), bool(flag) and held - 1 > 0)
+                check("%s x%d flag=%d: other potions untouched" % (name, held, bool(flag)),
+                      [bus.sram[ITEMS - 0x6000 + o] for o in POTIONS.values() if o != off],
+                      [7, 7])
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
-              test_fardata):
+              test_fardata, test_repeatpotion):
         try:
             t()
         except Exception as e:

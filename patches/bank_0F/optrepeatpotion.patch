@@ -1,0 +1,22 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptUsedPotion
+.import opt_usedpotion
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Repeated Potion Use
+;;
+;;    Three bytes at each call site in bank $0E, which has little to spare.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptUsedPotion:
+    JSL opt_usedpotion + OPTFAR
+    RTS
+
+
+DrawPalette:
