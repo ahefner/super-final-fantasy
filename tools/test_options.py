@@ -875,20 +875,21 @@ def test_statusatk():
     """
     for flag in (0, OPTF_STATUSATK):
         for hits in (0, 1, 3):
-            for dmg in (0, 1, 7, 255):
+            for dmg in (0, 1, 7, 255, 256, 257):   # 256: crit carries into
+                                                   # the high byte
                 bus, cpu = machine()
                 setblk(bus, OPT_FLAGS + 2, (flag >> 16) & 0xFF)
                 bus.sram[HITSCONNECTED - 0x6000] = hits
-                bus.sram[MATH_DMGCALC - 0x6000] = dmg
-                bus.sram[MATH_DMGCALC - 0x6000 + 1] = 0
+                bus.sram[MATH_DMGCALC - 0x6000] = dmg & 0xFF
+                bus.sram[MATH_DMGCALC - 0x6000 + 1] = dmg >> 8
                 call(cpu, "opt_thishit", dbr=BANK_0C)
-                want = dmg if flag else hits
+                want = ((dmg | (dmg >> 8)) & 0xFF) if flag else hits
                 check("thishit flag=%d hits=%d dmg=%d" % (bool(flag), hits, dmg),
                       cpu.a & 0xFF, want)
                 #  the caller branches on Z straight after, so the flag matters
                 #  as much as the value
                 check("thishit flag=%d hits=%d dmg=%d: Z" % (bool(flag), hits, dmg),
-                      bool(cpu.p & 0x02), want == 0)
+                      bool(cpu.p & 0x02), (dmg == 0) if flag else (hits == 0))
 
     #  The case the bug is about: one hit already landed, this swing missed.
     bus, cpu = machine()

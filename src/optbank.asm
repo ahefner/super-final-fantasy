@@ -1119,9 +1119,12 @@ opt_dlgident:
 ;;  takes it for granted that crit chance never exceeds hit chance; Disch's
 ;;  comment on the crit test says it outright.
 ;;
-;;  Damage is clipped to 255 before absorb is taken off it, so the high byte
-;;  of math_dmgcalc is always zero here and reading the low byte alone is
-;;  enough.
+;;  Both bytes have to be read.  Damage is clipped to 255 before absorb comes
+;;  off it, so a hit alone cannot exceed the low byte -- but the crit block
+;;  runs between the miss branch and this check and adds base damage on top,
+;;  which can total exactly 256 and read as a miss.  FFR never has to think
+;;  about this: it retargets the miss branch to skip the whole iteration, which
+;;  costs a byte bank $0C does not have.
 ;;
 ;;  FFR instead retargets the miss branch to skip the rest of the iteration
 ;;  outright, which also stops a miss counting toward crits and total damage.
@@ -1134,7 +1137,9 @@ opt_thishit:
     AND #OPTFM_STATUSATK
     BEQ @vanilla
     LDA math_dmgcalc            ; nonzero exactly when this swing landed
-    RTL
+    ORA math_dmgcalc+1          ;   -- both bytes: a crit adds base damage on
+    RTL                         ;   top, so the total can reach 256 and leave
+                                ;   the low byte reading as a miss
   @vanilla:
     LDA battle_hitsconnected
     RTL
