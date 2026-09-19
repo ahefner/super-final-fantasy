@@ -988,7 +988,9 @@ def test_fardata():
     #  produce every value exactly once.  The original table does not quite
     #  manage it: 0 appears twice and 149 never appears at all.  That is
     #  vanilla's quirk, not the port's -- the bytes here are the original
-    #  bytes -- but it is worth knowing before anyone leans on the assumption.
+    #  bytes.  FFR has a "Fix Missing Battle RNG Entry" flag for it; porting
+    #  that is a decision already taken and declined, so these two assertions
+    #  exist to stop anyone (including me) quietly "fixing" it later.
     bus, _ = machine()
     seen = []
     for state in range(256):
