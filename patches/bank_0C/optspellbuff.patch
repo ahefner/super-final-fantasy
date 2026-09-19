@@ -1,0 +1,10 @@
+--- OLD
+    LDA #>lut_MagicData
+    ADC btl_magdataptr+1
+    STA btl_magdataptr+1
+--- NEW
+.import OptMagicData
+
+    LDA #>lut_MagicData
+    JSR OptMagicData        ; finishes the pointer, then -- if either spell
+    .res 1, $EA ;   buff is on -- swings it at an edited copy

@@ -304,6 +304,20 @@ OPTSTATSLOT     = OPTBLOCK+$3A  ; which enemy slot the scaling loop is on
 OPTSTATREM      = OPTBLOCK+$3B  ; remainder, for rounding half to even
 OPTSTATHALF     = OPTBLOCK+$3C
 OPTSTATMASK     = OPTBLOCK+$3D
+OPTFB_IMPCURE   = OPT_FLAGS+2
+OPTFM_IMPCURE   = $40    ; bit 22
+OPTFB_IMPFIRE   = OPT_FLAGS+2
+OPTFM_IMPFIRE   = $80    ; bit 23
+
+;  Eight bytes of magic data, copied out of ROM so the buffs can edit it.
+;  Battle_PrepareMagic hands everything downstream a pointer, so repointing it
+;  here reaches every field without touching a single reader.
+OPTMAGSHADOW    = OPTBLOCK+$40
+
+;  The spell the magic menu is offering, 0-based.  The selection code
+;  keeps it here while it works out what to prompt for.
+btlmag_spellindex = $6B7D
+
 OPTSTATOVF      = OPTBLOCK+$3E  ; bits 16-23 of the product: HP can
                                 ;   exceed 16 bits before it is clamped
 

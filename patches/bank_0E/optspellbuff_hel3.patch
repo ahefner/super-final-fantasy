@@ -1,0 +1,11 @@
+--- OLD
+UseMagic_HEL3:
+    LDA framecounter        ; same deal....
+    AND #$1F
+    CLC
+    ADC #$40                ; (effective range:  64-95)
+--- NEW
+UseMagic_HEL3:
+    LDX #5                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    .res 2, $EA

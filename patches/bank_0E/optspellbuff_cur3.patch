@@ -1,0 +1,10 @@
+--- OLD
+UseMagic_CUR3:
+    LDA framecounter        ; same deal -- but double it again
+    AND #$3F
+    ORA #$40                ; (effective range:  64-127)
+--- NEW
+UseMagic_CUR3:
+    LDX #2                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    .res 1, $EA

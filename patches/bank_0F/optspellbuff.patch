@@ -1,0 +1,40 @@
+--- OLD
+
+
+DrawPalette:
+--- NEW
+.export OptMagicData, OptHealRoll, OptMagicTarget
+.import opt_magicdata, opt_healroll, opt_magictarget
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Improved CURE and FIRE spell families
+;;
+;;    Both call sites are in banks with nothing to spare, so both are the
+;;  size of what they replace and the work is in the options bank.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Carry is still the one from the low byte of the pointer add.
+OptMagicData:
+    ADC btl_magdataptr+1
+    STA btl_magdataptr+1
+    JSL opt_magicdata + OPTFAR
+    RTS
+
+; Reads the target byte the selection menu asks for, and lets the buff have a
+; say.  Selection and casting read the record through different pointers, so
+; both have to be told, or HARM prompts for one thing and does another.
+OptMagicTarget:
+    LDY #$03
+    LDA ($80), Y
+    JSL opt_magictarget + OPTFAR
+    RTS
+
+;  X selects the spell; returns the roll in A with Z clear.
+OptHealRoll:
+    JSL opt_healroll + OPTFAR
+    RTS
+
+
+DrawPalette:

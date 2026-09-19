@@ -1,0 +1,12 @@
+--- OLD
+UseMagic_CUR2:
+    LDA framecounter        ; same deal, but double the recovery
+    AND #$1F
+    ORA #$20                ; (effective range:  32-63)
+    BNE UseMagic_CureFamily ; always branches
+--- NEW
+UseMagic_CUR2:
+    LDX #1                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    BNE UseMagic_CureFamily
+    .res 1, $EA

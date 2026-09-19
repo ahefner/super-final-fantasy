@@ -1076,12 +1076,12 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $16   ; Improved Cure spells
   .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $A7, $FF, $8C
-  .BYTE $B8, $B5, $A8, $FF, $B6, $B3, $A8, $AF, $AF, $B6
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $9E, $9B, $8E, $FF, $A4, $B1, $A7, $FF, $91, $8E
+  .BYTE $8A, $95, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $17   ; Improved Fire spells
-  .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $A7, $FF, $8F
-  .BYTE $AC, $B5, $A8, $FF, $B6, $B3, $A8, $AF, $AF, $B6
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $FF, $8F, $92
+  .BYTE $9B, $8E, $BF, $FF, $95, $92, $9D, $BF, $FF, $92
+  .BYTE $8C, $8E, $BF, $FF, $91, $8A, $9B, $96, $FF, $FF
   .BYTE $01, $18   ; Cast Life in battle
   .BYTE $8C, $A4, $B6, $B7, $FF, $95, $AC, $A9, $A8, $FF
   .BYTE $AC, $B1, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF
@@ -1390,17 +1390,17 @@ lut_Desc_28:  ; Elemental bonus
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_29:  ; Improved Cure spells
-  .BYTE $8C, $9E, $9B, $8E, $BF, $FF, $91, $8E, $8A, $95, $FF, $A4, $B1, $A7, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $AB, $AC, $AA, $AB, $A8, $B5, $FF
-  .BYTE $B7, $AC, $A8, $B5, $B6, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $A8, $FF, $B0, $B2, $B5, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $8C, $9E, $9B, $8E, $B6, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $A8, $FF, $B7, $BA, $AC, $A6, $A8, $FF, $A4, $B6, $FF, $B0, $B8, $A6, $AB, $FF
+  .BYTE $A4, $B1, $A7, $FF, $91, $8E, $8A, $95, $B6, $FF, $A6, $B2, $B9, $A8, $B5, $FF, $A4, $FF, $BA, $AC, $A7, $A8, $B5, $FF, $FF, $FF, $FF, $FF
+  .BYTE $B5, $A4, $B1, $AA, $A8, $C0, $FF, $FF, $95, $8A, $96, $99, $FF, $A4, $B1, $A7, $FF, $8A, $96, $9E, $9D, $FF, $A4, $AF, $B6, $B2, $FF, $FF
+  .BYTE $A6, $B8, $B5, $A8, $FF, $B3, $A4, $B5, $A4, $AF, $BC, $B6, $AC, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_30:  ; Improved Fire spells
-  .BYTE $8F, $92, $9B, $8E, $BF, $FF, $95, $92, $9D, $BF, $FF, $92, $8C, $8E, $FF, $A4, $B1, $A7, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $FF, $FF, $FF
-  .BYTE $AB, $AC, $AA, $AB, $A8, $B5, $FF, $B7, $AC, $A8, $B5, $B6, $FF, $AB, $AC, $B7, $FF, $AB, $A4, $B5, $A7, $A8, $B5, $C0, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $8F, $92, $9B, $8E, $BF, $FF, $95, $92, $9D, $FF, $A4, $B1, $A7, $FF, $92, $8C, $8E, $FF, $AB, $AC, $B7, $FF, $A4, $B6, $FF, $FF, $FF, $FF
+  .BYTE $AB, $A4, $B5, $A7, $FF, $A4, $B6, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $B7, $AC, $A8, $B5, $C2, $83, $FF, $A9, $B2, $B5, $B0, $B6, $C0, $FF
+  .BYTE $91, $8A, $9B, $96, $FF, $AB, $AC, $B7, $B6, $FF, $AB, $A4, $B5, $A7, $A8, $B5, $FF, $A4, $B1, $A7, $FF, $B6, $B7, $B5, $AC, $AE, $A8, $B6
+  .BYTE $A4, $FF, $B6, $AC, $B1, $AA, $AF, $A8, $FF, $B7, $A4, $B5, $AA, $A8, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_31:  ; Cast Life in battle

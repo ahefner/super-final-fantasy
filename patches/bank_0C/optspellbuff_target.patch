@@ -1,0 +1,10 @@
+--- OLD
+    LDY #$03
+    LDA ($80), Y                    ; get the target for this spell (stored as semi-flags:  01,02,04,08,10,20 are valid values)
+--- NEW
+.import OptMagicTarget
+
+    JSR OptMagicTarget              ; get the target for this spell -- HARM's
+    .res 1, $EA                     ;   changes when its buff is on, and the
+                                    ;   prompt is chosen from it, so the cast
+                                    ;   and the prompt have to agree

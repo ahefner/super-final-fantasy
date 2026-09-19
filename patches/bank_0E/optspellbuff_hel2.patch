@@ -1,0 +1,13 @@
+--- OLD
+UseMagic_HEL2:
+    LDA framecounter        ; same deal as HEAL, only different number
+    AND #$0F
+    CLC
+    ADC #$20                ; (effective range:  32-47)
+    BNE UseMagic_HealFamily ; always branches
+--- NEW
+UseMagic_HEL2:
+    LDX #4                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    BNE UseMagic_HealFamily
+    .res 2, $EA

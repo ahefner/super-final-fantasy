@@ -1229,6 +1229,113 @@ def test_scaleenemies():
     check("100%% is a no-op", {s: read(bus, s) for s in slots}, before)
 
 
+FRAMECOUNTER = 0xF0
+BTL_MAGDATAPTR = 0x98
+BTL_ATTACKID = 0x6C8C
+OPT_MAGSHADOW = 0x40
+OPTF_IMPCURE = 0x00400000
+OPTF_IMPFIRE = 0x00800000
+
+#  FFR's six out-of-battle heal rolls: (vanilla mask, base), (buffed mask, base)
+HEALROLL = [((0x0F, 0x10), (0x1F, 0x20)),   # CURE
+            ((0x1F, 0x20), (0x3F, 0x40)),   # CUR2
+            ((0x3F, 0x40), (0x7F, 0x80)),   # CUR3
+            ((0x07, 0x10), (0x0F, 0x10)),   # HEAL
+            ((0x0F, 0x20), (0x1F, 0x20)),   # HEL2
+            ((0x1F, 0x40), (0x3F, 0x40))]   # HEL3
+
+
+def test_healroll():
+    """The out-of-battle heal amounts, buffed and not.
+
+    Vanilla computes these inline per spell; FFR widens each mask to twice
+    its span and doubles the CURE bases, leaving the HEAL bases alone.  Both
+    sets are driven over every frame counter value, because the roll is the
+    frame counter and a wrong mask shows up only at particular values.
+    """
+    for idx, (van, buf) in enumerate(HEALROLL):
+        for flag, (mask, base) in ((0, van), (OPTF_IMPCURE, buf)):
+            wrong = []
+            for fc in range(256):
+                bus, cpu = machine()
+                setblk(bus, OPT_FLAGS + 2, (flag >> 16) & 0xFF)
+                bus.wram[FRAMECOUNTER] = fc
+                cpu.x = idx
+                call(cpu, "opt_healroll", dbr=BANK_0C)
+                want = (fc & mask) + base
+                if (cpu.a & 0xFF) != want:
+                    wrong.append((fc, cpu.a & 0xFF, want))
+            check("heal roll %d, buffed=%d" % (idx, bool(flag)), wrong[:3], [])
+            #  the caller branches on Z straight after, and never wants zero
+            check("heal roll %d, buffed=%d: never zero" % (idx, bool(flag)),
+                  base > 0, True)
+
+
+#  spell -> (effectivity FFR writes, which flag)
+SPELLBUFF = {0: (0x20, "cure"), 16: (0x40, "cure"), 32: (0x80, "cure"),
+             19: (0x10, "cure"), 35: (0x20, "cure"), 51: (0x40, "cure"),
+             8: (0x18, "cure"), 27: (0x50, "cure"),
+             4: (50, "fire"), 7: (60, "fire"), 12: (70, "fire"), 1: (60, "fire")}
+RECORD = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]
+
+
+def test_spellbuff():
+    """The in-battle half: an edited copy, and the pointer swung at it.
+
+    Every spell is tried, not just the twelve FFR touches -- redirecting a
+    spell it does not touch would be a silent change to something else.
+    """
+    for spell in range(0x40):
+        for flags, on in ((0, None), (OPTF_IMPCURE, "cure"), (OPTF_IMPFIRE, "fire"),
+                          (OPTF_IMPCURE | OPTF_IMPFIRE, "both")):
+            bus, cpu = machine()
+            setblk(bus, OPT_FLAGS + 2, (flags >> 16) & 0xFF)
+            bus.sram[BTL_ATTACKID - 0x6000] = spell
+            for i, v in enumerate(RECORD):          # the record, in low RAM
+                bus.wram[0x0400 + i] = v
+            bus.wram[BTL_MAGDATAPTR] = 0x00
+            bus.wram[BTL_MAGDATAPTR + 1] = 0x04
+            call(cpu, "opt_magicdata", dbr=BANK_0C)
+            ptr = bus.wram[BTL_MAGDATAPTR] | (bus.wram[BTL_MAGDATAPTR + 1] << 8)
+
+            buffed = SPELLBUFF.get(spell)
+            applies = buffed is not None and (on == "both" or on == buffed[1])
+            if not applies:
+                check("spell %d flags=%s: pointer untouched" % (spell, on), ptr, 0x0400)
+                continue
+            want = list(RECORD)
+            want[1] = buffed[0]
+            if spell == 1:                          # HARM also stops hitting all
+                want[3] = 0x02
+            check("spell %d flags=%s: redirected" % (spell, on), ptr != 0x0400, True)
+            check("spell %d flags=%s: record" % (spell, on),
+                  [blk(bus, OPT_MAGSHADOW + i) for i in range(8)], want)
+
+
+BTLMAG_SPELLINDEX = 0x6B7D
+
+
+def test_magictarget():
+    """HARM's target, as the selection menu asks for it.
+
+    Selection and casting read the spell record through different pointers,
+    so the shadow that serves the cast never reaches the prompt.  Left alone
+    HARM prompted as an all-enemies spell and was then cast as single-target,
+    which put the animation on the party and delivered the damage nowhere.
+    """
+    for spell in range(0x40):
+        for flag in (0, OPTF_IMPFIRE):
+            for rom_target in (0x01, 0x02, 0x08, 0x10):
+                bus, cpu = machine()
+                setblk(bus, OPT_FLAGS + 2, (flag >> 16) & 0xFF)
+                bus.sram[BTLMAG_SPELLINDEX - 0x6000] = spell
+                cpu.a = rom_target
+                call(cpu, "opt_magictarget", dbr=BANK_0C)
+                want = 0x02 if (flag and spell == 1) else rom_target
+                check("target: spell %d flag=%d rom=$%02X"
+                      % (spell, bool(flag), rom_target), cpu.a & 0xFF, want)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1236,7 +1343,8 @@ def main():
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
               test_fardata, test_repeatpotion, test_buyqty,
-              test_statscale, test_isboss, test_scaleenemies):
+              test_statscale, test_isboss, test_scaleenemies,
+              test_healroll, test_spellbuff, test_magictarget):
         try:
             t()
         except Exception as e:

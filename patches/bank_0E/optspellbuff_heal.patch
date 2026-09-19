@@ -1,0 +1,13 @@
+--- OLD
+UseMagic_HEAL:
+    LDA framecounter        ; use the framecounter as a makeshift pRNG
+    AND #$07                ;  get low bits
+    CLC
+    ADC #$10                ; and ADD $10 (not ORA)  (effective range:  16-23)
+    BNE UseMagic_HealFamily ; and do the heal family of spells (always branches)
+--- NEW
+UseMagic_HEAL:
+    LDX #3                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    BNE UseMagic_HealFamily
+    .res 2, $EA

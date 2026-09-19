@@ -246,6 +246,18 @@ def main():
 
         patches = load_patches(bank)
         for name, old, new in patches:
+            #  ".res n" fills with zero, and $00 is BRK.  Padding a patch
+            #  that way puts a BRK in the instruction stream; where the bytes
+            #  are reachable the game jumps through the BRK vector and lands
+            #  somewhere unrelated.  That is a crash a long way from its
+            #  cause, so refuse it here -- padding must say ", $EA".
+            for ln, l in enumerate(new.split("\n"), 1):
+                code = l.split(";")[0].rstrip()
+                if re.match(r"^\s*\.res\s+[^,]+$", code):
+                    sys.exit("%s/%s line %d: '.res' without a fill value "
+                             "pads with $00 (BRK); write '.res n, $EA'"
+                             % (bank, name, ln))
+
             if text.count(old) != 1:
                 sys.exit("bank_%s: patch %s matched %d times (want exactly 1)"
                          % (bank, name, text.count(old)))

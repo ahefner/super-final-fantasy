@@ -1,0 +1,14 @@
+--- OLD
+UseMagic_CURE:
+    LDA framecounter        ; use the frame counter as a make-shift pRNG
+    AND #$0F                ; mask out the low bits
+    ORA #$10                ; and ORA (effective range:  16-31)
+    BNE UseMagic_CureFamily ; and do the cure family of spells (always branches)
+--- NEW
+.import OptHealRoll
+
+UseMagic_CURE:
+    LDX #0                ; the roll moved out, so the buffed and
+    JSR OptHealRoll         ;   vanilla spreads live in one table
+    BNE UseMagic_CureFamily
+    .res 1, $EA

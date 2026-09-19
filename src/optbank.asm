@@ -48,6 +48,7 @@
 .export opt_shopmax, opt_shopscale
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
+.export opt_magicdata, opt_healroll, opt_magictarget
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1636,5 +1637,151 @@ opt_scaleatk:
     JSR opt_adj50
     JSR opt_statbyte
     STA btl_attacker_critrate
+  @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Improved CURE/HEAL/LAMP/AMUT and FIRE/LIT/ICE/HARM
+;;
+;;  FFR edits the magic table in the ROM when it builds a seed.  Every one of
+;;  its changes is a single byte of a spell's eight-byte record -- effectivity,
+;;  or in LAMP and AMUT's case the ailment mask, plus HARM's target byte.
+;;
+;;  Battle_PrepareMagic works out a pointer to that record and everything
+;;  downstream reads through it, so copying the record, editing the copy and
+;;  repointing covers every reader in battle without touching any of them.
+;;
+;;  Out of battle the healing spells do not use the table at all: each has its
+;;  own inline "framecounter AND mask, plus base".  Those are handled by
+;;  opt_healroll below.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  These tables are read long.  A JSL leaves DBR pointing at the caller's
+;  chunk, and opt_magicdata also reads the magic record through
+;  (btl_magdataptr),Y, which needs exactly that bank -- so switching DBR to
+;  reach our own tables would break the copy.  Naming the bank per access
+;  costs a byte each and sidesteps it.
+;
+;  spell index, the byte FFR writes to MAGDATA_EFFECTIVITY, which flag
+SPB_CURE = 0
+SPB_FIRE = 1
+
+lut_SpellBuff:
+  .BYTE  0, $20, SPB_CURE       ; CURE   16 -> 32
+  .BYTE 16, $40, SPB_CURE       ; CUR2   32 -> 64
+  .BYTE 32, $80, SPB_CURE       ; CUR3   64 -> 128
+  .BYTE 19, $10, SPB_CURE       ; HEAL   12 -> 16
+  .BYTE 35, $20, SPB_CURE       ; HEL2   24 -> 32
+  .BYTE 51, $40, SPB_CURE       ; HEL3   48 -> 64
+  .BYTE  8, $18, SPB_CURE       ; LAMP   cures paralysis as well as darkness
+  .BYTE 27, $50, SPB_CURE       ; AMUT   cures paralysis as well as silence
+  .BYTE  4,   50, SPB_FIRE      ; FIRE   up to tier-3 effectivity
+  .BYTE  7,   60, SPB_FIRE      ; LIT
+  .BYTE 12,   70, SPB_FIRE      ; ICE
+  .BYTE  1,   60, SPB_FIRE      ; HARM, and single-target below
+lut_SpellBuffEnd:
+
+SPELL_HARM = 1
+
+opt_magicdata:
+    LDA btl_attackid
+    CMP #$40                    ; $40 and up is an enemy attack, not a spell
+    BCS @out
+    LDX #$00
+  @scan:
+    CPX #lut_SpellBuffEnd - lut_SpellBuff
+    BEQ @out
+    LDA f:lut_SpellBuff+OPTFAR, X
+    CMP btl_attackid
+    BEQ @found
+    INX
+    INX
+    INX
+    BRA @scan
+
+  @found:
+    LDA f:lut_SpellBuff+2+OPTFAR, X      ; is that flag on?
+    BNE @fire
+    LDA OPTFB_IMPCURE
+    AND #OPTFM_IMPCURE
+    BRA @test
+  @fire:
+    LDA OPTFB_IMPFIRE
+    AND #OPTFM_IMPFIRE
+  @test:
+    BEQ @out
+
+    PHX                         ; copy the record, so the edit is ours alone
+    LDY #$07
+  @copy:
+    LDA (btl_magdataptr), Y
+    STA OPTMAGSHADOW, Y
+    DEY
+    BPL @copy
+    PLX
+
+    LDA f:lut_SpellBuff+1+OPTFAR, X
+    STA OPTMAGSHADOW + MAGDATA_EFFECTIVITY
+    LDA btl_attackid
+    CMP #SPELL_HARM
+    BNE @point
+    LDA #$02                    ; HARM stops hitting the whole party
+    STA OPTMAGSHADOW + MAGDATA_TARGET
+  @point:
+    LDA #<OPTMAGSHADOW
+    STA btl_magdataptr
+    LDA #>OPTMAGSHADOW
+    STA btl_magdataptr+1
+  @out:
+    RTL
+
+;;  The six out-of-battle heal rolls.  Each spell's own code was
+;;  "framecounter AND mask, plus base"; FFR widens every mask to twice its
+;;  span and doubles the CURE bases, leaving the HEAL bases alone.  Mask and
+;;  base never share a bit, so one add serves where vanilla used ORA for one
+;;  family and ADC for the other.
+;;
+;;  In: X = 0..5 for CURE, CUR2, CUR3, HEAL, HEL2, HEL3.  Out: A, Z clear.
+lut_HealMask:   .BYTE $0F, $1F, $3F, $07, $0F, $1F
+lut_HealBase:   .BYTE $10, $20, $40, $10, $20, $40
+lut_HealMaskB:  .BYTE $1F, $3F, $7F, $0F, $1F, $3F
+lut_HealBaseB:  .BYTE $20, $40, $80, $10, $20, $40
+
+opt_healroll:
+    LDA OPTFB_IMPCURE
+    AND #OPTFM_IMPCURE
+    BEQ @vanilla
+    LDA framecounter
+    AND f:lut_HealMaskB+OPTFAR, X
+    CLC
+    ADC f:lut_HealBaseB+OPTFAR, X
+    RTL
+  @vanilla:
+    LDA framecounter
+    AND f:lut_HealMask+OPTFAR, X
+    CLC
+    ADC f:lut_HealBase+OPTFAR, X
+    RTL
+
+;;  In: A = the target byte from the spell's record.  Out: A, possibly HARM's.
+;;
+;;  The selection menu reads the record through its own pointer, not the one
+;;  Battle_PrepareMagic sets up, so the shadow above never reaches it.  Left
+;;  alone, HARM would prompt as an all-enemies spell and then be cast as a
+;;  single-target one: no prompt, the animation on the wrong side of the
+;;  screen, and damage delivered nowhere.
+opt_magictarget:
+    LDX a:btlmag_spellindex
+    CPX #SPELL_HARM
+    BNE @out
+    PHA                         ; the record's own target, if the flag is off
+    LDA OPTFB_IMPFIRE
+    AND #OPTFM_IMPFIRE
+    BEQ @keep
+    PLA
+    LDA #$02                    ; one enemy, as FFR sets it
+    RTL
+  @keep:
+    PLA
   @out:
     RTL
