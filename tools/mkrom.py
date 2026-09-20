@@ -48,10 +48,33 @@ def read(path, want):
     return d
 
 
+#  Tiles laid over a raw data bank.  The tileset CHR bank is vendored data
+#  with no assembler pass to patch, and Chests Appear Opened needs two tiles
+#  that vanilla does not have.  CHR $7E and $7F are referenced by no TSA entry
+#  in any of the eight tilesets, so they are free to take; each tileset gets
+#  its own $800 of CHR, and the same lid serves all of them.
+OPENCHEST_TILE = 0x7E
+TILESET_CHR_BANK = "03"
+TILESET_CHR_SIZE = 0x800
+TILESET_COUNT = 8
+
+
+def overlay_openchest(data):
+    art = read(os.path.join(OUT, "openchest.chr"), 32)
+    out = bytearray(data)
+    for ts in range(TILESET_COUNT):
+        at = ts * TILESET_CHR_SIZE + OPENCHEST_TILE * 16
+        out[at:at + 32] = art
+    return bytes(out)
+
+
 def nesbank(name):
     if name in ASSEMBLED:
         return read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
-    return read(os.path.join(NES, "bank_%s.dat" % name), 0x4000)
+    data = read(os.path.join(NES, "bank_%s.dat" % name), 0x4000)
+    if name == TILESET_CHR_BANK:
+        data = overlay_openchest(data)
+    return data
 
 
 def main():

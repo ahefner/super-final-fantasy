@@ -25,7 +25,7 @@
 
 .segment "BANK_OPT"
 
-.export lut_DTE1, lut_DTE2, lut_BattleScramble
+.export lut_DTE1, lut_DTE2, lut_BattleScramble, lut_ShopTypes
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  DTE table
@@ -62,3 +62,22 @@ lut_DTE1:
 
 lut_BattleScramble:
     .INCBIN "../game/bin/0F_FCF1_rngtable.bin"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Which kind of shop each shop id is
+;;
+;;  Seventy-one bytes read from exactly one instruction, which makes it the
+;;  cheapest thing in the fixed bank to move: one byte back at the read site
+;;  against seventy recovered.  Moved when Chests Appear Opened overran the
+;;  bank by fifty-six.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_ShopTypes:
+   .BYTE $00,$00,$00,$00,$00,$00,$00,$00,$00,$00      ; 10 weapon shops (but first is unused)
+   .BYTE $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01  ; 11 armor shops (to correct the off-by-1 error)
+   .BYTE $02,$02,$02,$02,$02,$02,$02,$02,$02,$02      ; 10 white magic
+   .BYTE $03,$03,$03,$03,$03,$03,$03,$03,$03,$03      ; 10 black magic
+   .BYTE $04,$04,$04,$04,$04,$04,$04,$04,$04,$04      ; 10 clinics
+   .BYTE $05,$05,$05,$05,$05,$05,$05,$05,$05,$05      ; 10 inns
+   .BYTE $06,$06,$06,$06,$06,$06,$06,$06,$06,$07      ; 9 item shops + 1 caravan
+ 

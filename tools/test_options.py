@@ -1336,6 +1336,67 @@ def test_magictarget():
                       % (spell, bool(flag), rom_target), cpu.a & 0xFF, want)
 
 
+TILESET_PROP, TSA_UL, TSA_UR = 0x0400, 0x0500, 0x0580
+GAME_FLAGS = 0x6200
+OPTF_OPENCHESTS = 0x00000020
+OPENCHEST_UL, OPENCHEST_UR = 0x7E, 0x7F
+TP_SPEC_TREASURE, TP_SPEC_MASK, GMFLG_TCOPEN = 0x08, 0x1E, 0x04
+
+
+def test_openchests():
+    """Redraw chests the party has already looted.
+
+    The pass walks the tile property table in RAM and rewrites the top half
+    of a chest tile's TSA.  Two things must hold: only chest tiles whose flag
+    is set may change, and the index arithmetic must be right -- two property
+    bytes per tile against one TSA byte, so an off-by-a-factor-of-two would
+    open some unrelated tile in the middle of the map.
+    """
+    def setup(flag, tiles, opened):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS, flag)
+        for i in range(0x100):
+            bus.wram[TILESET_PROP + i] = 0
+        for i in range(0x80):
+            bus.wram[TSA_UL + i] = 0x11
+            bus.wram[TSA_UR + i] = 0x22
+        for i in range(0x100):
+            bus.sram[GAME_FLAGS - 0x6000 + i] = 0
+        for tile, chest in tiles.items():
+            bus.wram[TILESET_PROP + tile * 2] = TP_SPEC_TREASURE
+            bus.wram[TILESET_PROP + tile * 2 + 1] = chest
+        for chest in opened:
+            bus.sram[GAME_FLAGS - 0x6000 + chest] = GMFLG_TCOPEN
+        return bus, cpu
+
+    tiles = {0x42: 3, 0x50: 7, 0x7A: 9}      # three chest tiles
+    for flag in (0, OPTF_OPENCHESTS):
+        bus, cpu = setup(flag, tiles, opened={3, 9})
+        call(cpu, "opt_openchests", dbr=BANK_0C)
+        for tile, chest in tiles.items():
+            want = (OPENCHEST_UL, OPENCHEST_UR) if (flag and chest in {3, 9}) \
+                   else (0x11, 0x22)
+            check("tile $%02X chest %d flag=%d" % (tile, chest, bool(flag)),
+                  (bus.wram[TSA_UL + tile], bus.wram[TSA_UR + tile]), want)
+        #  nothing else in either table may move
+        moved = [i for i in range(0x80)
+                 if (bus.wram[TSA_UL + i], bus.wram[TSA_UR + i]) != (0x11, 0x22)]
+        want_moved = sorted(t for t, ch in tiles.items() if ch in {3, 9}) if flag else []
+        check("flag=%d: only opened chest tiles touched" % bool(flag),
+              sorted(moved), want_moved)
+
+    #  a chest tile with a non-treasure property must be left alone even when
+    #  its would-be chest number is flagged
+    bus, cpu = setup(OPTF_OPENCHESTS, {}, opened=set(range(16)))
+    for t in range(0x80):
+        bus.wram[TILESET_PROP + t * 2] = TP_SPEC_MASK & ~TP_SPEC_TREASURE
+        bus.wram[TILESET_PROP + t * 2 + 1] = t & 0x0F
+    call(cpu, "opt_openchests", dbr=BANK_0C)
+    check("non-chest tiles never change",
+          [i for i in range(0x80)
+           if (bus.wram[TSA_UL + i], bus.wram[TSA_UR + i]) != (0x11, 0x22)], [])
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1344,7 +1405,8 @@ def main():
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
               test_fardata, test_repeatpotion, test_buyqty,
               test_statscale, test_isboss, test_scaleenemies,
-              test_healroll, test_spellbuff, test_magictarget):
+              test_healroll, test_spellbuff, test_magictarget,
+              test_openchests):
         try:
             t()
         except Exception as e:

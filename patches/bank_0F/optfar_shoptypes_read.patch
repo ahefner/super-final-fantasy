@@ -1,0 +1,6 @@
+--- OLD
+    LDA lut_ShopTypes, X
+--- NEW
+.import lut_ShopTypes
+
+    LDA f:lut_ShopTypes+OPTFAR, X

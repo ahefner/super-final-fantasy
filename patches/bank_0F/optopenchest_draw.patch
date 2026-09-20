@@ -1,0 +1,91 @@
+--- OLD
+:   JMP OpenTreasureChest     ; otherwise, open the chest
+--- NEW
+.import opt_openchests
+
+:   JMP OptOpenChest          ; otherwise, open the chest -- and, with Chests
+                              ;   Appear Opened on, show it opening
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Open a chest, and redraw it as opened
+;;
+;;    The map-load pass only runs on map entry, so without this the chest the
+;;  player just emptied stays shut until they leave and come back.  The two
+;;  tiles go out the same way RedrawDoor sends its four: during VBlank,
+;;  nametable only, no attribute change -- which is why the open lid has to
+;;  share the closed chest's palette.
+;;
+;;    Lives here rather than in the options bank because the PPU writes below
+;;  are rewritten into this port's HAL calls by convert.py, which only reads
+;;  the vendored banks.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptOpenChest:
+    JSR OpenTreasureChest      ; A = the dialogue to show
+    PHA
+    CMP #DLGID_CANTCARRY       ; nothing was taken, so nothing was opened
+    BEQ @done
+    LDA OPTFB_OPENCHESTS
+    AND #OPTFM_OPENCHESTS
+    BEQ @done
+    JSL opt_openchests + OPTFAR  ; the tileset's TSA, so a later scroll agrees
+    JSR OptChestPPUAddr
+    JSR WaitForVBlank_L
+    LDA $2002                  ; reset the PPU toggle
+    LDA OPTCHESTADDR+1
+    STA $2006
+    LDA OPTCHESTADDR
+    STA $2006
+    LDA #OPENCHEST_UL
+    STA $2007
+    LDA #OPENCHEST_UR
+    STA $2007
+    JSR SetSMScroll            ; the writes moved it
+  @done:
+    PLA
+    RTS
+
+;  OPTCHESTADDR = where the chest the player is facing sits on the nametable.
+;  The same arithmetic the door code does, but from facing rather than joy --
+;  the player is standing still and pressing A, not walking into it.
+OptChestPPUAddr:
+    LDA scroll_y
+    CLC
+    ADC #7                     ; the row the player is on
+    TAX
+    LDA facing
+    CMP #$04                   ; 1 and 2 are right and left: the player's row
+    BCC @row
+    INX                        ; 4 is down: one below
+    CMP #$04
+    BEQ @row
+    DEX                        ; 8 is up: one above
+    DEX
+  @row:
+    TXA
+    CMP #15                    ; fifteen rows to a nametable
+    BCC :+
+      SBC #15
+:   TAX
+    LDA tmp+4                  ; the column of the tile being talked to
+    AND #$1F
+    CMP #$10
+    BCS @nt2400
+    ASL A                      ; two nametable tiles to a map tile
+    ORA lut_2xNTRowStartLo, X
+    STA OPTCHESTADDR
+    LDA lut_2xNTRowStartHi, X
+    STA OPTCHESTADDR+1
+    RTS
+  @nt2400:
+    AND #$0F
+    ASL A
+    ORA lut_2xNTRowStartLo, X
+    STA OPTCHESTADDR
+    LDA lut_2xNTRowStartHi, X
+    ORA #$04                   ; the second nametable
+    STA OPTCHESTADDR+1
+    RTS
+

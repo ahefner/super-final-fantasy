@@ -163,6 +163,9 @@ class CPU:
     def a_dpx(self):
         return (0, (self.d + self.fetch() + self.x) & 0xFFFF)
 
+    def a_dpy(self):
+        return (0, (self.d + self.fetch() + self.y) & 0xFFFF)
+
     def a_dpx_ind(self):
         """(dp,X) -- the pointer is picked out of direct page by X, and only
         then dereferenced.  The battle drawing code uses it, which is why the
@@ -289,13 +292,19 @@ class CPU:
         elif op == 0xA2: v = self.a_imm(x8); self.x = v; self.setzn(v, x8)
         elif op == 0xAE: v = self.load(self.a_abs(), x8); self.x = v; self.setzn(v, x8)
         elif op == 0xA6: v = self.load(self.a_dp(), x8); self.x = v; self.setzn(v, x8)
+        elif op == 0xBE: v = self.load(self.a_absy(), x8); self.x = v; self.setzn(v, x8)
+        elif op == 0xB6: v = self.load(self.a_dpy(), x8); self.x = v; self.setzn(v, x8)
         elif op == 0xA0: v = self.a_imm(x8); self.y = v; self.setzn(v, x8)
         elif op == 0xAC: v = self.load(self.a_abs(), x8); self.y = v; self.setzn(v, x8)
         elif op == 0xA4: v = self.load(self.a_dp(), x8); self.y = v; self.setzn(v, x8)
+        elif op == 0xBC: v = self.load(self.a_absx(), x8); self.y = v; self.setzn(v, x8)
+        elif op == 0xB4: v = self.load(self.a_dpx(), x8); self.y = v; self.setzn(v, x8)
         elif op == 0x8E: self.store(self.a_abs(), self.x, x8)
         elif op == 0x86: self.store(self.a_dp(), self.x, x8)
+        elif op == 0x96: self.store(self.a_dpy(), self.x, x8)
         elif op == 0x8C: self.store(self.a_abs(), self.y, x8)
         elif op == 0x84: self.store(self.a_dp(), self.y, x8)
+        elif op == 0x94: self.store(self.a_dpx(), self.y, x8)
         # transfers
         elif op == 0xAA: self.x = self.a & (0xFF if x8 else 0xFFFF); self.setzn(self.x, x8)
         elif op == 0xA8: self.y = self.a & (0xFF if x8 else 0xFFFF); self.setzn(self.y, x8)

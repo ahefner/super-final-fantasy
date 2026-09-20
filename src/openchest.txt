@@ -1,0 +1,62 @@
+# openchest.txt -- the top half of an opened treasure chest, 16x8 pixels.
+#
+# Vanilla has no such tile.  The flag points the chest's upper two CHR entries
+# at slots $7E and $7F and leaves the lower half alone, so only the lid is
+# redrawn; the eight rows below it are the chest vanilla already draws.
+#
+# One character per pixel, eight rows of sixteen:
+#
+#     (space)  colour 0      o  colour 2
+#     .        colour 1      X  colour 3
+#
+# The colours are the map's background palette, so they are NOT fixed -- the
+# same pixels are a different four colours in every town and dungeon.  In
+# Coneria they are:
+#
+#     0 black        1 green        2 yellow       3 khaki
+#
+# The closed chest uses 1, 2 and 3 and never 0, with 3 as the surround, so
+# staying inside that vocabulary is what keeps a lid looking like it belongs.
+#
+# For reference, the whole closed chest.  The top eight rows are what this
+# file replaces; the bottom eight are fixed and will sit underneath whatever
+# you draw:
+#
+#   XXXXXXXXXXXXXXXX
+#   XXXXXXXXXXXXXXXX
+#   XX.............X
+#   X.XXXXXooooo.XX.
+#   .oooooooooo.XXo.
+#   .ooooXXXXXX.ooX.
+#   .XXXXoooooo.oX..
+#   .ooo...XXXX.X.X.
+
+#   ...X.X.X.....Xo.
+#   XXXX.X.XXXXXXoo.
+#   .oooX.Xoooo.ooX.
+#   .XXXXXXoooo.XX.X
+#   .ooooXXXXXX.X.XX
+#   .XXXXoooooo..XXX
+#   ............XXXX
+#   XXXXXXXXXXXXXXXX
+#
+# Rebuild with ./build.sh -- tools/genchest.py checks the shape and complains
+# about anything that is not eight rows of sixteen legal characters.
+XXXXXXXXXXXXXXXX
+X.............XX
+.XXoXXXoooX.XX.X
+.XXoooooXoo.XXX.
+.............XX.
+XXXXXXXXXXXXX.X.
+XX.XXXXXXXXXXX.X
+X.XXX.XXXXXXX.X.
+
+
+# XXXXXXXXXXXXXXXX
+# XX............XX
+# X.oooooooooooo.X
+# XX............XX
+# XXXXXXXXXXXXXXXX
+# X..............X
+# .XXXXXXXXXXXXXX.
+# .XXXXXXXXXXXXXX.

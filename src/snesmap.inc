@@ -304,6 +304,18 @@ OPTSTATSLOT     = OPTBLOCK+$3A  ; which enemy slot the scaling loop is on
 OPTSTATREM      = OPTBLOCK+$3B  ; remainder, for rounding half to even
 OPTSTATHALF     = OPTBLOCK+$3C
 OPTSTATMASK     = OPTBLOCK+$3D
+OPTFB_OPENCHESTS = OPT_FLAGS+0
+OPTFM_OPENCHESTS = $20   ; bit 5
+
+;  The lid drawn over an opened chest.  CHR $7E/$7F are referenced by no TSA
+;  entry in any tileset, so mkrom lays the art there and this points at it.
+OPENCHEST_UL    = $7E
+OPENCHEST_UR    = $7F
+;  Where on screen the chest being opened is.  Not doorppuaddr: the door code
+;  deliberately leaves that standing between frames, and a chest opened during
+;  a room transition would tread on it.
+OPTCHESTADDR    = OPTBLOCK+$48  ; 2 bytes
+
 OPTFB_IMPCURE   = OPT_FLAGS+2
 OPTFM_IMPCURE   = $40    ; bit 22
 OPTFB_IMPFIRE   = OPT_FLAGS+2

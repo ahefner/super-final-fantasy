@@ -70,4 +70,5 @@ python3 tools/check_bankswap.py || exit 1
 #  long debugging session; check the spacing instead.
 python3 tools/check_tables.py out/labels.txt || exit 1
 
+python3 tools/genchest.py
 python3 tools/mkrom.py

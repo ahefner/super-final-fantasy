@@ -49,6 +49,7 @@
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
+.export opt_openchests
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1783,5 +1784,46 @@ opt_magictarget:
     RTL
   @keep:
     PLA
+  @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Chests Appear Opened
+;;
+;;  The tileset's property and TSA tables are loaded into RAM on every map
+;;  entry, so editing the copy costs nothing permanent and turning the flag
+;;  off restores everything on the next map.
+;;
+;;  Each tile has two property bytes and one byte in each TSA table, so the
+;;  TSA index is half the property index.  A chest tile carries its treasure
+;;  number in its second property byte, which is the same number the opened
+;;  flag is stored under.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_openchests:
+    LDA OPTFB_OPENCHESTS
+    AND #OPTFM_OPENCHESTS
+    BEQ @out
+    LDY #$00
+  @tile:
+    LDA tileset_prop, Y
+    AND #TP_SPEC_MASK
+    CMP #TP_SPEC_TREASURE
+    BNE @next
+    LDX tileset_prop+1, Y       ; which chest this tile is
+    LDA game_flags, X
+    AND #GMFLG_TCOPEN
+    BEQ @next                   ; still shut
+    TYA
+    LSR A                       ; two property bytes per tile, one TSA byte
+    TAX
+    LDA #OPENCHEST_UL
+    STA tsa_ul, X
+    LDA #OPENCHEST_UR
+    STA tsa_ur, X
+  @next:
+    INY
+    INY
+    BNE @tile                   ; 128 tiles, two bytes each
   @out:
     RTL
