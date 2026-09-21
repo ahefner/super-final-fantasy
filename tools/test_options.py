@@ -1851,6 +1851,48 @@ def test_menuinfo():
         check("item $%02X has a description" % got, cpu.p & 1, 1)
 
 
+# --- Chest Information ------------------------------------------------------
+#  DrawDialogueBox draws every dialogue in the game, so the gate matters more
+#  than the drawing does: a conversation must not pick up the stats of
+#  whatever was last in a chest.  Only the rejections are checked here -- past
+#  them it calls DrawComplexString, which needs a PPU.
+F_CHESTINFO = 1 << 13
+
+
+def _chestinfo(flagbits, dlgsfx, itemid):
+    bus, cpu = machine()
+    for i in range(4):
+        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    bus.wram[0x61] = itemid             # dlg_itemid
+    bus.wram[0x7D] = dlgsfx             # dlgsfx
+    bus.sram[OPTDESC - 0x6000] = 0xAA   # poison: untouched means no description
+    try:
+        call(cpu, "opt_chestinfo")
+    except Exception:
+        return "drew"                   # got past the gate, into the PPU
+    return "drew" if bus.sram[OPTDESC - 0x6000] != 0xAA else "skipped"
+
+
+def test_chestinfo():
+    #  dlgsfx is what tells a chest from a conversation: OpenTreasureChest
+    #  sets it to 1 or 2 for the jingle, and it is zeroed before any other
+    #  dialogue.  A stale dlg_itemid must not be enough on its own.
+    check("a conversation draws nothing, whatever was last in a chest",
+          _chestinfo(F_CHESTINFO, 0, 0x1C), "skipped")
+    check("the flag off draws nothing",
+          _chestinfo(0, 2, 0x1C), "skipped")
+    #  Potions and key items have no description; only gear does.
+    for itemid in (0x00, 0x01, 0x19, 0x1B, 0x6C):
+        check("a chest holding item $%02X draws nothing" % itemid,
+              _chestinfo(F_CHESTINFO, 2, itemid), "skipped")
+    for itemid in (0x1C, 0x2F, 0x43, 0x44, 0x6B):
+        check("a chest holding item $%02X describes it" % itemid,
+              _chestinfo(F_CHESTINFO, 2, itemid), "drew")
+    #  The renderer is shared with the shops, so a spell id would describe
+    #  itself too -- no chest in the game contains one.
+    check("the renderer is the shops own", _chestinfo(F_CHESTINFO, 2, 0xB0), "drew")
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1862,7 +1904,7 @@ def main():
               test_healroll, test_spellbuff, test_magictarget,
               test_openchests, test_shopinfo, test_shoppose,
               test_weaponstats, test_spellinfo,
-              test_menuinfo):
+              test_menuinfo, test_chestinfo):
         try:
             t()
         except Exception as e:

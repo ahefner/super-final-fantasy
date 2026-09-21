@@ -1,0 +1,12 @@
+--- OLD
+  @PtrLoaded:             ; here, text_ptr points to the desired string
+--- NEW
+;  Chest Information draws its description by entering here, with text_ptr
+;  already pointing at it.  It has to be this routine rather than
+;  DrawComplexString: the dialogue box straddles the two nametables, and only
+;  this one advances dest_x with AND #$3F and resets the PPU address when the
+;  boundary is crossed.  A global label rather than a cheap one so it can be
+;  imported -- which is why the jump above names it too.
+.export DrawDialogueString_PtrLoaded
+DrawDialogueString_PtrLoaded:
+                          ; here, text_ptr points to the desired string

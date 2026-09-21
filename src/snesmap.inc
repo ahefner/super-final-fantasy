@@ -951,6 +951,7 @@ OPTCTX          = OPTBLOCK+$C1  ; which screen the description box is over
 OPTCTX_SHOP     = 0
 OPTCTX_EQUIP    = 1
 OPTCTX_MAGIC    = 2
+OPTCTX_CHEST    = 3
 
 ;  Where OptCallFar reads the address to jump to.  It has to be somewhere
 ;  bank $00 can see, because JMP (abs) fetches its pointer from there, and
@@ -967,6 +968,16 @@ OPTDESC_MAX     = $50
 ;  what lut_OptRows in optmenu.asm already assigns.
 OPTFB_SHOPINFO    = OPT_FLAGS+1 ; bit 12
 OPTFM_SHOPINFO    = $10
+OPTFB_CHESTINFO   = OPT_FLAGS+1 ; bit 13
+OPTFM_CHESTINFO   = $20
+
+;  How far below the dialogue's own text the chest description starts.  The
+;  box is seven map rows, its text begins four tile rows down, and the
+;  message above takes two of those -- so this is the first free row, and
+;  what is left below it is what a description has to fit in.
+OPTCHEST_DY       = 3
+OPTLINEI          = OPTBLOCK+$C2  ; where the line being drawn starts
+OPTLINEE          = OPTBLOCK+$C3  ; and where its line break was
 OPTFB_WEAPONSTATS = OPT_FLAGS+2 ; bit 16
 OPTFM_WEAPONSTATS = $01
 OPTFB_CRITRATE    = OPT_FLAGS+2 ; bit 20

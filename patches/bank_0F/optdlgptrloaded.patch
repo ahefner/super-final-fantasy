@@ -1,0 +1,4 @@
+--- OLD
+      JMP @PtrLoaded                   ; then jump ahead
+--- NEW
+      JMP DrawDialogueString_PtrLoaded ; then jump ahead

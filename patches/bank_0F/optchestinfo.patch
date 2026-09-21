@@ -1,0 +1,10 @@
+--- OLD
+    PLA                      ; then pull the dialogue text ID that was pushed at the start of the routine
+    JMP DrawDialogueString   ; draw it, then exit!
+--- NEW
+.import opt_chestinfo
+
+    PLA                      ; then pull the dialogue text ID that was pushed at the start of the routine
+    JSR DrawDialogueString   ; draw it...
+    JSL opt_chestinfo + OPTFAR  ; ...and then, for a chest holding a weapon or
+    RTS                         ;   a piece of armour, what it does

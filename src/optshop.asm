@@ -60,7 +60,7 @@
 .endmacro
 
 .export opt_shopframe, opt_pose, opt_weaponstats
-.export opt_equipframe, opt_magicframe
+.export opt_equipframe, opt_magicframe, opt_chestinfo
 .export opt_equipitem, opt_magicspell, opt_shopinfo_body
 .export opt_spellbyte, opt_num16
 ;  Reached by tools/test_options.py.
@@ -70,6 +70,7 @@
 
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
+.import DrawDialogueString_PtrLoaded
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
 .import OptShopFrameFar, OptCallFar
 .import EquipMenuFrame, DrawEquipMenu, TurnMenuScreenOn
@@ -708,7 +709,16 @@ opt_castline:
     PLA
     CLC
     ADC #MG_START - 1
+    LDX OPTCTX
+    CPX #OPTCTX_CHEST
+    BEQ @chest
     JMP opt_emit
+  @chest:
+    ;  The dialogue renderer's $02 draws whatever dlg_itemid names, and does
+    ;  not take an id from the string -- so the spell goes there instead.
+    ;  The chest's own item has been drawn by the time this is read.
+    STA dlg_itemid
+    RTS
 
 ;  One line naming the bits set in A: the lowest one, or "All" for all eight.
 ;  In: A = the byte, X = the word index its bit 0 maps to.
@@ -1748,9 +1758,11 @@ opt_menuredraw:
 
     CALL0E DrawEquipMenu        ; the order FFR uses: the screen comes back
     CALL0E TurnMenuScreenOn     ;   on before the item names are drawn
-    LDA #CHUNK_OPT              ; it lives in the fixed bank but swaps to the
-    STA cur_bank                ;   item bank on its way through
-    JSR DrawEquipMenuStrings
+    ;  Through the trampoline even though it is in the fixed bank, not bank
+    ;  $0E.  It ends by swapping to BANK_MENUS whatever cur_bank says, so its
+    ;  RTS lands in that chunk -- which is fine when the trampoline is what
+    ;  called it, and a crash when the options chunk did.
+    CALL0E DrawEquipMenuStrings
     BRA @done
 
   @magic:
@@ -1888,3 +1900,58 @@ opt_magicspell:
   @none:
     CLC
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Chest Information
+;;
+;;  The same description, under the message a chest puts on screen.  It draws
+;;  into the dialogue box, which is already on the offscreen nametable and
+;;  about to be revealed a couple of scanlines at a time -- so there is no
+;;  modal loop here and nothing to erase.  The box's own wait dismisses both.
+;;
+;;  DrawDialogueBox draws every dialogue in the game, so this has to know a
+;;  chest from a conversation.  dlgsfx is the tell: OpenTreasureChest sets it
+;;  to 1 or 2 to pick the jingle, and it is zeroed before any other dialogue.
+;;  That costs nothing, which matters -- the hook is in the fixed bank.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_chestinfo:
+    PHB
+    LDA OPTFB_CHESTINFO
+    AND #OPTFM_CHESTINFO
+    BEQ @out
+    LDA dlgsfx                  ; a conversation, not a chest
+    BEQ @out
+    LDA #OPTCTX_CHEST
+    STA OPTCTX
+    LDA dlg_itemid
+    JSR opt_descgear
+    BCC @out                    ; a potion or a key item: nothing to say
+
+    LDA box_y                   ; the renderer takes its position from box_*,
+    PHA                         ;   and returns dest_x to box_x every line
+    CLC
+    ADC #OPTCHEST_DY
+    CMP #30                     ; nametables are thirty rows tall
+    BCC @row
+    SEC
+    SBC #30
+  @row:
+    STA box_y
+
+    LDA #<OPTDESC
+    STA text_ptr
+    LDA #>OPTDESC
+    STA text_ptr+1
+    LDA #CHUNK_OPT              ; a line break calls CallMusicPlay, which
+    STA cur_bank                ;   returns through this
+    JSR DrawDialogueString_PtrLoaded
+
+    PLA
+    STA box_y
+    LDA #BANK_DIALOGUE          ; what the unhooked tail call would have left
+    STA cur_bank
+  @out:
+    PLB
+    RTL
+

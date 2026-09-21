@@ -104,6 +104,43 @@ def reaches_swap(label, bodies, seen=None, depth=0):
     return None
 
 
+def forces_bank(label, bodies):
+    """Does this routine pick its own bank to return to?
+
+    Setting cur_bank before the call is only half the contract: the callee has
+    to honour it.  DrawEquipMenuStrings does not -- it ends
+
+        LDA #BANK_MENUS
+        STA cur_bank
+        STA ret_bank
+        JSR SwapPRG_L
+        RTS
+
+    so it returns to bank $0E whatever the caller asked for, and a JSR to it
+    from the options chunk lands the RTS in the wrong chunk.  Such a routine
+    can only be called from the bank it chooses, or through a trampoline
+    that lives there.
+
+    The test is the *last* store to cur_bank in the body: if what feeds it is
+    an immediate, the bank is the routine's choice.  DrawComplexString also
+    writes cur_bank, but its last write restores a saved value, so it honours
+    what it was given.
+    """
+    if label not in bodies:
+        return None
+    body, _ = bodies[label]
+    prev = ""
+    forced = None
+    for l in body:
+        code = l.split(";")[0].strip()
+        if re.match(r"STA\s+cur_bank\b", code, re.I):
+            m = re.match(r"LDA\s+#([A-Za-z_][A-Za-z0-9_]*)", prev, re.I)
+            forced = m.group(1) if m else None
+        if code:
+            prev = code
+    return forced
+
+
 def main():
     bodies = fixed_bodies()
     called = {}
@@ -134,6 +171,21 @@ def main():
         print("   ok        %-22s swaps via %-20s %s" % (label, via, site))
     for label, via, site in unguarded:
         print("   UNGUARDED %-22s swaps via %-20s %s" % (label, via, site))
+
+    #  A callee that chooses its own return bank cannot be reached with a
+    #  plain JSR from here at all, however carefully cur_bank was set.
+    forced = []
+    for label in sorted(called):
+        bank = forces_bank(label, bodies)
+        if bank:
+            for site, _ in called[label]:
+                forced.append((label, bank, site))
+    for label, bank, site in forced:
+        print("   FORCED    %-22s returns to %-19s %s" % (label, bank, site))
+    if forced:
+        print("\n%d call(s) return to a bank of the callee's choosing: reach "
+              "them through a trampoline in that bank." % len(forced))
+        return 1
     if unguarded:
         print("\n%d call(s) would lose the program bank: point cur_bank at "
               "CHUNK_OPT first." % len(unguarded))
