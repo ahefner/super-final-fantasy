@@ -1,0 +1,19 @@
+--- OLD
+    LDY #btlch_category                 ; IB:  assigned category.  Always zero?  Players don't have categories.
+    LDA (btl_ib_charstat_ptr), Y
+    STA btl_defender_category
+    
+    LDY #btlch_elemweak                 ; IB:  elemental weakness.  (Always zero?)
+    LDA (btl_ib_charstat_ptr), Y
+    STA btl_defender_elemweakness
+--- NEW
+    ;  Both fields now carry the attacker's weapon element and category, put
+    ;  there by Weapon Stats, because that is where the attack code reads
+    ;  them from.  On defence they were the player's own category and
+    ;  weakness -- always zero in vanilla, written by nothing else -- so a
+    ;  zero here is what they always were, and the fields are free to be
+    ;  reused.
+    LDA #$00
+    STA btl_defender_category
+    STA btl_defender_elemweakness
+    .res 6, $EA

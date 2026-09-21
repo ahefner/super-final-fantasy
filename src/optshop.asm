@@ -38,7 +38,7 @@
 .include "nesio.inc"
 .include "fftext.inc"
 
-.export opt_shopframe, opt_pose
+.export opt_shopframe, opt_pose, opt_weaponstats
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
 .export opt_descgear, opt_weapcrit, opt_gearlive
@@ -1092,4 +1092,73 @@ opt_shopframe:
     JSR opt_shopdraw
     JSR opt_shopinfo_body
     PLB
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Weapon Stats
+;;
+;;  Three fields of a weapon are read by nothing at all in vanilla.
+;;  LoadOneCharacterIBStats zeroes the player's category and element, then
+;;  stores the equipped slot byte as the critical rate -- so a weapon's real
+;;  crit chance is its own position in the list, and its element and category
+;;  bonus do nothing whatever.  This fills all three in properly.
+;;
+;;  It runs through the same opt_weapcrit the description box asks, which is
+;;  the point: the number on the shop screen and the number the battle rolls
+;;  come out of one routine, and Double Weapon Crit Rate lands on both at
+;;  once because it lands inside that routine.
+;;
+;;  The element and category go into btlch_elemweak and btlch_category, which
+;;  is where the attack code already looks for them -- see the two BUGGED
+;;  comments beside btl_attacker_element and btl_attacker_category.  Those
+;;  two fields double as the player's own weakness and category on defence,
+;;  but vanilla never sets either and nothing else writes them, so the
+;;  defence side now reads a plain zero and the fields are free.
+;;
+;;  In: A = the equipped weapon's 1-based id, or 0 for unarmed.
+;;  Out: A and Z as they came in, so the caller's BEQ still works.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_weaponstats:
+    STA OPTWSIDX
+    PHX
+    PHY
+
+    LDA OPTWSIDX                ; the crit rate is written either way: with
+    BEQ @none                   ;   the flag off opt_weapcrit answers with the
+    DEC A                       ;   weapon's index, which is what vanilla
+    TAX                         ;   stored here and what the box prints
+    JSR opt_weapcrit
+    BRA @crit
+  @none:
+    LDA #$00                    ; unarmed, as vanilla's store left it
+  @crit:
+    LDY #btlch_critrate
+    STA (btl_ib_charstat_ptr), Y
+
+    LDA OPTFB_WEAPONSTATS
+    AND #OPTFM_WEAPONSTATS
+    BEQ @done                   ; off: element and category keep the zero the
+    LDA OPTWSIDX                ;   caller wrote, which is vanilla exactly
+    BEQ @done
+
+    DEC A
+    TAX
+    LDY #WEAPON_ELEM
+    JSR opt_weapbyte
+    LDY #btlch_elemweak
+    STA (btl_ib_charstat_ptr), Y
+
+    LDA OPTWSIDX
+    DEC A
+    TAX
+    LDY #WEAPON_CAT
+    JSR opt_weapbyte
+    LDY #btlch_category
+    STA (btl_ib_charstat_ptr), Y
+
+  @done:
+    PLY
+    PLX
+    LDA OPTWSIDX                ; restores Z for the caller
     RTL

@@ -1655,6 +1655,67 @@ def test_shoppose():
         check("stat index $%02X survives the call" % sx, cpu.x, sx)
 
 
+# --- Weapon Stats and Double Weapon Crit Rate -------------------------------
+#  Vanilla reads none of the three fields this fills.  The crit rate it does
+#  set is the weapon's position in the list, which is the number the shop box
+#  reports until the flag is on -- and the reason both go through one routine
+#  is so that the box and the battle cannot come to disagree.
+IB_SCRATCH = 0x6800             # somewhere for a fake in-battle record
+
+
+def _weaponstats(weapon_id, flagbits):
+    bus, cpu = machine()
+    for i in range(4):
+        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    bus.wram[0x80] = IB_SCRATCH & 0xFF          # btl_ib_charstat_ptr
+    bus.wram[0x81] = IB_SCRATCH >> 8
+    for k in (0x0D, 0x0E, 0x0F):                # poison the three fields
+        bus.sram[IB_SCRATCH - 0x6000 + k] = 0xAA
+    cpu.a = weapon_id
+    call(cpu, "opt_weaponstats")
+    at = IB_SCRATCH - 0x6000
+    return (bus.sram[at + 0x0F], bus.sram[at + 0x0E], bus.sram[at + 0x0D],
+            cpu.a, bool(cpu.p & 2))
+
+
+def test_weaponstats():
+    wep = open(os.path.join(ROOT, "game", "bin", "0C_8000_weapondata.bin"), "rb").read()
+    bad = []
+    for wid in range(0, 41):
+        rec = wep[(wid - 1) * 8:][:8] if wid else None
+        for flagbits in (0, F_WEAPONSTATS, F_WEAPONSTATS | F_CRITRATE):
+            crit, elem, cat, a, z = _weaponstats(wid, flagbits)
+            if wid == 0:
+                #  Unarmed: crit zeroed as vanilla's store left it, and the
+                #  other two untouched -- the caller already zeroed them.
+                want = (0, 0xAA, 0xAA)
+            elif not flagbits & F_WEAPONSTATS:
+                want = (wid, 0xAA, 0xAA)        # the bug, faithfully
+            elif flagbits & F_CRITRATE:
+                want = (min(255, rec[2] * 2), rec[4], rec[5])
+            else:
+                want = (rec[2], rec[4], rec[5])
+            if (crit, elem, cat) != want:
+                bad.append("weapon %d flags %06X: %r want %r"
+                           % (wid, flagbits, (crit, elem, cat), want))
+            #  The caller's BEQ runs on what comes back.
+            if a != wid or z != (wid == 0):
+                bad.append("weapon %d flags %06X: A/Z not preserved" % (wid, flagbits))
+    check("the battle gets the right weapon stats", bad, [])
+
+    #  The whole point of the shared accessor: whatever the box prints is
+    #  what the battle will roll.
+    drift = []
+    for flagbits in (0, F_WEAPONSTATS, F_WEAPONSTATS | F_CRITRATE):
+        for i in range(40):
+            shown = describe(0x1C + i, flagbits)[2]
+            rolled = _weaponstats(i + 1, flagbits)[0]
+            if shown != "CRT +%d" % rolled:
+                drift.append("weapon %d flags %06X: box says %r, battle rolls %d"
+                             % (i, flagbits, shown, rolled))
+    check("the box and the battle never disagree about crit", drift, [])
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1664,7 +1725,8 @@ def main():
               test_fardata, test_repeatpotion, test_buyqty,
               test_statscale, test_isboss, test_scaleenemies,
               test_healroll, test_spellbuff, test_magictarget,
-              test_openchests, test_shopinfo, test_shoppose):
+              test_openchests, test_shopinfo, test_shoppose,
+              test_weaponstats):
         try:
             t()
         except Exception as e:

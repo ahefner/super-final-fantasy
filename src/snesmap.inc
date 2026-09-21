@@ -929,6 +929,7 @@ OPTPOSEI        = OPTBLOCK+$B4  ; which character is being judged
 OPTPOSEIT       = OPTBLOCK+$B5  ; the item the cursor is on
 OPTPOSECL       = OPTBLOCK+$B6  ; that character's class
 OPTPOSEBIT      = OPTBLOCK+$B7  ; which bit of a magic permission byte
+OPTWSIDX        = OPTBLOCK+$B8  ; Weapon Stats: the equipped weapon's 1-based id
 
 ;  The tile offset of the cheering pose within a character's battle sprites.
 POSE_VICTORY    = $0E

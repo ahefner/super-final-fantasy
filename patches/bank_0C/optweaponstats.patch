@@ -1,0 +1,27 @@
+--- OLD
+  @ApplyWeapon:
+    LDY #btlch_critrate
+    AND #$7F
+    STA (btl_ib_charstat_ptr), Y        ; BUGGED - this sets the critical rate to the weapon index,
+                                        ;  rather than actually fetching the critical rate from the weapon
+                                        ;  stats.
+    
+    AND #$FF                        ; update Z flag
+    BEQ :+                          ; only do this next block if a weapon is actually equipped
+    
+        SEC                         ; weapon index is 1-based (convert to 0 based)
+        SBC #$01
+--- NEW
+.import opt_weaponstats
+
+  @ApplyWeapon:
+    AND #$7F                        ; the equipped weapon's 1-based id, or 0
+    JSL opt_weaponstats + OPTFAR    ; crit rate -- the weapon's index still,
+    .res 2, $EA                     ;   unless Weapon Stats is on -- and, when
+                                    ;   it is, the element and category bonus
+                                    ;   that vanilla reads from nowhere.
+                                    ;   A and Z come back untouched.
+    BEQ :+                          ; only do this next block if a weapon is actually equipped
+
+        SEC                         ; weapon index is 1-based (convert to 0 based)
+        SBC #$01

@@ -1,0 +1,8 @@
+--- OLD
+    LDY #btlch_elemweak
+    LDA (btl_entityptr_ibram), Y
+    STA btlmag_defender_elemweakness
+--- NEW
+    LDA #$00                        ; see the physical path: this field now
+    STA btlmag_defender_elemweakness ;  carries a weapon's element
+    .res 2, $EA
