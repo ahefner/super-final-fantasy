@@ -12,6 +12,8 @@
 .a8
 .i8
 .include "snesmap.inc"
+;  Descriptions written as text rather than hand-encoded bytes.
+.include "fftext.inc"
 .include "Constants.inc"
 .include "variables.inc"
 .include "nesio.inc"
@@ -1320,11 +1322,11 @@ lut_Desc_18:  ; House MP restoration
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_19:  ; Weapon stats
-  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $A8, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF, $A4, $B1, $A7, $FF, $A6, $B5, $A8, $A4, $B7, $B8, $B5, $A8
-  .BYTE $B7, $BC, $B3, $A8, $FF, $A5, $B2, $B1, $B8, $B6, $A8, $B6, $FF, $B1, $A8, $B9, $A8, $B5, $FF, $A4, $B3, $B3, $AF, $BC, $AC, $B1, $AA, $FF
-  .BYTE $B7, $B2, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  FFPAD {"Fixes critical hit rates,"}, 28
+  FFPAD {"which vanilla reads from a"}, 28
+  FFPAD {"weapon's place in the list,"}, 28
+  FFPAD {"and elemental and creature"}, 28
+  FFPAD {"bonuses that never applied."}, 28
 
 lut_Desc_20:  ; Spell fixes
   .BYTE $8C, $B2, $B5, $B5, $A8, $A6, $B7, $B6, $FF, $95, $98, $8C, $94, $BF, $FF, $95, $98, $94, $82, $BF, $FF, $91, $8E, $95, $82, $BF, $FF, $FF
@@ -1376,11 +1378,11 @@ lut_Desc_26:  ; Better Thief and Ninja
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_27:  ; Double weapon crit
-  .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $B6, $FF, $A8, $B9, $A8, $B5, $BC, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $BE, $B6, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $A6, $B5, $AC, $B7, $AC, $A6, $A4, $AF, $FF, $AB, $AC, $B7, $FF, $B5, $A4, $B7, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  FFPAD {"Doubles every weapon's"}, 28
+  FFPAD {"critical hit rate.  Needs"}, 28
+  FFPAD {"Weapon Stats, without which"}, 28
+  FFPAD {"the game never reads that"}, 28
+  FFPAD {"number at all."}, 28
 
 lut_Desc_28:  ; Elemental bonus
   .BYTE $A0, $A8, $A4, $B3, $B2, $B1, $FF, $A8, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
