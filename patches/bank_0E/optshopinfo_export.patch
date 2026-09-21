@@ -6,3 +6,9 @@
 ;  long addressing; the tables themselves are untouched.
 .export lut_WeaponPermissions, lut_ArmorPermissions
 .export lut_ClassEquipBit, lut_MagicPermisPtr
+;  Called from the options chunk through OptCallFar, which needs their
+;  addresses; none of them change.
+.export EquipMenuFrame, DrawEquipMenu, TurnMenuScreenOn
+.export TurnMenuScreenOn_ClearOAM, MenuFrame, ClearNT
+.export DrawMagicMenuMainBox, DrawMainItemBox, DrawCharMenuString
+.export DrawEquipMenuCurs, DrawMagicMenuCursor

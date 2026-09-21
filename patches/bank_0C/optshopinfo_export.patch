@@ -4,4 +4,4 @@
 .export lut_BattlePalettes, BankC_CrossBankJumpList
 ;  Shop Information reads these from the options chunk with long addressing,
 ;  so no code here changes and nothing moves -- it just needs the addresses.
-.export lut_WeaponData, lut_ArmorData
+.export lut_WeaponData, lut_ArmorData, lut_MagicData

@@ -1,0 +1,14 @@
+--- OLD
+MagicMenu_Loop:
+    JSR ClearOAM              ; clear OAM
+    JSR DrawMagicMenuCursor   ; draw the cursor
+    JSR MenuFrame             ; and do a frame
+
+    LDA joy_a
+--- NEW
+.import opt_magicframe
+
+MagicMenu_Loop:
+    JSL opt_magicframe + OPTFAR  ; as above, plus Select for a description
+
+    LDA joy_a

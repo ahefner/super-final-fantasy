@@ -1,0 +1,19 @@
+--- OLD
+EquipMenu_EQUIP:
+    JSR ClearOAM             ; clear OAM
+    JSR DrawEquipMenuCurs    ; draw the primary cursor
+    JSR EquipMenuFrame       ; do a frame
+
+    LDA joy_a
+--- NEW
+.import opt_equipframe
+
+EquipMenu_EQUIP:
+    ;  Clear OAM, draw the cursor and do a frame, as before -- and then read
+    ;  Select, which opens a description of the item under the cursor.  The
+    ;  three calls are folded into one because this bank has no room for a
+    ;  fourth, and the folding pays for the trampoline the options chunk
+    ;  needs to reach back into here.
+    JSL opt_equipframe + OPTFAR
+
+    LDA joy_a

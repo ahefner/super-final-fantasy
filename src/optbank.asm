@@ -49,6 +49,7 @@
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
+.export opt_spellbuffed, opt_spelltarget
 .export opt_openchests
 .import lut_WaitString
 .import lut_CantHoldWhat
@@ -1684,22 +1685,25 @@ lut_SpellBuffEnd:
 
 SPELL_HARM = 1
 
-opt_magicdata:
-    LDA btl_attackid
-    CMP #$40                    ; $40 and up is an enemy attack, not a spell
-    BCS @out
+;  Does a buff apply to this spell, and what does it change the effectivity
+;  to?  Split out of opt_magicdata so the shop's description box asks the
+;  same question -- the box has to say what the spell will actually do, and
+;  the only way to keep those two answers together is to have one of them.
+;
+;  In: A = spell index.  Out: C set and A = the new effectivity.
+opt_spellbuffed:
+    STA OPTSPIDX
     LDX #$00
   @scan:
     CPX #lut_SpellBuffEnd - lut_SpellBuff
-    BEQ @out
+    BEQ @none
     LDA f:lut_SpellBuff+OPTFAR, X
-    CMP btl_attackid
+    CMP OPTSPIDX
     BEQ @found
     INX
     INX
     INX
     BRA @scan
-
   @found:
     LDA f:lut_SpellBuff+2+OPTFAR, X      ; is that flag on?
     BNE @fire
@@ -1710,23 +1714,53 @@ opt_magicdata:
     LDA OPTFB_IMPFIRE
     AND #OPTFM_IMPFIRE
   @test:
-    BEQ @out
+    BEQ @none
+    LDA f:lut_SpellBuff+1+OPTFAR, X
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS
 
-    PHX                         ; copy the record, so the edit is ours alone
-    LDY #$07
+;  Does a buff change this spell's target?  Only HARM's, which stops hitting
+;  the whole party.  That rides on Improved FIRE, which is the flag that
+;  buffs HARM -- lut_SpellBuff lists it under SPB_FIRE.
+;  In: A = spell index.  Out: C set and A = the new target.
+opt_spelltarget:
+    STA OPTSPIDX
+    CMP #SPELL_HARM
+    BNE @no
+    LDA OPTFB_IMPFIRE
+    AND #OPTFM_IMPFIRE
+    BEQ @no
+    LDA #$02
+    SEC
+    RTS
+  @no:
+    LDA OPTSPIDX
+    CLC
+    RTS
+
+opt_magicdata:
+    LDA btl_attackid
+    CMP #$40                    ; $40 and up is an enemy attack, not a spell
+    BCS @out
+    JSR opt_spellbuffed
+    BCC @out
+    STA OPTSPEFF
+
+    LDY #$07                    ; copy the record, so the edit is ours alone
   @copy:
     LDA (btl_magdataptr), Y
     STA OPTMAGSHADOW, Y
     DEY
     BPL @copy
-    PLX
 
-    LDA f:lut_SpellBuff+1+OPTFAR, X
+    LDA OPTSPEFF
     STA OPTMAGSHADOW + MAGDATA_EFFECTIVITY
     LDA btl_attackid
-    CMP #SPELL_HARM
-    BNE @point
-    LDA #$02                    ; HARM stops hitting the whole party
+    JSR opt_spelltarget
+    BCC @point
     STA OPTMAGSHADOW + MAGDATA_TARGET
   @point:
     LDA #<OPTMAGSHADOW

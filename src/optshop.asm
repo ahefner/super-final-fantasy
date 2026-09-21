@@ -38,7 +38,31 @@
 .include "nesio.inc"
 .include "fftext.inc"
 
+;  Call a routine in bank $0E.  OptCallFar itself passes A, X and Y through,
+;  but setting the address needs A -- so a routine that takes a parameter in
+;  A has to be called with CALL0EA, which loads it afterwards.
+.macro SET0E addr
+    LDA #<addr
+    STA OPTCALLV
+    LDA #>addr
+    STA OPTCALLV+1
+.endmacro
+
+.macro CALL0E addr
+    SET0E addr
+    JSL OptCallFar + BANK0EFAR
+.endmacro
+
+.macro CALL0EA addr, val
+    SET0E addr
+    LDA #val
+    JSL OptCallFar + BANK0EFAR
+.endmacro
+
 .export opt_shopframe, opt_pose, opt_weaponstats
+.export opt_equipframe, opt_magicframe
+.export opt_equipitem, opt_magicspell, opt_shopinfo_body
+.export opt_spellbyte, opt_num16
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
 .export opt_descgear, opt_weapcrit, opt_gearlive
@@ -47,7 +71,12 @@
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
-.import OptShopFrameFar
+.import OptShopFrameFar, OptCallFar
+.import EquipMenuFrame, DrawEquipMenu, TurnMenuScreenOn
+.import TurnMenuScreenOn_ClearOAM, MenuFrame, ClearNT
+.import DrawMagicMenuMainBox, DrawMainItemBox, DrawCharMenuString
+.import DrawEquipMenuCurs, DrawMagicMenuCursor
+.import DrawEquipMenuStrings
 .export lut_Words, lut_WordOfs, lut_ClassHi, lut_ClassLo
 
 ;  Read with long addressing, so these banks are never swapped in and nothing
@@ -55,6 +84,8 @@
 .import lut_WeaponData, lut_ArmorData
 .import lut_WeaponPermissions, lut_ArmorPermissions
 .import lut_ClassEquipBit, lut_MagicPermisPtr
+.import lut_MagicData
+.import opt_spellbuffed, opt_spelltarget
 
 .segment "BANK_OPT"
 
@@ -78,6 +109,17 @@ WORD_RESIST   = 7
 WORD_ELEMENT  = 8
 WORD_ELEMENTS = 40      ; after the twelve classes, which end at 39
 WORD_AND      = 41
+WORD_TGT0     = 42      ; five, by the bit set in the target byte
+WORD_RTN0     = 47      ; nineteen, indexed by the routine byte itself
+WORD_STAT0    = 66      ; eight, by the bit set in a status mask
+WORD_DMG      = 74
+WORD_RES2     = 75
+WORD_WEAK     = 76
+WORD_PTS      = 77
+WORD_HP       = 78
+WORD_ATK2     = 79
+WORD_HIT2     = 80
+WORD_OOB0     = 81      ; five, for the spells with no battle routine
 WORD_ALL      = 9
 WORD_ALLCLASS = 10
 WORD_MORE     = 11
@@ -131,31 +173,101 @@ wC10:     FFWORD "Bm"
 wC11:     FFWORD "Bw"
 wELEMS:   FFWORD " Elements"
 wAND:     FFWORD " and "
+;  Who a spell reaches, in the order of the bits in its target byte.
+wG0:      FFWORD "All Enemies"
+wG1:      FFWORD "Single Enemy"
+wG2:      FFWORD "Caster"
+wG3:      FFWORD "All Allies"
+wG4:      FFWORD "One Ally"
+;  What a spell does, indexed by the routine byte straight out of the record.
+;  Routine 0 has no battle routine at all and is named from lut_OOBSpell
+;  instead; 11 is unused.
+wR00:     FFWORD ""
+wR01:     FFWORD "Damage"
+wR02:     FFWORD "Dmg Undead"
+wR03:     FFWORD "Inflict Stat"
+wR04:     FFWORD "Halve Hits"
+wR05:     FFWORD "Reduce Moral"
+wR06:     FFWORD "Recover HP"
+wR07:     FFWORD "Recover HP"
+wR08:     FFWORD "Heal Stat"
+wR09:     FFWORD "Raise Def."
+wR10:     FFWORD "Resist Elem."
+wR11:     FFWORD ""
+wR12:     FFWORD "Double Hits"
+wR13:     FFWORD "Raise Attack"
+wR14:     FFWORD "Reduce Evade"
+wR15:     FFWORD "Full Recover"
+wR16:     FFWORD "Raise Evade"
+wR17:     FFWORD "Void Resist."
+wR18:     FFWORD "PW Status"
+;  The eight ailments, in the order of the bits in a status mask.
+wS0:      FFWORD "Dead"
+wS1:      FFWORD "Petrified"
+wS2:      FFWORD "Poisoned"
+wS3:      FFWORD "Blind"
+wS4:      FFWORD "Paralyzed"
+wS5:      FFWORD "Asleep"
+wS6:      FFWORD "Silenced"
+wS7:      FFWORD "Confused"
+wDMG:     FFWORD " DMG"
+wRES2:    FFWORD "Resist  "
+wWEAK:    FFWORD "Weak    "
+wPTS:     FFWORD " pts"
+wHP:      FFWORD " HP"
+wATK2:    FFWORD " ATK"
+wHIT2:    FFWORD " HIT"
+;  The five spells with no battle routine, named by what they do in a menu.
+wO0:      FFWORD "Revive"
+wO1:      FFWORD "Full Revive"
+wO2:      FFWORD "Up one floor"
+wO3:      FFWORD "Heal Stoned"
+wO4:      FFWORD "Exit dungeon"
 lut_WordsEnd:
 
-;  Byte offsets, so one index reaches any word.  The table has to stay under
-;  256 bytes for that; the assertion below is the only thing that notices if
-;  an edit pushes it over.
+;  Offsets, so one index reaches any word.
 lut_WordOfs:
-  .byte wATK - lut_Words, wHIT - lut_Words, wCRT - lut_Words
-  .byte wDEF - lut_Words, wEVA - lut_Words, wHURT - lut_Words
-  .byte wCAST - lut_Words, wRESIST - lut_Words, wELEMENT - lut_Words
-  .byte wALL - lut_Words, wALLCLS - lut_Words, wMORE - lut_Words
-  .byte wE0 - lut_Words, wE1 - lut_Words, wE2 - lut_Words, wE3 - lut_Words
-  .byte wE4 - lut_Words, wE5 - lut_Words, wE6 - lut_Words, wE7 - lut_Words
-  .byte wT0 - lut_Words, wT1 - lut_Words, wT2 - lut_Words, wT3 - lut_Words
-  .byte wT4 - lut_Words, wT5 - lut_Words, wT6 - lut_Words, wT7 - lut_Words
-  .byte wC0 - lut_Words, wC1 - lut_Words, wC2 - lut_Words, wC3 - lut_Words
-  .byte wC4 - lut_Words, wC5 - lut_Words, wC6 - lut_Words, wC7 - lut_Words
-  .byte wC8 - lut_Words, wC9 - lut_Words, wC10 - lut_Words, wC11 - lut_Words
-  .byte wELEMS - lut_Words, wAND - lut_Words
+  .word wATK - lut_Words, wHIT - lut_Words, wCRT - lut_Words
+  .word wDEF - lut_Words, wEVA - lut_Words, wHURT - lut_Words
+  .word wCAST - lut_Words, wRESIST - lut_Words, wELEMENT - lut_Words
+  .word wALL - lut_Words, wALLCLS - lut_Words, wMORE - lut_Words
+  .word wE0 - lut_Words, wE1 - lut_Words, wE2 - lut_Words, wE3 - lut_Words
+  .word wE4 - lut_Words, wE5 - lut_Words, wE6 - lut_Words, wE7 - lut_Words
+  .word wT0 - lut_Words, wT1 - lut_Words, wT2 - lut_Words, wT3 - lut_Words
+  .word wT4 - lut_Words, wT5 - lut_Words, wT6 - lut_Words, wT7 - lut_Words
+  .word wC0 - lut_Words, wC1 - lut_Words, wC2 - lut_Words, wC3 - lut_Words
+  .word wC4 - lut_Words, wC5 - lut_Words, wC6 - lut_Words, wC7 - lut_Words
+  .word wC8 - lut_Words, wC9 - lut_Words, wC10 - lut_Words, wC11 - lut_Words
+  .word wELEMS - lut_Words, wAND - lut_Words
+  .word wG0 - lut_Words, wG1 - lut_Words, wG2 - lut_Words, wG3 - lut_Words
+  .word wG4 - lut_Words
+  .word wR00 - lut_Words, wR01 - lut_Words, wR02 - lut_Words, wR03 - lut_Words
+  .word wR04 - lut_Words, wR05 - lut_Words, wR06 - lut_Words, wR07 - lut_Words
+  .word wR08 - lut_Words, wR09 - lut_Words, wR10 - lut_Words, wR11 - lut_Words
+  .word wR12 - lut_Words, wR13 - lut_Words, wR14 - lut_Words, wR15 - lut_Words
+  .word wR16 - lut_Words, wR17 - lut_Words, wR18 - lut_Words
+  .word wS0 - lut_Words, wS1 - lut_Words, wS2 - lut_Words, wS3 - lut_Words
+  .word wS4 - lut_Words, wS5 - lut_Words, wS6 - lut_Words, wS7 - lut_Words
+  .word wDMG - lut_Words, wRES2 - lut_Words, wWEAK - lut_Words
+  .word wPTS - lut_Words, wHP - lut_Words, wATK2 - lut_Words, wHIT2 - lut_Words
+  .word wO0 - lut_Words, wO1 - lut_Words, wO2 - lut_Words, wO3 - lut_Words
+  .word wO4 - lut_Words
 lut_WordOfsEnd:
+
+;  Which word names each of the five routine-0 spells.  Cast Life in Battle
+;  gives LIFE and LIF2 a real routine, at which point they stop coming here.
+lut_OOBSpell:
+  .byte 33, WORD_OOB0 + 0       ; LIFE
+  .byte 56, WORD_OOB0 + 1       ; LIF2
+  .byte 38, WORD_OOB0 + 2       ; WARP
+  .byte 40, WORD_OOB0 + 3       ; SOFT
+  .byte 41, WORD_OOB0 + 4       ; EXIT
+lut_OOBSpellEnd:
 
 ;  An index that runs off the end of this table reads whatever follows it and
 ;  draws something arbitrary, which is how "All Elements" became "AllBw".
-.assert lut_WordOfsEnd - lut_WordOfs = WORD_AND + 1, error, "word index table is the wrong length"
+.assert lut_WordOfsEnd - lut_WordOfs = (WORD_OOB0 + 5) * 2, error, "word index table is the wrong length"
 
-.assert lut_WordsEnd - lut_Words < 256, error, "word table too big to index by a byte"
 
 ;  A set bit in an equip permission word means that class CANNOT use the
 ;  item.  The twelve bits run FT TH BB RM WM BM KN NJ MA RW WW BW from $800
@@ -192,19 +304,30 @@ opt_emit:
     PLX
     RTS
 
-;  Append a word.  In: A = one of the WORD_ constants.  X clobbered.
+;  Append a word.  In: A = one of the WORD_ constants.  X and Y clobbered.
+;
+;  The offsets are sixteen bits because the table is bigger than a byte can
+;  reach, and a long read indexed by an eight-bit register cannot get past
+;  the first 256 bytes of it either -- hence the pointer.
 opt_word:
+    ASL A                       ; two bytes per offset
     TAX
     LDA f:lut_WordOfs + OPTFAR, X
-    STA OPTWORD
-    TAX
-    LDA f:lut_Words + OPTFAR, X ; the length byte
+    CLC
+    ADC #<lut_Words
+    STA OPTWPTR
+    LDA f:lut_WordOfs + 1 + OPTFAR, X
+    ADC #>lut_Words
+    STA OPTWPTR+1
+    LDA #^(lut_Words + OPTFAR)
+    STA OPTWPTR+2
+    LDY #$00
+    LDA [OPTWPTR], Y            ; the length byte
     STA OPTWORDN
     BEQ @done
   @loop:
-    INC OPTWORD
-    LDX OPTWORD
-    LDA f:lut_Words + OPTFAR, X
+    INY
+    LDA [OPTWPTR], Y
     JSR opt_emit
     DEC OPTWORDN
     BNE @loop
@@ -610,6 +733,15 @@ opt_descgear:
     LDA #$00
     STA OPTDESCI
     LDA OPTGEAR
+    CMP #MG_START
+    BCC @gear
+    SEC                         ; a spell, if it is one of the sixty-four
+    SBC #MG_START
+    CMP #64
+    BCS @none
+    STA OPTGEARI
+    JMP opt_descspell
+  @gear:
     CMP #TCITYPE_WEPSTART
     BCC @none
     CMP #TCITYPE_ARMSTART
@@ -825,7 +957,17 @@ opt_boxdims:
 ;  moves.  It also handles the joypad and the music, so nothing else is left
 ;  to do here.
 opt_infoframe:
+    LDA OPTCTX
+    BNE @menu
     JMP opt_shopdraw
+  @menu:
+    CMP #$01
+    BEQ @equip
+    CALL0E MenuFrame
+    RTS
+  @equip:
+    CALL0E EquipMenuFrame
+    RTS
 
 ;  Hold the box until the player presses something.  The button that opened
 ;  it has to be let go of first, or the same press closes it again.
@@ -874,11 +1016,17 @@ opt_showbox:
 
     JSR opt_waitbtn
 
+    LDA OPTCTX
+    BNE @redraw                 ; a menu has live content under the box and
+                                ;   has to be drawn again from scratch
     JSR opt_boxdims
     LDA #CHUNK_OPT
     STA cur_bank
     JSR EraseBox
-
+    BRA @ptr
+  @redraw:
+    JSR opt_menuredraw
+  @ptr:
     LDA OPTSAVEPTR
     STA text_ptr
     LDA OPTSAVEPTR+1
@@ -895,6 +1043,13 @@ opt_showbox:
 ;  comment "but why?  select isn't used in shops?".  Nothing else about the
 ;  game's input handling is touched.
 opt_shopinfo_body:
+    ;  Say which screen this is before anything else can return early.  The
+    ;  box reads this to decide whether closing it means erasing a box or
+    ;  redrawing a whole menu, and OPTCTX is battery-backed -- inheriting a
+    ;  value from a previous session put the menus' full-screen redraw over
+    ;  a shop, which turned the screen off and drew menu boxes on it.
+    LDA #OPTCTX_SHOP
+    STA OPTCTX
     LDA OPTFB_SHOPINFO
     AND #OPTFM_SHOPINFO
     BEQ @out
@@ -1162,3 +1317,574 @@ opt_weaponstats:
     PLX
     LDA OPTWSIDX                ; restores Z for the caller
     RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Spells
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  A byte of a spell record, as the spell will actually behave.
+;
+;  The two fields a buff can change are asked of the same routines the battle
+;  asks, so a buffed CURE reads the same here as it does when it is cast.
+;
+;  In: X = spell 0..63, Y = which byte.  Out: A.  X, Y kept.
+opt_spellbyte:
+    JSR opt_spellrom
+    STA OPTSPRAW
+    CPY #MAGDATA_EFFECTIVITY
+    BEQ @eff
+    CPY #MAGDATA_TARGET
+    BEQ @tgt
+    LDA OPTSPRAW
+    RTS
+  @eff:
+    PHX
+    PHY
+    TXA
+    JSR opt_spellbuffed         ; the rule the battle uses
+    PLY
+    PLX
+    BCS @out
+    LDA OPTSPRAW                ; no buff: the record as it stands
+  @out:
+    RTS
+  @tgt:
+    PHX
+    PHY
+    TXA
+    JSR opt_spelltarget
+    PLY
+    PLX
+    BCS @out
+    LDA OPTSPRAW
+    RTS
+
+;  The record byte as the ROM holds it.  Sixty-four records of eight bytes is
+;  512, so the table is read in halves for the same reason the weapon one is.
+;  In: X = spell 0..63, Y = which byte.  Out: A.  X, Y kept.
+opt_spellrom:
+    PHX
+    PHY
+    TXA
+    CMP #32                     ; 32 * 8 is exactly 256
+    BCS @high
+    JSR @offset
+    LDA f:lut_MagicData + BANK0CFAR, X
+    BRA @done
+  @high:
+    SEC
+    SBC #32
+    JSR @offset
+    LDA f:lut_MagicData + 256 + BANK0CFAR, X
+  @done:
+    PLY
+    PLX
+    RTS
+
+  @offset:
+    ASL A                       ; eight bytes per spell, plus the field
+    ASL A
+    ASL A
+    STA OPTGEARX
+    TYA
+    CLC
+    ADC OPTGEARX
+    TAX
+    RTS
+
+;  OPTN16 = A * X, by repeated addition; X is 2, 4 or 6.
+opt_scale16:
+    STA OPTSPEFF
+    LDA #$00
+    STA OPTN16
+    STA OPTN16+1
+  @loop:
+    LDA OPTSPEFF
+    CLC
+    ADC OPTN16
+    STA OPTN16
+    BCC @nc
+    INC OPTN16+1
+  @nc:
+    DEX
+    BNE @loop
+    RTS
+
+lut_Pow10:
+  .word 10000, 1000, 100, 10
+
+;  Append OPTN16 in decimal, leading zeros suppressed.  A damage spell's
+;  weakness figure is six times its effectivity, which does not fit in a byte.
+opt_num16:
+    LDA #$00
+    STA OPTNUMSEEN
+    LDX #$00
+  @place:
+    CPX #8
+    BCS @ones
+    LDA f:lut_Pow10 + OPTFAR, X
+    STA OPTNUMP16
+    LDA f:lut_Pow10 + 1 + OPTFAR, X
+    STA OPTNUMP16+1
+    LDY #$00
+  @sub:
+    LDA OPTN16                  ; 16-bit compare, low byte first
+    CMP OPTNUMP16
+    LDA OPTN16+1
+    SBC OPTNUMP16+1
+    BCC @digit
+    LDA OPTN16
+    SEC
+    SBC OPTNUMP16
+    STA OPTN16
+    LDA OPTN16+1
+    SBC OPTNUMP16+1
+    STA OPTN16+1
+    INY
+    BRA @sub
+  @digit:
+    TYA
+    BNE @print
+    LDA OPTNUMSEEN
+    BEQ @next                   ; a leading zero
+    TYA
+  @print:
+    INC OPTNUMSEEN
+    CLC
+    ADC #CHR_ZERO
+    JSR opt_emit
+  @next:
+    INX
+    INX
+    BRA @place
+  @ones:
+    LDA OPTN16
+    CLC
+    ADC #CHR_ZERO
+    JMP opt_emit
+
+;  Append the effectivity scaled by X, on a new line after a space.
+opt_scaleline:
+    PHX
+    LDA #CHR_SPACE
+    JSR opt_emit
+    PLX
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JMP opt_num16
+
+;  Name a routine-0 spell by what it does in a menu; it has no battle
+;  routine to name it after.  In: OPTGEARI = the spell.
+opt_oobword:
+    LDX #$00
+  @scan:
+    CPX #lut_OOBSpellEnd - lut_OOBSpell
+    BCS @none
+    LDA f:lut_OOBSpell + OPTFAR, X
+    CMP OPTGEARI
+    BEQ @found
+    INX
+    INX
+    BRA @scan
+  @found:
+    LDA f:lut_OOBSpell + 1 + OPTFAR, X
+    JMP opt_word
+  @none:
+    RTS
+
+;  " <n>", the effectivity scaled by X.
+opt_spacenum:
+    PHX
+    LDA #CHR_SPACE
+    JSR opt_emit
+    PLX
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JMP opt_num16
+
+;  A list of whatever bits are set in OPTSPEFF, naming the first and counting
+;  the rest.  In: X = the word the lowest bit maps to.
+opt_bitlist:
+    STX OPTPOSEBIT
+    LDA OPTSPEFF
+    BEQ @out
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA OPTSPEFF
+    LDX OPTPOSEBIT
+    JSR opt_bitline
+    JSR opt_word
+    LDA OPTBITN
+    CMP #$02
+    BCC @out
+    JSR opt_nl
+    LDA #WORD_AND
+    JSR opt_word
+    LDA OPTBITN
+    SEC
+    SBC #$01
+    JSR opt_num
+    LDA #WORD_MORE
+    JMP opt_word
+  @out:
+    RTS
+
+;  In: OPTGEARI = spell 0..63.  Out: C set, OPTDESC holds the description.
+opt_descspell:
+    LDX OPTGEARI                ; the element it carries, if any
+    LDY #MAGDATA_ELEMENT
+    JSR opt_spellbyte
+    BEQ @target
+    LDX #WORD_ELEM0
+    JSR opt_bitline
+    CMP #WORD_ALL
+    BEQ @eall
+    JSR opt_word
+    LDA #WORD_ELEMENT
+    BRA @elemw
+  @eall:
+    JSR opt_word
+    LDA #WORD_ELEMENTS
+  @elemw:
+    JSR opt_word
+    JSR opt_nl
+
+  @target:
+    LDX OPTGEARI                ; who it reaches
+    LDY #MAGDATA_TARGET
+    JSR opt_spellbyte
+    JSR opt_bitscan
+    LDA OPTBITLO
+    CMP #$08
+    BCS @routine
+    CLC
+    ADC #WORD_TGT0
+    JSR opt_word
+    JSR opt_nl
+
+  @routine:
+    LDX OPTGEARI
+    LDY #MAGDATA_EFFECT         ; the routine, which is byte 4 -- FFR calls
+    JSR opt_spellbyte           ;   this one Routine and byte 1 Effect, which
+    STA OPTSPROUT               ;   is the other way round from this port
+    LDX OPTGEARI
+    LDY #MAGDATA_EFFECTIVITY
+    JSR opt_spellbyte
+    STA OPTSPEFF
+
+    LDA OPTSPROUT
+    BNE @named
+    JSR opt_oobword             ; no battle routine at all
+    JMP @done
+  @named:
+    CLC
+    ADC #WORD_RTN0
+    JSR opt_word
+
+    ;  What else there is to say depends on the routine.  The handlers are
+    ;  further off than a conditional branch reaches, so the branches land on
+    ;  jumps parked here instead.
+    LDA OPTSPROUT
+    CMP #$01
+    BEQ @jdamage
+    CMP #$02
+    BEQ @jdamage
+    CMP #$06
+    BEQ @jheal
+    CMP #$07
+    BEQ @jheal
+    CMP #$05
+    BEQ @jminus
+    CMP #$0E
+    BEQ @jminus
+    CMP #$09
+    BEQ @jplus
+    CMP #$10
+    BEQ @jplus
+    CMP #$0D
+    BEQ @jatkhit
+    CMP #$0A
+    BEQ @jelem
+    CMP #$03
+    BEQ @jstatus
+    CMP #$08
+    BEQ @jstatus
+    CMP #$12
+    BEQ @jstatus
+    JMP @done
+
+  @jdamage: JMP @damage
+  @jheal:   JMP @heal
+  @jminus:  JMP @minus
+  @jplus:   JMP @plus
+  @jatkhit: JMP @atkhit
+  @jelem:   JMP @elemlist
+  @jstatus: JMP @status
+
+  @damage:                      ; FFR's figures: twice to four times the
+    JSR opt_nl                  ;   effectivity, the resisted case at face
+    LDX #2                      ;   value, and six times it against a weakness
+    JSR opt_spacenum
+    LDA #CHR_MINUS
+    JSR opt_emit
+    LDX #4
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JSR opt_num16
+    LDA #WORD_DMG
+    JSR opt_word
+    JSR opt_nl
+    LDA #WORD_RES2
+    JSR opt_word
+    LDX #1
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JSR opt_num16
+    JSR opt_nl
+    LDA #WORD_WEAK
+    JSR opt_word
+    LDX #6
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JSR opt_num16
+    JMP @done
+
+  @heal:
+    JSR opt_nl
+    LDX #1
+    JSR opt_spacenum
+    LDA #CHR_MINUS
+    JSR opt_emit
+    LDX #2
+    LDA OPTSPEFF
+    JSR opt_scale16
+    JSR opt_num16
+    LDA #WORD_HP
+    JSR opt_word
+    JMP @done
+
+  @minus:
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA #CHR_MINUS
+    JSR opt_emit
+    LDA OPTSPEFF
+    JSR opt_num
+    LDA #WORD_PTS
+    JSR opt_word
+    JMP @done
+
+  @plus:
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA #CHR_PLUS
+    JSR opt_emit
+    LDA OPTSPEFF
+    JSR opt_num
+    LDA #WORD_PTS
+    JSR opt_word
+    JMP @done
+
+  @atkhit:
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA #CHR_PLUS
+    JSR opt_emit
+    LDA OPTSPEFF
+    JSR opt_num
+    LDA #WORD_ATK2
+    JSR opt_word
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA #CHR_PLUS
+    JSR opt_emit
+    LDX OPTGEARI
+    LDY #MAGDATA_HITRATE
+    JSR opt_spellbyte
+    JSR opt_num
+    LDA #WORD_HIT2
+    JSR opt_word
+    JMP @done
+
+  @elemlist:
+    LDX #WORD_ELEM0
+    JSR opt_bitlist
+    JMP @done
+
+  @status:
+    LDX #WORD_STAT0
+    JSR opt_bitlist
+
+  @done:
+    JSR opt_term
+    SEC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The equip and magic menus
+;;
+;;  The same box, opened with the same button.  The difference from a shop is
+;;  what is underneath it: the shop draws over the command box, which the
+;;  item list has already erased, so erasing the box again puts things back.
+;;  Both menus have their own content there, so the screen is turned off and
+;;  drawn again, which is what FFR does too.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_menuredraw:
+    LDA menustall
+    PHA
+    LDA #$00
+    wPPUMASK                    ; the screen goes off while the menu is
+    LDA #$00                    ;   rebuilt -- wPPUMASK is a call, so do not
+    STA menustall               ;   assume it left A alone
+    LDA OPTCTX
+    CMP #OPTCTX_EQUIP
+    BNE @magic
+
+    CALL0E DrawEquipMenu        ; the order FFR uses: the screen comes back
+    CALL0E TurnMenuScreenOn     ;   on before the item names are drawn
+    LDA #CHUNK_OPT              ; it lives in the fixed bank but swaps to the
+    STA cur_bank                ;   item bank on its way through
+    JSR DrawEquipMenuStrings
+    BRA @done
+
+  @magic:
+    CALL0E ClearNT
+    LDA cursor                  ; DrawMagicMenuMainBox resets the cursor
+    PHA
+    CALL0E DrawMagicMenuMainBox
+    PLA
+    STA cursor
+    CALL0EA DrawMainItemBox, $07
+    CALL0EA DrawCharMenuString, $29
+    CALL0E TurnMenuScreenOn_ClearOAM
+
+  @done:
+    PLA
+    STA menustall
+    RTS
+
+;  Shared by both menus: put the box up for the item id in A.
+opt_menubox:
+    JSR opt_descgear
+    BCC @out
+    JSR opt_showbox
+  @out:
+    RTS
+
+;  Has Select been pressed, with the flag on?  Out: C set if so.
+opt_wantinfo:
+    LDA OPTFB_SHOPINFO
+    AND #OPTFM_SHOPINFO
+    BEQ @no
+    LDA joy_select
+    BEQ @no
+    LDA #$00
+    STA joy_select              ; spent, whether or not a box follows
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
+
+;  The equip menu.  item_box holds equipment slots here -- a 1-based index
+;  into the weapon or armour table, with bit 7 set when it is worn -- and
+;  equipoffset says which of the two menus this is.
+opt_equipframe:
+    PHB
+    LDA #OPTCTX_EQUIP           ; see opt_shopinfo_body
+    STA OPTCTX
+    JSR ClearOAM                ; the three calls this replaced, then Select
+    CALL0E DrawEquipMenuCurs
+    CALL0E EquipMenuFrame
+    JSR opt_wantinfo
+    BCC @out
+    JSR opt_equipitem
+    BCC @out
+    JSR opt_menubox
+  @out:
+    PLB
+    RTL
+
+;  Which item the equip menu's cursor is on.  item_box holds equipment slots
+;  here -- a 1-based index into the weapon or armour table, with bit 7 set
+;  when it is worn -- and equipoffset says which of the two menus this is.
+;  Out: C set and A = the item id.
+opt_equipitem:
+    LDX cursor
+    LDA item_box, X
+    BEQ @none                   ; an empty slot
+    AND #$7F
+    STA OPTGEARX
+    LDY equipoffset
+    CPY #ch_weapons - ch_stats
+    BNE @armor
+    LDA OPTGEARX
+    CLC
+    ADC #TCITYPE_WEPSTART - 1   ; the index is 1-based
+    SEC
+    RTS
+  @armor:
+    LDA OPTGEARX
+    CLC
+    ADC #TCITYPE_ARMSTART - 1
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS
+
+;  The magic menu.  A character's spell list stores, for each of the four
+;  slots on each of the eight levels, which spell of that level they know --
+;  1 to 8, or 0 for none.  So the spell is its level's base plus that.
+opt_magicframe:
+    PHB
+    LDA #OPTCTX_MAGIC           ; see opt_shopinfo_body
+    STA OPTCTX
+    JSR ClearOAM
+    CALL0E DrawMagicMenuCursor
+    CALL0E MenuFrame
+    JSR opt_wantinfo
+    BCC @out
+    JSR opt_magicspell
+    BCC @out
+    JSR opt_menubox
+  @out:
+    PLB
+    RTL
+
+;  Which spell the magic menu's cursor is on.  A character's list stores, for
+;  each of the four slots on each of the eight levels, which spell of that
+;  level they know -- 1 to 8, or 0 for none -- so the spell is its level's
+;  base plus that.  Out: C set and A = the item id.
+opt_magicspell:
+    LDA submenu_targ            ; the same arithmetic UseMagic_GetRequiredMP
+    ROR A                       ;   uses to find the character
+    ROR A
+    ROR A
+    AND #$C0
+    ORA cursor
+    TAX
+    LDA ch_spells, X
+    BEQ @none                   ; a slot they have not filled
+    STA OPTGEARX
+    LDA cursor
+    LSR A                       ; four slots to a level
+    LSR A
+    ASL A                       ; eight spells to a level
+    ASL A
+    ASL A
+    CLC
+    ADC OPTGEARX
+    CLC
+    ADC #MG_START - 1
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS

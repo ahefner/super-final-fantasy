@@ -882,6 +882,7 @@ CHR_SPACE       = $FF
 CHR_PCT         = $E0
 ;  mkrom draws a plus into this slot; see overlay_plus there for why it is
 ;  not $7B, which is where FFR's character table puts one.
+CHR_MINUS       = $C2
 CHR_PLUS        = $E6
 
 ;  Where the box goes: the bottom-left corner, over the command box, which
@@ -930,6 +931,32 @@ OPTPOSEIT       = OPTBLOCK+$B5  ; the item the cursor is on
 OPTPOSECL       = OPTBLOCK+$B6  ; that character's class
 OPTPOSEBIT      = OPTBLOCK+$B7  ; which bit of a magic permission byte
 OPTWSIDX        = OPTBLOCK+$B8  ; Weapon Stats: the equipped weapon's 1-based id
+
+;  The word table outgrew a byte offset, so opt_word walks it with a 24-bit
+;  pointer, which has to live in the direct page.  tmp is the game's own
+;  scratch and is free while the description is being built: the string is
+;  finished before anything that draws is called.
+OPTWPTR         = $001D         ; 3 bytes -- tmp+13, but snesmap.inc is
+                                ;   included before variables.inc
+
+;  Spell descriptions.  Some of the numbers -- a damage spell's weakness
+;  figure is six times its effectivity -- do not fit in a byte.
+OPTN16          = OPTBLOCK+$B9  ; 2 bytes: the value being printed
+OPTNUMP16       = OPTBLOCK+$BB  ; 2 bytes: the place value
+OPTSPIDX        = OPTBLOCK+$BD  ; the spell being described
+OPTSPEFF        = OPTBLOCK+$BE  ; its effectivity, after any buff
+OPTSPROUT       = OPTBLOCK+$BF  ; its routine
+OPTSPRAW        = OPTBLOCK+$C0  ; a record byte before any buff is applied
+OPTCTX          = OPTBLOCK+$C1  ; which screen the description box is over
+OPTCTX_SHOP     = 0
+OPTCTX_EQUIP    = 1
+OPTCTX_MAGIC    = 2
+
+;  Where OptCallFar reads the address to jump to.  It has to be somewhere
+;  bank $00 can see, because JMP (abs) fetches its pointer from there, and
+;  $00's low pages mirror WRAM.  tmp_hi sits at $0110 on the assumption that
+;  the stack never reaches down this far; this rides the same assumption.
+OPTCALLV        = $0113         ; 2 bytes, just above tmp_hi
 
 ;  The tile offset of the cheering pose within a character's battle sprites.
 POSE_VICTORY    = $0E

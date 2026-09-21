@@ -21,10 +21,31 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-.export OptShopFrameFar
+.export OptShopFrameFar, OptCallFar
 OptShopFrameFar:
     JSR ShopFrame
     RTL
+
+;  The same trick, for any routine in this bank.
+;
+;  JMP (abs) takes its pointer from bank $00, whose low pages mirror WRAM, so
+;  one trampoline serves every routine rather than needing a table of them --
+;  which matters, because there are ten bytes left in this bank.  The caller
+;  leaves the address in OPTCALLV and A, X and Y pass straight through.
+;
+;  The data bank has to be set as well as the program bank.  hal_swapprg ends
+;  in PLB, so whichever chunk swapped last owns DBR, and the description box
+;  leaves it pointing at the options chunk -- a routine in here would then
+;  read its own tables out of that chunk and draw nonsense.
+OptCallFar:
+    PHB
+    PHK
+    PLB
+    JSR @go
+    PLB
+    RTL
+  @go:
+    JMP (OPTCALLV)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

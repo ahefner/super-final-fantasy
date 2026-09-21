@@ -1453,7 +1453,7 @@ def test_shopinfo():
 
     #  Nothing outside the two ranges has a description, so Select over a
     #  potion or a spell must be a no-op rather than a box full of noise.
-    for item in (0x00, 0x01, 0x1B, 0x6C, 0xB0, 0xFF):
+    for item in (0x00, 0x01, 0x1B, 0x6C, 0xF0, 0xFF):
         bus, cpu = machine()
         cpu.a = item
         call(cpu, "opt_descgear")
@@ -1716,6 +1716,141 @@ def test_weaponstats():
     check("the box and the battle never disagree about crit", drift, [])
 
 
+# --- spell descriptions -----------------------------------------------------
+#  These read the record through opt_spellbyte, which asks the same two
+#  routines the battle asks, so a buffed CURE has to describe itself as the
+#  thing that will actually be cast.
+F_IMPCURE = 1 << 22
+F_IMPFIRE = 1 << 23
+MAGDATA = ("hitrate", "effectivity", "element", "target",
+           "effect", "graphic", "palette", "unused")
+
+
+def test_spellinfo():
+    mag = open(os.path.join(ROOT, "game", "bin", "0C_81E0_magicdata.bin"), "rb").read()
+
+    #  Every spell in every buff state, inside the box.
+    over = []
+    for flagbits in (0, F_IMPCURE, F_IMPFIRE, F_IMPCURE | F_IMPFIRE):
+        for i in range(64):
+            lines = describe(0xB0 + i, flagbits)
+            for l in lines:
+                if len(l) - 4 * l.count("<") > 12 or len(lines) > 7:
+                    over.append("spell %d flags %06X %r" % (i, flagbits, l))
+    check("every spell description fits the box", over, [])
+
+    #  Nothing past the sixty-four is a spell.
+    for item in (0xF0, 0xF8, 0xFF):
+        bus, cpu = machine()
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        check("item $%02X is not a spell" % item, cpu.p & 1, 0)
+
+    #  opt_spellbyte against the raw table, and the two fields a buff moves.
+    bad = []
+    for i in range(64):
+        for f in range(8):
+            bus, cpu = machine()
+            cpu.x, cpu.y = i, f
+            call(cpu, "opt_spellbyte")
+            if cpu.a != mag[i * 8 + f]:
+                bad.append("spell %d %s: %d want %d" % (i, MAGDATA[f], cpu.a, mag[i * 8 + f]))
+            if cpu.x != i or cpu.y != f:
+                bad.append("spell %d %s clobbered X/Y" % (i, MAGDATA[f]))
+    check("unbuffed spell bytes match the table", bad, [])
+
+    #  The buffs, seen through the description rather than the record.
+    check("CURE heals more with the flag on",
+          (describe(0xB0 + 0)[2], describe(0xB0 + 0, F_IMPCURE)[2]),
+          (" 16-32 HP", " 32-64 HP"))
+    check("FIRE hits harder with the flag on",
+          (describe(0xB0 + 4)[3], describe(0xB0 + 4, F_IMPFIRE)[3]),
+          (" 20-40 DMG", " 100-200 DMG"))
+    check("HARM stops hitting the whole party",
+          (describe(0xB0 + 1)[0], describe(0xB0 + 1, F_IMPFIRE)[0]),
+          ("All Enemies", "Single Enemy"))
+    check("LAMP gains an ailment it can cure",
+          len(describe(0xB0 + 8, F_IMPCURE)) - len(describe(0xB0 + 8)), 1)
+
+    #  The five with no battle routine are named from the table instead.
+    for i, want in ((33, "Revive"), (56, "Full Revive"), (38, "Up one floor"),
+                    (40, "Heal Stoned"), (41, "Exit dungeon")):
+        check("spell %d is named for what it does in a menu" % i,
+              describe(0xB0 + i)[-1], want)
+
+
+# --- the equip and magic menus ----------------------------------------------
+#  Only the arithmetic that works out which item or spell the cursor is on;
+#  the drawing runs through bank $0E, which this cannot execute.
+CH_MAGICDATA = 0x6300           # unsram + $0300, $40 bytes per character
+
+
+def test_menuinfo():
+    #  The equip menu holds equipment slots, not item ids: a 1-based index
+    #  with bit 7 set when the piece is worn.
+    for slot, equipoff, want in ((0x01, 0x18, 0x1C), (0x28, 0x18, 0x43),
+                                 (0x81, 0x18, 0x1C), (0x01, 0x1C, 0x44),
+                                 (0x28, 0x1C, 0x6B), (0xA8, 0x1C, 0x6B)):
+        bus, cpu = machine()
+        bus.wram[0x62] = 3                          # cursor
+        bus.wram[0x300 + 3] = slot                  # item_box
+        bus.wram[0x66] = equipoff                   # equipoffset
+        call(cpu, "opt_equipitem")
+        check("equip slot $%02X in menu $%02X is item $%02X" % (slot, equipoff, want),
+              (bool(cpu.p & 1), cpu.a), (True, want))
+    bus, cpu = machine()
+    bus.wram[0x62] = 0
+    bus.wram[0x300] = 0
+    call(cpu, "opt_equipitem")
+    check("an empty equip slot describes nothing", cpu.p & 1, 0)
+
+    #  The magic menu: four slots to a level, eight levels, and the stored
+    #  value is which spell of that level the character knows.
+    def spell(char, cursor, known):
+        bus, cpu = machine()
+        #  submenu_targ holds the character number; the three RORs in
+        #  UseMagic_GetRequiredMP are what turn it into char << 6.
+        bus.wram[0x66] = char
+        bus.wram[0x62] = cursor
+        bus.sram[CH_MAGICDATA - 0x6000 + (char << 6) + cursor] = known
+        call(cpu, "opt_magicspell")
+        return bool(cpu.p & 1), cpu.a
+
+    check("character 0, first slot, first spell is CURE", spell(0, 0, 1), (True, 0xB0))
+    check("the fourth spell of level 1 is RUSE", spell(0, 3, 4), (True, 0xB3))
+    check("level 2 starts eight on", spell(0, 4, 1), (True, 0xB8))
+    check("the last level's last spell", spell(0, 31, 8), (True, 0xEF))
+    check("another character reads their own list", spell(2, 5, 2), (True, 0xB9))
+    check("a slot they have not filled describes nothing", spell(1, 6, 0)[0], False)
+
+    #  OPTCTX decides whether closing the box erases a box or redraws a whole
+    #  menu, and it lives in the battery-backed option block.  The shop used
+    #  only to clear it on the way out of a menu, so a cartridge holding a
+    #  stale value put the menu redraw over a shop: screen off, menu boxes
+    #  drawn on top, sprites left standing.  Every entry now says which
+    #  screen it is before anything can return early.
+    OPTCTX = OPTBLOCK + 0xC1
+    for flagbits in (0, F_SHOPINFO):
+        for poison in (1, 2, 0xFF):
+            bus, cpu = machine()
+            for i in range(4):
+                setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+            bus.sram[OPTCTX - 0x6000] = poison
+            bus.wram[0x22] = 0              # joy_select: nothing pressed
+            call(cpu, "opt_shopinfo_body")
+            check("a shop never inherits a menu's context ($%02X, flags %d)"
+                  % (poison, flagbits), bus.sram[OPTCTX - 0x6000], 0)
+
+    #  And the ids those produce have to be describable.
+    for got in (0xB0, 0xB3, 0xEF, 0x1C, 0x43, 0x44, 0x6B):
+        bus, cpu = machine()
+        for i in range(4):
+            setblk(bus, OPT_FLAGS + i, 0xFF)
+        cpu.a = got
+        call(cpu, "opt_descgear")
+        check("item $%02X has a description" % got, cpu.p & 1, 1)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1726,7 +1861,8 @@ def main():
               test_statscale, test_isboss, test_scaleenemies,
               test_healroll, test_spellbuff, test_magictarget,
               test_openchests, test_shopinfo, test_shoppose,
-              test_weaponstats):
+              test_weaponstats, test_spellinfo,
+              test_menuinfo):
         try:
             t()
         except Exception as e:
