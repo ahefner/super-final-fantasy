@@ -38,10 +38,11 @@
 .include "nesio.inc"
 .include "fftext.inc"
 
-.export opt_shopinfo
+.export opt_shopframe, opt_pose
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
 .export opt_descgear, opt_weapcrit, opt_gearlive
+.export opt_setposes, opt_canuseit
 
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
@@ -53,6 +54,7 @@
 ;  in them moves; all that is needed is the address.
 .import lut_WeaponData, lut_ArmorData
 .import lut_WeaponPermissions, lut_ArmorPermissions
+.import lut_ClassEquipBit, lut_MagicPermisPtr
 
 .segment "BANK_OPT"
 
@@ -823,8 +825,7 @@ opt_boxdims:
 ;  moves.  It also handles the joypad and the music, so nothing else is left
 ;  to do here.
 opt_infoframe:
-    JSL OptShopFrameFar + BANK0EFAR
-    RTS
+    JMP opt_shopdraw
 
 ;  Hold the box until the player presses something.  The button that opened
 ;  it has to be let go of first, or the same press closes it again.
@@ -893,7 +894,7 @@ opt_showbox:
 ;  Select is free here: the loop already zeroes it on every exit, with the
 ;  comment "but why?  select isn't used in shops?".  Nothing else about the
 ;  game's input handling is touched.
-opt_shopinfo:
+opt_shopinfo_body:
     LDA OPTFB_SHOPINFO
     AND #OPTFM_SHOPINFO
     BEQ @out
@@ -909,15 +910,186 @@ opt_shopinfo:
     JSR opt_descgear
     BCC @out                    ; not a weapon or a piece of armour
 
-    ;  Everything the box calls goes through SwapPRG, and hal_swapprg ends
-    ;  with PLB -- so a swap sets the data bank as well as the program bank,
-    ;  and the last one leaves it pointing at whichever chunk that was.  The
-    ;  shop loop reads its cursor table with LDA (text_ptr),Y, which resolves
-    ;  through DBR, so returning with the wrong one made it fetch the cursor
-    ;  coordinates out of this chunk instead of bank $0E and put the hand
-    ;  somewhere arbitrary.
-    PHB
-    JSR opt_showbox
-    PLB
+    JMP opt_showbox
   @out:
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The victory poses
+;;
+;;  The other half of this flag: a character who can use whatever the cursor
+;;  is on raises their arms.  It answers "can I use that?" for four people at
+;;  a glance, which is the question the description box answers one line at a
+;;  time -- FFR ships the two together and so do we.
+;;
+;;  The pose bytes are written immediately before a ShopFrame and cleared
+;;  immediately after, because the main menu and the lineup draw their party
+;;  with the same DrawOBSprite and would otherwise inherit them.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The twelve classes' permission tables sit right behind their pointer
+;  table, contiguous and eight bytes each, so one long read reaches any of
+;  them without following a pointer into another bank.  bank_0E asserts the
+;  layout this depends on.
+lut_MagicPermis = lut_MagicPermisPtr + 24
+
+;  Asked by DrawOBSprite, once per character per frame.
+;  In: X = the character's stat index ($00, $40, $80, $C0).
+;  Out: A = the tile offset of the pose to draw.
+opt_pose:
+    PHX
+    TXA
+    LSR A                       ; the stat index is the character number
+    LSR A                       ;   shifted up by six
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    TAX
+    LDA OPTPOSE, X
+    PLX
+    RTL
+
+opt_zeroposes:
+    LDA #$00
+    STA OPTPOSE+0
+    STA OPTPOSE+1
+    STA OPTPOSE+2
+    STA OPTPOSE+3
+    RTS
+
+;  Who can use what the cursor is on.  Everyone lowers their arms while the
+;  cursor is in the command column, which is FFR's behaviour and reads as
+;  "this question is not being asked right now".
+opt_setposes:
+    JSR opt_zeroposes
+    LDA OPTFB_SHOPINFO
+    AND #OPTFM_SHOPINFO
+    BEQ @done
+    LDA shopcurs_x
+    CMP #SHOPCURS_LEFT
+    BEQ @done
+    LDX cursor
+    LDA item_box, X
+    BEQ @done                   ; an empty slot in the list
+    STA OPTPOSEIT
+    LDX #$00
+  @loop:
+    JSR opt_canuseit
+    BCC @next
+    LDA #POSE_VICTORY
+    STA OPTPOSE, X
+  @next:
+    INX
+    CPX #$04
+    BCC @loop
+  @done:
+    RTS
+
+;  In: X = character 0..3, OPTPOSEIT = the item.  Out: C set if they can use
+;  it.  X preserved.
+opt_canuseit:
+    STX OPTPOSEI
+    TXA
+    ASL A                       ; characters are $40 bytes apart
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    TAX
+    LDA ch_class, X
+    STA OPTPOSECL
+    LDA OPTPOSEIT
+    CMP #MG_START
+    BCS @spell
+
+    CMP #TCITYPE_WEPSTART       ; potions and the like: nobody poses
+    BCC @no
+    CMP #TCITYPE_ARMSTART
+    BCC @weapon
+    CMP #TCITYPE_GPSTART
+    BCS @no
+    SEC
+    SBC #TCITYPE_ARMSTART
+    TAX
+    JSR opt_armperms
+    BRA @equip
+  @weapon:
+    SEC
+    SBC #TCITYPE_WEPSTART
+    TAX
+    JSR opt_weapperms
+  @equip:
+    LDA OPTPOSECL               ; a set bit means that class CANNOT use it
+    ASL A
+    TAX
+    LDA f:lut_ClassEquipBit + BANK0EFAR, X
+    AND OPTPERMLO
+    STA OPTGEARX
+    LDA f:lut_ClassEquipBit + 1 + BANK0EFAR, X
+    AND OPTPERMHI
+    ORA OPTGEARX
+    BNE @no
+    BRA @yes
+
+    ;  Magic shops ask a different question -- can this character learn the
+    ;  spell -- off a different table, one bit per spell with the high bit
+    ;  first and, again, set meaning no.
+  @spell:
+    SEC
+    SBC #MG_START
+    STA OPTGEARX
+    AND #$07
+    STA OPTPOSEBIT
+    LDA OPTGEARX
+    LSR A                       ; eight spells to a level
+    LSR A
+    LSR A
+    STA OPTGEARX
+    LDA OPTPOSECL
+    ASL A                       ; eight bytes to a class
+    ASL A
+    ASL A
+    CLC
+    ADC OPTGEARX
+    TAX
+    LDA f:lut_MagicPermis + BANK0EFAR, X
+    STA OPTGEARX
+    LDA #$80                    ; the bit for this spell, $80 >> (spell AND 7)
+    LDX OPTPOSEBIT
+    BEQ @test
+  @shift:
+    LSR A
+    DEX
+    BNE @shift
+  @test:
+    AND OPTGEARX
+    BNE @no
+  @yes:
+    LDX OPTPOSEI
+    SEC
+    RTS
+  @no:
+    LDX OPTPOSEI
+    CLC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  A shop frame with the poses applied.  They go up just before the sprites
+;  are drawn and come down straight after, so nothing else that draws a party
+;  can see them.
+opt_shopdraw:
+    JSR opt_setposes
+    JSL OptShopFrameFar + BANK0EFAR
+    JMP opt_zeroposes
+
+;  Replaces the shop loop's "JSR ShopFrame".
+opt_shopframe:
+    PHB                         ; every routine below reaches SwapPRG, and
+                                ;   hal_swapprg ends in PLB -- see opt_shopinfo
+    JSR opt_shopdraw
+    JSR opt_shopinfo_body
+    PLB
     RTL

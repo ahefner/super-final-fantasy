@@ -921,6 +921,17 @@ OPTBITN         = OPTBLOCK+$A7  ; how many of its bits are set
 OPTBITLO        = OPTBLOCK+$A9  ; the lowest set bit's index, 8 for none
 OPTBITM         = OPTBLOCK+$AA  ; the mask walking across it
 OPTBITSTART     = OPTBLOCK+$AF  ; where opt_bitnext was told to start
+;  The victory poses, one per character, live only for the length of a single
+;  ShopFrame call -- the main menu and the lineup draw their sprites with the
+;  same routine and must not inherit them.
+OPTPOSE         = OPTBLOCK+$B0  ; 4 bytes
+OPTPOSEI        = OPTBLOCK+$B4  ; which character is being judged
+OPTPOSEIT       = OPTBLOCK+$B5  ; the item the cursor is on
+OPTPOSECL       = OPTBLOCK+$B6  ; that character's class
+OPTPOSEBIT      = OPTBLOCK+$B7  ; which bit of a magic permission byte
+
+;  The tile offset of the cheering pose within a character's battle sprites.
+POSE_VICTORY    = $0E
 OPTSAVEPTR      = OPTBLOCK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
 OPTDESC_MAX     = $50
 

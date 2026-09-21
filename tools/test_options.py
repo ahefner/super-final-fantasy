@@ -1559,6 +1559,102 @@ def test_shopinfo():
           describe(0x1C + 39)[3], "All classes")
 
 
+# --- the victory poses ------------------------------------------------------
+#  The other half of Shop Information: a character who can use whatever the
+#  cursor is on raises their arms.  Worth testing against the permission
+#  tables directly, because a wrong answer here is a sprite that looks fine
+#  and means the opposite of what it says.
+OPTPOSE = OPTBLOCK + 0xB0
+OPTPOSEIT = OPTBLOCK + 0xB5
+F_SHOPINFO = 1 << 12
+POSE_VICTORY = 0x0E
+CH_CLASS = 0x6100               # unsram + $0100, $40 bytes per character
+
+
+def _bank0e(addr, n):
+    return ROMDATA[(0xA1 + 0x0E - 0xA0) * 0x10000 + addr:][:n]
+
+
+def test_shoppose():
+    wperm = _bank0e(SYM["lut_WeaponPermissions"], 80)
+    aperm = _bank0e(SYM["lut_ArmorPermissions"], 80)
+    cbits = _bank0e(SYM["lut_ClassEquipBit"], 24)
+    #  The twelve permission tables sit right behind their pointer table; the
+    #  assertions in bank_0E are what hold that true.
+    mperm = _bank0e(SYM["lut_MagicPermisPtr"] + 24, 96)
+
+    def expect(cls, item):
+        if item >= 0xB0:
+            sp = item - 0xB0
+            #  One bit per spell, high bit first, set meaning cannot learn.
+            return sp < 64 and (mperm[cls * 8 + (sp >> 3)] & (0x80 >> (sp & 7))) == 0
+        if 0x1C <= item < 0x44:
+            p = wperm[(item - 0x1C) * 2:][:2]
+        elif 0x44 <= item < 0x6C:
+            p = aperm[(item - 0x44) * 2:][:2]
+        else:
+            return False
+        cb = cbits[cls * 2:][:2]
+        #  A set bit means that class CANNOT use it.
+        return ((cb[0] & p[0]) | (cb[1] & p[1])) == 0
+
+    bad = []
+    for cls in range(12):
+        for item in list(range(0x1C, 0x6C)) + list(range(0xB0, 0xF0)) + [0x00, 0x19, 0x6C, 0xAF]:
+            bus, cpu = machine()
+            for i in range(4):
+                setblk(bus, OPT_FLAGS + i, 0xFF)
+            bus.sram[CH_CLASS - 0x6000] = cls
+            bus.sram[OPTPOSEIT - 0x6000] = item
+            cpu.x = 0
+            call(cpu, "opt_canuseit")
+            if bool(cpu.p & 1) != expect(cls, item):
+                bad.append("class %d item $%02X" % (cls, item))
+            if cpu.x != 0:
+                bad.append("class %d item $%02X clobbered X" % (cls, item))
+    check("who can use what matches the permission tables", bad, [])
+
+    def poses(item, party, flagbits=F_SHOPINFO, cursx=0xA8):
+        bus, cpu = machine()
+        for i in range(4):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        for i, c in enumerate(party):
+            bus.sram[CH_CLASS - 0x6000 + i * 0x40] = c
+            bus.sram[CH_CLASS - 0x6000 + i * 0x40 + 1] = 0   # no ailment
+        bus.wram[0x62] = 0                  # cursor on the first item
+        bus.wram[0x64] = cursx              # shopcurs_x
+        bus.wram[0x300] = item              # item_box[0]
+        call(cpu, "opt_setposes")
+        return list(bus.sram[OPTPOSE - 0x6000:][:4])
+
+    V, _ = POSE_VICTORY, 0
+    party = [0, 1, 2, 5]                    # Fighter, Thief, BlackBelt, BlackMage
+    check("a knife: the fighter, the thief and the black mage",
+          poses(0x1C + 1, party), [V, V, 0, V])
+    check("wooden armour: everyone but the black mage",
+          poses(0x44 + 1, party), [V, V, V, 0])
+    check("FIRE: only the black mage", poses(0xB0 + 4, party), [0, 0, 0, V])
+    check("CURE: nobody in this party", poses(0xB0 + 0, party), [0, 0, 0, 0])
+    check("a potion: nobody poses", poses(0x19, party), [0, 0, 0, 0])
+
+    #  The poses must not appear where the flag is off or the question is not
+    #  being asked, and they are cleared after every frame because the main
+    #  menu and the lineup draw their party with the same DrawOBSprite.
+    check("flag off: nobody poses", poses(0x1C + 1, party, flagbits=0), [0, 0, 0, 0])
+    check("cursor in the command column: arms down",
+          poses(0x1C + 1, party, cursx=0x28), [0, 0, 0, 0])
+
+    #  opt_pose turns DrawOBSprite's stat index back into a character number.
+    for i, sx in enumerate((0x00, 0x40, 0x80, 0xC0)):
+        bus, cpu = machine()
+        for k in range(4):
+            bus.sram[OPTPOSE - 0x6000 + k] = 0x10 + k
+        cpu.x = sx
+        call(cpu, "opt_pose")
+        check("stat index $%02X is character %d" % (sx, i), cpu.a, 0x10 + i)
+        check("stat index $%02X survives the call" % sx, cpu.x, sx)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1568,7 +1664,7 @@ def main():
               test_fardata, test_repeatpotion, test_buyqty,
               test_statscale, test_isboss, test_scaleenemies,
               test_healroll, test_spellbuff, test_magictarget,
-              test_openchests, test_shopinfo):
+              test_openchests, test_shopinfo, test_shoppose):
         try:
             t()
         except Exception as e:

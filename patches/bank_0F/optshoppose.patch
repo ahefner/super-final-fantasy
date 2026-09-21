@@ -1,0 +1,22 @@
+--- OLD
+  @Crouched:              ; to draw sprite as crouched... at #$14 to the
+    LDA #$14              ;   tile number to draw.
+
+  @Standing:              ; to really draw sprite as standing, A must be 0 here
+    CLC                   ; add tile offset to tmp
+--- NEW
+.import opt_pose
+
+  @Crouched:              ; to draw sprite as crouched... at #$14 to the
+    LDA #$14              ;   tile number to draw.
+    BRA @PoseChosen
+
+  @Standing:              ; vanilla stands still here, with A = 0.  Shop
+                          ;  Information answers with the cheering pose for a
+                          ;  character who can use what the cursor is on, and
+                          ;  with 0 everywhere else -- the poses are only set
+                          ;  for the length of one ShopFrame call.
+    JSL opt_pose + OPTFAR
+
+  @PoseChosen:
+    CLC                   ; add tile offset to tmp

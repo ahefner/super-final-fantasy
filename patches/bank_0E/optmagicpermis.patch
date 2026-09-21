@@ -1,0 +1,11 @@
+--- OLD
+ @BW: .BYTE $F0,$F0,$F0,$F0,$F0,$F0,$F0,$F0
+--- NEW
+ @BW: .BYTE $F0,$F0,$F0,$F0,$F0,$F0,$F0,$F0
+
+;  Shop Information reaches these from the options chunk, where following the
+;  pointers above would mean an indirect long read.  It indexes the tables
+;  directly instead, as lut_MagicPermisPtr + 24 + class * 8 + level, which
+;  holds only while they stay contiguous, eight bytes each and in class order.
+.assert @FT - lut_MagicPermisPtr = 24, error, "magic permission pointer table changed size"
+.assert @BW + 8 - @FT = 12 * 8, error, "magic permission tables are no longer contiguous"

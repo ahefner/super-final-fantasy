@@ -21,6 +21,7 @@
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+.export OptShopFrameFar
 OptShopFrameFar:
     JSR ShopFrame
     RTL
