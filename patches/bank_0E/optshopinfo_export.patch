@@ -1,0 +1,7 @@
+--- OLD
+.export PrintNumber_2Digit, PrintPrice, PrintCharStat, PrintGold
+--- NEW
+.export PrintNumber_2Digit, PrintPrice, PrintCharStat, PrintGold
+;  Shop Information reads the equip permissions from the options chunk with
+;  long addressing; the tables themselves are untouched.
+.export lut_WeaponPermissions, lut_ArmorPermissions

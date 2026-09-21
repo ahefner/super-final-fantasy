@@ -1,0 +1,32 @@
+--- OLD
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Shop cursor position luts  [$A977 :: 0x3A987]
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+--- NEW
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  A frame, for code running in the options chunk.
+;;
+;;    ShopFrame is in this bank, and a routine in another chunk sees its own
+;;  bank at $8000 rather than this one -- so the description box cannot just
+;;  call it.  JSL lands here with the program bank set to this chunk, the JSR
+;;  then reaches ShopFrame normally, and RTL goes back.
+;;
+;;    Four bytes here save reimplementing the frame, and more to the point
+;;  they keep the hand cursor and the party drawn while the box is up.  A
+;;  frame assembled out of fixed-bank pieces could not draw either, so the
+;;  cursor blinked out and back every time the box opened.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OptShopFrameFar:
+    JSR ShopFrame
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Shop cursor position luts  [$A977 :: 0x3A987]
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;

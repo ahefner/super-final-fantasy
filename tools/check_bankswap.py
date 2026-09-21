@@ -36,7 +36,8 @@ import os, re, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXED = os.path.join(ROOT, "game", "bank_0F.asm")
 OPT = [os.path.join(ROOT, "src", "optbank.asm"),
-       os.path.join(ROOT, "src", "optmenu.asm")]
+       os.path.join(ROOT, "src", "optmenu.asm"),
+       os.path.join(ROOT, "src", "optshop.asm")]
 
 SWAPPERS = ("SwapPRG", "CallMusicPlay", "MusicPlay_L")
 

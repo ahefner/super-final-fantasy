@@ -1,0 +1,17 @@
+--- OLD
+    JSR ShopFrame        ; now that cursor position has been recorded... do a frame
+
+    LDA joy_b
+--- NEW
+.import opt_shopinfo
+.export OptShopFrameFar
+
+    JSR ShopFrame        ; now that cursor position has been recorded... do a frame
+
+    ;  Select opens a description of whatever the cursor is over.  It is read
+    ;  here rather than below because the routine runs a modal loop of its
+    ;  own, and the button that closes the box must not then be read as a
+    ;  choice.  Everything after this point is the loop exactly as it was.
+    JSL opt_shopinfo + OPTFAR
+
+    LDA joy_b

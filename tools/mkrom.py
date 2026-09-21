@@ -68,9 +68,50 @@ def overlay_openchest(data):
     return bytes(out)
 
 
+#  The menu font has no plus sign.
+#
+#  FFR's character table puts "+" at $7B and "/" at $7A, and DrawComplexString
+#  draws both literally -- but LoadMenuCHR loads tiles $80-$FF and nothing
+#  else, so those two land in whatever page happens to be at PPU $0000.  FFR
+#  can rely on them because it rebuilds CHR loading around a new bank; here
+#  $7B is shop scenery in a shop and orb graphics in a menu, so it is not
+#  available in both.
+#
+#  So the glyph goes in the font page instead, which every screen that draws
+#  text has loaded.  $E6 is a kana the English script never uses -- it and
+#  $EC are the only two codes in $80-$FF that no text region references.
+#
+#  The font stores its background in plane 1: a blank tile is $00 x8 then
+#  $FF x8, ink is a set bit in plane 0.  The stroke matches the hyphen at
+#  $C2, which is row 4, columns 2-6.
+PLUS_CODE = 0xE6
+PLUS_ART = ["........",
+            "........",
+            "....X...",
+            "....X...",
+            "..XXXXX.",
+            "....X...",
+            "....X...",
+            "........"]
+MENUCHR_BANK = "09"
+MENUFONT_OFF = 0x0800           # $8800 in the bank, the tiles for $80-$FF
+
+
+def overlay_plus(data):
+    out = bytearray(data)
+    at = MENUFONT_OFF + (PLUS_CODE - 0x80) * 16
+    for y, row in enumerate(PLUS_ART):
+        out[at + y] = sum(1 << (7 - x) for x, c in enumerate(row) if c == "X")
+        out[at + 8 + y] = 0xFF
+    return bytes(out)
+
+
 def nesbank(name):
     if name in ASSEMBLED:
-        return read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
+        data = read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
+        if name == MENUCHR_BANK:
+            data = overlay_plus(data)
+        return data
     data = read(os.path.join(NES, "bank_%s.dat" % name), 0x4000)
     if name == TILESET_CHR_BANK:
         data = overlay_openchest(data)

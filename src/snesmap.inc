@@ -851,3 +851,84 @@ h_hdmaen        = HAL_VARS+$62  ; which HDMA channels this frame wants.  Two
                                 ; switched the other one off.
 h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
                                 ; flags, one byte each, indexed left/right
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Shop Information
+;;
+;;  The description box reads the weapon and armour tables, which live in bank
+;;  $0C.  Chunk CHUNK0+$0C carries that bank at $8000, so a long read reaches
+;;  them from the options chunk without swapping anything.
+BANK0CFAR       = (CHUNK0 + $0C) * $10000
+;  The equip permission words live in bank $0E, reached the same way.
+BANK0EFAR       = (CHUNK0 + $0E) * $10000
+
+;  Offsets into a weapon record (8 bytes) and an armour record (4).
+WEAPON_HIT      = 0
+WEAPON_DMG      = 1
+WEAPON_CRIT     = 2
+WEAPON_SPELL    = 3
+WEAPON_ELEM     = 4
+WEAPON_CAT      = 5
+WEAPON_SIZE     = 8
+ARMOR_EVADE     = 0
+ARMOR_ABSORB    = 1
+ARMOR_RESIST    = 2
+ARMOR_SPELL     = 3
+ARMOR_SIZE      = 4
+
+;  The two characters the number formatter needs by name.
+CHR_ZERO        = $80
+CHR_SPACE       = $FF
+CHR_PCT         = $E0
+;  mkrom draws a plus into this slot; see overlay_plus there for why it is
+;  not $7B, which is where FFR's character table puts one.
+CHR_PLUS        = $E6
+
+;  Where the box goes: the bottom-left corner, over the command box, which
+;  the equipment shop erases before it runs the item list.  Fourteen wide
+;  leaves twelve columns of text, and DrawBox leaves the cursor two rows down
+;  and one column in, so seven rows are writable before the bottom border.
+OPTINFO_X       = $01
+OPTINFO_Y       = $12
+OPTINFO_W       = $0E
+OPTINFO_H       = $0A
+OPTINFO_COLS    = OPTINFO_W - 2
+
+;  The shop cursor's X when it is in the left-hand command column rather than
+;  over the item list.  No description there.
+SHOPCURS_LEFT   = $28
+
+;  Working bytes, in the option block's spare page.  Nothing here outlives a
+;  single press of Select.
+OPTDESCI        = OPTBLOCK+$4A  ; write index into OPTDESC
+OPTWORD         = OPTBLOCK+$4B  ; offset into lut_Words while emitting one
+OPTWORDN        = OPTBLOCK+$4C  ; characters of it left to go
+OPTNUMV         = OPTBLOCK+$4D  ; the value being converted to decimal
+OPTNUMP         = OPTBLOCK+$4E  ; the place value, 100 then 10
+OPTNUMSEEN      = OPTBLOCK+$4F  ; nonzero once a digit has been emitted
+OPTDESC         = OPTBLOCK+$50  ; $50 bytes: the string being built
+OPTGEARX        = OPTBLOCK+$A0  ; scratch for the record offset
+OPTGEAR         = OPTBLOCK+$AD  ; the item id being described
+OPTGEARI        = OPTBLOCK+$AE  ; its 0-based index into the weapon or
+                                ;   armour table
+OPTPERMLO       = OPTBLOCK+$A1  ; the equip permission word
+OPTPERMHI       = OPTBLOCK+$A2
+OPTPERMN        = OPTBLOCK+$A3  ; how many class names will print
+OPTPERMFIRST    = OPTBLOCK+$A4  ; nonzero once one has
+OPTPERMSLOT     = OPTBLOCK+$A5  ; which of a pair can use the item
+OPTBITS         = OPTBLOCK+$A6  ; the element or category byte being listed
+OPTBITN         = OPTBLOCK+$A7  ; how many of its bits are set
+OPTBITLO        = OPTBLOCK+$A9  ; the lowest set bit's index, 8 for none
+OPTBITM         = OPTBLOCK+$AA  ; the mask walking across it
+OPTBITSTART     = OPTBLOCK+$AF  ; where opt_bitnext was told to start
+OPTSAVEPTR      = OPTBLOCK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
+OPTDESC_MAX     = $50
+
+;  Flags this file reads.  The bit numbers are the menu's row order, which is
+;  what lut_OptRows in optmenu.asm already assigns.
+OPTFB_SHOPINFO    = OPT_FLAGS+1 ; bit 12
+OPTFM_SHOPINFO    = $10
+OPTFB_WEAPONSTATS = OPT_FLAGS+2 ; bit 16
+OPTFM_WEAPONSTATS = $01
+OPTFB_CRITRATE    = OPT_FLAGS+2 ; bit 20
+OPTFM_CRITRATE    = $10

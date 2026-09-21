@@ -1397,6 +1397,168 @@ def test_openchests():
            if (bus.wram[TSA_UL + i], bus.wram[TSA_UR + i]) != (0x11, 0x22)], [])
 
 
+# --- Shop Information -------------------------------------------------------
+#  The descriptions are generated at run time rather than baked, so the thing
+#  worth testing is that they agree with the tables in every flag state and
+#  that they fit the box.  Twelve columns and seven rows is the whole budget;
+#  a line one character over is invisible here and wraps on the console.
+OPTDESC = OPTBLOCK + 0x50
+F_WEAPONSTATS = 1 << 16
+F_CRITRATE = 1 << 20
+
+
+def _decode(b):
+    if b == 0xFF:
+        return " "
+    if 0x80 <= b <= 0x89:
+        return chr(ord("0") + b - 0x80)
+    if 0x8A <= b <= 0xA3:
+        return chr(ord("A") + b - 0x8A)
+    if 0xA4 <= b <= 0xBD:
+        return chr(ord("a") + b - 0xA4)
+    return {0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-",
+            0xC4: "!", 0xC5: "?", 0xE0: "%", 0xE6: "+"}.get(b)
+
+
+def describe(itemid, flagbits=0):
+    """The lines opt_descgear produces, with the item-name escape marked."""
+    bus, cpu = machine()
+    for i in range(4):
+        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    cpu.a = itemid
+    call(cpu, "opt_descgear")
+    lines, i = [[]], 0
+    while i < 0x50:
+        b = bus.sram[OPTDESC - 0x6000 + i]
+        if b == 0:
+            break
+        if b == 0x05:                       # single line break
+            lines.append([])
+        elif b == 0x02:                     # draw an item's name
+            lines[-1].append("<%02X>" % bus.sram[OPTDESC - 0x6000 + i + 1])
+            i += 1
+        else:
+            ch = _decode(b)
+            if ch is None:
+                lines[-1].append("\\x%02X" % b)
+            else:
+                lines[-1].append(ch)
+        i += 1
+    return ["".join(l) for l in lines]
+
+
+def test_shopinfo():
+    wep = open(os.path.join(ROOT, "game", "bin", "0C_8000_weapondata.bin"), "rb").read()
+    arm = open(os.path.join(ROOT, "game", "bin", "0C_8140_armordata.bin"), "rb").read()
+
+    #  Nothing outside the two ranges has a description, so Select over a
+    #  potion or a spell must be a no-op rather than a box full of noise.
+    for item in (0x00, 0x01, 0x1B, 0x6C, 0xB0, 0xFF):
+        bus, cpu = machine()
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        check("item $%02X has no description" % item, cpu.p & 1, 0)
+
+    over = []
+    for flagbits in (0, F_WEAPONSTATS, F_WEAPONSTATS | F_CRITRATE):
+        for i in range(40):
+            for base in (0x1C, 0x44):
+                lines = describe(base + i, flagbits)
+                for l in lines:
+                    #  <XX> draws as the spell's four-character name.
+                    width = len(l) - 4 * l.count("<")
+                    if width > 12 or len(lines) > 7:
+                        over.append("$%02X/%06X %r" % (base + i, flagbits, l))
+    check("every description fits 12 columns and 7 rows", over, [])
+
+    #  The numbers, against the tables they came from.
+    bad = []
+    for i in range(40):
+        w = wep[i * 8:i * 8 + 8]
+        a = arm[i * 4:i * 4 + 4]
+        on = describe(0x1C + i, F_WEAPONSTATS)
+        if on[:3] != ["ATK +%d" % w[1], "HIT +%d" % w[0], "CRT +%d" % w[2]]:
+            bad.append("weapon %d with the fix on: %r" % (i, on[:3]))
+        #  Vanilla ignores the crit byte and uses the weapon's 1-based index,
+        #  so the honest number to show is that one.
+        if describe(0x1C + i)[2] != "CRT +%d" % (i + 1):
+            bad.append("weapon %d vanilla crit: %r" % (i, describe(0x1C + i)[2]))
+        dbl = describe(0x1C + i, F_WEAPONSTATS | F_CRITRATE)[2]
+        if dbl != "CRT +%d" % min(255, w[2] * 2):
+            bad.append("weapon %d doubled crit: %r" % (i, dbl))
+        ar = describe(0x44 + i)
+        if ar[:2] != ["DEF +%d" % a[1], "EVA -%d" % a[0]]:
+            bad.append("armour %d: %r" % (i, ar[:2]))
+    check("descriptions match the weapon and armour tables", bad, [])
+
+    #  The element and category lines describe what the weapon will actually
+    #  do, so they appear only once Weapon Stats has wired those bytes up.
+    elemental = [i for i in range(40) if wep[i * 8 + 4] or wep[i * 8 + 5]]
+    check("some weapon does have an element or a category", elemental != [], True)
+    for i in elemental:
+        off = describe(0x1C + i)
+        on = describe(0x1C + i, F_WEAPONSTATS)
+        check("weapon %d bonus lines are hidden while inert" % i,
+              len(on) > len(off), True)
+
+    #  Every byte drawn has to be a glyph the menu font actually holds.
+    #  LoadMenuCHR loads tiles $80-$FF and nothing else, so FFR's "+" at $7B
+    #  came out as kana -- and nothing in the build said so, because the
+    #  string was the right length and the right shape.  $C1 is in range but
+    #  blank, and $C6/$C7 are the Level and Equip icons.
+    CONTROL = {0x00, 0x02, 0x05}
+    NOGLYPH = {0xC1, 0xC3, 0xC6, 0xC7}
+    stray = set()
+    for flagbits in (0, F_WEAPONSTATS, F_WEAPONSTATS | F_CRITRATE):
+        for i in range(40):
+            for base in (0x1C, 0x44):
+                bus, cpu = machine()
+                for k in range(4):
+                    setblk(bus, OPT_FLAGS + k, (flagbits >> (8 * k)) & 0xFF)
+                cpu.a = base + i
+                call(cpu, "opt_descgear")
+                skip = False
+                for j in range(0x50):
+                    b = bus.sram[OPTDESC - 0x6000 + j]
+                    if b == 0:
+                        break
+                    if skip:                 # the item id after an escape
+                        skip = False
+                        continue
+                    if b == 0x02:
+                        skip = True
+                        continue
+                    if b in CONTROL:
+                        continue
+                    if b < 0x80 or b in NOGLYPH:
+                        stray.add(b)
+    check("every byte drawn is a glyph the menu font has",
+          sorted("$%02X" % b for b in stray), [])
+
+    #  The plus is not in the stock font -- mkrom draws one over an unused
+    #  kana.  Without this the text would say "+" and the screen would show
+    #  a kana, which is exactly what happened the first time.
+    font = (1 + 0x09) * 0x10000 + 0x8800        # BANK_MENUCHR, tiles $80-$FF
+    at = font + (0xE6 - 0x80) * 16
+    glyph = ["".join("X" if (ROMDATA[at + y] >> (7 - x)) & 1 else "."
+                     for x in range(8)) for y in range(8)]
+    check("the font has a plus sign at $E6", glyph,
+          ["........", "........", "....X...", "....X...",
+           "..XXXXX.", "....X...", "....X...", "........"])
+    check("its background plane is set, like every other glyph",
+          set(ROMDATA[at + 8:at + 16]), {0xFF})
+
+    #  Spot checks on the wording, which the sweep above cannot judge.
+    check("an all-element weapon says so",
+          describe(0x1C + 38, F_WEAPONSTATS)[5], "All Elements")
+    check("armour resisting everything says so",
+          describe(0x44 + 31)[3], "Resist All")
+    check("armour resisting three names two and counts the rest",
+          describe(0x44 + 9)[4:6], [" Fire Ice", " and 1 more"])
+    check("a weapon nobody can use lists nobody",
+          describe(0x1C + 39)[3], "All classes")
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1406,7 +1568,7 @@ def main():
               test_fardata, test_repeatpotion, test_buyqty,
               test_statscale, test_isboss, test_scaleenemies,
               test_healroll, test_spellbuff, test_magictarget,
-              test_openchests):
+              test_openchests, test_shopinfo):
         try:
             t()
         except Exception as e:

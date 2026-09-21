@@ -1,0 +1,923 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  optshop.asm -- Shop Information.
+;;
+;;  Press Select over an item in a weapon or armour shop and a box opens with
+;;  what the thing actually does.  Select is free: the shop loop already
+;;  zeroes it on every exit, with the comment "but why?  select isn't used in
+;;  shops?".
+;;
+;;  FFR builds these descriptions in C# at generation time and bakes 144
+;;  strings plus a shared word table into the ROM.  It has no choice -- its
+;;  weapon and spell tables are randomised, and the text has to agree with
+;;  whatever it rolled.  Here the tables are vanilla but the FLAGS are not,
+;;  and baked text would be wrong the moment one was toggled.  Double Weapon
+;;  Crit Rate is the plainest case: FFR implements it by rewriting the
+;;  weapon's crit byte in the ROM, which is exactly what a runtime flag
+;;  cannot do.
+;;
+;;  So the text is generated here, from the same numbers the game reads.  THE
+;;  RULE THAT KEEPS IT HONEST: nothing below may read a weapon or armour field
+;;  directly.  Go through the accessors at the top -- they are what a flag
+;;  hooks, and they are meant to be shared with the battle code, so the box
+;;  cannot drift away from what the game actually does.
+;;
+;;  Everything lives in this chunk rather than the fixed bank, which has
+;;  fourteen bytes left.  That works because the box needs nothing from bank
+;;  $0E: DrawBox, EraseBox, DrawComplexString, ClearOAM, CallMusicPlay and
+;;  UpdateJoy are all in the fixed bank, which is stamped into every chunk,
+;;  so a plain JSR reaches them from here.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.p816
+.a8
+.i8
+.include "snesmap.inc"
+.include "Constants.inc"
+.include "variables.inc"
+.include "nesio.inc"
+.include "fftext.inc"
+
+.export opt_shopinfo
+;  Reached by tools/test_options.py.
+.export opt_num, opt_word, opt_bitscan, opt_permissions
+.export opt_descgear, opt_weapcrit, opt_gearlive
+
+;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
+.import DrawBox, EraseBox, DrawComplexString
+.import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
+.import OptShopFrameFar
+.export lut_Words, lut_WordOfs, lut_ClassHi, lut_ClassLo
+
+;  Read with long addressing, so these banks are never swapped in and nothing
+;  in them moves; all that is needed is the address.
+.import lut_WeaponData, lut_ArmorData
+.import lut_WeaponPermissions, lut_ArmorPermissions
+
+.segment "BANK_OPT"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The words
+;;
+;;  Twelve columns is the whole budget, so the element names have to be the
+;;  short forms; "Resist Lightning" does not fit and "Resist Lit." does.
+;;  These are FFR's own abbreviations, for the sake of players who know them
+;;  from there.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+WORD_ATK      = 0
+WORD_HIT      = 1
+WORD_CRT      = 2
+WORD_DEF      = 3
+WORD_EVA      = 4
+WORD_HURT     = 5
+WORD_CAST     = 6
+WORD_RESIST   = 7
+WORD_ELEMENT  = 8
+WORD_ELEMENTS = 40      ; after the twelve classes, which end at 39
+WORD_AND      = 41
+WORD_ALL      = 9
+WORD_ALLCLASS = 10
+WORD_MORE     = 11
+WORD_ELEM0    = 12      ; eight, in bit order
+WORD_TYPE0    = 20      ; eight, in bit order
+WORD_CLASS0   = 28      ; twelve, base and promoted interleaved
+
+lut_Words:
+wATK:     FFWORD "ATK +"
+wHIT:     FFWORD "HIT +"
+wCRT:     FFWORD "CRT +"
+wDEF:     FFWORD "DEF +"
+wEVA:     FFWORD "EVA -"
+wHURT:    FFWORD "Hurt "
+wCAST:    FFWORD "Cast "
+wRESIST:  FFWORD "Resist"
+wELEMENT: FFWORD " Element"
+wALL:     FFWORD "All"
+wALLCLS:  FFWORD "All classes"
+wMORE:    FFWORD " more"
+;  The eight elements, in the order of the bits in an element byte.
+wE0:      FFWORD "Stat"
+wE1:      FFWORD "Pois"
+wE2:      FFWORD "Time"
+wE3:      FFWORD "Deat"
+wE4:      FFWORD "Fire"
+wE5:      FFWORD "Ice"
+wE6:      FFWORD "Lit."
+wE7:      FFWORD "Eart"
+;  The eight enemy categories a weapon can be good against.
+wT0:      FFWORD "Magical"
+wT1:      FFWORD "Dragon"
+wT2:      FFWORD "Giant"
+wT3:      FFWORD "Undead"
+wT4:      FFWORD "Were"
+wT5:      FFWORD "Water"
+wT6:      FFWORD "Mage"
+wT7:      FFWORD "Regen"
+;  The twelve classes, each base class followed by what it promotes into.
+wC0:      FFWORD "Fi"
+wC1:      FFWORD "Kn"
+wC2:      FFWORD "Th"
+wC3:      FFWORD "Ni"
+wC4:      FFWORD "Bb"
+wC5:      FFWORD "Ma"
+wC6:      FFWORD "Rm"
+wC7:      FFWORD "Rw"
+wC8:      FFWORD "Wm"
+wC9:      FFWORD "Ww"
+wC10:     FFWORD "Bm"
+wC11:     FFWORD "Bw"
+wELEMS:   FFWORD " Elements"
+wAND:     FFWORD " and "
+lut_WordsEnd:
+
+;  Byte offsets, so one index reaches any word.  The table has to stay under
+;  256 bytes for that; the assertion below is the only thing that notices if
+;  an edit pushes it over.
+lut_WordOfs:
+  .byte wATK - lut_Words, wHIT - lut_Words, wCRT - lut_Words
+  .byte wDEF - lut_Words, wEVA - lut_Words, wHURT - lut_Words
+  .byte wCAST - lut_Words, wRESIST - lut_Words, wELEMENT - lut_Words
+  .byte wALL - lut_Words, wALLCLS - lut_Words, wMORE - lut_Words
+  .byte wE0 - lut_Words, wE1 - lut_Words, wE2 - lut_Words, wE3 - lut_Words
+  .byte wE4 - lut_Words, wE5 - lut_Words, wE6 - lut_Words, wE7 - lut_Words
+  .byte wT0 - lut_Words, wT1 - lut_Words, wT2 - lut_Words, wT3 - lut_Words
+  .byte wT4 - lut_Words, wT5 - lut_Words, wT6 - lut_Words, wT7 - lut_Words
+  .byte wC0 - lut_Words, wC1 - lut_Words, wC2 - lut_Words, wC3 - lut_Words
+  .byte wC4 - lut_Words, wC5 - lut_Words, wC6 - lut_Words, wC7 - lut_Words
+  .byte wC8 - lut_Words, wC9 - lut_Words, wC10 - lut_Words, wC11 - lut_Words
+  .byte wELEMS - lut_Words, wAND - lut_Words
+lut_WordOfsEnd:
+
+;  An index that runs off the end of this table reads whatever follows it and
+;  draws something arbitrary, which is how "All Elements" became "AllBw".
+.assert lut_WordOfsEnd - lut_WordOfs = WORD_AND + 1, error, "word index table is the wrong length"
+
+.assert lut_WordsEnd - lut_Words < 256, error, "word table too big to index by a byte"
+
+;  A set bit in an equip permission word means that class CANNOT use the
+;  item.  The twelve bits run FT TH BB RM WM BM KN NJ MA RW WW BW from $800
+;  down, which straddles the byte boundary, so each class carries its mask
+;  for both halves and one of the two is always zero.  Listed in base,
+;  promoted order to match the word table above.
+lut_ClassHi:
+  .byte $08, $00,  $04, $00,  $02, $00,  $01, $00,  $00, $00,  $00, $00
+lut_ClassLo:
+  .byte $00, $20,  $00, $10,  $00, $08,  $00, $04,  $80, $02,  $40, $01
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Building the string
+;;
+;;  The description is assembled into SRAM and handed to the game's own
+;;  DrawComplexString, which is happy to read a string out of RAM.  That buys
+;;  the line-break control codes and the item-name escape for nothing.
+;;
+;;  Every byte emitted lands at $80 or above, or is one of the control codes
+;;  below $1A.  The range between is DTE, and text that strays into it draws
+;;  something other than itself.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Append A.  Everything else preserved.
+opt_emit:
+    PHX
+    LDX OPTDESCI
+    CPX #OPTDESC_MAX - 1        ; the last byte belongs to the terminator
+    BCS @full
+    STA OPTDESC, X
+    INX
+    STX OPTDESCI
+  @full:
+    PLX
+    RTS
+
+;  Append a word.  In: A = one of the WORD_ constants.  X clobbered.
+opt_word:
+    TAX
+    LDA f:lut_WordOfs + OPTFAR, X
+    STA OPTWORD
+    TAX
+    LDA f:lut_Words + OPTFAR, X ; the length byte
+    STA OPTWORDN
+    BEQ @done
+  @loop:
+    INC OPTWORD
+    LDX OPTWORD
+    LDA f:lut_Words + OPTFAR, X
+    JSR opt_emit
+    DEC OPTWORDN
+    BNE @loop
+  @done:
+    RTS
+
+;  Append A in decimal, leading zeros suppressed.  X clobbered.
+opt_num:
+    STA OPTNUMV
+    LDA #$00
+    STA OPTNUMSEEN
+    LDA #100
+    JSR @place
+    LDA #10
+    JSR @place
+    LDA OPTNUMV                 ; the ones digit always prints, so zero comes
+    CLC                         ;   out as "0" rather than as nothing
+    ADC #CHR_ZERO
+    JMP opt_emit
+
+  @place:
+    STA OPTNUMP
+    LDX #$00
+  @sub:
+    LDA OPTNUMV
+    CMP OPTNUMP
+    BCC @got
+    SEC
+    SBC OPTNUMP
+    STA OPTNUMV
+    INX
+    BRA @sub
+  @got:
+    TXA
+    BNE @print
+    LDA OPTNUMSEEN              ; a zero with nothing printed yet is a
+    BEQ @skip                   ;   leading zero, so drop it
+  @print:
+    INC OPTNUMSEEN
+    TXA
+    CLC
+    ADC #CHR_ZERO
+    JMP opt_emit
+  @skip:
+    RTS
+
+;  Count the set bits of A and find the lowest.
+;
+;  A shifting mask rather than a table of the eight bits: long addressing
+;  indexed by Y does not exist on this processor, and the table was the only
+;  reason this routine wanted two index registers.
+;
+;  Out: OPTBITN = how many are set, OPTBITLO = the lowest one's index (8 if
+;  none), OPTBITS = A.  A and X clobbered.
+opt_bitscan:
+    STA OPTBITS
+    LDA #$00
+    STA OPTBITN
+    LDA #$08
+    STA OPTBITLO                ; 8 means nothing is set
+    LDA #$01
+    STA OPTBITM
+    LDX #$00
+  @loop:
+    LDA OPTBITM
+    AND OPTBITS
+    BEQ @next
+    INC OPTBITN
+    LDA OPTBITLO
+    CMP #$08                    ; only the first one found is recorded
+    BNE @next
+    STX OPTBITLO
+  @next:
+    ASL OPTBITM
+    INX
+    CPX #$08
+    BCC @loop
+    RTS
+
+;  The next set bit at or after index X, for listing more than one of them.
+;  In: X = where to start, OPTBITS = the byte.  Out: C set and X = the bit's
+;  index, or C clear if there are no more.
+opt_bitnext:
+    STX OPTBITSTART
+    LDA #$01
+    STA OPTBITM
+    LDX #$00
+  @align:
+    CPX OPTBITSTART
+    BEQ @scan
+    ASL OPTBITM
+    INX
+    BRA @align
+  @scan:
+    CPX #$08
+    BCS @none
+    LDA OPTBITM
+    AND OPTBITS
+    BNE @found
+    ASL OPTBITM
+    INX
+    BRA @scan
+  @found:
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The classes that can use this piece of gear, two letters each.
+;
+;  A promoted class is named only where its base class cannot use the item,
+;  so a line reading "Ni Bb" means "thieves can't, ninjas can, and so can
+;  black belts".  Six names need all twelve columns, so the separating
+;  spaces come out once there are five or more.
+;
+;  In: OPTPERMLO / OPTPERMHI.
+opt_permissions:
+    LDA #$00
+    STA OPTPERMN
+    LDX #$00
+  @count:
+    JSR opt_canuse
+    BCC @next
+    INC OPTPERMN
+  @next:
+    INX
+    INX                         ; a base and its promotion are one entry
+    CPX #12
+    BCC @count
+
+    LDA OPTPERMN
+    CMP #6
+    BNE @list
+    LDA #WORD_ALLCLASS          ; all six reads better as words than as
+    JMP opt_word                ;   twelve unseparated letters
+
+  @list:
+    LDA #$00
+    STA OPTPERMFIRST
+    LDX #$00
+  @loop:
+    JSR opt_canuse
+    BCC @skip
+    LDA OPTPERMFIRST
+    BEQ @name
+    LDA OPTPERMN
+    CMP #5                      ; five or six only fit unseparated
+    BCS @name
+    LDA #CHR_SPACE
+    JSR opt_emit
+  @name:
+    INC OPTPERMFIRST
+    LDA OPTPERMSLOT             ; whichever of the pair opt_canuse settled on
+    CLC
+    ADC #WORD_CLASS0
+    JSR opt_word
+    LDX OPTPERMSLOT             ; opt_word ate X; put the pair index back
+    TXA
+    AND #$FE
+    TAX
+  @skip:
+    INX
+    INX
+    CPX #12
+    BCC @loop
+    RTS
+
+;  Can either class of the pair starting at X use this item?
+;  In: X = the base class's slot, which is even.
+;  Out: C set if so, and OPTPERMSLOT = the slot of whichever one can.
+;  X preserved.
+opt_canuse:
+    JSR opt_slotfree
+    BCC @promoted
+    STX OPTPERMSLOT
+    SEC
+    RTS
+  @promoted:
+    INX
+    JSR opt_slotfree
+    BCC @no
+    STX OPTPERMSLOT
+    DEX
+    SEC
+    RTS
+  @no:
+    DEX
+    CLC
+    RTS
+
+;  Is one class's bit clear in the permission word?
+;  In: X = slot.  Out: C set if that class can equip.  X preserved.
+opt_slotfree:
+    LDA f:lut_ClassHi + OPTFAR, X
+    AND OPTPERMHI
+    STA OPTGEARX
+    LDA f:lut_ClassLo + OPTFAR, X
+    AND OPTPERMLO
+    ORA OPTGEARX
+    BNE @no
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The accessors
+;;
+;;  One routine per property whose value -- or whose meaning -- a flag can
+;;  change.  The builder below reads nothing else, so when a flag lands it
+;;  changes a routine here and the box follows.  These are meant to be the
+;;  same routines the battle code calls once Weapon Stats and Double Weapon
+;;  Crit Rate are implemented; each will need a JSL wrapper then, since bank
+;;  $0C cannot reach this chunk with a JSR.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  A byte of a weapon record that no flag touches.
+;
+;  Forty records of eight bytes is 320, so the offset of the last few does
+;  not fit in an index register -- and the registers are eight bits wide for
+;  good, because this port runs the processor in emulation mode.  Splitting
+;  the table at the halfway mark keeps every offset under 256.  Getting this
+;  wrong is quiet: weapon 38 read weapon 6's numbers and looked plausible.
+;
+;  In: X = 0-based index, Y = which byte.  Out: A, Z set from it.  X, Y kept.
+opt_weapbyte:
+    PHX
+    TXA
+    CMP #32                     ; 32 * 8 is exactly 256
+    BCS @high
+    JSR @offset
+    LDA f:lut_WeaponData + BANK0CFAR, X
+    BRA @out
+  @high:
+    SEC
+    SBC #32
+    JSR @offset
+    LDA f:lut_WeaponData + 256 + BANK0CFAR, X
+  @out:
+    PLX
+    CMP #$00                    ; PLX left the flags describing X, and the
+    RTS                         ;   callers branch on the byte
+
+  @offset:
+    ASL A                       ; eight bytes per weapon, plus the field
+    ASL A
+    ASL A
+    STA OPTGEARX
+    TYA
+    CLC
+    ADC OPTGEARX
+    TAX
+    RTS
+
+;  The same for armour.  Four bytes each, and no flag reaches any of them:
+;  evade, absorb and resistance are all accumulated out of battle by
+;  AdjustEquipStats, so all three are live whatever the settings say.
+opt_armbyte:
+    PHX
+    TXA
+    ASL A
+    ASL A
+    STA OPTGEARX
+    TYA
+    CLC
+    ADC OPTGEARX
+    TAX
+    LDA f:lut_ArmorData + BANK0CFAR, X
+    PLX
+    CMP #$00
+    RTS
+
+;  A weapon's critical rate, as the game will actually roll it.
+;
+;  Vanilla never reads the crit byte.  LoadOneCharacterIBStats takes the
+;  equipped slot byte, masks off the "equipped" bit and stores THAT as the
+;  crit rate -- so a weapon's real crit chance is its own 1-based position in
+;  the list, which is why the last weapon crits forty times as often as the
+;  first and nobody noticed for thirty years.  Weapon Stats is the flag that
+;  makes the byte live; Double Weapon Crit Rate then doubles it.
+;
+;  In: X = 0-based weapon index.  Out: A = percent.  X kept.
+opt_weapcrit:
+    LDA OPTFB_WEAPONSTATS
+    AND #OPTFM_WEAPONSTATS
+    BNE @real
+    TXA                         ; the bug, reported honestly: 1-based index
+    INC A
+    RTS
+  @real:
+    LDY #WEAPON_CRIT
+    JSR opt_weapbyte
+    PHA
+    LDA OPTFB_CRITRATE
+    AND #OPTFM_CRITRATE
+    BEQ @once
+    PLA
+    ASL A                       ; doubled, and pinned at 255 rather than
+    BCC @out                    ;   wrapping round to something tiny
+    LDA #$FF
+    RTS
+  @once:
+    PLA
+  @out:
+    RTS
+
+;  Do a weapon's element and category bonus do anything?
+;
+;  In vanilla neither byte is read by any code at all: LoadOneCharacterIBStats
+;  zeroes the player's category and element, then reads only bytes 6 and 7 of
+;  the record -- the graphic and the palette.  Weapon Stats is what wires them
+;  up.  Listing them while they are inert would describe the item rather than
+;  what it will do, so the box leaves those lines out until the flag is on.
+;
+;  Out: C set if the fields are live.
+opt_gearlive:
+    LDA OPTFB_WEAPONSTATS
+    AND #OPTFM_WEAPONSTATS
+    BEQ @dead
+    SEC
+    RTS
+  @dead:
+    CLC
+    RTS
+
+;  The equip permission word, into OPTPERMLO / OPTPERMHI.
+;  In: X = 0-based index.
+opt_weapperms:
+    TXA
+    ASL A                       ; one word each
+    TAX
+    LDA f:lut_WeaponPermissions + BANK0EFAR, X
+    STA OPTPERMLO
+    LDA f:lut_WeaponPermissions + 1 + BANK0EFAR, X
+    STA OPTPERMHI
+    RTS
+
+opt_armperms:
+    TXA
+    ASL A
+    TAX
+    LDA f:lut_ArmorPermissions + BANK0EFAR, X
+    STA OPTPERMLO
+    LDA f:lut_ArmorPermissions + 1 + BANK0EFAR, X
+    STA OPTPERMHI
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The descriptions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Start a new line.  Control code $05 is the single line break, and it
+;  returns to the column DrawBox left in dest_x.
+opt_nl:
+    LDA #$05
+    JMP opt_emit
+
+;  Close the string off.
+opt_term:
+    LDA #$00
+    JMP opt_emit
+
+;  Name the spell a piece of gear casts.  Control code $02 followed by an
+;  item id draws that item's name, which is how the shop's own price list is
+;  built.  The spell field is 1-based and magic starts at item MG_START.
+;  In: A = the spell field, already known nonzero.
+opt_castline:
+    PHA
+    JSR opt_nl
+    LDA #WORD_CAST
+    JSR opt_word
+    LDA #$02
+    JSR opt_emit
+    PLA
+    CLC
+    ADC #MG_START - 1
+    JMP opt_emit
+
+;  One line naming the bits set in A: the lowest one, or "All" for all eight.
+;  In: A = the byte, X = the word index its bit 0 maps to.
+opt_bitline:
+    STX OPTGEARX
+    JSR opt_bitscan
+    LDA OPTBITN
+    CMP #$08
+    BNE @one
+    LDA #WORD_ALL
+    RTS                         ; caller decides what follows "All"
+  @one:
+    LDA OPTBITLO
+    CLC
+    ADC OPTGEARX
+    RTS
+
+;  Build the description for an item.  In: A = item id.
+;  Out: C set if one was built, and OPTDESC holds it.
+opt_descgear:
+    STA OPTGEAR
+    LDA #$00
+    STA OPTDESCI
+    LDA OPTGEAR
+    CMP #TCITYPE_WEPSTART
+    BCC @none
+    CMP #TCITYPE_ARMSTART
+    BCC @weapon
+    CMP #TCITYPE_GPSTART
+    BCS @none                   ; the armour body is further off than a
+    JMP @armor                  ;   conditional branch reaches
+  @none:
+    CLC
+    RTS
+
+  @weapon:
+    LDA OPTGEAR
+    SEC
+    SBC #TCITYPE_WEPSTART
+    STA OPTGEARI
+
+    LDA #WORD_ATK
+    JSR opt_word
+    LDX OPTGEARI
+    LDY #WEAPON_DMG
+    JSR opt_weapbyte
+    JSR opt_num
+    JSR opt_nl
+
+    LDA #WORD_HIT
+    JSR opt_word
+    LDX OPTGEARI
+    LDY #WEAPON_HIT
+    JSR opt_weapbyte
+    JSR opt_num
+    JSR opt_nl
+
+    LDA #WORD_CRT
+    JSR opt_word
+    LDX OPTGEARI
+    JSR opt_weapcrit
+    JSR opt_num
+    JSR opt_nl
+
+    LDX OPTGEARI
+    JSR opt_weapperms
+    JSR opt_permissions
+
+    JSR opt_gearlive            ; the two bonus lines, if the flag wires them
+    BCC @wspell                 ;   up; otherwise they would be fiction
+
+    LDX OPTGEARI
+    LDY #WEAPON_CAT
+    JSR opt_weapbyte
+    BEQ @welem
+    PHA
+    JSR opt_nl
+    LDA #WORD_HURT
+    JSR opt_word
+    PLA
+    LDX #WORD_TYPE0
+    JSR opt_bitline
+    JSR opt_word
+
+  @welem:
+    LDX OPTGEARI
+    LDY #WEAPON_ELEM
+    JSR opt_weapbyte
+    BEQ @wspell
+    PHA                         ; opt_nl draws, and drawing goes through A
+    JSR opt_nl
+    PLA
+    LDX #WORD_ELEM0
+    JSR opt_bitline
+    CMP #WORD_ALL               ; "All Elements", or "Fire Element"
+    BEQ @wall
+    JSR opt_word
+    LDA #WORD_ELEMENT
+    BRA @welemw
+  @wall:
+    JSR opt_word
+    LDA #WORD_ELEMENTS
+  @welemw:
+    JSR opt_word
+
+  @wspell:
+    LDX OPTGEARI
+    LDY #WEAPON_SPELL
+    JSR opt_weapbyte
+    BEQ @done
+    JSR opt_castline
+  @done:
+    JSR opt_term
+    SEC
+    RTS
+
+  @armor:
+    LDA OPTGEAR
+    SEC
+    SBC #TCITYPE_ARMSTART
+    STA OPTGEARI
+
+    LDA #WORD_DEF
+    JSR opt_word
+    LDX OPTGEARI
+    LDY #ARMOR_ABSORB
+    JSR opt_armbyte
+    JSR opt_num
+    JSR opt_nl
+
+    LDA #WORD_EVA
+    JSR opt_word
+    LDX OPTGEARI
+    LDY #ARMOR_EVADE
+    JSR opt_armbyte
+    JSR opt_num
+    JSR opt_nl
+
+    LDX OPTGEARI
+    JSR opt_armperms
+    JSR opt_permissions
+
+    LDX OPTGEARI
+    LDY #ARMOR_RESIST
+    JSR opt_armbyte
+    BEQ @aspell
+    PHA
+    JSR opt_nl
+    LDA #WORD_RESIST
+    JSR opt_word
+    PLA
+    LDX #WORD_ELEM0
+    JSR opt_bitline
+    CMP #WORD_ALL               ; "Resist All" fits on the one line
+    BNE @alist
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA #WORD_ALL
+    JSR opt_word
+    BRA @aspell
+
+    ;  Otherwise the elements go on their own line, because "Resist" plus a
+    ;  four-letter name is already eleven of the twelve columns.  Two names
+    ;  fit beside each other; anything past that is counted instead, which
+    ;  only one piece of armour in the game needs.
+  @alist:
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDX #$00
+    LDA #$00
+    STA OPTPERMFIRST            ; how many have been named so far
+  @aloop:
+    JSR opt_bitnext
+    BCC @aspell
+    LDA OPTPERMFIRST
+    CMP #$02
+    BCS @amore
+    LDA OPTPERMFIRST            ; CMP above left the flags describing the
+    BEQ @aname                  ;   comparison, not the count
+    LDA #CHR_SPACE
+    JSR opt_emit
+  @aname:
+    INC OPTPERMFIRST
+    TXA
+    PHA
+    CLC
+    ADC #WORD_ELEM0
+    JSR opt_word
+    PLA
+    TAX
+    INX
+    BRA @aloop
+  @amore:
+    JSR opt_nl                  ; "and 1 more" for the ones that did not fit
+    LDA #WORD_AND
+    JSR opt_word
+    LDA OPTBITN
+    SEC
+    SBC #$02
+    JSR opt_num
+    LDA #WORD_MORE
+    JSR opt_word
+
+  @aspell:
+    LDX OPTGEARI
+    LDY #ARMOR_SPELL
+    JSR opt_armbyte
+    BEQ @adone
+    JSR opt_castline
+  @adone:
+    JSR opt_term
+    SEC
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The box
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_boxdims:
+    LDA #OPTINFO_X
+    STA box_x
+    LDA #OPTINFO_Y
+    STA box_y
+    LDA #OPTINFO_W
+    STA box_wd
+    LDA #OPTINFO_H
+    STA box_ht
+    RTS
+
+;  One frame while the box is up.
+;
+;  The real ShopFrame, reached through a four-byte trampoline in bank $0E,
+;  rather than one assembled here out of fixed-bank pieces.  The assembled
+;  one cleared OAM and drew nothing, so the hand cursor blinked out and back
+;  each time the box opened; FFR keeps calling ShopFrame and the cursor never
+;  moves.  It also handles the joypad and the music, so nothing else is left
+;  to do here.
+opt_infoframe:
+    JSL OptShopFrameFar + BANK0EFAR
+    RTS
+
+;  Hold the box until the player presses something.  The button that opened
+;  it has to be let go of first, or the same press closes it again.
+opt_waitbtn:
+  @release:
+    JSR opt_infoframe
+    LDA joy
+    BNE @release
+  @press:
+    JSR opt_infoframe
+    LDA joy
+    BEQ @press
+    LDA #$00
+    STA joy_a                   ; the press that dismissed the box must not
+    STA joy_b                   ;   also count as choosing the item
+    STA joy_select
+    ;  Nor as moving the cursor.  The shop loop set joy_prevdir before the
+    ;  box opened and compares the pad against it on the way round; left
+    ;  stale, a box dismissed with up or down reads as a fresh press of that
+    ;  direction and the cursor jumps a slot.
+    LDA joy
+    AND #$0C
+    STA joy_prevdir
+    RTS
+
+;  Draw the description, wait, and put the screen back as it was.
+opt_showbox:
+    LDA text_ptr                ; the shop loop keeps its cursor-position
+    STA OPTSAVEPTR              ;   table pointer in here
+    LDA text_ptr+1
+    STA OPTSAVEPTR+1
+
+    JSR opt_boxdims
+    LDA #CHUNK_OPT              ; DrawBox stalls through MenuCondStall, which
+    STA cur_bank                ;   swaps; this is where it comes back to
+    JSR DrawBox                 ; leaves dest_x/dest_y inside the box, which
+                                ;   is where the string will land
+    LDA #<OPTDESC
+    STA text_ptr
+    LDA #>OPTDESC
+    STA text_ptr+1
+    LDA #CHUNK_OPT              ; the string is in SRAM, which every chunk
+    STA cur_bank                ;   maps alike, so this only has to name a
+    STA ret_bank                ;   bank we can come back to
+    JSR DrawComplexString
+
+    JSR opt_waitbtn
+
+    JSR opt_boxdims
+    LDA #CHUNK_OPT
+    STA cur_bank
+    JSR EraseBox
+
+    LDA OPTSAVEPTR
+    STA text_ptr
+    LDA OPTSAVEPTR+1
+    STA text_ptr+1
+    LDA #BANK_MENUS             ; back to what the shop loop expects
+    STA cur_bank
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Called once a frame from the shop's common loop, just after ShopFrame.
+;
+;  Select is free here: the loop already zeroes it on every exit, with the
+;  comment "but why?  select isn't used in shops?".  Nothing else about the
+;  game's input handling is touched.
+opt_shopinfo:
+    LDA OPTFB_SHOPINFO
+    AND #OPTFM_SHOPINFO
+    BEQ @out
+    LDA joy_select
+    BEQ @out
+    LDA #$00
+    STA joy_select              ; spent, whether or not a box follows
+    LDA shopcurs_x
+    CMP #SHOPCURS_LEFT
+    BEQ @out                    ; the command column has nothing to describe
+    LDX cursor
+    LDA item_box, X
+    JSR opt_descgear
+    BCC @out                    ; not a weapon or a piece of armour
+
+    ;  Everything the box calls goes through SwapPRG, and hal_swapprg ends
+    ;  with PLB -- so a swap sets the data bank as well as the program bank,
+    ;  and the last one leaves it pointing at whichever chunk that was.  The
+    ;  shop loop reads its cursor table with LDA (text_ptr),Y, which resolves
+    ;  through DBR, so returning with the wrong one made it fetch the cursor
+    ;  coordinates out of this chunk instead of bank $0E and put the hand
+    ;  somewhere arbitrary.
+    PHB
+    JSR opt_showbox
+    PLB
+  @out:
+    RTL
