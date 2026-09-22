@@ -29,7 +29,9 @@ So: check the spacing, every build.  Run after linking, with a label file:
     ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt out/*.o
     python3 tools/check_tables.py out/labels.txt
 """
-import sys
+import os, re, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 #  Each table, in the order its entries appear in the source.  A new entry has
 #  to be added here as well, or the check will not know to expect it.
@@ -51,7 +53,8 @@ TABLES = {
     ],
 }
 
-ENTRY = 3           # JMP abs
+ENTRY = 3                # JMP abs
+DESC_LINES = 5           # rows in the settings screen's description pane
 
 
 def labels(path):
@@ -61,6 +64,41 @@ def labels(path):
         if len(f) >= 3 and f[0] == "al":
             out[f[2].lstrip(".")] = int(f[1], 16)
     return out
+
+
+def descriptions():
+    """A menu description says how many lines it has; make it tell the truth.
+
+    The records used to be five fixed lines, padded with spaces.  That padding
+    came to 2.8KB in a bank with nothing left, so each one now begins with a
+    count and holds only the lines it uses.  The count is the one thing in the
+    record the assembler cannot check: too small and the last lines never
+    appear, too large and the pane draws the next description's first line.
+    Both are quiet -- the menu still works, the text is just wrong -- and only
+    on the row that has the bad count.
+    """
+    src = open(os.path.join(ROOT, "src", "optmenu.asm"), encoding="latin-1").read()
+    bad = []
+    n = 0
+    for m in re.finditer(r"^(lut_Desc_\d+|lut_DescBlank):[^\n]*\n"
+                         r"  FFLINES (\d+)\n"
+                         r"((?:  (?:\.BYTE|FFPAD)[^\n]*\n)*)", src, re.M):
+        name, said, body = m.group(1), int(m.group(2)), m.group(3)
+        have = len([l for l in body.split("\n") if l.strip()])
+        n += 1
+        if said != have:
+            bad.append("   COUNT  %s says %d lines and has %d" % (name, said, have))
+        elif said > DESC_LINES:
+            bad.append("   LONG   %s has %d lines; the pane holds %d"
+                       % (name, said, DESC_LINES))
+    if n == 0:
+        bad.append("   ?? no description records found -- has the format changed?")
+    for line in bad:
+        print(line)
+    if not bad:
+        print("   ok     %-28s %2d records, each as long as it claims"
+              % ("menu descriptions", n))
+    return bool(bad)
 
 
 def main():
@@ -82,6 +120,10 @@ def main():
             note = "" if not missing else "  (%d not exported)" % len(missing)
             print("   ok     %-28s %2d entries, 3 bytes apart, from $%04X%s"
                   % (name, len(have), have[0][1], note))
+    if descriptions():
+        print("\na menu description's line count disagrees with the lines"
+              "\nbelow it, so the pane will draw the wrong text.")
+        return 1
     if bad:
         print("\na jump table has something wedged into it -- entries reached by"
               "\nindex now land inside an instruction.  Move the new code out.")
