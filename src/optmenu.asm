@@ -1614,12 +1614,10 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"games are not affected."}, 28
 
 lut_Desc_45:  ; SCALE
-  FFLINES 5
-  FFPAD {"Dials, not switches - left"}, 28
-  FFPAD {"and right set each one."}, 28
-  FFPAD {"They are first in the list"}, 28
-  FFPAD {"because left and right page"}, 28
-  FFPAD {"the list everywhere else."}, 28
+  FFLINES 3
+  FFPAD {"Adjustments to the game"}, 28
+  FFPAD {"difficulty. Press left and"}, 28
+  FFPAD {"right to change the value."}, 28
 
 lut_Desc_34:  ; Free SHIP
   FFLINES 3
