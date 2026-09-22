@@ -856,6 +856,8 @@ h_hdmaen        = HAL_VARS+$62  ; which HDMA channels this frame wants.  Two
                                 ; TM, flush_ntsplit on BG1HOFS -- and each used
                                 ; to store HDMAEN outright, so whichever ran last
                                 ; switched the other one off.
+h_rowlo         = HAL_VARS+$AC  ; flush_nt: first dirty row, and one past
+h_rowend        = HAL_VARS+$AE  ; the last, so the row loop walks only those
 h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
                                 ; flags, one byte each, indexed left/right
 

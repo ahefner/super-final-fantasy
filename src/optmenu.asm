@@ -78,7 +78,6 @@ OPTMENU_ADDR   = $73            ; 2 bytes: nametable address being built
 OPTMENU_SCAN   = $75            ; row index while walking a section
 OPTMENU_ALLSET = $76            ; was every checkbox in the section already on?
 OPTMENU_VALPTR = $77            ; 2 bytes: into a value-readout table
-OPTMENU_STG    = $79            ; how many bytes are staged for the blit
 OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
 
 ;  This screen does its own edge detection rather than using joy_a, joy_start
@@ -92,6 +91,7 @@ OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
 OPTMENU_PREV   = OPTBLOCK + $1E ; the pad as it read last frame
 OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
 OPTMENU_WAS    = OPTBLOCK + $1D ; the row a left/right page started on
+OPTMENU_LEFT   = OPTBLOCK + $1C ; rows still to draw before the next breath
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
 PAD_RIGHT = $01
@@ -121,7 +121,8 @@ opt_settings:
     JSL hal_clearnt + HALFAR
     JSR opt_menu_fillbg
     JSR opt_menu_loadchr
-    JSR opt_menu_drawall        ; ...which ends by drawing the description too
+    JSR opt_menu_drawdesc       ; the box frame, once: it never changes
+    JSR opt_menu_drawall
 
     LDA #$08
     STA soft2000                ; sprites from the right pattern table
@@ -234,7 +235,9 @@ opt_settings:
     STX OPTMENU_SEL
     JSR opt_sfx_move
     JSR opt_menu_scroll
+    BCS @dpainted               ; the repaint put the description back
     JSR opt_menu_desc
+  @dpainted:
     JMP @loop
 
   @up:
@@ -251,7 +254,9 @@ opt_settings:
     STX OPTMENU_SEL
     JSR opt_sfx_move
     JSR opt_menu_scroll
+    BCS @upainted
     JSR opt_menu_desc
+  @upainted:
     JMP @loop
 
 
@@ -329,6 +334,12 @@ opt_menu_nextsel:
 OPTLIST_MARGIN = 2
 OPTLIST_PAGE   = OPTLIST_ROWS / 2   ; how far left and right jump
 
+;;  Out: C set if the window moved and the whole screen was repainted, which
+;;  includes the description -- so a caller that would otherwise put the
+;;  description back must not.  It was doing exactly that: every scroll drew
+;;  the pane twice, once at the end of the repaint and once on the way back,
+;;  and the second one was five more blits on the frame that could least
+;;  afford them.
 opt_menu_scroll:
     LDA OPTMENU_SEL             ; the highest row we are willing to have as TOP
     SEC
@@ -339,7 +350,9 @@ opt_menu_scroll:
     CMP OPTMENU_TOP
     BCS @bottom                 ; already showing enough above the cursor
     STA OPTMENU_TOP
-    JMP opt_menu_drawall
+    JSR opt_menu_drawall
+    SEC
+    RTS
 
   @bottom:
     LDA OPTMENU_SEL
@@ -351,8 +364,11 @@ opt_menu_scroll:
     SEC
     SBC #OPTLIST_ROWS - 1
     STA OPTMENU_TOP
-    JMP opt_menu_drawall
+    JSR opt_menu_drawall
+    SEC
+    RTS
   @out:
+    CLC
     RTS
 
 
@@ -375,7 +391,7 @@ opt_menu_toggle:
     STA OPT_FLAGS, X
     JSR opt_sfx_sel
     JSR opt_commit_body
-    JMP opt_menu_drawall
+    JMP opt_menu_drawsel
 
 
 ;;  Turn a whole section on or off.
@@ -530,16 +546,20 @@ opt_menu_desc:
     STA OPTMENU_ROWNUM
   @line:
     JSR opt_menu_descppu
-    LDA #$00
-    STA OPTMENU_STG
+    ;  Two cursors that count together: Y reads the wrapped line, X stages it.
+    ;  They cannot be the same register -- the source needs (dp),y and the
+    ;  staging buffer is long-addressed, and the 65816 has "long,x" but no
+    ;  "long,y".
+    LDX #$00
     LDY #$00
   @char:
     LDA (OPTMENU_DESC), Y
-    JSR opt_stage
+    STA f:NTSTAGE, X
+    INX
     INY
     CPY #DESC_W
     BCC @char
-    JSR opt_stage_flush
+    JSL hal_ntblit + HALFAR     ; X is already the count
 
     LDA OPTMENU_DESC            ; on to the next wrapped line
     CLC
@@ -601,9 +621,25 @@ opt_menu_drawdesc:
 
 
 ;;  Redraw the whole visible window.
+;;  How many rows one frame's worth of repaint is.
+;;
+;;  Set by what a *vblank* holds rather than by what a frame's drawing holds,
+;;  because that is the tighter of the two: a dirty row costs the flush about
+;;  four scanlines -- two nt_piece transfers, each with more setup than
+;;  transfer -- against the thirty-seven a vblank has.  Ten rows ran eleven
+;;  lines into the picture; seven fitted, but with three lines to spare on the
+;;  frames where the sprite flush also had work, which is not margin.
+;;
+;;  Five, and not six, because twenty divides by it: six gives 6-6-6-2 and five
+;;  gives 5-5-5-5, which is the same number of frames with a smaller worst
+;;  case.  The description is a fifth piece either way.
+OPTLIST_CHUNK  = 5
+
 opt_menu_drawall:
     LDA #$00
     STA OPTMENU_ROWNUM
+    LDA #OPTLIST_CHUNK
+    STA OPTMENU_LEFT
   @row:
     LDA OPTMENU_ROWNUM
     CLC
@@ -616,15 +652,67 @@ opt_menu_drawall:
     JSR opt_menu_blankrow
   @next:
     INC OPTMENU_ROWNUM
+    DEC OPTMENU_LEFT
+    BNE @more                   ; ...a chunk's worth, so give the frame back
+    JSR opt_menu_breathe
+    LDA #OPTLIST_CHUNK
+    STA OPTMENU_LEFT
+  @more:
     LDA OPTMENU_ROWNUM
     CMP #OPTLIST_ROWS
     BCC @row
-    ;  The box and then its text.  Redrawing the box blanks its interior, so
-    ;  anything that repaints the list has to put the description back --
-    ;  otherwise toggling a setting, adjusting a value or scrolling all wipe
-    ;  the pane and leave it empty until the cursor next moves.
-    JSR opt_menu_drawdesc
+    ;  ...and once more before the description, which is five rows of its own
+    ;  -- unless the last row completed a chunk and has just been given one,
+    ;  which would otherwise spend a whole frame drawing nothing.
+    LDA OPTMENU_LEFT
+    CMP #OPTLIST_CHUNK
+    BEQ @justbreathed
+    JSR opt_menu_breathe
+  @justbreathed:
+    ;  The description text, but not the box around it.  The box is rows 21-28
+    ;  and the list is rows 1-20, so a repaint of the list cannot damage it --
+    ;  and redrawing it anyway was the single most expensive thing a scroll
+    ;  did: eight more rows through DrawBox, and eight more rows for the flush
+    ;  to carry.  It is drawn once, on the way in.
     JMP opt_menu_desc
+
+
+;;  Repaint just the row the cursor is on.
+;;
+;;  A checkbox toggle changes one tile and a value row changes four, and both
+;;  used to repaint the whole visible window -- twenty rows through the blit
+;;  path for a single character.  Nothing else on screen depends on a flag's
+;;  value, not even the description, so one row is the whole update.
+opt_menu_drawsel:
+    LDA OPTMENU_SEL
+    SEC
+    SBC OPTMENU_TOP
+    STA OPTMENU_ROWNUM
+    LDA OPTMENU_SEL
+    JMP opt_menu_drawrow
+
+
+;;  One frame, in the middle of a repaint.
+;;
+;;  Twenty rows is more drawing than a frame holds, and the loop above is the
+;;  one place in this screen that does not come back to the main loop while it
+;;  works.  Without this the music driver goes uncalled for a frame and a
+;;  quarter -- an audible stall, and a chirp that starts and then sits on one
+;;  pitch -- and the whole repaint arrives as one flush, which is far too much
+;;  for a vblank and paints a black band a third of the screen deep.
+;;
+;;  Split in half it is two ordinary frames: each half is comfortably inside a
+;;  frame's worth of drawing, each flush is comfortably inside a vblank, and
+;;  the music is called as often as it always was.  What it costs is that the
+;;  list arrives in two pieces one frame apart, which at a single keypress is
+;;  not something the eye has time to find.
+;;
+;;  DrawBox has the same shape for the same reason and calls it a stall.
+opt_menu_breathe:
+    LDA #CHUNK_OPT              ; where CallMusicPlay has to come back to
+    STA cur_bank
+    JSR WaitForVBlank_L         ; ...which is also where the flush happens
+    JMP CallMusicPlay
 
 
 ;;  Point the PPU at the start of on-screen row OPTMENU_ROWNUM.
@@ -718,33 +806,15 @@ opt_waitrelease:
     RTS
 
 
-;;  Append A to the staging buffer that hal_ntblit reads.
-opt_stage:
-    PHX
-    LDX OPTMENU_STG
-    STA f:NTSTAGE, X
-    INC OPTMENU_STG
-    PLX
-    RTS
-
-
-;;  Hand the staged run to the HAL.  One call replaces a row of single $2007
-;;  writes, each of which was a thunk plus the whole address decode -- which is
-;;  what made scrolling stall the music for two or three frames.
-opt_stage_flush:
-    LDX OPTMENU_STG
-    JSL hal_ntblit + HALFAR
-    LDA #$00
-    STA OPTMENU_STG
-    RTS
-
-
 ;;  In: A = the list index to draw, OPTMENU_ROWNUM = where.
+;;
+;;  X is the staging cursor from @emit onwards and Y indexes whatever is being
+;;  copied from, so every byte is a store and an increment rather than a call.
+;;  The checkbox is worked out first, because opt_flagbit wants X for its own
+;;  shift; opt_value_ptr wants it too, and is bracketed.
 opt_menu_drawrow:
     JSR opt_menu_ptrfor
     JSR opt_menu_ppuaddr
-    LDA #$00
-    STA OPTMENU_STG
 
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
@@ -756,21 +826,25 @@ opt_menu_drawrow:
     AND OPT_FLAGS, X
     BEQ @off
     LDA #CHKTILE_ON
-    JMP @emit
+    BRA @emit
   @off:
     LDA #CHKTILE_OFF
-    JMP @emit
+    BRA @emit
   @nobox:
     LDA #$FF                    ; headers and value rows have no checkbox
   @emit:
-    JSR opt_stage
+    LDX #$00
+    STA f:NTSTAGE, X
+    INX
     LDA #$FF
-    JSR opt_stage               ; the gap column
+    STA f:NTSTAGE, X            ; the gap column
+    INX
 
     LDY #OPTROW_LABEL
   @label:
     LDA (OPTMENU_ROWPTR), Y
-    JSR opt_stage
+    STA f:NTSTAGE, X
+    INX
     INY
     CPY #OPTROW_LABEL + OPTROW_LABELW
     BCC @label
@@ -779,7 +853,8 @@ opt_menu_drawrow:
     ;  value.  Writing it unconditionally is what stops a value left behind by
     ;  a scrolled-away row showing up beside an unrelated label.
     LDA #$FF
-    JSR opt_stage               ; the gap column
+    STA f:NTSTAGE, X            ; the gap column
+    INX
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
     CMP #OPTROW_VAL
@@ -787,20 +862,26 @@ opt_menu_drawrow:
     LDY #VALFIELD
   @pad:
     LDA #$FF
-    JSR opt_stage
+    STA f:NTSTAGE, X
+    INX
     DEY
     BNE @pad
-    JMP opt_stage_flush
+    BRA @blit
   @value:
+    PHX                         ; opt_value_ptr shifts through X
     JSR opt_value_ptr           ; -> OPTMENU_VALPTR at this row's readout
+    PLX
     LDY #$00
   @vloop:
     LDA (OPTMENU_VALPTR), Y
-    JSR opt_stage
+    STA f:NTSTAGE, X
+    INX
     INY
     CPY #VALFIELD
     BCC @vloop
-    JMP opt_stage_flush
+  @blit:
+    JSL hal_ntblit + HALFAR     ; X is already the count
+    RTS
 
 
 ;;  Point OPTMENU_VALPTR at the readout for the value row OPTMENU_ROWPTR
@@ -879,7 +960,10 @@ opt_sideways:
     JSR opt_sfx_move
   @quiet:
     JSR opt_menu_scroll
-    JMP opt_menu_desc
+    BCS @painted                ; ...otherwise the repaint has done it
+    JSR opt_menu_desc
+  @painted:
+    RTS
 
   @value:
     PLA
@@ -923,7 +1007,7 @@ opt_value_adjust:
 
   @done:
     JSR opt_commit_body
-    JMP opt_menu_drawall
+    JMP opt_menu_drawsel
 
 
 ;;  Wipe an on-screen row that has no list entry behind it.

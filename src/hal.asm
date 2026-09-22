@@ -1595,9 +1595,20 @@ flush_nt:
     .a8
     lda a:NTCOLLO,x
     cmp a:NTCOLHI,x
-    beq :+
+    beq @dirty
     bcs @scannext               ; low above high: this row is clean
-:   inc a:h_gcount
+@dirty:
+    ;  Where the dirty rows begin and end.  The loop below used to walk all
+    ;  thirty whatever was dirty, and rebuild four running addresses for each
+    ;  of them; a five-row update -- which is what a menu description or a
+    ;  status line is -- spent six times as long stepping over clean rows as
+    ;  sending the dirty ones.
+    lda a:h_gcount
+    bne @seenone
+      stx a:h_rowlo             ; X is sixteen bits here, so this is a word
+@seenone:
+    stx a:h_rowend              ; the last dirty row seen, so far
+    inc a:h_gcount
     lda a:NTCOLLO,x
     cmp a:h_c0
     bcs :+
@@ -1615,6 +1626,17 @@ flush_nt:
     bcc @scan
 
     lda a:h_gcount
+    bne @some
+    LEAVE16
+    rts                         ; dirty flag set, but no row is actually dirty
+    ;  ...and LEAVE16 has just told the assembler the widths are eight bits,
+    ;  which the CPU only believes on that one path.  Everything below is still
+    ;  reached in sixteen, so say so -- the same trap @byrows carries a note
+    ;  about, and it is silent: "cmp #8" assembled two bytes wide and would
+    ;  have eaten the branch behind it.
+    .a16
+    .i16
+@some:
     cmp #8                      ; enough rows to be worth it?
     bcc @byrows
     lda a:h_c1
@@ -1645,12 +1667,53 @@ flush_nt:
     .i16
 
 @byrows:
-    stz a:h_row
-    lda #NTSHADOW               ; source of row 0
+    inc a:h_rowend              ; the scan left the last dirty row in it
+    lda a:h_rowlo
+    sta a:h_row
+    asl a                       ; the shadow's row stride is 128 bytes
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #NTSHADOW
     sta a:h_ntsrc
-    stz a:h_vdst0               ; tilemap row 0
-    lda #(30*32)
-    sta a:h_vdst1               ; ...and its duplicate, at row 30
+    lda a:h_rowlo               ; the tilemap's is 32 words
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta a:h_vdst0
+    ;  ...and the duplicate, which sits above row 29 for the first two rows
+    ;  and in the bottom pair of quadrants from row 2 on.  @nextrow makes the
+    ;  same switch as it advances; this is that rule evaluated once, for
+    ;  whichever row the walk now starts on.
+    lda a:h_rowlo
+    cmp #2
+    bcs @duplow
+    clc
+    adc #30
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta a:h_vdst1
+    bra @rowloop
+@duplow:
+    sec
+    sbc #2
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc #$0800
+    sta a:h_vdst1
 @rowloop:
     ldx a:h_row
     sep #$20
@@ -1701,7 +1764,7 @@ flush_nt:
     adc #32
     sta a:h_vdst1
 :   lda a:h_row
-    cmp #30
+    cmp a:h_rowend
     bcc @rowloop
     LEAVE16
     rts
@@ -3570,23 +3633,30 @@ hal_ntblit:
 ;;  indexed addressing would have pinned one of them, because the 65816 has
 ;;  "long,x" and no "long,y".
     phb
-    ldx #$0000
-    ldy a:h_t1
-    sep #$20
-    .a8
-    lda #$7E                    ; the push has to be eight bits wide.  In
-    pha                         ;   sixteen this pushed two bytes against a
-    plb                         ;   one-byte plb and leaked a byte of stack
-@raw:
-    lda a:NTSTAGE_A,x
-    sta a:NESNT & $FFFF,y
-    inx
-    iny
-    cpx a:h_fillcnt
-    bcc @raw
+    ;  The staged run into the raw nametable, as a block move rather than a
+    ;  loop.  Both ends are WRAM, so each byte costs two slow accesses either
+    ;  way -- what MVN saves is everything around them: the compare against a
+    ;  count held in WRAM, the branch, and the two increments.  Measured on a
+    ;  menu scroll, the pair of loops here was the single most expensive thing
+    ;  in the frame.
+    ;
+    ;  ca65 writes MVN source first and assembles it destination first, and
+    ;  taking the operands as addresses rather than banks is silent -- "mvn
+    ;  $7E, $7E" assembles to "54 00 00".  Both banks are $7E here whichever
+    ;  way round it is read, which is one less thing to get wrong.
+    ldx #NTSTAGE_A
+    lda a:h_t1
+    clc
+    adc #(NESNT & $FFFF)
+    tay
+    lda a:h_fillcnt             ; MVN moves A+1 bytes, and the count is known
+    dec a                       ;   nonzero: zero took the early exit above
+    mvn #^NTSTAGE, #^NESNT
 
-    rep #$20
-    .a16
+    ;  MVN leaves DBR at the destination bank, which is the $7E the loop below
+    ;  wants for NESNT, NTSHADOW and the HAL's own variables alike.  It used to
+    ;  be set by hand here, with a note that the push had to be eight bits wide
+    ;  or it leaked a byte of stack; the block move removes the question.
     lda a:h_row
     asl a
     asl a
