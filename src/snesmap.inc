@@ -99,18 +99,25 @@ OPT_MAGIC0      = OPTBLOCK+$00  ; $53 'S'
 OPT_MAGIC1      = OPTBLOCK+$01  ; $46 'F'
 OPT_VERSION     = OPTBLOCK+$02  ; OPT_FORMAT below
 OPT_PRESET      = OPTBLOCK+$03  ; 0..2 preset, 3 = custom
-OPT_FLAGS       = OPTBLOCK+$04  ; 4 bytes: 26 checkbox bits
-OPT_GOLDXP      = OPTBLOCK+$08  ; step indices into the value-row tables
-OPT_ENCOUNTER   = OPTBLOCK+$09
-OPT_ENEMY       = OPTBLOCK+$0A
-OPT_BOSS        = OPTBLOCK+$0B
-OPT_RESPOND     = OPTBLOCK+$0C  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$0D
-OPT_SIZE        = $0E
+OPT_FLAGS       = OPTBLOCK+$04  ; 5 bytes: one bit per checkbox.  Four was
+                                ; enough until the Treasures section took bits
+                                ; 26-30 and the free key items 31-33.
+OPT_FLAGBYTES   = 5
+OPT_GOLDXP      = OPTBLOCK+$09  ; step indices into the value-row tables
+OPT_ENCOUNTER   = OPTBLOCK+$0A
+OPT_ENEMY       = OPTBLOCK+$0B
+OPT_BOSS        = OPTBLOCK+$0C
+OPT_RESPOND     = OPTBLOCK+$0D  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$0E
+OPT_SIZE        = $0F
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $02           ; bumped from $01: blocks written before the
+OPT_FORMAT      = $03           ; bumped from $02: the flag word grew a
+                                ; fifth byte, so every field after it moved.
+                                ; A block written by an older build would read
+                                ; its value rows out of the flags.
+;  Previously, bumped from $01: blocks written before the
                                 ; options bank set its data bank correctly hold
                                 ; garbage flags behind a valid checksum, so the
                                 ; version is what retires them.  Bump this
@@ -970,6 +977,57 @@ OPTFB_SHOPINFO    = OPT_FLAGS+1 ; bit 12
 OPTFM_SHOPINFO    = $10
 OPTFB_CHESTINFO   = OPT_FLAGS+1 ; bit 13
 OPTFM_CHESTINFO   = $20
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Treasures
+;;
+;;  Five flags that change what a new game starts with.  Each of the four
+;;  vehicles is a byte in the first page of unsram saying whether it exists,
+;;  and coordinates that lut_InitUnsramFirstPage has already filled in -- so
+;;  granting one is a single store.  The canal is the odd one: it starts set,
+;;  meaning the waterway is still blocked, and Nerrick's TNT clears it.
+;;
+;;  They apply to a new game only.  Continue copies SRAM over the whole of
+;;  unsram, so a saved game keeps whatever it saved.
+;  Where the two free vehicles are put, which is not where the game leaves
+;  them.  The ship's own start is Pravoka's harbour, on the far side of a
+;  bridge you would not have, so FFR moves it to Coneria's dock; the airship
+;  goes where the party starts.  Both are FFR's numbers -- its table gives
+;  Pravoka as (210,153), which is exactly what lut_InitUnsramFirstPage holds,
+;  so the two coordinate systems are the same one.
+;
+;  The starting tile is the stored scroll plus seven, which is how the game
+;  centres the party on screen -- (146,158) + 7.
+FREESHIP_X        = 152
+FREESHIP_Y        = 169
+FREEAIRSHIP_X     = 153
+FREEAIRSHIP_Y     = 165
+
+OPTFB_FREESHIP    = OPT_FLAGS+3 ; bit 26
+OPTFM_FREESHIP    = $04
+OPTFB_FREEAIRSHIP = OPT_FLAGS+3 ; bit 27
+OPTFM_FREEAIRSHIP = $08
+OPTFB_FREEBRIDGE  = OPT_FLAGS+3 ; bit 28
+OPTFM_FREEBRIDGE  = $10
+OPTFB_FREECANAL   = OPT_FLAGS+3 ; bit 29
+OPTFM_FREECANAL   = $20
+OPTFB_FREECANOE   = OPT_FLAGS+3 ; bit 30
+OPTFM_FREECANOE   = $40
+
+;  The three key items a party can be handed instead of going to fetch them.
+;  KEY is the Mystic Key, which opens everything locked in the game.
+OPTFB_FREEKEY     = OPT_FLAGS+3 ; bit 31
+OPTFM_FREEKEY     = $80
+OPTFB_FREECHIME   = OPT_FLAGS+4 ; bit 32
+OPTFM_FREECHIME   = $01
+OPTFB_FREECROWN   = OPT_FLAGS+4 ; bit 33
+OPTFM_FREECROWN   = $02
+OPTFB_FREELUTE    = OPT_FLAGS+4 ; bit 34
+OPTFM_FREELUTE    = $04
+OPTFB_FREETAIL    = OPT_FLAGS+4 ; bit 35
+OPTFM_FREETAIL    = $08
+OPTFB_FREEROD     = OPT_FLAGS+4 ; bit 36
+OPTFM_FREEROD     = $10
 
 ;  How far below the dialogue's own text the chest description starts.  The
 ;  box is seven map rows, its text begins four tile rows down, and the

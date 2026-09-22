@@ -25,16 +25,19 @@ import os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-from cpu65816 import Bus, CPU
+from cpu65816 import Bus, CPU, C
 
 ROM = os.path.join(ROOT, "SuperFinalFantasy.sfc")
 LABELS = os.path.join(ROOT, "out", "labels.txt")
 
 OPTBLOCK = 0x6E00
 OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
-OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 8, 9
-OPT_ENEMY, OPT_BOSS, OPT_RESPOND, OPT_CKSUM = 10, 11, 12, 13
-OPT_SIZE = 14
+#  The flag word is five bytes; everything after it moved when the
+#  Treasures section and the free key items took bits 26-33.
+OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
+OPT_ENEMY, OPT_BOSS, OPT_RESPOND, OPT_CKSUM = 11, 12, 13, 14
+OPT_SIZE = 15
+OPT_FORMAT = 3          # bumped when the flag word grew its fifth byte
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -109,7 +112,7 @@ def setblk(bus, off, v):
 
 
 def flags(bus):
-    return int.from_bytes(bus.sram[OPTBLOCK - 0x6000 + OPT_FLAGS:][:4], "little")
+    return int.from_bytes(bus.sram[OPTBLOCK - 0x6000 + OPT_FLAGS:][:5], "little")
 
 
 # --- the option block -------------------------------------------------------
@@ -118,7 +121,7 @@ def test_block():
     bus, cpu = machine()
     call(cpu, "opt_init")
     check("fresh cart: magic", (blk(bus, OPT_MAGIC0), blk(bus, OPT_MAGIC1)), (0x53, 0x46))
-    check("fresh cart: version", blk(bus, OPT_VERSION), 0x02)
+    check("fresh cart: version", blk(bus, OPT_VERSION), OPT_FORMAT)
     check("fresh cart: preset is Improved", blk(bus, OPT_PRESET), 1)
     check("fresh cart: respond rate 8 (0-based)", blk(bus, OPT_RESPOND), 7)
 
@@ -148,7 +151,7 @@ def test_block():
     call(cpu7, "opt_commit")                # valid checksum, old version
     cpu8 = CPU(bus4); cpu8.dbr = 0xA7
     call(cpu8, "opt_init")
-    check("stale version is retired", blk(bus4, OPT_VERSION), 0x02)
+    check("stale version is retired", blk(bus4, OPT_VERSION), OPT_FORMAT)
     check("stale version resets preset", blk(bus4, OPT_PRESET), 1)
 
 
@@ -1102,7 +1105,6 @@ def test_buyqty():
 
 
 from fractions import Fraction
-OPT_ENEMY, OPT_BOSS = 10, 11
 OPT_STATV, OPT_STATNUM, OPT_STATSH, OPT_STATOVF = 0x32, 0x34, 0x35, 0x3E
 ADJ = {"1.00": (lambda n: (n, 2)), "0.50": (lambda n: (n + 4, 3)),
        "0.25": (lambda n: (n + 12, 4))}
@@ -1893,6 +1895,137 @@ def test_chestinfo():
     check("the renderer is the shops own", _chestinfo(F_CHESTINFO, 2, 0xB0), "drew")
 
 
+# --- Treasures --------------------------------------------------------------
+#  Each vehicle is a "does this exist" byte in the first page of unsram whose
+#  coordinates lut_InitUnsramFirstPage has already filled in, so granting one
+#  is the same single store the game makes when you earn it.  The canal is
+#  inverted: it starts set, meaning the waterway is still blocked.
+FREE_UNSRAM = 0x6000
+FREE_VEHICLE = {"ship_vis": 0x00, "airship_vis": 0x04, "bridge_vis": 0x08,
+           "canal_vis": 0x0C, "has_canoe": 0x12}
+FREE_DEFAULT = {"ship_vis": 0, "airship_vis": 0, "bridge_vis": 0,
+             "canal_vis": 1, "has_canoe": 0}
+FREE_BIT = {"ship_vis": 26, "airship_vis": 27, "bridge_vis": 28,
+            "canal_vis": 29, "has_canoe": 30}
+#  The three key items are plain inventory entries in the same page.
+FREE_ITEM = {"item_mystickey": (0x25, 31), "item_chime": (0x2C, 32),
+             "item_crown": (0x22, 33), "item_lute": (0x21, 34),
+             "item_tail": (0x2D, 35), "item_rod": (0x2A, 36)}
+
+
+def _freestuff(flagbits):
+    bus, cpu = machine()
+    for i in range(4):
+        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    for name, off in FREE_VEHICLE.items():
+        bus.sram[FREE_UNSRAM - 0x6000 + off] = FREE_DEFAULT[name]
+    call(cpu, "opt_freestuff")
+    return {n: bus.sram[FREE_UNSRAM - 0x6000 + off] for n, off in FREE_VEHICLE.items()}
+
+
+def test_treasures():
+    check("with none set, a new game starts as it always did",
+          _freestuff(0), FREE_DEFAULT)
+
+    #  Each flag grants its own vehicle and leaves the others alone, which is
+    #  what stops "free canal" from also handing over the ship.
+    for name, bit in FREE_BIT.items():
+        want = dict(FREE_DEFAULT)
+        want[name] = 0 if name == "canal_vis" else 1
+        check("the flag for %s grants only that" % name,
+              _freestuff(1 << bit), want)
+
+    all_on = {n: (0 if n == "canal_vis" else 1) for n in FREE_VEHICLE}
+    check("all five together",
+          _freestuff(sum(1 << b for b in FREE_BIT.values())), all_on)
+
+    #  The ship and the airship also move.  The ship's own berth is Pravoka,
+    #  across a bridge a new party cannot reach, and the airship's is the
+    #  desert -- so both go to Coneria, at FFR's coordinates.  The airship's
+    #  are the party's starting tile, which is the stored scroll plus seven.
+    def coords(flagbits):
+        bus, cpu = machine()
+        for i in range(4):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        for off, v in ((0x01, 0xD2), (0x02, 0x99), (0x05, 0xDD), (0x06, 0xED)):
+            bus.sram[off] = v               # what lut_InitUnsramFirstPage holds
+        call(cpu, "opt_freestuff")
+        return tuple(bus.sram[o] for o in (0x01, 0x02, 0x05, 0x06))
+
+    check("untouched, the vehicles keep their own berths",
+          coords(0), (0xD2, 0x99, 0xDD, 0xED))
+    check("a free ship moves to Coneria's dock",
+          coords(1 << FREE_BIT["ship_vis"])[:2], (152, 169))
+    check("a free ship leaves the airship where it was",
+          coords(1 << FREE_BIT["ship_vis"])[2:], (0xDD, 0xED))
+    check("a free airship parks where the party starts",
+          coords(1 << FREE_BIT["airship_vis"])[2:], (153, 165))
+    check("a free airship leaves the ship where it was",
+          coords(1 << FREE_BIT["airship_vis"])[:2], (0xD2, 0x99))
+
+    #  The key items.  items lives at unsram + $20, so the offsets here are
+    #  $20 plus each item's own -- KEY is the Mystic Key at +$05.
+    def inventory(flagbits):
+        bus, cpu = machine()
+        for i in range(4 + 1):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        for off, _ in FREE_ITEM.values():
+            bus.sram[off] = 0
+        call(cpu, "opt_freestuff")
+        return {n: bus.sram[off] for n, (off, _) in FREE_ITEM.items()}
+
+    check("with none set, the party carries no key items",
+          inventory(0), {n: 0 for n in FREE_ITEM})
+    for name, (_, bit) in FREE_ITEM.items():
+        want = {n: 0 for n in FREE_ITEM}
+        want[name] = 1
+        check("the flag for %s grants only that" % name,
+              inventory(1 << bit), want)
+    check("all of them together",
+          inventory(sum(1 << b for _, b in FREE_ITEM.values())),
+          {n: 1 for n in FREE_ITEM})
+
+    #  Bits 32 and 33 live in the fifth flag byte, which only exists because
+    #  the block grew; a four-byte word would drop them silently.
+    check("the flag word is wide enough to hold them",
+          OPT_GOLDXP - OPT_FLAGS, 5)
+
+
+# --- the menu chirps --------------------------------------------------------
+#  The settings screen plays the game's own menu sound effects, which live in
+#  bank $0E.  Getting there is a JSL to the trampoline, a JSR inside it, and --
+#  for $4007 -- a thunk in the fixed bank into the HAL.  Four banks for one
+#  chirp, and the failure mode is silence, which reads as "not implemented
+#  yet" rather than as a bug.  So check the registers actually land.
+APUSHADOW = 0x0900
+SQ2_SFX = 0x7E             # from game/variables.inc
+
+
+def test_menusfx():
+    #  The values PlaySFX_MenuSel and PlaySFX_MenuMove write, read off
+    #  game/bank_0E.asm: duty/volume, sweep, and the two timer bytes.
+    want = {"opt_sfx_sel":  ((0xBA, 0xBA, 0x40, 0x00), 0x1F),
+            "opt_sfx_move": ((0x7A, 0x9B, 0x20, 0x10), 0x10)}
+    for name, (regs, frames) in want.items():
+        bus, cpu = machine()
+        call(cpu, name)
+        check("%s writes $4004-$4007" % name,
+              tuple(bus.wram[APUSHADOW + 4: APUSHADOW + 8]), regs)
+        #  Without this the music driver plays over the effect on the next
+        #  note, and the HAL's sweep has no way to tell a replay from silence.
+        check("%s claims square 2" % name, bus.wram[SQ2_SFX], frames)
+
+    #  Transparent, as the comment above them promises: they are dropped into
+    #  paths that still have a row index in X or a flag mask in A.
+    bus, cpu = machine()
+    cpu.a, cpu.x, cpu.y = 0x5A, 0x33, 0x77
+    cpu.p |= C
+    call(cpu, "opt_sfx_sel")
+    check("a chirp leaves A, X and Y alone", (cpu.a, cpu.x, cpu.y),
+          (0x5A, 0x33, 0x77))
+    check("a chirp leaves carry alone", bool(cpu.p & C), True)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -1904,7 +2037,8 @@ def main():
               test_healroll, test_spellbuff, test_magictarget,
               test_openchests, test_shopinfo, test_shoppose,
               test_weaponstats, test_spellinfo,
-              test_menuinfo, test_chestinfo):
+              test_menuinfo, test_chestinfo,
+              test_treasures, test_menusfx):
         try:
             t()
         except Exception as e:

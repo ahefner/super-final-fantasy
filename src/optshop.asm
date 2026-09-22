@@ -37,27 +37,8 @@
 .include "variables.inc"
 .include "nesio.inc"
 .include "fftext.inc"
-
-;  Call a routine in bank $0E.  OptCallFar itself passes A, X and Y through,
-;  but setting the address needs A -- so a routine that takes a parameter in
-;  A has to be called with CALL0EA, which loads it afterwards.
-.macro SET0E addr
-    LDA #<addr
-    STA OPTCALLV
-    LDA #>addr
-    STA OPTCALLV+1
-.endmacro
-
-.macro CALL0E addr
-    SET0E addr
-    JSL OptCallFar + BANK0EFAR
-.endmacro
-
-.macro CALL0EA addr, val
-    SET0E addr
-    LDA #val
-    JSL OptCallFar + BANK0EFAR
-.endmacro
+;  SET0E / CALL0E / CALL0EA, the way into bank $0E.
+.include "optcall.inc"
 
 .export opt_shopframe, opt_pose, opt_weaponstats
 .export opt_equipframe, opt_magicframe, opt_chestinfo

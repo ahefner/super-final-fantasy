@@ -1,0 +1,16 @@
+--- OLD
+NewGamePartyGeneration:
+    LDA #$00                ; turn off the PPU
+    STA $2001
+--- NEW
+.import opt_freestuff
+
+NewGamePartyGeneration:
+    ;  Whatever the Treasures flags say a new game starts with.  Here rather
+    ;  than beside the call in the fixed bank, which has three bytes left --
+    ;  and it makes no difference, because nothing between this and the map
+    ;  touches the first page of unsram.
+    JSL opt_freestuff + OPTFAR
+
+    LDA #$00                ; turn off the PPU
+    STA $2001

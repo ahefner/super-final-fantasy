@@ -17,12 +17,17 @@
 .include "Constants.inc"
 .include "variables.inc"
 .include "nesio.inc"
+;  SET0E, the way into bank $0E -- where the menu sound effects live.
+.include "optcall.inc"
 
 .export opt_settings
+;  Reached by tools/test_options.py.
+.export opt_sfx_move, opt_sfx_sel
 .import opt_commit_body
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
 .import WaitForVBlank_L
+.import OptCallFar, PlaySFX_MenuSel, PlaySFX_MenuMove
 
 .segment "BANK_OPT"
 
@@ -86,6 +91,7 @@ OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
 ;  which is just as well, as zero page $6E..$7B is now full.
 OPTMENU_PREV   = OPTBLOCK + $1E ; the pad as it read last frame
 OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
+OPTMENU_WAS    = OPTBLOCK + $1D ; the row a left/right page started on
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
 PAD_RIGHT = $01
@@ -121,6 +127,11 @@ opt_settings:
     STA soft2000                ; sprites from the right pattern table
     LDA #$1E
     wPPUMASK                    ; ...and back on
+
+    ;  The press that opened this screen belongs to the title screen's loop,
+    ;  which does not chirp for it -- it has no way to know whether the mode
+    ;  row leads anywhere.  So answer it here, as the list appears.
+    JSR opt_sfx_sel
 
     JSR opt_waitrelease         ; nothing the title screen was holding carries in
 
@@ -191,6 +202,10 @@ opt_settings:
     JMP @loop
 
   @done:
+    ;  The game plays the selection effect for B as well as A -- backing out
+    ;  of a menu is a choice.  LineupMenu_UpdateJoy ORs the two catchers
+    ;  together and plays the one sound for either.
+    JSR opt_sfx_sel
     JSR opt_waitrelease         ; ...and nothing carries back out either
     LDA #$00
     wPPUMASK
@@ -217,6 +232,7 @@ opt_settings:
     JSR opt_row_selectable
     BEQ @dnext
     STX OPTMENU_SEL
+    JSR opt_sfx_move
     JSR opt_menu_scroll
     JSR opt_menu_desc
     JMP @loop
@@ -233,6 +249,7 @@ opt_settings:
     JSR opt_row_selectable
     BEQ @unext
     STX OPTMENU_SEL
+    JSR opt_sfx_move
     JSR opt_menu_scroll
     JSR opt_menu_desc
     JMP @loop
@@ -356,6 +373,7 @@ opt_menu_toggle:
     JSR opt_flagbit             ; -> X = byte index, A = mask
     EOR OPT_FLAGS, X
     STA OPT_FLAGS, X
+    JSR opt_sfx_sel
     JSR opt_commit_body
     JMP opt_menu_drawall
 
@@ -371,7 +389,8 @@ opt_menu_toggle:
 ;;  The scan index lives in zero page rather than X because opt_menu_ptrfor
 ;;  needs X for its shift.
 opt_section_toggle:
-    LDA OPTMENU_SEL
+    JSR opt_sfx_sel             ; every section has boxes in it, so this
+    LDA OPTMENU_SEL             ;   always settles at least one of them
     STA OPTMENU_SCAN
     LDA #$01
     STA OPTMENU_ALLSET
@@ -636,6 +655,34 @@ opt_menu_ppuaddr:
     RTS
 
 
+;;  The two menu chirps.
+;;
+;;  They are the game's own, in bank $0E with the rest of the menu sound, so
+;;  they are reached through the trampoline rather than with a JSR.  Calling
+;;  them rather than writing the six APU stores out again is the same argument
+;;  the shop description box makes about weapon fields: one rule, one place.
+;;
+;;  Transparent, like the nesio thunks.  A chirp is feedback about something
+;;  that has already been decided, so dropping one into an existing path
+;;  should not make that path rearrange itself around it.  X and Y pass
+;;  through OptCallFar untouched; A and the flags are what need saving.
+opt_sfx_move:
+    PHP
+    PHA
+    CALL0E PlaySFX_MenuMove
+    PLA
+    PLP
+    RTS
+
+opt_sfx_sel:
+    PHP
+    PHA
+    CALL0E PlaySFX_MenuSel
+    PLA
+    PLP
+    RTS
+
+
 ;;  Hold here until the player is not touching anything, then start from a
 ;;  clean slate.
 ;;
@@ -792,6 +839,8 @@ opt_sideways:
     LDA (OPTMENU_ROWPTR), Y
     CMP #OPTROW_VAL
     BEQ @value
+    LDA OPTMENU_SEL             ; paging half a screen from the first or last
+    STA OPTMENU_WAS             ;   selectable row lands back on it; see @moved
     PLA
     CMP #RIGHT
     BEQ @fwd
@@ -824,6 +873,11 @@ opt_sideways:
     JSR opt_seek_back
 
   @moved:
+    LDA OPTMENU_SEL
+    CMP OPTMENU_WAS
+    BEQ @quiet                  ; the page had nowhere to go
+    JSR opt_sfx_move
+  @quiet:
     JSR opt_menu_scroll
     JMP opt_menu_desc
 
@@ -856,14 +910,16 @@ opt_value_adjust:
     CLC
     ADC #$01
     CMP lut_ValCount, X         ; the top step is count-1
-    BCS @done
-    STA OPT_GOLDXP, X
+    BCS @done                   ; clamped: the readout does not move, so
+    STA OPT_GOLDXP, X           ;   neither does the sound
+    JSR opt_sfx_move
     JMP @done
 
   @left:
     LDA OPT_GOLDXP, X
     BEQ @done                   ; at the bottom already
     DEC OPT_GOLDXP, X
+    JSR opt_sfx_move
 
   @done:
     JSR opt_commit_body
@@ -937,7 +993,7 @@ OPTROW_BLANK = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 38
+OPTROW_COUNT  = 52
 
 lut_OptRows:
   .BYTE $00, $00   ; QUALITY OF LIFE
@@ -1092,6 +1148,41 @@ lut_OptRows:
   .BYTE $95, $98, $94, $82, $FF, $A4, $A6, $A6, $B8, $B5
   .BYTE $A4, $A6, $BC, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $00, $00   ; TREASURES
+  FFPAD "TREASURES", 30
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $01, $1A   ; Free SHIP
+  FFPAD "Free SHIP", 30
+  .BYTE $01, $1B   ; Free AIRSHIP
+  FFPAD "Free AIRSHIP", 30
+  .BYTE $01, $1C   ; Free BRIDGE
+  FFPAD "Free BRIDGE", 30
+  .BYTE $01, $1D   ; Free CANAL
+  FFPAD "Free CANAL", 30
+  .BYTE $01, $1E   ; Free CANOE
+  FFPAD "Free CANOE", 30
+  .BYTE $01, $1F   ; Free KEY
+  FFPAD "Free KEY", 30
+  .BYTE $01, $20   ; Free CHIME
+  FFPAD "Free CHIME", 30
+  .BYTE $01, $21   ; Free CROWN
+  FFPAD "Free CROWN", 30
+  .BYTE $01, $22   ; Free LUTE
+  FFPAD "Free LUTE", 30
+  .BYTE $01, $23   ; Free TAIL
+  FFPAD "Free TAIL", 30
+  .BYTE $01, $24   ; Free ROD
+  FFPAD "Free ROD", 30
+
+lut_OptRowsEnd:
+
+;  A row table that disagrees with OPTROW_COUNT walks off the end of itself,
+;  and so does a description table with the wrong number of pointers.  Both
+;  are edited by hand every time a flag is added.
+.assert lut_OptRowsEnd - lut_OptRows = OPTROW_COUNT * OPTROW_STRIDE, error, "row table is the wrong length"
 
 ;  The two checkbox tiles, in NES 2bpp -- eight bytes of plane 0 then eight
 ;  of plane 1, which is what the HAL's $2007 path expects.  Palette 3 is
@@ -1419,8 +1510,99 @@ lut_Desc_32:  ; LOK2 accuracy
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
+
+lut_Desc_33:  ; TREASURES
+  FFPAD {"Changes what a new game"}, 28
+  FFPAD {"starts out with.  Saved"}, 28
+  FFPAD {"games are not affected."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_34:  ; Free SHIP
+  FFPAD {"The ship is moored beside"}, 28
+  FFPAD {"Coneria from the start,"}, 28
+  FFPAD {"without beating the pirates."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_35:  ; Free AIRSHIP
+  FFPAD {"The airship is parked where"}, 28
+  FFPAD {"the party starts, with no"}, 28
+  FFPAD {"need for the FLOATER."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_36:  ; Free BRIDGE
+  FFPAD {"The bridge east of Coneria"}, 28
+  FFPAD {"is already built, without"}, 28
+  FFPAD {"rescuing the princess."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_37:  ; Free CANAL
+  FFPAD {"The canal is already open,"}, 28
+  FFPAD {"without Nerrick and the TNT."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_38:  ; Free CANOE
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"CANOE, without the sage at"}, 28
+  FFPAD {"Crescent Lake."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+
+lut_Desc_39:  ; Free KEY
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"mystic KEY, which opens"}, 28
+  FFPAD {"every locked door there is."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_40:  ; Free CHIME
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"CHIME, which opens the way"}, 28
+  FFPAD {"into the Mirage Tower."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_41:  ; Free CROWN
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"CROWN, so the Marsh Cave"}, 28
+  FFPAD {"need not be searched for it."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+
+lut_Desc_42:  ; Free LUTE
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"LUTE, without rescuing the"}, 28
+  FFPAD {"princess."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_43:  ; Free TAIL
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"TAIL, without searching the"}, 28
+  FFPAD {"Ice Cave for it."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
+lut_Desc_44:  ; Free ROD
+  FFPAD {"The party starts with the"}, 28
+  FFPAD {"ROD, which opens the way"}, 28
+  FFPAD {"down through the Earth Cave."}, 28
+  FFPAD {""}, 28
+  FFPAD {""}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
-  .BYTE <lut_Desc_0, <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16, <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24, <lut_Desc_25, <lut_Desc_26, <lut_Desc_27, <lut_Desc_28, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_32
+  .BYTE <lut_Desc_0, <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16, <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24, <lut_Desc_25, <lut_Desc_26, <lut_Desc_27, <lut_Desc_28, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37, <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42, <lut_Desc_43, <lut_Desc_44
+lut_DescLoEnd:
+.assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
-  .BYTE >lut_Desc_0, >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16, >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24, >lut_Desc_25, >lut_Desc_26, >lut_Desc_27, >lut_Desc_28, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_32
+  .BYTE >lut_Desc_0, >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16, >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24, >lut_Desc_25, >lut_Desc_26, >lut_Desc_27, >lut_Desc_28, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37, >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42, >lut_Desc_43, >lut_Desc_44
+lut_DescHiEnd:
+.assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

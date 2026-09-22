@@ -1,0 +1,8 @@
+--- OLD
+.export EnterMainMenu, EnterShop, EnterTitleScreen, EnterIntroStory
+--- NEW
+.export EnterMainMenu, EnterShop, EnterTitleScreen, EnterIntroStory
+;  The settings screen chirps with the game's own menu sound effects rather
+;  than writing the APU registers out again.  Neither routine changes; they
+;  are called from the options chunk through OptCallFar.
+.export PlaySFX_MenuSel, PlaySFX_MenuMove

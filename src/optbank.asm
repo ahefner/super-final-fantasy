@@ -51,6 +51,7 @@
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget
 .export opt_openchests
+.export opt_freestuff
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -105,14 +106,32 @@ OPT_FORCED_PRESET = OPT_FORCE
 .endif
 
 lut_Presets:
-    ;       flags (4, low byte first)            goldxp      encounter  enemy      boss
+    ;  Five bytes of flags, low byte first, then the four value rows.  The
+    ;  fifth flag byte holds the bits past 31, and is zero in every preset:
+    ;  Treasures and the free key items skip content rather than improve it,
+    ;  so none of them belongs in a preset.
+    ;
+    ;  Rows sit sixteen bytes apart so the index stays a shift rather than a
+    ;  multiply.  The padding costs 21 bytes and buys that.
     .DWORD  0                                                              ; Vanilla
+    .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100
+    .RES    7, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_GUILLOTINE) | OPTF_BUGFIX                  ; Improved
+    .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100
+    .RES    7, $00
     .DWORD  OPTF_ALLQOL | OPTF_BUGFIX | OPTF_VARIATION                     ; Deluxe
+    .BYTE   0
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100
-PRESET_STRIDE = 8
+    .RES    7, $00
+
+;  What a row actually carries, and how far apart the rows are.  The fields
+;  run from the flags up to but not including OPT_RESPOND, which
+;  opt_loadpreset writes itself.
+PRESET_FIELDS = OPT_RESPOND - OPT_FLAGS
+PRESET_STRIDE = 16
+.assert PRESET_FIELDS = OPT_FLAGBYTES + 4, error, "preset row does not match the option block"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -161,7 +180,8 @@ opt_init:
 ;;  Write preset A over the block, then seal it.
 opt_loadpreset:
     STA OPT_PRESET
-    ASL A                       ; index * 8
+    ASL A                       ; index * PRESET_STRIDE
+    ASL A
     ASL A
     ASL A
     TAX
@@ -171,7 +191,7 @@ opt_loadpreset:
     STA OPT_FLAGS, Y
     INX
     INY
-    CPY #PRESET_STRIDE
+    CPY #PRESET_FIELDS
     BCC @copy
 
     LDA #OPT_MAGIC0_VAL
@@ -1859,5 +1879,106 @@ opt_openchests:
     INY
     INY
     BNE @tile                   ; 128 tiles, two bytes each
+  @out:
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Treasures -- what a new game starts with
+;;
+;;  Called from NewGamePartyGeneration, so only a new game is affected; a
+;;  saved game keeps whatever it saved, because Continue copies SRAM over the
+;;  whole of unsram afterwards.
+;;
+;;  Each vehicle is a "does this exist" byte, and the coordinates beside it
+;;  are already filled in by lut_InitUnsramFirstPage -- so granting the bridge
+;;  or the canoe is the same single store the game makes when you earn it.
+;;
+;;  The ship and the airship also move.  The ship's berth is Pravoka, across
+;;  a bridge a new party has no way to reach, and the airship's is the desert
+;;  a long way south; FFR puts them by Coneria instead, and so does this.
+;;
+;;  The canal is inverted: it starts at 1, meaning the waterway is still
+;;  blocked, and Nerrick clears it with the TNT.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_freestuff:
+    LDA OPTFB_FREESHIP
+    AND #OPTFM_FREESHIP
+    BEQ @airship
+    LDA #$01
+    STA ship_vis
+    LDA #FREESHIP_X             ; and moved: its own berth is Pravoka, which
+    STA ship_x                  ;   is across a bridge you would not have
+    LDA #FREESHIP_Y
+    STA ship_y
+  @airship:
+    LDA OPTFB_FREEAIRSHIP
+    AND #OPTFM_FREEAIRSHIP
+    BEQ @bridge
+    LDA #$01
+    STA airship_vis
+    LDA #FREEAIRSHIP_X          ; parked where the party starts, rather than
+    STA airship_x               ;   out in the desert
+    LDA #FREEAIRSHIP_Y
+    STA airship_y
+  @bridge:
+    LDA OPTFB_FREEBRIDGE
+    AND #OPTFM_FREEBRIDGE
+    BEQ @canal
+    LDA #$01
+    STA bridge_vis
+  @canal:
+    LDA OPTFB_FREECANAL
+    AND #OPTFM_FREECANAL
+    BEQ @canoe
+    LDA #$00                    ; cleared, not set: see above
+    STA canal_vis
+  @canoe:
+    LDA OPTFB_FREECANOE
+    AND #OPTFM_FREECANOE
+    BEQ @key
+    LDA #$01
+    STA has_canoe
+
+    ;  The three key items are plain inventory entries, so each is the same
+    ;  store the chest or the NPC that holds it would make.  The whole first
+    ;  page of unsram, items included, has been filled from
+    ;  lut_InitUnsramFirstPage by the time this runs.
+  @key:
+    LDA OPTFB_FREEKEY
+    AND #OPTFM_FREEKEY
+    BEQ @chime
+    LDA #$01
+    STA item_mystickey
+  @chime:
+    LDA OPTFB_FREECHIME
+    AND #OPTFM_FREECHIME
+    BEQ @crown
+    LDA #$01
+    STA item_chime
+  @crown:
+    LDA OPTFB_FREECROWN
+    AND #OPTFM_FREECROWN
+    BEQ @lute
+    LDA #$01
+    STA item_crown
+  @lute:
+    LDA OPTFB_FREELUTE
+    AND #OPTFM_FREELUTE
+    BEQ @tail
+    LDA #$01
+    STA item_lute
+  @tail:
+    LDA OPTFB_FREETAIL
+    AND #OPTFM_FREETAIL
+    BEQ @rod
+    LDA #$01
+    STA item_tail
+  @rod:
+    LDA OPTFB_FREEROD
+    AND #OPTFM_FREEROD
+    BEQ @out
+    LDA #$01
+    STA item_rod
   @out:
     RTL
