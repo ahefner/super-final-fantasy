@@ -1514,9 +1514,9 @@ lut_Desc_17:  ; NPC guillotine
 
 lut_Desc_18:  ; House MP restoration
   FFLINES 3
-  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $91, $98, $9E, $9C, $8E, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $AC, $B1, $AA, $FF, $96, $99, $FF, $FF, $FF, $FF
-  .BYTE $B2, $B1, $AF, $BC, $FF, $A4, $A9, $B7, $A8, $B5, $FF, $B6, $A4, $B9, $AC, $B1, $AA, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $B5, $A8, $AF, $B2, $A4, $A7, $AC, $B1, $AA, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  FFPAD {"HOUSEs restore MP whether or"}, 28
+  FFPAD {"not you save, and the save"}, 28
+  FFPAD {"records it."}, 28
 
 lut_Desc_19:  ; Weapon stats
   FFLINES 5

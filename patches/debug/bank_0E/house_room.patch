@@ -1,0 +1,8 @@
+--- OLD
+  .BYTE   $00,$00,$00,$00,    $00,$00,$00,$00,    $00,$00,$00,$00
+--- NEW
+;;   ...and four now, in an FFDEBUG=house build, because house.patch above
+;;   spends five more.  The tag picks up both files, which is why they share
+;;   a prefix.  A normal build keeps the twelve.
+
+  .BYTE   $00,$00,$00,$00

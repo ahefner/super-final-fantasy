@@ -1,0 +1,14 @@
+--- OLD
+;; unused bytes  [$BFF0 :: 0x3C000]
+
+  .BYTE   $00,$00,$00,$00,$00,$00,$00,$00,    $00,$00,$00,$00,$00,$00,$00,$00
+--- NEW
+;; unused bytes  [$BFF4 :: 0x3C004]
+;;
+;;   Twelve now, not sixteen.  The four went to the JSL that House MP
+;;   Restoration needs in UseItem_House above -- this block is what a bank
+;;   with no free space actually has left, and spending it is the point of
+;;   declaring it.  Nothing is pinned past here: convert.py's four .INCBIN
+;;   assertions for this bank are all above, so the tail may move.
+
+  .BYTE   $00,$00,$00,$00,    $00,$00,$00,$00,    $00,$00,$00,$00

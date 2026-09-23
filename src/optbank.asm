@@ -26,6 +26,8 @@
 .a8
 .i8
 .include "snesmap.inc"
+;  CALL0E, for the one hook that has to reach back into bank $0E.
+.include "optcall.inc"
 ;  The game's own variable names, from the generated tree.  build.sh puts
 ;  gen/ on the include path for this file so the options bank can name RAM
 ;  the way the rest of the port does.
@@ -51,7 +53,8 @@
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget
 .export opt_openchests
-.export opt_freestuff
+.export opt_freestuff, opt_housemp
+.import OptCallFar, MenuRecoverPartyMP
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1900,6 +1903,38 @@ opt_openchests:
 ;;  The canal is inverted: it starts at 1, meaning the waterway is still
 ;;  blocked, and Nerrick clears it with the TNT.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  House MP Restoration
+;;
+;;    A HOUSE takes 3000 gold, restores 120 HP, offers to save, and then --
+;;  only if the player said yes -- restores MP.  Two bugs share those four
+;;  lines.  Decline the save and the MP is never restored at all.  Accept it
+;;  and the restore still happens *after* the write, so the file just saved
+;;  holds the old MP: reload it and the 3000 gold bought 120 HP.
+;;
+;;    With the flag on this runs in front of the save instead, and
+;;  unconditionally.  The vanilla restore after it is left exactly as it was;
+;;  when this flag is on it runs a second time against full MP, which costs
+;;  nothing and keeps the patch to one instruction.
+;;
+;;    The body is here rather than inline at the call site for two reasons.
+;;  Bank $0E has eighteen bytes and this way it spends four of them.  And a
+;;  routine can be run by the test harness, where a branch buried in a menu
+;;  loop that waits on a button cannot -- so the thing the fix is actually
+;;  about, the order, is asserted rather than eyeballed.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_housemp:
+    LDA OPTFB_HOUSEMP
+    AND #OPTFM_HOUSEMP
+    BEQ @out
+    CALL0E MenuRecoverPartyMP   ; it lives in the bank that called us, and we
+  @out:                         ;   are not in that bank any more
+    RTL
+
 
 opt_freestuff:
     LDA OPTFB_FREESHIP

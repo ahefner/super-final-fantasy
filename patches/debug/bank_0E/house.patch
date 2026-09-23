@@ -1,0 +1,18 @@
+--- OLD
+    JSL opt_freestuff + OPTFAR
+--- NEW
+    JSL opt_freestuff + OPTFAR
+
+    ;  FFDEBUG=house -- nine HOUSEs in the bag at new game.
+    ;
+    ;  A HOUSE costs 3000 gold against a starting 400, so testing House MP
+    ;  Restoration the honest way is an hour of grinding before the first
+    ;  observation, and both flag states have to be tried.  Nine of them
+    ;  covers that without the grind, and a quantity rather than one so the
+    ;  flag can be toggled and retried from the same save.
+    ;
+    ;  Anchored on the Treasures call rather than the routine's first line,
+    ;  because patches/bank_0E/optfreestuff.patch has already rewritten that
+    ;  line by the time this one is applied.
+    LDA #$09
+    STA item_house

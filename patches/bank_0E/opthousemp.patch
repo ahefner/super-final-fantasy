@@ -1,0 +1,19 @@
+--- OLD
+    DEC item_house          ; otherwise... remove a house from our inventory
+    LDA #120
+    JSR MenuRecoverPartyHP  ; give the whole party 120 HP
+    LDA #$1E
+--- NEW
+.export MenuRecoverPartyMP      ; House MP Restoration reaches it from the
+.import opt_housemp             ;   options chunk, through OptCallFar
+
+    DEC item_house          ; otherwise... remove a house from our inventory
+    LDA #120
+    JSR MenuRecoverPartyHP  ; give the whole party 120 HP
+
+    ;  ...and the MP too, if House MP Restoration is on.  It has to happen
+    ;  here, in front of the save, or the file written below still holds the
+    ;  old MP.  See opt_housemp for what vanilla does instead.
+    JSL opt_housemp + OPTFAR
+
+    LDA #$1E

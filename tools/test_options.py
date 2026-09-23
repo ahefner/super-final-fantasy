@@ -2026,6 +2026,58 @@ def test_menusfx():
     check("a chirp leaves carry alone", bool(cpu.p & C), True)
 
 
+# --- House MP Restoration ---------------------------------------------------
+#  Vanilla restores the party's MP *after* the save and only if the player
+#  said yes, so declining loses it and saving writes a file that still holds
+#  the old MP.  The flag moves the restore in front of the save and makes it
+#  unconditional.  What is checked here is the hook, not the ordering -- the
+#  ordering lives at the call site in bank $0E, where a menu loop waits on a
+#  button and nothing can run it.  So: the hook restores when the flag is set,
+#  leaves MP alone when it is clear, and skips the characters the game skips.
+CH_AILMENTS = 0x6101
+CH_CURMP = 0x6320
+CH_MAXMP = 0x6328
+CH_STRIDE = 0x40
+OPTF_HOUSEMP_BIT = 15
+
+
+def test_housemp():
+    def run(flagged, ailments=(0, 0, 0, 0)):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + OPTF_HOUSEMP_BIT // 8, 1 << (OPTF_HOUSEMP_BIT % 8))
+        for c in range(4):
+            bus.sram[CH_AILMENTS + c * CH_STRIDE - 0x6000] = ailments[c]
+            for lvl in range(8):
+                bus.sram[CH_MAXMP + c * CH_STRIDE + lvl - 0x6000] = 9
+                bus.sram[CH_CURMP + c * CH_STRIDE + lvl - 0x6000] = 0
+        call(cpu, "opt_housemp")
+        return [bus.sram[CH_CURMP + c * CH_STRIDE - 0x6000] for c in range(4)]
+
+    check("flag clear: a HOUSE does not touch MP here", run(False), [0, 0, 0, 0])
+    check("flag set: every living character is refilled", run(True), [9, 9, 9, 9])
+    #  The routine it reaches is the game's own, which skips the dead and the
+    #  stoned.  Checking that is how we know the trampoline landed on it and
+    #  not on whatever else is at that address.
+    check("the dead and the stoned are skipped",
+          run(True, ailments=(0, 0x01, 0x02, 0)), [9, 0, 0, 9])
+
+    #  ...and the ordering, which is the whole of the second bug: restoring
+    #  after the save writes a file that still holds the old MP.  That lives
+    #  at the call site, which cannot be run here, so read it instead.  The
+    #  save confirmation is "LDA #$1E / JSR MenuSaveConfirm", and it has to
+    #  come *after* the JSL, not before it.
+    a = SYM["opt_housemp"]
+    jsl = bytes([0x22, a & 0xFF, a >> 8, CHUNK_OPT_BANK])
+    bank = ROMDATA[(1 + 0x0E) * 0x10000 + 0x8000:][:0x4000]
+    at = [i for i in range(len(bank) - 4) if bank[i:i + 4] == jsl]
+    check("the hook is called from bank $0E, once", len(at), 1)
+    if at:
+        after = bank[at[0] + 4: at[0] + 7]
+        check("the save confirmation follows the hook",
+              (after[0], after[1], after[2]), (0xA9, 0x1E, 0x20))
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2038,7 +2090,7 @@ def main():
               test_openchests, test_shopinfo, test_shoppose,
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
-              test_treasures, test_menusfx):
+              test_treasures, test_menusfx, test_housemp):
         try:
             t()
         except Exception as e:
