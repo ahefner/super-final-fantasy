@@ -2180,6 +2180,14 @@ def test_thiefninja():
     check("flag set: so does a ninja", growth(CLS_NJ, True, 0x00), 0x40)
     check("flag set: a fighter does not", growth(CLS_FT, True, 0x10), 0x80)
 
+    #  The control, exhaustively.  With the flag off this hook has to leave
+    #  the byte exactly as the three ASLs it replaced left it, for every
+    #  possible input -- and that is the half a playthrough cannot check,
+    #  because vanilla's agility gain is a 25% roll per level rather than
+    #  every fourth, so watching three level-ups proves nothing either way.
+    drift = [b for b in range(256) if growth(CLS_TH, False, b) != (b << 3) & 0xFF]
+    check("flag clear: the byte is what three ASLs made of it", drift, [])
+
 
 #  ...and the separate flag on the same two classes: hit rate grows by a
 #  per-class constant each level -- 3 for the Fighter, 2 for these two, 1 for
