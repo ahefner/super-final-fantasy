@@ -1,0 +1,7 @@
+--- OLD
+    LDA lut_ClassStartingStats+9, Y
+    STA ch_evade, X
+--- NEW
+.import opt_startevade
+    ;  ...and evade with it, which vanilla keeps at agility plus 48.
+    JSL opt_startevade + OPTFAR

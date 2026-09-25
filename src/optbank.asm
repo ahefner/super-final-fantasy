@@ -54,7 +54,9 @@
 .export opt_spellbuffed, opt_spelltarget
 .export opt_openchests
 .export opt_freestuff, opt_housemp
+.export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
+.import lut_LvlUpHitRateBonus
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -85,10 +87,10 @@ OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
 
-;  OPTF_ELEMBONUS (bit 21) is deliberately absent: the elemental and type
-;  bonus is a dial in SCALE now, not a checkbox, so the bit is unused and
-;  reserved.  See ELEMDMG_STEP in snesmap.inc.
-OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE
+;  Bit 21 is OPTF_THIEFHIT now.  It was the elemental and type bonus until
+;  that became a dial in SCALE; see ELEMDMG_STEP in snesmap.inc.
+OPTF_THIEFHIT = $00200000
+OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE | OPTF_THIEFHIT
 OPTF_VAR2     = OPTF_IMPFIRE | OPTF_CASTLIFE | OPTF_LOK2
 OPTF_VARIATION= OPTF_VAR1 | OPTF_VAR2
 
@@ -123,7 +125,11 @@ lut_Presets:
     .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA
     .RES    6, $00
-    .DWORD  (OPTF_ALLQOL & ~OPTF_GUILLOTINE) | OPTF_BUGFIX                  ; Improved
+    ;  Improved reaches into the variations for exactly one thing.  Doubling
+    ;  the Thief's and Ninja's hit growth is the difference between a class
+    ;  that misses and one that plays, which is a fix in all but name -- FFR
+    ;  defaults its own dropdown to Double for the same reason.
+    .DWORD  (OPTF_ALLQOL & ~OPTF_GUILLOTINE) | OPTF_BUGFIX | OPTF_THIEFHIT  ; Improved
     .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_FFR_IMP
     .RES    6, $00
@@ -1915,6 +1921,145 @@ opt_openchests:
 ;;  The canal is inverted: it starts at 1, meaning the waterway is still
 ;;  blocked, and Nerrick clears it with the TNT.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Better Thief and Ninja
+;;
+;;    Three changes, all of them FFR's BuffThiefAGI: the Thief starts with 80
+;;  agility instead of 10, starts with evade 48 above that instead of 58, and
+;;  gains agility at every level rather than one time in four.
+;;
+;;    The two starting stats are read out of lut_ClassStartingStats by
+;;  NewGame_LoadStartingStats, one LDA/STA pair each.  A pair is six bytes and
+;;  a JSL is four, so hooking them *frees* two bytes apiece in the fixed bank
+;;  -- which is the bank with three.  The table is in chunk $00 and we are not,
+;;  so the read is long; that needs the offset in X, because the 65816 has
+;;  "long,x" and no "long,y", and the caller is holding it in Y.  TYX and back.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  In: Y = offset into lut_ClassStartingStats, X = character offset.
+opt_startagi:
+    JSR opt_thiefhere
+    BCC @plain
+    LDA #THIEF_AGI_BUFFED
+    BRA @store
+  @plain:
+    PHX
+    TYX
+    LDA f:lut_ClassStartingStats + 3 + BANK00FAR, X
+    PLX
+  @store:
+    STA ch_agil, X
+    RTL
+
+
+;;  The same for evade, which vanilla stores as agility plus 48 -- so the
+;;  buffed value is not a second constant, it is the same relationship.
+opt_startevade:
+    JSR opt_thiefhere
+    BCC @plain
+    LDA #THIEF_AGI_BUFFED + THIEF_EVA_BONUS
+    BRA @store
+  @plain:
+    PHX
+    TYX
+    LDA f:lut_ClassStartingStats + 9 + BANK00FAR, X
+    PLX
+  @store:
+    STA ch_evade, X
+    RTL
+
+
+;;  C set if this character is a Thief and the flag is on.  X, Y untouched.
+opt_thiefhere:
+    LDA OPTFB_THIEFNINJA
+    AND #OPTFM_THIEFNINJA
+    BEQ @no
+    LDA ch_class, X
+    CMP #CLS_TH
+    BNE @no
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Thief and Ninja hit-rate growth -- a flag of its own, not part of the
+;;  agility buff above.  FFR keeps them apart too, one dropdown each.
+;;
+;;    In: A = hit rate so far with carry clear, X = class id.  Out: A = the
+;;  level's bonus added, which is what the ADC this replaces left behind.
+;;
+;;    Doubling is two adds rather than a shift, so the vanilla constant stays
+;;  the only number and there is nothing to keep in step with the table.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_hitgrowth:
+    PHA
+    LDA OPTFB_THIEFHIT
+    AND #OPTFM_THIEFHIT
+    BEQ @plain
+    CPX #CLS_TH
+    BEQ @double
+    CPX #CLS_NJ
+    BNE @plain
+  @double:
+    PLA
+    CLC
+    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
+    CLC
+    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
+    RTL
+  @plain:
+    PLA
+    CLC
+    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  ...and the third change: agility every level rather than one in four.
+;;
+;;    The level-up data gives each level a byte whose bits say which stats are
+;;  guaranteed to rise; a clear bit is a one-in-four roll instead.  bank $0B
+;;  shifts the top three bits off that byte before walking the remaining five,
+;;  which is three ASLs of an absolute address -- nine bytes, against four for
+;;  a JSL.  So this does the shifting as well as the flag, and hands five bytes
+;;  back to a bank that had none.
+;;
+;;    Both classes here, unlike the starting stats: a promoted character levels
+;;  on the Thief's data but carries the Ninja's class id.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_thiefgrowth:
+    ASL a:LVLUP_STATBYTE        ; what the three ASLs did
+    ASL a:LVLUP_STATBYTE
+    ASL a:LVLUP_STATBYTE
+
+    LDA OPTFB_THIEFNINJA
+    AND #OPTFM_THIEFNINJA
+    BEQ @out
+    LDY #ch_class - ch_stats
+    LDA (lvlup_chstats), Y
+    CMP #CLS_TH
+    BEQ @force
+    CMP #CLS_NJ
+    BNE @out
+  @force:
+    LDA a:LVLUP_STATBYTE
+    ORA #LVLUP_AGI_BIT
+    STA a:LVLUP_STATBYTE
+  @out:
+    RTL
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;

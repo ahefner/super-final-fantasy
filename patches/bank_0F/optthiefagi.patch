@@ -1,0 +1,8 @@
+--- OLD
+    LDA lut_ClassStartingStats+3, Y
+    STA ch_agil, X
+--- NEW
+.import opt_startagi
+    ;  Better Thief and Ninja reads this one, because the Thief's starting
+    ;  agility is what the flag changes.  Four bytes where the pair was six.
+    JSL opt_startagi + OPTFAR

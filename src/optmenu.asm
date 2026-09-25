@@ -1116,7 +1116,7 @@ OPTROW_BLANK = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 56
+OPTROW_COUNT  = 57
 
 lut_OptRows:
   ;  A blank first row, because OPTLIST_TOP only accounts for nametable row 0
@@ -1271,6 +1271,8 @@ lut_OptRows:
   .BYTE $8B, $A8, $B7, $B7, $A8, $B5, $FF, $9D, $AB, $AC
   .BYTE $A8, $A9, $FF, $A4, $B1, $A7, $FF, $97, $AC, $B1
   .BYTE $AD, $A4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $01, $15   ; Thief and Ninja hit%   (bit 21, which the dial vacated)
+  FFPAD "Thief and Ninja hit%", 30
   .BYTE $01, $14   ; Double weapon crit
   .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $FF, $BA, $A8, $A4
   .BYTE $B3, $B2, $B1, $FF, $A6, $B5, $AC, $B7, $FF, $FF
@@ -1605,9 +1607,11 @@ lut_Desc_25:  ; Boss stats
   .BYTE $A5, $B2, $B6, $B6, $A8, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
 lut_Desc_26:  ; Better Thief and Ninja
-  FFLINES 2
-  .BYTE $9B, $A4, $AC, $B6, $A8, $B6, $FF, $9D, $AB, $AC, $A8, $A9, $FF, $A4, $B1, $A7, $FF, $97, $AC, $B1, $AD, $A4, $FF, $AB, $AC, $B7, $FF, $FF
-  .BYTE $B5, $A4, $B7, $A8, $FF, $A4, $B1, $A7, $FF, $A4, $AA, $AC, $AF, $AC, $B7, $BC, $FF, $AA, $B5, $B2, $BA, $B7, $AB, $C0, $FF, $FF, $FF, $FF
+  FFLINES 4
+  FFPAD {"The Thief starts with 80"}, 28
+  FFPAD {"agility, not 10, and gains"}, 28
+  FFPAD {"it every level, not one in"}, 28
+  FFPAD {"four. A Ninja keeps both."}, 28
 
 lut_Desc_27:  ; Double weapon crit
   FFLINES 5
@@ -1657,6 +1661,13 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"Changes what a new game"}, 28
   FFPAD {"starts out with.  Saved"}, 28
   FFPAD {"games are not affected."}, 28
+
+lut_Desc_46:  ; Thief and Ninja hit%
+  FFLINES 4
+  FFPAD {"Hit rate grows twice as fast"}, 28
+  FFPAD {"for the Thief and the Ninja."}, 28
+  FFPAD {"Separate from the agility"}, 28
+  FFPAD {"buff above."}, 28
 
 lut_Desc_45:  ; SCALE
   FFLINES 3
@@ -1740,11 +1751,11 @@ lut_DescLo:
   .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
   .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
   .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2
-  .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_27, <lut_Desc_29, <lut_Desc_30
-  .BYTE <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank
-  .BYTE <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37, <lut_Desc_38
-  .BYTE <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42, <lut_Desc_43
-  .BYTE <lut_Desc_44
+  .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
+  .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
+  .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
+  .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
+  .BYTE <lut_Desc_43, <lut_Desc_44
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -1755,10 +1766,10 @@ lut_DescHi:
   .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
   .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
   .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2
-  .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_27, >lut_Desc_29, >lut_Desc_30
-  .BYTE >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank
-  .BYTE >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37, >lut_Desc_38
-  .BYTE >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42, >lut_Desc_43
-  .BYTE >lut_Desc_44
+  .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
+  .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
+  .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
+  .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
+  .BYTE >lut_Desc_43, >lut_Desc_44
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

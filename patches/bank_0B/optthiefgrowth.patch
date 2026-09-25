@@ -1,0 +1,16 @@
+--- OLD
+    ASL @statbyte               ; drop the high 3 bits of the stat byte, other bits
+    ASL @statbyte               ;   will be shifted out the high end
+    ASL @statbyte
+--- NEW
+.import opt_thiefgrowth
+    ;  The same three shifts, plus Better Thief and Ninja's guaranteed agility
+    ;  gain.  Nine bytes of ASL become four of JSL -- and then five of NOP,
+    ;  because this bank ends in .INCBIN graphics that convert.py pins, so it
+    ;  is the one bank whose patches must be byte-neutral.
+    ;
+    ;  Four NOPs, not five: optthiefhit.patch spends one of them on the hook
+    ;  it needs a few lines below.  So the saving was not unspendable after
+    ;  all -- it just has to be spent in this bank.
+    JSL opt_thiefgrowth + OPTFAR
+    .res 4, $EA

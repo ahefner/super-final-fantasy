@@ -1,0 +1,8 @@
+--- OLD
+    ADC lut_LvlUpHitRateBonus, X
+--- NEW
+.export lut_LvlUpHitRateBonus
+.import opt_hitgrowth
+    ;  Thief and Ninja hit-rate growth doubles this for those two classes.
+    ;  One byte more than the ADC, which the sibling patch's padding pays for.
+    JSL opt_hitgrowth + OPTFAR

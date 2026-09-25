@@ -314,8 +314,58 @@ OPTFM_STATUSATK = $04    ; bit 18
 OPTFB_HOUSEMP   = OPT_FLAGS+1
 OPTFM_HOUSEMP   = $80    ; bit 15
 
-OPTFB_ELEMBONUS = OPT_FLAGS+2
-OPTFM_ELEMBONUS = $20    ; bit 21
+OPTFB_THIEFHIT  = OPT_FLAGS+2
+OPTFM_THIEFHIT  = $20    ; bit 21, which the elemental bonus vacated when it
+                         ;   became a dial.  Reusing it needs no format bump:
+                         ;   no preset set it in format 4 and no row could, so
+                         ;   a stale block reads it as off, which is vanilla.
+
+;  Thief and Ninja hit-rate growth.
+;
+;  Every level adds a per-class constant to hit rate, from lut_LvlUpHitRateBonus
+;  in bank $0B -- 3 for the Fighter, 2 for the Thief and Ninja, 1 for the mages.
+;  FFR's ThiefHitBuff replaces the Thief's and the Ninja's, offering 1 through
+;  5 from a dropdown; its names for them are "Useless", "Vanilla", "Moderate",
+;  "Double" and "Ridiculous", and its default is Double.  So: a checkbox, and
+;  doubling is what it does.
+;
+;  Unlike the agility buff this is a growth rate with no starting value, so
+;  both classes carry it and the hook adds the constant twice rather than
+;  naming a second number.
+THIEF_HIT_VANILLA = 2           ; what lut_LvlUpHitRateBonus holds for TH and NJ
+
+OPTFB_THIEFNINJA = OPT_FLAGS+2
+OPTFM_THIEFNINJA = $08   ; bit 19
+
+;  Better Thief and Ninja.
+;
+;  FFR's BuffThiefAGI raises the Thief's starting agility, makes agility go up
+;  at every level rather than one time in four, and sets starting evade to
+;  agility + 48 -- "to make it more viable as a first-slot character", says the
+;  comment.  Vanilla is agility 10 and evade 58, and 58 is 10 + 48, so the
+;  formula is the game's own relationship rather than FFR's invention.
+;
+;  FFR offers 30, 50, 80, 100 and 120 from a dropdown and its advanced default
+;  is 80.  A checkbox here, at 80: unlike the elemental bonus there is no run
+;  of values anyone tunes between, and the point of the flag is one decision.
+;
+;  It touches the Thief and not the Ninja, and so does FFR, because promotion
+;  keeps the character's accumulated stats -- a Ninja is a Thief that grew.
+;  The growth half does name both, since a promoted character levels on the
+;  Thief's data but carries the Ninja's class id.
+;
+;  Not ported: FFR's separate ThiefHitBuff, which raises hit-rate growth for
+;  both classes.  Different flag, different dropdown, and this checkbox is the
+;  agility one.
+THIEF_AGI_VANILLA = 10
+THIEF_AGI_BUFFED  = 80
+THIEF_EVA_BONUS   = 48          ; evade is agility plus this, in both cases
+
+;  Where the level-up code keeps the stat-gain byte while it works on it.
+;  bank $0B calls it @statbyte, which a cheap local cannot be imported by
+;  name; after the three shifts the agility bit is $40.
+LVLUP_STATBYTE    = $688E
+LVLUP_AGI_BIT     = $40
 
 OPTFB_REPEATPOTION = OPT_FLAGS+1
 OPTFM_REPEATPOTION = $08 ; bit 11
@@ -913,6 +963,8 @@ h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
 ;;  The description box reads the weapon and armour tables, which live in bank
 ;;  $0C.  Chunk CHUNK0+$0C carries that bank at $8000, so a long read reaches
 ;;  them from the options chunk without swapping anything.
+BANK00FAR       = (CHUNK0 + $00) * $10000
+BANK0BFAR       = (CHUNK0 + $0B) * $10000
 BANK0CFAR       = (CHUNK0 + $0C) * $10000
 ;  The equip permission words live in bank $0E, reached the same way.
 BANK0EFAR       = (CHUNK0 + $0E) * $10000

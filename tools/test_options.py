@@ -160,9 +160,11 @@ def test_presets():
     #  flags, gold/xp, encounter, enemy, boss, elemental bonus.  The bonus is
     #  a step of two, so 2 is vanilla's +4, 5 is FFR's Improved Vanilla +10
     #  and 15 is the +30 most of FFR's own presets use.
+    #  Bit 21 is Thief/Ninja hit growth, and Improved carries it -- the only
+    #  variation it does, because a Thief that misses is a bug in all but name.
     want = {0: (0x00000000, 2, 10, 3, 3, 2),
-            1: (0x0007BFFF, 2, 10, 3, 3, 5),
-            2: (0x03DFFFFF, 5, 6, 3, 3, 15)}
+            1: (0x0027BFFF, 2, 10, 3, 3, 5),
+            2: (0x03FFFFFF, 5, 6, 3, 3, 15)}
     for preset, (f, g, e, en, bo, el) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2114,6 +2116,100 @@ def test_elembonus():
           sum(1 for i in range(len(bank) - 3) if bank[i:i + 3] == want), 1)
 
 
+# --- Better Thief and Ninja -------------------------------------------------
+#  FFR's BuffThiefAGI: the Thief starts with 80 agility instead of 10, starts
+#  with evade 48 above that instead of 58, and gains agility at every level
+#  rather than one time in four.  Only the Thief for the starting stats --
+#  promotion keeps what the character grew -- but both classes for the growth,
+#  since a promoted character levels on the Thief's data under the Ninja's id.
+CH_CLASS = 0x6100
+CH_AGIL = 0x6111                 # ch_stats + $11
+CH_EVADE = 0x6123                # ch_substats + $03
+LVLUP_CHSTATS = 0x86             # zero page pointer
+LVLUP_STATBYTE = 0x688E
+OPTF_THIEFNINJA_BIT = 19
+CLS_TH, CLS_NJ, CLS_FT = 1, 7, 0
+
+
+def test_thiefninja():
+    def start(cls, flagged, which):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + OPTF_THIEFNINJA_BIT // 8,
+                   1 << (OPTF_THIEFNINJA_BIT % 8))
+        bus.sram[CH_CLASS - 0x6000] = cls
+        cpu.x = 0                       # character 0
+        cpu.y = cls * 16                # its row in lut_ClassStartingStats
+        call(cpu, which)
+        return (bus.sram[CH_AGIL - 0x6000], bus.sram[CH_EVADE - 0x6000])
+
+    check("thief, flag clear: vanilla agility",
+          start(CLS_TH, False, "opt_startagi")[0], 10)
+    check("thief, flag clear: vanilla evade",
+          start(CLS_TH, False, "opt_startevade")[1], 58)
+    check("thief, flag set: agility 80",
+          start(CLS_TH, True, "opt_startagi")[0], 80)
+    check("thief, flag set: evade is agility plus 48",
+          start(CLS_TH, True, "opt_startevade")[1], 128)
+    #  The buff must not leak.  A Fighter reads the table whatever the flag
+    #  says, and the table is what the cartridge shipped.
+    check("fighter, flag set: still the table's agility",
+          start(CLS_FT, True, "opt_startagi")[0], 5)
+    check("fighter, flag set: still the table's evade",
+          start(CLS_FT, True, "opt_startevade")[1], 53)
+
+    #  ...and the growth byte.  Three shifts either way; the agility bit is
+    #  $40 once they have happened, and only a flagged Thief or Ninja gets it.
+    def growth(cls, flagged, statbyte):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + OPTF_THIEFNINJA_BIT // 8,
+                   1 << (OPTF_THIEFNINJA_BIT % 8))
+        bus.sram[CH_CLASS - 0x6000] = cls
+        bus.wram[LVLUP_CHSTATS] = CH_CLASS & 0xFF
+        bus.wram[LVLUP_CHSTATS + 1] = CH_CLASS >> 8
+        bus.sram[LVLUP_STATBYTE - 0x6000] = statbyte
+        call(cpu, "opt_thiefgrowth")
+        return bus.sram[LVLUP_STATBYTE - 0x6000]
+
+    check("the three shifts happen whatever the flag says",
+          growth(CLS_FT, False, 0x10), 0x80)
+    check("flag clear: a thief gets no guaranteed agility",
+          growth(CLS_TH, False, 0x10), 0x80)
+    check("flag set: a thief does", growth(CLS_TH, True, 0x10), 0xC0)
+    check("flag set: so does a ninja", growth(CLS_NJ, True, 0x00), 0x40)
+    check("flag set: a fighter does not", growth(CLS_FT, True, 0x10), 0x80)
+
+
+#  ...and the separate flag on the same two classes: hit rate grows by a
+#  per-class constant each level -- 3 for the Fighter, 2 for these two, 1 for
+#  the mages -- and this doubles theirs.  FFR keeps it a second dropdown and
+#  defaults it to Double; here it is a checkbox because there is one useful
+#  answer.
+OPTF_THIEFHIT_BIT = 21
+HITBONUS = {CLS_FT: 3, CLS_TH: 2, CLS_NJ: 2}
+
+
+def test_thiefhit():
+    def grow(cls, flagged, before=50):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + OPTF_THIEFHIT_BIT // 8,
+                   1 << (OPTF_THIEFHIT_BIT % 8))
+        cpu.a = before
+        cpu.x = cls
+        cpu.p &= ~0x01                      # carry clear, as the CLC before it
+        call(cpu, "opt_hitgrowth")
+        return cpu.a & 0xFF
+
+    for cls, name in ((CLS_FT, "fighter"), (CLS_TH, "thief"), (CLS_NJ, "ninja")):
+        check("%s, flag clear: the table's bonus" % name,
+              grow(cls, False), 50 + HITBONUS[cls])
+    check("fighter, flag set: unchanged", grow(CLS_FT, True), 50 + 3)
+    check("thief, flag set: doubled", grow(CLS_TH, True), 50 + 4)
+    check("ninja, flag set: doubled", grow(CLS_NJ, True), 50 + 4)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2127,7 +2223,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus):
+              test_elembonus, test_thiefninja, test_thiefhit):
         try:
             t()
         except Exception as e:
