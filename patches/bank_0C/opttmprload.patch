@@ -1,0 +1,18 @@
+--- OLD
+    LDY #btlch_magdef
+    LDA (btl_entityptr_ibram), Y
+    STA btlmag_defender_magdef
+    
+    ;; BUGGED
+    ;  This routine does not load btlmag_defender_strength, which means TMPR/SABR
+    ;  will not work when cast on players!
+--- NEW
+.import opt_magloaddef
+    ;  ...and, with Spell Fixes on, the strength and hit rate that Disch's
+    ;  note below says never arrive.  Seven bytes either way.
+    JSL opt_magloaddef + OPTFAR
+    .res 3, $EA
+
+    ;; BUGGED, and fixed above when the flag is on
+    ;  This routine does not load btlmag_defender_strength, which means TMPR/SABR
+    ;  will not work when cast on players!

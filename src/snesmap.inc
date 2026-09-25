@@ -215,6 +215,13 @@ SPELL_SABR      = 54
 SPELL_LIFE      = 33
 SPELL_LIF2      = 56
 
+;  The defender's hit rate during a magic attack.  variables.inc never named
+;  it, because nothing ever loaded or saved it -- which is the TMPR/SABR bug:
+;  BtlMag_Effect_AttackUp2 adds the spell's hit bonus to this address and
+;  BtlMag_Effect_AttackUp adds its effectivity to the strength beside it, and
+;  neither value arrives or leaves.
+BTLMAG_DEFHIT   = $6884
+
 ;  Increase Elemental and Type Bonus.
 ;
 ;  A physical attack that matches the defender's elemental weakness or its

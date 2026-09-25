@@ -1,0 +1,8 @@
+--- OLD
+    LDY #ch_magdef - ch_stats       ;  the target's magdef, but also because this is modifying *OB* stats!!  Meaning
+    STA (btl_entityptr_obrom), Y    ;  that the change would be PERMANENT.  You could argue that this is BUGGED, but
+--- NEW
+.import opt_magsavemagdef
+    ;  ...to the in-battle record with Spell Fixes on, so the change Disch
+    ;  calls permanent below is not.  Four bytes either way.
+    JSL opt_magsavemagdef + OPTFAR

@@ -2299,6 +2299,76 @@ def test_spellflags():
     check("cast life touches only LIFE and LIF2", drift, [])
 
 
+# --- TMPR and SABR on a player ----------------------------------------------
+#  Both raise the target's attack, SABR its hit rate too, and neither has ever
+#  worked on a player: BtlMag_LoadPlayerDefenderStats never loaded the
+#  defender's strength or hit rate and the save routine never wrote them back,
+#  so the spell added its effectivity to whatever happened to be there.
+IB_PTR, OB_PTR = 0x90, 0x92
+IB_BASE, OB_BASE = 0x6800, 0x6900          # anywhere in SRAM will do
+BTLCH_HITRATE, BTLCH_MAGDEF, BTLCH_EVADE, BTLCH_DMG = 5, 6, 7, 9
+MAG_MAGDEF, MAG_STRENGTH, MAG_DEFHIT = 0x6872, 0x6882, 0x6884
+MAG_EVADE = 0x6885
+CH_MAGDEF_OFF = 0x25                        # ch_magdef - ch_stats = $20 + $05
+
+
+def _entity(bus):
+    for ptr, base in ((IB_PTR, IB_BASE), (OB_PTR, OB_BASE)):
+        bus.wram[ptr] = base & 0xFF
+        bus.wram[ptr + 1] = base >> 8
+
+
+def test_tmprsabr():
+    def load(flagged):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + 2, 0x02)        # bit 17
+        _entity(bus)
+        for off, v in ((BTLCH_MAGDEF, 11), (BTLCH_DMG, 22), (BTLCH_HITRATE, 33)):
+            bus.sram[IB_BASE + off - 0x6000] = v
+        for a in (MAG_MAGDEF, MAG_STRENGTH, MAG_DEFHIT):
+            bus.sram[a - 0x6000] = 0
+        call(cpu, "opt_magloaddef")
+        return tuple(bus.sram[a - 0x6000]
+                     for a in (MAG_MAGDEF, MAG_STRENGTH, MAG_DEFHIT))
+
+    check("load, flag clear: magdef only, as vanilla", load(False), (11, 0, 0))
+    check("load, flag set: strength and hit rate too", load(True), (11, 22, 33))
+
+    def save(flagged):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + 2, 0x02)
+        _entity(bus)
+        for a, v in ((MAG_EVADE, 44), (MAG_STRENGTH, 55), (MAG_DEFHIT, 66)):
+            bus.sram[a - 0x6000] = v
+        for off in (BTLCH_EVADE, BTLCH_DMG, BTLCH_HITRATE):
+            bus.sram[IB_BASE + off - 0x6000] = 0
+        call(cpu, "opt_magsavedef")
+        return tuple(bus.sram[IB_BASE + off - 0x6000]
+                     for off in (BTLCH_EVADE, BTLCH_DMG, BTLCH_HITRATE))
+
+    check("save, flag clear: evade only, as vanilla", save(False), (44, 0, 0))
+    check("save, flag set: strength and hit rate go back", save(True), (44, 55, 66))
+
+    #  ...and magic defence, which vanilla writes to the out-of-battle record
+    #  where the change would outlast the fight.
+    def magdef(flagged):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + 2, 0x02)
+        _entity(bus)
+        bus.sram[IB_BASE + BTLCH_MAGDEF - 0x6000] = 0
+        bus.sram[OB_BASE + CH_MAGDEF_OFF - 0x6000] = 0
+        cpu.a = 77
+        call(cpu, "opt_magsavemagdef")
+        return (bus.sram[IB_BASE + BTLCH_MAGDEF - 0x6000],
+                bus.sram[OB_BASE + CH_MAGDEF_OFF - 0x6000])
+
+    check("magdef, flag clear: to the permanent record", magdef(False), (0, 77))
+    check("magdef, flag set: to the in-battle one", magdef(True), (77, 0))
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2313,7 +2383,7 @@ def main():
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
-              test_spellflags):
+              test_spellflags, test_tmprsabr):
         try:
             t()
         except Exception as e:

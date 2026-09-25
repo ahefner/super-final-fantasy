@@ -1,0 +1,18 @@
+--- OLD
+    LDY #btlch_evade                ; evade
+    LDA btlmag_defender_evade
+    STA (btl_entityptr_ibram), Y
+    
+    ;; BUGGED
+    ;  This routine does not save btlmag_defender_strength, which means TMPR/SABR
+    ;  will not work when cast on players!
+--- NEW
+.import opt_magsavedef
+    ;  Evade, and with Spell Fixes on the strength and hit rate too -- the
+    ;  other half of the bug Disch marks below.  Seven bytes either way.
+    JSL opt_magsavedef + OPTFAR
+    .res 3, $EA
+
+    ;; BUGGED, and fixed above when the flag is on
+    ;  This routine does not save btlmag_defender_strength, which means TMPR/SABR
+    ;  will not work when cast on players!

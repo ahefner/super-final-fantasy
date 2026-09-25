@@ -52,6 +52,7 @@
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
+.export opt_magloaddef, opt_magsavedef, opt_magsavemagdef
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
@@ -1933,6 +1934,86 @@ opt_lockroll:
     RTL
   @skip:
     LDA #$01
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  TMPR and SABR, cast on a player
+;;
+;;    Both spells raise the target's attack, and SABR its hit rate as well.
+;;  Neither has ever worked on a player, and Disch marks both ends of why:
+;;  BtlMag_LoadPlayerDefenderStats "does not load btlmag_defender_strength",
+;;  and BtlMag_SavePlayerDefenderStats "does not save" it either.  So the
+;;  spell adds its effectivity to whatever happened to be at $6882 and the
+;;  result goes nowhere.  The hit rate beside it is worse -- nothing in the
+;;  game ever named $6884.
+;;
+;;    Three hooks, each replacing exactly the bytes it needs, which is what
+;;  FFR does too; it writes its new loader over PrepareEnemyMagAttack, a
+;;  routine Disch calls "never used!  Pointless!", and has to stop calling it.
+;;  Ours lives here, so that call can stay where it is and do nothing, as it
+;;  always has.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  Replaces the magdef load at the end of BtlMag_LoadPlayerDefenderStats.
+opt_magloaddef:
+    LDY #btlch_magdef           ; what it did, and must go on doing
+    LDA (btl_entityptr_ibram), Y
+    STA btlmag_defender_magdef
+
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @out
+    LDY #btlch_dmg              ; FFR calls this strength; the in-battle
+    LDA (btl_entityptr_ibram), Y ;   record calls it dmg, and it is the same
+    STA btlmag_defender_strength ;   offset either way
+    LDY #btlch_hitrate
+    LDA (btl_entityptr_ibram), Y
+    STA BTLMAG_DEFHIT
+  @out:
+    RTL
+
+
+;;  ...and the evade save at the end of BtlMag_SavePlayerDefenderStats, which
+;;  is where the two new values have to go back.
+opt_magsavedef:
+    LDY #btlch_evade
+    LDA btlmag_defender_evade
+    STA (btl_entityptr_ibram), Y
+
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @out
+    LDY #btlch_dmg
+    LDA btlmag_defender_strength
+    STA (btl_entityptr_ibram), Y
+    LDY #btlch_hitrate
+    LDA BTLMAG_DEFHIT
+    STA (btl_entityptr_ibram), Y
+  @out:
+    RTL
+
+
+;;  The same routine writes the defender's magic defence back to the *OB*
+;;  record, which would make any change permanent -- Disch says so and calls
+;;  it arguably bugged.  Nothing in the game changes magdef during a spell, so
+;;  it is inert either way, but FFR moves it to the in-battle record and so
+;;  does this.  In: A = the value, already loaded by the line above.
+opt_magsavemagdef:
+    PHA
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @ob
+    PLA
+    LDY #btlch_magdef
+    STA (btl_entityptr_ibram), Y
+    RTL
+  @ob:
+    PLA
+    LDY #ch_magdef - ch_stats
+    STA (btl_entityptr_obrom), Y
     RTL
 
 
