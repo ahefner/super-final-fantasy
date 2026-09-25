@@ -2210,6 +2210,69 @@ def test_thiefhit():
     check("ninja, flag set: doubled", grow(CLS_NJ, True), 50 + 4)
 
 
+# --- the spell data flags ---------------------------------------------------
+#  Spell Fixes, Cast Life in battle and the LOCK/LOK2 toggle all replace bytes
+#  of a spell's record.  They go through one accessor, opt_spelloverride, that
+#  the battle and the shop's description box both ask -- so what the box says
+#  and what gets cast cannot drift.
+F_SPELLFIX = 1 << 17
+F_CASTLIFE = 1 << 24
+SPELL_LOCK, SPELL_LOK2, SPELL_HEL2 = 6, 23, 35
+SPELL_SABR, SPELL_LIFE, SPELL_LIF2 = 54, 33, 56
+FLD_HIT, FLD_EFFY, FLD_ELEM, FLD_TGT, FLD_EFFECT, FLD_GFX, FLD_PAL = range(7)
+
+
+def _spellbyte(spell, field, flagbits):
+    bus, cpu = machine()
+    for i in range(5):
+        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    cpu.x, cpu.y = spell, field
+    call(cpu, "opt_spellbyte", dbr=0xA7)
+    return cpu.a & 0xFF
+
+
+def test_spellflags():
+    mag = open(os.path.join(ROOT, "game", "bin", "0C_81E0_magicdata.bin"), "rb").read()
+    def rom(spell, field):
+        return mag[spell * 8 + field]
+
+    #  Nothing on: every byte of every record is the cartridge's.
+    drift = [(sp, f) for sp in range(64) for f in range(8)
+             if _spellbyte(sp, f, 0) != rom(sp, f)]
+    check("no flags: the accessor is the record", drift, [])
+
+    #  Spell Fixes, the four data corrections FFR makes plus the accuracy the
+    #  LOCK dropdown makes, which is a flag here instead.
+    for spell, field, want, what in (
+            (SPELL_LOK2, FLD_EFFECT, 0x0E, "LOK2 ran the wrong routine"),
+            (SPELL_HEL2, FLD_EFFY,     24, "HEL2 healed for less than it said"),
+            (SPELL_SABR, FLD_HIT,      10, "SABR had no hit% bonus"),
+            (SPELL_LOCK, FLD_HIT,     162, "LOCK never landed at 64"),
+            (SPELL_LOK2, FLD_HIT,     162, "LOK2 likewise")):
+        check("spell fixes: %s" % what,
+              _spellbyte(spell, field, F_SPELLFIX), want)
+
+    #  ...and the ordering question.  Both flags want HEL2's effectivity;
+    #  the deliberate buff wins over a correction that only lowers it.
+    check("HEL2 with spell fixes alone", _spellbyte(SPELL_HEL2, FLD_EFFY, F_SPELLFIX), 24)
+    check("HEL2 with improved cure alone",
+          _spellbyte(SPELL_HEL2, FLD_EFFY, F_IMPCURE), 0x20)
+    check("HEL2 with both: the buff wins",
+          _spellbyte(SPELL_HEL2, FLD_EFFY, F_SPELLFIX | F_IMPCURE), 0x20)
+
+    #  Cast Life rewrites both records outright: routine $08, cure ailment,
+    #  with the death element, which is what revives.
+    want = {SPELL_LIFE: (0, 0x01, 0, 0x10, 0x08, 224, 43),
+            SPELL_LIF2: (0, 0x81, 0, 0x10, 0x08, 224, 44)}
+    for spell, rec in want.items():
+        got = tuple(_spellbyte(spell, f, F_CASTLIFE) for f in range(7))
+        check("cast life: spell %d's record" % spell, got, rec)
+    #  ...and leaves everything else alone.
+    drift = [(sp, f) for sp in range(64) for f in range(8)
+             if sp not in want and _spellbyte(sp, f, F_CASTLIFE) != rom(sp, f)]
+    check("cast life touches only LIFE and LIF2", drift, [])
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2223,7 +2286,8 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit):
+              test_elembonus, test_thiefninja, test_thiefhit,
+              test_spellflags):
         try:
             t()
         except Exception as e:

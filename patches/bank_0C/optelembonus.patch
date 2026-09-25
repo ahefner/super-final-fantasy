@@ -4,12 +4,11 @@
       ADC #4
 --- NEW
       ;  Increase Elemental and Type Bonus turns this constant into a load.
-      ;  FFR writes the same byte -- IncreaseWeaponBonus pokes NES offset
-      ;  $326F5, which is $A6E5 in this bank; ours is at $A6F5, sixteen bytes
-      ;  along because this port's earlier bank $0C patches moved the tail.
-      ;  Everything past the $9020 pin is free to move, which is why a magic
-      ;  offset is the wrong way to find it and a patch anchored on the source
-      ;  text is the right one.
+      ;  FFR writes the same byte -- IncreaseWeaponBonus pokes $326F5, which
+      ;  is this bank's $A6F5, the very instruction below.  FFR's offsets are
+      ;  headerless PRG, so bank $0C starts at $30000 and no 16-byte header
+      ;  comes into it.  It still finds the byte by arithmetic on a constant,
+      ;  which is what a patch anchored on the source text does not have to.
       ;  Vanilla is four, which against a strength-based damage of forty or
       ;  more is under a tenth and is why elemental weapons never felt like
       ;  anything.  The hit-chance bonus above is left alone -- forty on a

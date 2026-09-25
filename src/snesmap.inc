@@ -194,6 +194,26 @@ OPTSCRATCH      = OPTBLOCK+$20  ; a byte the option code may use freely
 ;  before this was needed, so the derived block continues on the far side of
 ;  OPTSCRATCH.  Contiguity buys nothing -- every use site names the byte.
 OPTD_ELEMDMG    = OPTBLOCK+$21  ; base-damage bonus for hitting a weakness
+OPTFIXSP        = OPTBLOCK+$22  ; opt_spellfixed: the spell it was asked about
+OPTFIXFD        = OPTBLOCK+$23  ; ...and the field
+OPTFIXANY       = OPTBLOCK+$24  ; did any of the eight actually change?
+
+;  The three spell flags.
+OPTFB_SPELLFIX  = OPT_FLAGS+2
+OPTFM_SPELLFIX  = $02    ; bit 17
+OPTFB_CASTLIFE  = OPT_FLAGS+3
+OPTFM_CASTLIFE  = $01    ; bit 24
+OPTFB_LOK2      = OPT_FLAGS+3
+OPTFM_LOK2      = $02    ; bit 25
+
+;  Spell indices, as FFR's enum numbers them.
+SPELL_LOCK      = 6
+SPELL_LOK2      = 23
+SPELL_HEL2      = 35
+SPELL_CUR4      = 48
+SPELL_SABR      = 54
+SPELL_LIFE      = 33
+SPELL_LIF2      = 56
 
 ;  Increase Elemental and Type Bonus.
 ;

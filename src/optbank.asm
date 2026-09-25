@@ -51,12 +51,13 @@
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
-.export opt_spellbuffed, opt_spelltarget
+.export opt_spellbuffed, opt_spelltarget, opt_spellfixed
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
 .import lut_LvlUpHitRateBonus
+.import opt_spelloverride
 .import lut_WaitString
 .import lut_CantHoldWhat
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -1726,6 +1727,102 @@ lut_SpellBuffEnd:
 
 SPELL_HARM = 1
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Spell records that a flag replaces outright
+;;
+;;  Spell Fixes is five bytes of data and a pile of code; this is the data.
+;;  Four of the five are FFR's FixSpellBugs verbatim.  The fifth pair is ours:
+;;  FFR raises LOCK and LOK2's accuracy from a separate dropdown, and here that
+;;  dropdown is two flags instead -- Spell Fixes takes them to 162, which is
+;;  what FFR's own Improved Vanilla preset uses, and the LOK2 flag overrides
+;;  that to always hit, which is what its other presets do.  Layered rather
+;;  than a dial, so neither flag has to know the other exists.
+;;
+;;  All of these are gated by Spell Fixes alone, so there is no selector
+;;  column; Cast Life replaces whole records and has its own table below.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_SpellFix:
+  .BYTE SPELL_LOK2, MAGDATA_EFFECT,      $0E   ; ran the wrong routine
+  .BYTE SPELL_HEL2, MAGDATA_EFFECTIVITY,  24   ; healed for less than it claimed
+  .BYTE SPELL_SABR, MAGDATA_HITRATE,      10   ; its hit% bonus was nothing
+  .BYTE SPELL_LOCK, MAGDATA_HITRATE,     162   ; 64 is why it never landed
+  .BYTE SPELL_LOK2, MAGDATA_HITRATE,     162
+lut_SpellFixEnd:
+
+;;  Cast Life in battle.  FFR does not write a battle routine for LIFE and
+;;  LIF2 -- it rewrites their records to use routine $08, cure ailment, with
+;;  the death element, and curing death is revival.  So this is two records,
+;;  not a list of fields.  FFR's names map to ours the other way round: its
+;;  "routine" is MAGDATA_EFFECT and its "effect" is MAGDATA_EFFECTIVITY.
+;;
+;;    hit, effectivity, element, target, effect, graphic, palette, unused
+lut_LifeRecord:
+  .BYTE   0, $01, 0, $10, $08, 224, 43, 0      ; LIFE
+  .BYTE   0, $81, 0, $10, $08, 224, 44, 0      ; LIF2
+
+
+;;  Does a flag replace this byte of this spell's record?
+;;
+;;  In: X = spell index, Y = field.  Out: C set and A = the replacement.
+;;  X and Y come back untouched, because both callers are mid-loop.
+opt_spellfixed:
+    STX OPTFIXSP
+    STY OPTFIXFD
+
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @fixes
+    CPX #SPELL_LIFE
+    BEQ @life
+    CPX #SPELL_LIF2
+    BNE @fixes
+    LDA OPTFIXFD                ; LIF2's record is the second of the two
+    CLC
+    ADC #8
+    BRA @record
+  @life:
+    LDA OPTFIXFD
+  @record:
+    PHX
+    TAX
+    LDA f:lut_LifeRecord + OPTFAR, X
+    PLX
+    SEC
+    RTS
+
+  @fixes:
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @none
+    PHX
+    LDX #$00
+  @scan:
+    CPX #lut_SpellFixEnd - lut_SpellFix
+    BEQ @gone
+    LDA f:lut_SpellFix + OPTFAR, X
+    CMP OPTFIXSP
+    BNE @next
+    LDA f:lut_SpellFix + 1 + OPTFAR, X
+    CMP OPTFIXFD
+    BEQ @found
+  @next:
+    INX
+    INX
+    INX
+    BRA @scan
+  @found:
+    LDA f:lut_SpellFix + 2 + OPTFAR, X
+    PLX
+    SEC
+    RTS
+  @gone:
+    PLX
+  @none:
+    CLC
+    RTS
+
 ;  Does a buff apply to this spell, and what does it change the effectivity
 ;  to?  Split out of opt_magicdata so the shop's description box asks the
 ;  same question -- the box has to say what the spell will actually do, and
@@ -1786,9 +1883,11 @@ opt_magicdata:
     LDA btl_attackid
     CMP #$40                    ; $40 and up is an enemy attack, not a spell
     BCS @out
-    JSR opt_spellbuffed
-    BCC @out
-    STA OPTSPEFF
+    PHX
+    PHY
+    TAX                         ; X = the spell, for the accessor
+    LDA #$00
+    STA OPTFIXANY
 
     LDY #$07                    ; copy the record, so the edit is ours alone
   @copy:
@@ -1797,13 +1896,25 @@ opt_magicdata:
     DEY
     BPL @copy
 
-    LDA OPTSPEFF
-    STA OPTMAGSHADOW + MAGDATA_EFFECTIVITY
-    LDA btl_attackid
-    JSR opt_spelltarget
-    BCC @point
-    STA OPTMAGSHADOW + MAGDATA_TARGET
-  @point:
+    ;  ...then ask, for each of the eight bytes, whether a flag replaces it.
+    ;  It used to overwrite the two a buff could move; there are more of them
+    ;  now -- Spell Fixes rewrites four and Cast Life replaces a record
+    ;  outright -- and asking the shop's own rule is the only way the box and
+    ;  the spell that gets cast cannot drift apart.
+    LDY #$07
+  @field:
+    JSR opt_spelloverride
+    BCC @next
+    STA OPTMAGSHADOW, Y
+    INC OPTFIXANY
+  @next:
+    DEY
+    BPL @field
+
+    PLY
+    PLX
+    LDA OPTFIXANY               ; nothing applied: leave the pointer alone
+    BEQ @out
     LDA #<OPTMAGSHADOW
     STA btl_magdataptr
     LDA #>OPTMAGSHADOW

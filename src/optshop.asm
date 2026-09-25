@@ -43,7 +43,7 @@
 .export opt_shopframe, opt_pose, opt_weaponstats
 .export opt_equipframe, opt_magicframe, opt_chestinfo
 .export opt_equipitem, opt_magicspell, opt_shopinfo_body
-.export opt_spellbyte, opt_num16
+.export opt_spellbyte, opt_spelloverride, opt_num16
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
 .export opt_descgear, opt_weapcrit, opt_gearlive
@@ -67,7 +67,7 @@
 .import lut_WeaponPermissions, lut_ArmorPermissions
 .import lut_ClassEquipBit, lut_MagicPermisPtr
 .import lut_MagicData
-.import opt_spellbuffed, opt_spelltarget
+.import opt_spellbuffed, opt_spelltarget, opt_spellfixed
 
 .segment "BANK_OPT"
 
@@ -1320,14 +1320,32 @@ opt_weaponstats:
 ;
 ;  In: X = spell 0..63, Y = which byte.  Out: A.  X, Y kept.
 opt_spellbyte:
-    JSR opt_spellrom
-    STA OPTSPRAW
+    JSR opt_spelloverride
+    BCS @byteout
+    JSR opt_spellrom            ; nothing applies: the record as it stands
+  @byteout:
+    CMP #$00                    ; callers branch on the byte, and both paths
+    RTS                         ;   above end in a PLX whose flags describe X
+                                ;   -- the same trap opt_weapbyte carries a
+                                ;   note about.  It used to end in LDA, so the
+                                ;   contract was accidental rather than stated.
+
+
+;;  The rule by itself, without the fallback: does any flag replace this byte?
+;;
+;;  In: X = spell index, Y = field.  Out: C set and A = the replacement, or C
+;;  clear and A meaningless.  X and Y come back untouched.
+;;
+;;  Split out so the battle can ask it too.  opt_magicdata copies the record
+;;  the battle was pointed at and then asks this for each of the eight bytes,
+;;  which is the only way the description box and the spell that gets cast
+;;  cannot drift apart.
+opt_spelloverride:
     CPY #MAGDATA_EFFECTIVITY
     BEQ @eff
     CPY #MAGDATA_TARGET
     BEQ @tgt
-    LDA OPTSPRAW
-    RTS
+    BRA @fix
   @eff:
     PHX
     PHY
@@ -1336,9 +1354,7 @@ opt_spellbyte:
     PLY
     PLX
     BCS @out
-    LDA OPTSPRAW                ; no buff: the record as it stands
-  @out:
-    RTS
+    BRA @fix                    ; ...and if no buff applies, a fix might
   @tgt:
     PHX
     PHY
@@ -1347,7 +1363,14 @@ opt_spellbyte:
     PLY
     PLX
     BCS @out
-    LDA OPTSPRAW
+  @fix:
+    ;  Buff beats fix beats the record.  That ordering is the whole of the
+    ;  HEL2 question: Spell Fixes corrects its effectivity down to 24 and
+    ;  Improved CURE and HEAL raises it to 32, and the deliberate buff should
+    ;  win over a correction that only moves a number the other way.  FFR
+    ;  lands the same way round, applying its fixes before its balance.
+    JMP opt_spellfixed          ; a tail call; it sets carry either way
+  @out:
     RTS
 
 ;  The record byte as the ROM holds it.  Sixty-four records of eight bytes is
