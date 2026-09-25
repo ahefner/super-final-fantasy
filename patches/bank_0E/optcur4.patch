@@ -1,0 +1,47 @@
+--- OLD
+    JSR ItemTargetMenuLoop  ; do the item target menu loop
+    BCS CureFamily_Exit     ; if they pressed B to escape.. just exit
+
+    LDA cursor              ; otherwise, get cursor (target character ID)
+    ROR A
+    ROR A
+    ROR A
+    AND #$C0                ; shift to get a usable charater index
+    TAX                     ; and put in X
+
+    LDA ch_maxhp+1, X       ; and copy max HP to cur HP
+    STA ch_curhp+1, X       ; BUGGED:  game does not check ailments.  So you can cast
+    LDA ch_maxhp, X         ;  this on a stoned or even a dead character!
+    STA ch_curhp, X         ;  but while it will refill a dead character's HP, he will stay dead
+                            ;  because he'll still have the "dead" ailment.
+--- NEW
+.import opt_cur4
+
+  Cur4_Pick:
+    JSR ItemTargetMenuLoop  ; do the item target menu loop
+    BCS CureFamily_Exit     ; if they pressed B to escape.. just exit
+
+    LDA cursor              ; otherwise, get cursor (target character ID)
+    ROR A
+    ROR A
+    ROR A
+    AND #$C0                ; shift to get a usable charater index
+    TAX                     ; and put in X
+
+    ;  The HP copy, and with Spell Fixes on the ailment check every other
+    ;  spell in this menu already makes -- the BUGGED note below is that this
+    ;  one never did, so the spell and the MP went on a corpse.  A refusal
+    ;  sounds the error and comes back for another target, which is what
+    ;  CureFamily_CantUse does.  Twelve bytes either way.
+    JSL opt_cur4 + OPTFAR
+    BCS Cur4_Healed
+    JSR PlaySFX_Error
+    BRA Cur4_Pick
+  Cur4_Healed:
+    .res 1, $EA
+
+                            ;  BUGGED, and fixed above when the flag is on:
+                            ;  game does not check ailments.  So you can cast
+                            ;  this on a stoned or even a dead character!
+                            ;  but while it will refill a dead character's HP, he will stay dead
+                            ;  because he'll still have the "dead" ailment.

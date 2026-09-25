@@ -2369,6 +2369,39 @@ def test_tmprsabr():
     check("magdef, flag set: to the in-battle one", magdef(True), (77, 0))
 
 
+# --- CUR4 out of battle -----------------------------------------------------
+#  Every spell in that menu refuses a dead or stoned target and comes back for
+#  another.  CUR4 never did, so it would refill a corpse's HP -- and the
+#  corpse stayed dead, because it still had the ailment.  Spell and MP gone.
+CH_CURHP, CH_MAXHP = 0x610A, 0x610C
+
+
+def test_cur4():
+    def cast(ailment, flagged, who=0):
+        bus, cpu = machine()
+        if flagged:
+            setblk(bus, OPT_FLAGS + 2, 0x02)        # bit 17
+        base = who * 0x40
+        bus.sram[CH_AILMENTS + base - 0x6000] = ailment
+        bus.sram[CH_MAXHP + base - 0x6000] = 200
+        bus.sram[CH_MAXHP + 1 + base - 0x6000] = 1  # 456 max
+        bus.sram[CH_CURHP + base - 0x6000] = 7
+        bus.sram[CH_CURHP + 1 + base - 0x6000] = 0
+        cpu.x = base
+        call(cpu, "opt_cur4")
+        hp = (bus.sram[CH_CURHP + base - 0x6000]
+              | bus.sram[CH_CURHP + 1 + base - 0x6000] << 8)
+        return hp, bool(cpu.p & 0x01)               # HP, carry
+
+    check("flag clear: a corpse is healed anyway", cast(1, False), (456, True))
+    check("flag set: the dead are refused", cast(1, True), (7, False))
+    check("flag set: the stoned are refused", cast(2, True), (7, False))
+    check("flag set: the living are healed", cast(0, True), (456, True))
+    #  ...and it is the cursor's character that gets it, not always the first.
+    check("the target is the one the cursor picked",
+          cast(0, True, who=2), (456, True))
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2383,7 +2416,7 @@ def main():
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
-              test_spellflags, test_tmprsabr):
+              test_spellflags, test_tmprsabr, test_cur4):
         try:
             t()
         except Exception as e:

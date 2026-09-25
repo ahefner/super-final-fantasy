@@ -52,7 +52,7 @@
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
-.export opt_magloaddef, opt_magsavedef, opt_magsavemagdef
+.export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
@@ -1935,6 +1935,48 @@ opt_lockroll:
   @skip:
     LDA #$01
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  CUR4, out of battle
+;;
+;;    Disch again: "BUGGED: game does not check ailments.  So you can cast
+;;  this on a stoned or even a dead character!  but while it will refill a
+;;  dead character's HP, he will stay dead because he'll still have the 'dead'
+;;  ailment."  So the spell and the MP are spent on nothing.
+;;
+;;    Every other spell in that menu refuses those two targets and loops back
+;;  for another -- CureFamily_CantUse plays the error sound and jumps to
+;;  CureFamily_Loop.  This is that rule, for the one spell that skipped it.
+;;
+;;    In: X = the character index the cursor landed on.  Out: C set if the
+;;  target was healed, C clear if it was refused.  The error sound and the
+;;  loop stay at the call site: a routine that decides can be run by the test
+;;  harness, and PlaySFX_Error cannot, because it ends up spinning on an SPC
+;;  handshake the harness does not model.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_cur4:
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @heal                   ; vanilla: heal anyone, dead or stone
+    LDA ch_ailments, X
+    CMP #$01
+    BEQ @refuse
+    CMP #$02
+    BEQ @refuse
+  @heal:
+    LDA ch_maxhp+1, X           ; what the site did, unchanged
+    STA ch_curhp+1, X
+    LDA ch_maxhp, X
+    STA ch_curhp, X
+    SEC
+    RTL
+  @refuse:
+    CLC                         ; the caller sounds the error and comes back
+    RTL                         ;   for another target
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
