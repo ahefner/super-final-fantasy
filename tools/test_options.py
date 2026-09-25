@@ -2217,6 +2217,8 @@ def test_thiefhit():
 #  and what gets cast cannot drift.
 F_SPELLFIX = 1 << 17
 F_CASTLIFE = 1 << 24
+F_LOK2 = 1 << 25
+MATH_MAGRANDHIT = 0x685A
 SPELL_LOCK, SPELL_LOK2, SPELL_HEL2 = 6, 23, 35
 SPELL_SABR, SPELL_LIFE, SPELL_LIF2 = 54, 33, 56
 FLD_HIT, FLD_EFFY, FLD_ELEM, FLD_TGT, FLD_EFFECT, FLD_GFX, FLD_PAL = range(7)
@@ -2267,6 +2269,30 @@ def test_spellflags():
     for spell, rec in want.items():
         got = tuple(_spellbyte(spell, f, F_CASTLIFE) for f in range(7))
         check("cast life: spell %d's record" % spell, got, rec)
+    #  The LOK2 toggle beats Spell Fixes' 162 with an accuracy of 255: the
+    #  roll is [0,200] and BtlMag_DidSpellConnect only compares the two.
+    for spell in (SPELL_LOCK, SPELL_LOK2):
+        check("always-hit: spell %d accuracy" % spell,
+              _spellbyte(spell, FLD_HIT, F_LOK2), 255)
+        check("always-hit beats spell fixes' 162",
+              _spellbyte(spell, FLD_HIT, F_LOK2 | F_SPELLFIX), 255)
+
+    #  ...and the roll vanilla never takes.  Z set means go on to the connect
+    #  check; 200 is a guaranteed miss everywhere else in that bank.
+    def roll(flagbits, r):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        bus.sram[MATH_MAGRANDHIT - 0x6000] = r
+        call(cpu, "opt_lockroll", dbr=0xA7)
+        return bool(cpu.p & 0x02)       # Z
+
+    check("no flags: LOCK still does nothing", roll(0, 100), False)
+    check("spell fixes: an ordinary roll goes on", roll(F_SPELLFIX, 100), True)
+    check("spell fixes: 200 is the guaranteed miss", roll(F_SPELLFIX, 200), False)
+    check("always-hit: 200 does not stop it", roll(F_LOK2, 200), True)
+    check("always-hit alone is enough", roll(F_LOK2, 100), True)
+
     #  ...and leaves everything else alone.
     drift = [(sp, f) for sp in range(64) for f in range(8)
              if sp not in want and _spellbyte(sp, f, F_CASTLIFE) != rom(sp, f)]

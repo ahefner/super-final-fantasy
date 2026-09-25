@@ -1,0 +1,16 @@
+--- OLD
+    LDA math_magrandhit
+    CMP #200                        ; hit roll of 200 = automatic miss
+    JMP @Done                       ; BUGGED -- this should be BEQ, not JMP.  Since it always jumps,
+                                    ;   this means the spell never has any effect and always misses!
+        ; due to bug, this code is never reached, but it works as you'd expect:
+--- NEW
+.import opt_lockroll
+    ;  The roll, and whether to take it.  Vanilla jumps past everything it
+    ;  just prepared, so LOCK and LOK2 never do anything at all; Spell Fixes
+    ;  makes this the BEQ the JMP should have been, and the LOK2 flag declines
+    ;  the guaranteed miss on 200 as well.  Eight bytes either way, which is
+    ;  what the three NOPs are for.
+    JSL opt_lockroll + OPTFAR
+    BNE @Done
+    .res 2, $EA

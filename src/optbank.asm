@@ -51,7 +51,7 @@
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
 .export opt_magicdata, opt_healroll, opt_magictarget
-.export opt_spellbuffed, opt_spelltarget, opt_spellfixed
+.export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
@@ -1773,11 +1773,11 @@ opt_spellfixed:
 
     LDA OPTFB_CASTLIFE
     AND #OPTFM_CASTLIFE
-    BEQ @fixes
+    BEQ @lock
     CPX #SPELL_LIFE
     BEQ @life
     CPX #SPELL_LIF2
-    BNE @fixes
+    BNE @lock
     LDA OPTFIXFD                ; LIF2's record is the second of the two
     CLC
     ADC #8
@@ -1789,6 +1789,26 @@ opt_spellfixed:
     TAX
     LDA f:lut_LifeRecord + OPTFAR, X
     PLX
+    SEC
+    RTS
+
+  @lock:
+    ;  Always-hit beats Spell Fixes' 162, so it is asked first.  It is an
+    ;  accuracy of 255 rather than a code path: the roll is [0,200] and
+    ;  BtlMag_DidSpellConnect only compares the two, so 255 always connects.
+    ;  The one case that is not accuracy is the guaranteed miss on a roll of
+    ;  exactly 200, and opt_lockroll below declines to take it.
+    LDA OPTFB_LOK2
+    AND #OPTFM_LOK2
+    BEQ @fixes
+    CPY #MAGDATA_HITRATE
+    BNE @fixes
+    CPX #SPELL_LOCK
+    BEQ @always
+    CPX #SPELL_LOK2
+    BNE @fixes
+  @always:
+    LDA #255
     SEC
     RTS
 
@@ -1878,6 +1898,43 @@ opt_spelltarget:
     LDA OPTSPIDX
     CLC
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  LOCK and LOK2: the roll that vanilla never takes
+;;
+;;    BtlMag_Effect_EvadeDown prepares a hit roll, compares it with 200, and
+;;  then unconditionally JMPs past everything it just prepared.  Disch's note
+;;  says it plainly: "BUGGED -- this should be BEQ, not JMP.  Since it always
+;;  jumps, this means the spell never has any effect and always misses."
+;;
+;;    His comment on the line above says a roll of 200 is an automatic hit.
+;;  It is not -- every other spell in the bank treats 200 as a guaranteed
+;;  miss and branches to its miss path, BtlMag_Effect_InflictAilment and
+;;  BtlMag_Effect_Slow among them.  So the BEQ skips, which is what FFR
+;;  writes too.
+;;
+;;    Out: Z set if the spell should go on to the connect check.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_lockroll:
+    LDA OPTFB_LOK2
+    AND #OPTFM_LOK2
+    BNE @go                     ; always-hit does not take the 200 miss either
+    LDA OPTFB_SPELLFIX
+    AND #OPTFM_SPELLFIX
+    BEQ @skip                   ; vanilla: the JMP, and the spell does nothing
+    LDA math_magrandhit
+    CMP #200
+    BEQ @skip
+  @go:
+    LDA #$00                    ; Z set: on to the connect check
+    RTL
+  @skip:
+    LDA #$01
+    RTL
+
 
 opt_magicdata:
     LDA btl_attackid
