@@ -1,0 +1,19 @@
+--- OLD
+      LDA math_basedamage               ; and +4 bonus to base damage
+      CLC
+      ADC #4
+--- NEW
+      ;  Increase Elemental and Type Bonus turns this constant into a load.
+      ;  FFR writes the same byte -- IncreaseWeaponBonus pokes NES offset
+      ;  $326F5, which is $A6E5 in this bank; ours is at $A6F5, sixteen bytes
+      ;  along because this port's earlier bank $0C patches moved the tail.
+      ;  Everything past the $9020 pin is free to move, which is why a magic
+      ;  offset is the wrong way to find it and a patch anchored on the source
+      ;  text is the right one.
+      ;  Vanilla is four, which against a strength-based damage of forty or
+      ;  more is under a tenth and is why elemental weapons never felt like
+      ;  anything.  The hit-chance bonus above is left alone -- forty on a
+      ;  base of 168 already lands.
+      LDA math_basedamage               ; and a bonus to base damage
+      CLC
+      ADC OPTD_ELEMDMG

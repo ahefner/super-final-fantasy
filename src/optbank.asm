@@ -85,7 +85,10 @@ OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
 
-OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_ELEMBONUS | OPTF_IMPCURE
+;  OPTF_ELEMBONUS (bit 21) is deliberately absent: the elemental and type
+;  bonus is a dial in SCALE now, not a checkbox, so the bit is unused and
+;  reserved.  See ELEMDMG_STEP in snesmap.inc.
+OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE
 OPTF_VAR2     = OPTF_IMPFIRE | OPTF_CASTLIFE | OPTF_LOK2
 OPTF_VARIATION= OPTF_VAR1 | OPTF_VAR2
 
@@ -118,23 +121,23 @@ lut_Presets:
     ;  multiply.  The padding costs 21 bytes and buys that.
     .DWORD  0                                                              ; Vanilla
     .BYTE   0
-    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100
-    .RES    7, $00
+    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA
+    .RES    6, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_GUILLOTINE) | OPTF_BUGFIX                  ; Improved
     .BYTE   0
-    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100
-    .RES    7, $00
+    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_FFR_IMP
+    .RES    6, $00
     .DWORD  OPTF_ALLQOL | OPTF_BUGFIX | OPTF_VARIATION                     ; Deluxe
     .BYTE   0
-    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100
-    .RES    7, $00
+    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF
+    .RES    6, $00
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
 ;  run from the flags up to but not including OPT_RESPOND, which
 ;  opt_loadpreset writes itself.
 PRESET_FIELDS = OPT_RESPOND - OPT_FLAGS
 PRESET_STRIDE = 16
-.assert PRESET_FIELDS = OPT_FLAGBYTES + 4, error, "preset row does not match the option block"
+.assert PRESET_FIELDS = OPT_FLAGBYTES + 5, error, "preset row does not match the option block"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -234,6 +237,15 @@ opt_commit:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_derive:
+    ;  The elemental and type damage bonus.  The dial stores a step and the
+    ;  step is worth two, so the derived byte is a shift -- and the use site
+    ;  in bank $0C, where a load costs one byte more than the immediate it
+    ;  replaces, gets a plain byte to add.
+    LDA OPT_ELEMDMG
+    ASL A
+    STA OPTD_ELEMDMG
+
+    ;  ...and the speed hacks, which are eleven of them.
     LDA OPTFB_SPEEDHACKS
     AND #OPTFM_SPEEDHACKS
     BNE @fast

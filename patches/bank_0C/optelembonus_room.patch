@@ -1,0 +1,19 @@
+--- OLD
+; BFFB - unused
+  .BYTE $00
+  .BYTE $00
+  .BYTE $01
+  .BYTE $09
+  .BYTE $07
+--- NEW
+; BFFC - unused
+;
+;   Four now, not five.  The byte went to the load that Increase Elemental
+;   and Type Bonus needs in DoPhysicalAttack -- this block is the whole of
+;   what a bank with no free space has left.  The values are whatever the
+;   original cartridge happened to leave here; nothing reads them, and every
+;   .INCBIN assertion for this bank is far above, so the tail may move.
+  .BYTE $00
+  .BYTE $01
+  .BYTE $09
+  .BYTE $07

@@ -107,13 +107,18 @@ OPT_GOLDXP      = OPTBLOCK+$09  ; step indices into the value-row tables
 OPT_ENCOUNTER   = OPTBLOCK+$0A
 OPT_ENEMY       = OPTBLOCK+$0B
 OPT_BOSS        = OPTBLOCK+$0C
-OPT_RESPOND     = OPTBLOCK+$0D  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$0E
-OPT_SIZE        = $0F
+OPT_ELEMDMG     = OPTBLOCK+$0D  ; ...and the fifth, which is why the format
+                                ;   went to 4; it must stay adjacent, because
+                                ;   the value rows index OPT_GOLDXP by scalar
+OPT_RESPOND     = OPTBLOCK+$0E  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$0F
+OPT_SIZE        = $10
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $03           ; bumped from $02: the flag word grew a
+OPT_FORMAT      = $04           ; bumped from $03: the elemental bonus
+                                ; became a dial and needed a fifth scalar.
+                                ; Bumped from $02 before that: the flag word grew a
                                 ; fifth byte, so every field after it moved.
                                 ; A block written by an older build would read
                                 ; its value rows out of the flags.
@@ -183,6 +188,41 @@ OPTD_PALCYC     = OPTD+$08      ; frame mask for the palette cycle
 OPTD_MSGROWS    = OPTD+$09      ; message rows drawn per frame, opening
 OPTD_MSGROWSREV = OPTD+$0A      ; ...and closing
 OPTSCRATCH      = OPTBLOCK+$20  ; a byte the option code may use freely
+
+;  A derived byte that did not fit in the block above.  OPTD's sixteen run to
+;  OPTBLOCK+$1F and the settings screen took the last five for its own scratch
+;  before this was needed, so the derived block continues on the far side of
+;  OPTSCRATCH.  Contiguity buys nothing -- every use site names the byte.
+OPTD_ELEMDMG    = OPTBLOCK+$21  ; base-damage bonus for hitting a weakness
+
+;  Increase Elemental and Type Bonus.
+;
+;  A physical attack that matches the defender's elemental weakness or its
+;  category gets two bonuses: +40 hit chance on a base of 168, and +4 base
+;  damage on a base of the attacker's strength.  The first is a quarter of the
+;  base and lands hard.  The second is nearly nothing -- a mid-game weapon
+;  swings for forty or more, so four is under a tenth, and an elemental weapon
+;  feels no different from an ordinary one of the same attack.
+;
+;  So this dial sets the damage half and leaves the hit half alone, which is
+;  what FFR does too: IncreaseWeaponBonus in FF1Lib/Balances.cs is a single
+;  byte write over the same immediate, and FFR exposes the number as a slider
+;  rather than fixing it -- Items & Equipment, "Damage Bonus", 1 to 50, greyed
+;  out until the checkbox above it is ticked.
+;
+;  This is a dial and not a checkbox for that reason.  FFR needs both because
+;  it can grey a slider out; a list of rows cannot, and a checkbox that has to
+;  be on for a dial elsewhere to mean anything is the sort of interaction this
+;  menu has been avoiding.  Zero is the off position, which no checkbox could
+;  reach -- vanilla is four, not nothing.
+;
+;  The step is two, so the stored index doubles into the derived byte and
+;  opt_derive needs a shift rather than a table.
+ELEMDMG_STEP    = 2
+ELEMDMG_STEPS   = 26            ; +0 to +50
+ELEM_VANILLA    = 2             ; +4, what the cartridge does
+ELEM_FFR_IMP    = 5             ; +10, FFR's Improved Vanilla and code default
+ELEM_FFR_DEF    = 15            ; +30, FFR's default preset and most others
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
 ;  or the wipe overshoots its end condition and runs off.
@@ -273,6 +313,9 @@ OPTFM_STATUSATK = $04    ; bit 18
 
 OPTFB_HOUSEMP   = OPT_FLAGS+1
 OPTFM_HOUSEMP   = $80    ; bit 15
+
+OPTFB_ELEMBONUS = OPT_FLAGS+2
+OPTFM_ELEMBONUS = $20    ; bit 21
 
 OPTFB_REPEATPOTION = OPT_FLAGS+1
 OPTFM_REPEATPOTION = $08 ; bit 11

@@ -1116,9 +1116,17 @@ OPTROW_BLANK = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 55
+OPTROW_COUNT  = 56
 
 lut_OptRows:
+  ;  A blank first row, because OPTLIST_TOP only accounts for nametable row 0
+  ;  being cropped.  On a CRT row 1 is still half inside the overscan, so a
+  ;  heading there is clipped.  Spending a list row rather than raising
+  ;  OPTLIST_TOP keeps all twenty visible rows: this one occupies a slot only
+  ;  while the list is scrolled to the very top, and costs nothing after that.
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+
   ;  The four dials come first, and the reason is the paging.  Left and right
   ;  page the list by half a screen everywhere except on a value row, where
   ;  they belong to the value -- so a cursor sitting among the dials cannot
@@ -1147,6 +1155,8 @@ lut_OptRows:
   .BYTE $8B, $B2, $B6, $B6, $FF, $B6, $B7, $A4, $B7, $B6
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $02, $04   ; Elemental bonus
+  FFPAD "Elemental bonus", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; QUALITY OF LIFE
@@ -1264,10 +1274,6 @@ lut_OptRows:
   .BYTE $01, $14   ; Double weapon crit
   .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $FF, $BA, $A8, $A4
   .BYTE $B3, $B2, $B1, $FF, $A6, $B5, $AC, $B7, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $01, $15   ; Elemental bonus
-  .BYTE $8E, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF
-  .BYTE $A5, $B2, $B1, $B8, $B6, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $16   ; Improved Cure spells
   .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $A7, $FF, $8C
@@ -1398,9 +1404,46 @@ lut_ValStat:
 ;  Per-scalar: where its readouts are and how many there are.  The block
 ;  fields are consecutive, so the option byte itself is OPT_GOLDXP indexed by
 ;  the same number.
-lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat
-lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat
-lut_ValCount: .BYTE 11, 14, 20, 20
+;  Elemental and type damage bonus: +0 to +50 in twos.  The game's own
+;  value is +4, and every other dial on this screen can go below its
+;  vanilla setting too, so this one starts at nothing rather than at
+;  four.  FFR's slider is 1 to 50 and its presets sit at 10, 30 and 42.
+;
+;  Laid out one column left of the others: the percentage rows spend their
+;  last column on the "%", so right-aligning this one would put its digits
+;  under that sign instead of under their digits.  Aligning the numbers to
+;  each other reads better than aligning the fields.
+lut_ValElem:
+  .BYTE $FF, $E6, $80, $FF   ;  +0
+  .BYTE $FF, $E6, $82, $FF   ;  +2
+  .BYTE $FF, $E6, $84, $FF   ;  +4   <- vanilla
+  .BYTE $FF, $E6, $86, $FF   ;  +6
+  .BYTE $FF, $E6, $88, $FF   ;  +8
+  .BYTE $E6, $81, $80, $FF   ; +10   <- FFR Improved Vanilla
+  .BYTE $E6, $81, $82, $FF   ; +12
+  .BYTE $E6, $81, $84, $FF   ; +14
+  .BYTE $E6, $81, $86, $FF   ; +16
+  .BYTE $E6, $81, $88, $FF   ; +18
+  .BYTE $E6, $82, $80, $FF   ; +20
+  .BYTE $E6, $82, $82, $FF   ; +22
+  .BYTE $E6, $82, $84, $FF   ; +24
+  .BYTE $E6, $82, $86, $FF   ; +26
+  .BYTE $E6, $82, $88, $FF   ; +28
+  .BYTE $E6, $83, $80, $FF   ; +30   <- FFR default
+  .BYTE $E6, $83, $82, $FF   ; +32
+  .BYTE $E6, $83, $84, $FF   ; +34
+  .BYTE $E6, $83, $86, $FF   ; +36
+  .BYTE $E6, $83, $88, $FF   ; +38
+  .BYTE $E6, $84, $80, $FF   ; +40
+  .BYTE $E6, $84, $82, $FF   ; +42   <- FFR 2025 tournament
+  .BYTE $E6, $84, $84, $FF   ; +44
+  .BYTE $E6, $84, $86, $FF   ; +46
+  .BYTE $E6, $84, $88, $FF   ; +48
+  .BYTE $E6, $85, $80, $FF   ; +50
+
+lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
+lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
+lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS
 
 ;  Generated: the description pane text, pre-wrapped to 28 columns and 5
 ;  lines.  Wrapping at build time rather than at runtime keeps the draw to
@@ -1575,10 +1618,12 @@ lut_Desc_27:  ; Double weapon crit
   FFPAD {"number at all."}, 28
 
 lut_Desc_28:  ; Elemental bonus
-  FFLINES 3
-  .BYTE $A0, $A8, $A4, $B3, $B2, $B1, $FF, $A8, $AF, $A8, $B0, $A8, $B1, $B7, $A4, $AF, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $A6, $B5, $A8, $A4, $B7, $B8, $B5, $A8, $FF, $B7, $BC, $B3, $A8, $FF, $A5, $B2, $B1, $B8, $B6, $A8, $B6, $FF, $A6, $B2, $B8, $B1, $B7, $FF
-  .BYTE $A9, $B2, $B5, $FF, $B0, $B2, $B5, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  FFLINES 5
+  FFPAD {"Damage added when an attack"}, 28
+  FFPAD {"matches a weakness. Vanilla"}, 28
+  FFPAD {"is +4. Needs Weapon stats on"}, 28
+  FFPAD {"or only monsters get it -"}, 28
+  FFPAD {"party weapon element is 0."}, 28
 
 lut_Desc_29:  ; Improved Cure spells
   FFLINES 4
@@ -1688,30 +1733,32 @@ lut_Desc_44:  ; Free ROD
 
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
-  .BYTE <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24
-  .BYTE <lut_Desc_25, <lut_DescBlank, <lut_Desc_0, <lut_DescBlank, <lut_Desc_3
-  .BYTE <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8
-  .BYTE <lut_Desc_9, <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13
-  .BYTE <lut_Desc_14, <lut_Desc_15, <lut_Desc_16, <lut_Desc_17, <lut_DescBlank
-  .BYTE <lut_Desc_1, <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20
-  .BYTE <lut_Desc_21, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_26
-  .BYTE <lut_Desc_27, <lut_Desc_28, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31
-  .BYTE <lut_Desc_32, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_34
-  .BYTE <lut_Desc_35, <lut_Desc_36, <lut_Desc_37, <lut_Desc_38, <lut_Desc_39
-  .BYTE <lut_Desc_40, <lut_Desc_41, <lut_Desc_42, <lut_Desc_43, <lut_Desc_44
+  .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
+  .BYTE <lut_Desc_24, <lut_Desc_25, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0
+  .BYTE <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6
+  .BYTE <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11
+  .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
+  .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
+  .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2
+  .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_27, <lut_Desc_29, <lut_Desc_30
+  .BYTE <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank
+  .BYTE <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37, <lut_Desc_38
+  .BYTE <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42, <lut_Desc_43
+  .BYTE <lut_Desc_44
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
-  .BYTE >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24
-  .BYTE >lut_Desc_25, >lut_DescBlank, >lut_Desc_0, >lut_DescBlank, >lut_Desc_3
-  .BYTE >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8
-  .BYTE >lut_Desc_9, >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13
-  .BYTE >lut_Desc_14, >lut_Desc_15, >lut_Desc_16, >lut_Desc_17, >lut_DescBlank
-  .BYTE >lut_Desc_1, >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20
-  .BYTE >lut_Desc_21, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_26
-  .BYTE >lut_Desc_27, >lut_Desc_28, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31
-  .BYTE >lut_Desc_32, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_34
-  .BYTE >lut_Desc_35, >lut_Desc_36, >lut_Desc_37, >lut_Desc_38, >lut_Desc_39
-  .BYTE >lut_Desc_40, >lut_Desc_41, >lut_Desc_42, >lut_Desc_43, >lut_Desc_44
+  .BYTE >lut_DescBlank, >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23
+  .BYTE >lut_Desc_24, >lut_Desc_25, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0
+  .BYTE >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6
+  .BYTE >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11
+  .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
+  .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
+  .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2
+  .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_27, >lut_Desc_29, >lut_Desc_30
+  .BYTE >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank
+  .BYTE >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37, >lut_Desc_38
+  .BYTE >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42, >lut_Desc_43
+  .BYTE >lut_Desc_44
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

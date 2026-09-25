@@ -35,9 +35,10 @@ OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
 #  The flag word is five bytes; everything after it moved when the
 #  Treasures section and the free key items took bits 26-33.
 OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
-OPT_ENEMY, OPT_BOSS, OPT_RESPOND, OPT_CKSUM = 11, 12, 13, 14
-OPT_SIZE = 15
-OPT_FORMAT = 3          # bumped when the flag word grew its fifth byte
+OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 11, 12, 13
+OPT_RESPOND, OPT_CKSUM = 14, 15
+OPT_SIZE = 16
+OPT_FORMAT = 4          # bumped when the elemental bonus became a fifth dial
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -156,10 +157,13 @@ def test_block():
 
 
 def test_presets():
-    want = {0: (0x00000000, 2, 10, 3, 3),
-            1: (0x0007BFFF, 2, 10, 3, 3),
-            2: (0x03FFFFFF, 5, 6, 3, 3)}
-    for preset, (f, g, e, en, bo) in want.items():
+    #  flags, gold/xp, encounter, enemy, boss, elemental bonus.  The bonus is
+    #  a step of two, so 2 is vanilla's +4, 5 is FFR's Improved Vanilla +10
+    #  and 15 is the +30 most of FFR's own presets use.
+    want = {0: (0x00000000, 2, 10, 3, 3, 2),
+            1: (0x0007BFFF, 2, 10, 3, 3, 5),
+            2: (0x03DFFFFF, 5, 6, 3, 3, 15)}
+    for preset, (f, g, e, en, bo, el) in want.items():
         bus, cpu = machine()
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
@@ -170,6 +174,7 @@ def test_presets():
         check("%s: encounter step" % name, blk(bus, OPT_ENCOUNTER), e)
         check("%s: enemy step" % name, blk(bus, OPT_ENEMY), en)
         check("%s: boss step" % name, blk(bus, OPT_BOSS), bo)
+        check("%s: elemental bonus step" % name, blk(bus, OPT_ELEMDMG), el)
         #  loadpreset seals as it goes, so init must accept what it wrote
         cpu2 = CPU(bus); cpu2.dbr = 0xA7
         call(cpu2, "opt_init")
@@ -2078,6 +2083,37 @@ def test_housemp():
               (after[0], after[1], after[2]), (0xA9, 0x1E, 0x20))
 
 
+# --- Increase Elemental and Type Bonus --------------------------------------
+#  A physical attack matching the defender's elemental weakness or category
+#  gets +40 hit chance on a base of 168 and +4 base damage on a base of the
+#  attacker's strength.  The hit half lands; the damage half is under a tenth
+#  of a mid-game weapon and is why elemental weapons never felt different.
+#  The flag raises the damage half only, through a derived byte, because the
+#  use site is in bank $0C where a load costs one byte and a test would cost
+#  seven.
+OPTD_ELEMDMG_OFF = 0x21          # OPTBLOCK + $21
+
+
+def test_elembonus():
+    #  The dial stores a step worth two, so the derived byte is the step
+    #  doubled: 0 is no bonus at all, 2 is vanilla's +4, 25 is the +50 top.
+    for step, want in ((0, 0), (2, 4), (5, 10), (15, 30), (21, 42), (25, 50)):
+        bus, cpu = machine()
+        setblk(bus, OPT_ELEMDMG, step)
+        call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
+        check("dial step %d derives +%d" % (step, want),
+              blk(bus, OPTD_ELEMDMG_OFF), want)
+
+    #  Deriving it is only half of it: the use site has to read the byte
+    #  rather than the immediate it replaced.  ADC abs is $6D, and the operand
+    #  is the derived byte's address.
+    addr = OPTBLOCK + OPTD_ELEMDMG_OFF
+    want = bytes([0x6D, addr & 0xFF, addr >> 8])
+    bank = ROMDATA[(1 + 0x0C) * 0x10000 + 0x8000:][:0x4000]
+    check("bank $0C adds the derived byte, once",
+          sum(1 for i in range(len(bank) - 3) if bank[i:i + 3] == want), 1)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -2090,7 +2126,8 @@ def main():
               test_openchests, test_shopinfo, test_shoppose,
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
-              test_treasures, test_menusfx, test_housemp):
+              test_treasures, test_menusfx, test_housemp,
+              test_elembonus):
         try:
             t()
         except Exception as e:
