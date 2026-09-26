@@ -26,15 +26,25 @@ SPC700 memory:
     $0400  sample directory (DIR = $04), one entry per waveform
     $0410  BRR sample data
 """
-import os
+import os, re
+
+#  Diagnostic only: FFTONE=vol or FFTONE=pitch suppresses that register's
+#  write cache, so it goes onto the DSP bus every frame carrying a value the
+#  DSP already holds.  Dithering the value instead -- the obvious way to force
+#  a write -- is a 30Hz modulation in its own right, which is audible and
+#  confounds exactly the comparison it was meant to serve.
+_NOCACHE = os.environ.get("FFTONE", "")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
 
 LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
-DIRPAGE = 0x04         # directory at $0400
-ADDRTAB = 0x0410       # waveform address table, one word per waveform
-BRRBASE = 0x0460       # BRR sample data (past a 40-entry address table)
+DIRPAGE = 0x05         # directory at $0500.  It has to be page aligned, so
+                       # whatever sits below it is the program's whole budget:
+                       # $0200..$04FF, 768 bytes.  It was one page lower, and
+                       # the program grew past the 512 bytes that left it.
+ADDRTAB = 0x0520       # waveform address table, one word per waveform
+BRRBASE = 0x0570       # BRR sample data (past a 40-entry address table)
 
 # --- a very small SPC700 assembler ----------------------------------------
 class Asm:
@@ -56,6 +66,14 @@ class Asm:
     def inc_x(self):           self.emit(0x3D)
     def mov_absy_a(self, a):   self.emit(0xD6, a & 0xFF, a >> 8)     # MOV !abs+Y,A
     def mov_a_x(self):         self.emit(0x7D)
+    def or_a_dp(self, d):      self.emit(0x04, d)
+    def and_a_dp(self, d):     self.emit(0x24, d)
+    def eor_a_dp(self, d):     self.emit(0x44, d)
+    def inc_a(self):           self.emit(0xBC)
+    def bcc(self, lbl):        self.branch(0x90, lbl)
+    def mov_dpx_a(self, d):    self.emit(0xD4, d)
+    def cmp_a_dpx(self, d):    self.emit(0x74, d)
+    def eor_a_imm(self, v):    self.emit(0x48, v)
     def cmp_a_dp(self, d):     self.emit(0x64, d)
     def cmp_a_imm(self, i):    self.emit(0x68, i)
     def adc_a_dp(self, d):     self.emit(0x84, d)
@@ -93,13 +111,56 @@ class Asm:
 LAST, CMD, VOL, VB, PHI, MASK = 0x00, 0x01, 0x02, 0x03, 0x04, 0x05
 WIDX    = 0x06        # waveform index from the sequence byte
 MASKTAB = 0x10        # four bytes: 1<<voice
-DIRBASE = 0x0400      # directory: entry v at DIRBASE + 4v
+DIRBASE = 0x0500      # directory: entry n at DIRBASE + 4n, eight of them --
+                      # two per voice, so one can be rewritten while the DSP
+                      # is still reading the other
+LASTIDX = 0x14        # four bytes: waveform index each voice was last given
+SRCNV   = 0x18        # four bytes: which directory slot each voice points at
+NEWSRCN = 0x1C        # scratch: the slot being switched to
+ENDXACC = 0x1D        # ENDX bits seen since each voice last consumed its own
+DEADCNT = 0x20        # four bytes: packets since each voice last looped
+DEADFRAMES = 8        # ...before we conclude it has stopped and key it again
+VOLC    = 0x24        # four bytes: volume each voice was last actually sent
+PITCHLC = 0x28        # four bytes: ...and its pitch, low
+PITCHHC = 0x2C        # four bytes: ...and high
+KONPEND = 0x30        # nonzero while a key-on is still asserted in KON
+
+def _check_opcodes():
+    """No two mnemonics may emit the same opcode byte.
+
+    A duplicate is silent: the assembler is happy, the program runs, and it
+    quietly does different arithmetic than it reads as.
+    """
+    import collections, inspect
+    seen = collections.defaultdict(list)
+    for name, fn in inspect.getmembers(Asm, predicate=inspect.isfunction):
+        src = inspect.getsource(fn)
+        m = re.search(r"self\.emit\((0x[0-9A-Fa-f]+)", src)
+        if m and name not in ("emit", "branch", "dsp", "dsp_a"):
+            seen[int(m.group(1), 16)].append(name)
+    dupes = {op: names for op, names in seen.items() if len(names) > 1}
+    if dupes:
+        raise SystemExit("genspc: duplicate opcodes -- " + "; ".join(
+            "$%02X used by %s" % (op, " and ".join(n)) for op, n in dupes.items()))
+
 
 def program():
+    _check_opcodes()
     a = Asm(LOAD)
     a.di(); a.clrp()
     # key-on mask table, written into direct page at start-up
     for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
+    #  Which directory slot each voice points at, and the waveform index it was
+    #  last given.  $FF is not a real index, so the first packet always moves.
+    for i in range(4):
+        a.mov_dp_imm(SRCNV + i, i)
+        a.mov_dp_imm(LASTIDX + i, 0xFF)
+        a.mov_dp_imm(DEADCNT + i, 0)
+        a.mov_dp_imm(VOLC + i, 0xFF)     # nothing has been sent yet, so the
+        a.mov_dp_imm(PITCHLC + i, 0xFF)  #   first packet always writes
+        a.mov_dp_imm(PITCHHC + i, 0xFF)
+    a.mov_dp_imm(ENDXACC, 0)
+    a.mov_dp_imm(KONPEND, 0)
     # Port 0 still holds the boot ROM's final handshake value.  Take that as the
     # sequence baseline rather than 0, or it reads as a first packet -- one made
     # of whatever the upload left on the other ports.
@@ -159,6 +220,26 @@ def program():
     a.cmp_a_dp(LAST)
     a.beq("loop")             # unchanged: nothing to do
     a.mov_dp_a(LAST)
+
+    #  Release the previous packet's key-on before doing anything else.
+    #
+    #  KON is a level the DSP samples, not an edge it catches.  Left set, a
+    #  voice is keyed on again every sample period, and every key-on resets
+    #  that voice's envelope to zero -- so a voice whose bit stays in KON goes
+    #  silent and stays silent, until some later key-on for another voice
+    #  happens to overwrite the byte.  That is minutes, if the music does not
+    #  need the other voices.
+    #
+    #  Clearing it here rather than straight after the write gives the DSP its
+    #  sample period to latch it: packets are separated by the 65816's
+    #  handshake round trip, which is hundreds of microseconds, where the few
+    #  cycles between the write and the acknowledge would not be enough.
+    a.mov_a_dp(KONPEND)       # ...but only if one is actually asserted: an
+    a.beq("nokon")            #   idle voice should put nothing on the bus
+    a.dsp(0x4C, 0x00)
+    a.mov_dp_imm(KONPEND, 0)
+    a.label("nokon")
+
     a.mov_a_dp(0xF5)          # cmd
     a.mov_dp_a(CMD)
     a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
@@ -205,9 +286,27 @@ def program():
     a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)
     a.mov_dp_a(VOL)
     a.label("volset")
-    # VOL_L, VOL_R
+    #  Only write what changed.
+    #
+    #  A packet arrives for every sounding voice every frame whether or not
+    #  anything about it moved, and this rewrote volume and pitch each time.
+    #  Measured on two steady voices, that is twelve DSP register writes a
+    #  frame carrying values the DSP already holds.  Each one is a chance to
+    #  land on the moment the DSP is reading that register in its own
+    #  thirty-two cycle voice loop, and two voices double the chances -- which
+    #  is where the popping starts.  Held music notes are the same situation.
+    #
+    #  So cache what was last sent per voice and skip the write when it has not
+    #  moved.  With nothing changing, nothing is written at all.
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
+    a.mov_a_dp(VOL)
+    a.cmp_a_dpx(VOLC)
+    if "vol" not in _NOCACHE:
+        a.beq("volsame")
+    a.mov_dpx_a(VOLC)
     a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
     a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    a.label("volsame")
     # The noise voice takes no pitch or waveform: instead its packet's pitch-low
     # byte is the global noise rate, written into FLG's low five bits (echo
     # writes stay disabled, bit 5).
@@ -215,10 +314,23 @@ def program():
     a.mov_a_dp(0xF6); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
     a.jmp("keys")
     a.label("tonal")
-    # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top bits
+    # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top
+    # bits.  Skipped entirely when neither byte has moved -- see volset.
+    a.mov_a_dp(0xF7); a.and_a_imm(0x3F); a.mov_dp_a(PHI)
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
+    a.mov_a_dp(0xF6)
+    a.cmp_a_dpx(PITCHLC)
+    a.bne("pitchwrite")
+    a.mov_a_dp(PHI)
+    a.cmp_a_dpx(PITCHHC)
+    if "pitch" not in _NOCACHE:
+        a.beq("pitchsame")
+    a.label("pitchwrite")
+    a.mov_a_dp(0xF6); a.mov_dpx_a(PITCHLC)
+    a.mov_a_dp(PHI);  a.mov_dpx_a(PITCHHC)
     a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
-    a.mov_a_dp(0xF7); a.mov_dp_a(PHI)
-    a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI); a.and_a_imm(0x3F); a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI);  a.mov_dp_a(0xF3)
+    a.label("pitchsame")
     #  Repoint this voice's directory entry (start and loop) at the waveform
     #  the 65816 chose.  Both duty and cycle length ride in the sequence byte's
     #  top five bits; the triangle's eight sit above the pulses' thirty-two.
@@ -230,15 +342,77 @@ def program():
     a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
     a.mov_a_dp(WIDX); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
     a.label("pulsewave")
-    a.mov_a_dp(VB); a.lsr_a(); a.lsr_a(); a.mov_y_a()               # Y = voice*4
+    #  Repoint the voice's waveform -- without ever letting the DSP read a
+    #  half-written pointer.
+    #
+    #  A directory entry is four bytes, and the second pair is the loop address
+    #  the DSP fetches every time the voice wraps its cycle -- a thousand times
+    #  a second for a short waveform.  Writing those four bytes in place, as
+    #  this did, means a fetch landing between the low byte and the high byte
+    #  gets one of each: an address in neither waveform, decoded as BRR.  That
+    #  is a pop, and if the garbage block happens to carry END without LOOP the
+    #  voice stops dead -- and stays stopped, because the 65816 believes it is
+    #  still sounding and so never keys it again.  Rare enough to be invisible
+    #  under an emulator that fetches on a different schedule; on hardware it
+    #  is minutes.
+    #
+    #  So: write the spare slot, then move the voice to it with the single byte
+    #  of SRCN.  A fetch either side of that write sees one whole entry or the
+    #  other.  Nothing is written at all unless the index actually changed,
+    #  which is most frames.
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()       # X = voice
+    a.mov_a_dp(WIDX)
+    a.cmp_a_dpx(LASTIDX)
+    a.beq("dirdone")
+    a.mov_dpx_a(LASTIDX)
+    a.mov_a_dpx(SRCNV); a.eor_a_imm(0x04); a.mov_dpx_a(SRCNV)       # the spare
+    a.mov_dp_a(NEWSRCN)                                             # X is about
+    a.asl_a(); a.asl_a(); a.mov_y_a()                               # Y = slot*4
     a.mov_a_dp(WIDX); a.asl_a(); a.mov_x_a()                        # X = index*2
     a.mov_a_absx(ADDRTAB);    a.mov_absy_a(DIRBASE);     a.mov_absy_a(DIRBASE + 2)
     a.inc_x()
     a.mov_a_absx(ADDRTAB);    a.mov_absy_a(DIRBASE + 1); a.mov_absy_a(DIRBASE + 3)
+    a.mov_a_dp(VB); a.or_a_imm(0x04); a.mov_dp_a(0xF2)              # DSP SRCN
+    a.mov_a_dp(NEWSRCN); a.mov_dp_a(0xF3)
+    a.label("dirdone")
+
+    #  Is this voice still making sound?
+    #
+    #  The 65816 keys a voice on when it starts sounding and not again while it
+    #  believes it still is, so a voice the DSP stops for any reason stays
+    #  stopped.  That hardly matters for a staccato part -- it re-keys every
+    #  note and repairs itself within a note or two -- but a sustained one can
+    #  go thousands of frames without a key event.  Measured: the overworld
+    #  bassline re-keys every twelve to twenty-four frames and recovers on its
+    #  own; the menu bassline runs its notes together and does not.
+    #
+    #  This asked ENDX first, which was the wrong question.  ENDX says the BRR
+    #  engine is still advancing, and a voice whose envelope is pinned at zero
+    #  keeps looping and keeps setting it -- alive by that test, and silent.
+    #  ENVX is the envelope itself, so zero there while we believe the voice
+    #  should be sounding is the symptom rather than a proxy for it.
+    #
+    #  A key-on ramps the envelope up from zero, so a freshly keyed voice reads
+    #  zero for a frame or two; DEADFRAMES is well clear of that.
+    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("livedone")
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()
+    a.mov_a_dp(VB); a.or_a_imm(0x08); a.mov_dp_a(0xF2)      # ENVX for this voice
+    a.mov_a_dp(0xF3)
+    a.bne("alive")
+    a.mov_a_dpx(DEADCNT); a.inc_a(); a.mov_dpx_a(DEADCNT)
+    a.cmp_a_imm(DEADFRAMES)
+    a.bcc("livedone")
+    a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
+    a.mov_a_dp(CMD); a.or_a_imm(0x40); a.mov_dp_a(CMD)      # force a key-on
+    a.bra("livedone")
+    a.label("alive")
+    a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
+    a.label("livedone")
     a.label("keys")
     a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("ack")
     a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
     a.mov_a_dp(MASK); a.dsp_a(0x4C)  # KON = mask
+    a.mov_dp_imm(KONPEND, 1)         # release it on the next packet
     a.label("ack")
     a.mov_a_dp(LAST); a.mov_dp_a(0xF4)   # acknowledge
     a.jmp("loop")
@@ -350,8 +524,13 @@ NOISE_VOICE = 3
 
 def main():
     prog = program()
-    assert len(prog) <= 0x200, len(prog)
-    image = bytearray(prog) + bytes(0x200 - len(prog))         # pad to $0400
+    assert len(prog) <= DIRBASE - LOAD, (len(prog), DIRBASE - LOAD)
+    #  Derived, not written down twice: the program runs from LOAD up to the
+    #  directory page, and moving the directory moves the budget with it.
+    pad = DIRBASE - LOAD - len(prog)
+    assert pad >= 0, ("SPC program is %d bytes; only %d fit below the directory"
+                      % (len(prog), DIRBASE - LOAD))
+    image = bytearray(prog) + bytes(pad)
     # directory: start/loop for each waveform
     # four directory entries, one per VOICE (not per waveform); each starts on
     # waveform 0 and is repointed by the program as packets arrive
@@ -361,7 +540,8 @@ def main():
     #  until the first note.
     ent = lambda w: bytes([w & 0xFF, w >> 8, w & 0xFF, w >> 8])
     w0 = WAVEADDR[0]; wt = WAVEADDR[TRIWAVE0]
-    dirent = ent(w0) + ent(w0) + ent(wt) + ent(w0)     # voice 2 is the triangle
+    four = ent(w0) + ent(w0) + ent(wt) + ent(w0)       # voice 2 is the triangle
+    dirent = four + four                               # ...and each one's spare
     assert len(dirent) == ADDRTAB - DIRBASE, len(dirent)
     addrtab = b"".join(bytes([w & 0xFF, w >> 8]) for w in WAVEADDR)
     assert ADDRTAB + len(addrtab) <= BRRBASE, len(addrtab)
