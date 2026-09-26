@@ -16,6 +16,9 @@ python3 tools/convert.py
 case "$FFDEBUG" in
   *dark*) CA65EXTRA="$CA65EXTRA -DFFDARK" ;;
 esac
+case "$FFDEBUG" in
+  *tone*) CA65EXTRA="$CA65EXTRA -DAUDIOTEST" ;;
+esac
 
 CA65="ca65 --cpu 65816 $CA65EXTRA"
 

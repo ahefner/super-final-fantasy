@@ -2086,6 +2086,45 @@ emit_span:
     bne @chunk
     rts
 
+  .ifdef AUDIOTEST
+;;  A known pattern on one voice, so a pop can be attributed instead of guessed
+;;  at.  Music changes pitch, volume and waveform together, which is why
+;;  listening to it cannot separate them.  This drives pulse 1 alone through
+;;  four eight-second segments, repeating:
+;;
+;;    0  steady      nothing changes at all -- the control
+;;    1  volume      steps every eight frames, pitch held
+;;    2  pitch       alternates every sixteen frames, volume held.  The two
+;;                   timers sit in different size classes, so this exercises
+;;                   the directory repoint as well
+;;    3  note        silenced and re-sounded every sixteen frames
+;;
+;;  Everything downstream is the production path: the shadow is overwritten
+;;  here and the packet builder and the SPC700 program see nothing unusual.
+.a8
+.i16
+audio_test_pattern:
+    ;  Two pulses, entirely static, for ever.  No segments and no dither: the
+    ;  variable is which register's write cache the *build* bypasses, chosen by
+    ;  FFTONE at build time, so the tone itself never changes and any pop is
+    ;  purely the write traffic.
+    stz a:APUSHADOW+$01
+    stz a:APUSHADOW+$05
+    lda #$03                    ; both pulses, nothing else
+    sta a:APUSHADOW+$15
+    lda #$B8                    ; duty 2, halted, constant volume, level 8
+    sta a:APUSHADOW+$00
+    lda #253
+    sta a:APUSHADOW+$02
+    stz a:APUSHADOW+$03
+    lda #$B8
+    sta a:APUSHADOW+$04
+    lda #169                    ; a fifth up
+    sta a:APUSHADOW+$06
+    stz a:APUSHADOW+$07
+    rts
+  .endif
+
 ; --- the altar beam ----------------------------------------------------
 ;;  The NES draws this by toggling the monochrome bit at a counted cycle offset
 ;;  within each scanline: 120 pixels of grey per line, drifting one dot right
@@ -2950,6 +2989,9 @@ hal_apu_frame:
     sep #$20
     .a8
     .i16
+  .ifdef AUDIOTEST
+    jsr audio_test_pattern
+  .endif
     jsr apu_noiseenv
     jsr apu_trilinear
     ldy #0                      ; Y = the channel's register base in the shadow
