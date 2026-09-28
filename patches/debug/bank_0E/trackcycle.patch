@@ -1,0 +1,45 @@
+--- OLD
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+--- NEW
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+
+    ;  DEBUG BUILD ONLY.  Alternate the music track every 256 frames (~4.3s)
+    ;  between the overworld theme ($44) and the menu music ($51), to exercise
+    ;  the track CHANGE rather than any single track.
+    ;
+    ;  Playing $51 statically from the title screen did not reproduce the
+    ;  triangle cutout in five minutes and several resets, while normal play
+    ;  does.  So the sustained bassline is not the trigger; it only explains
+    ;  why the channel never repairs itself once broken.  What normal play does
+    ;  and a static screen never does is change track -- the real menu
+    ;  transitions into $51 from whatever the map was playing, and entering a
+    ;  town is a track change too.  Both are places the cutout is heard.
+    ;
+    ;  Hooked here, in the intro story, because that is where the game actually
+    ;  sits: the title screen hands off to attract mode within a few seconds,
+    ;  well before a 256-frame cycle can fire even once, so an earlier version
+    ;  hooked into TitleScreen_Music never ran at all.  Its capture still
+    ;  looked busy -- the intro music was playing -- which is how that went
+    ;  unnoticed until the screen was actually looked at.
+    ;
+    ;  $EE/$EF are an undeclared pair in zero page.  framecounter is NOT reused
+    ;  for the cycle: the surrounding routine keys its colour animation off it.
+    ;
+    ;  Build without FFDEBUG=trackcycle to drop this.
+    INC $EF
+    BNE @DebugNoTrackChange      ; act only on the 256-frame wrap
+    INC $EE
+    LDA $EE                      ; walk every track the game has, $41..$55,
+    AND #$1F                     ;   so every song's triangle part is heard
+    CLC
+    ADC #$41
+    CMP #$56
+    BCC @DebugTrackOK
+      LDA #0                     ; past the last one: start the list again
+      STA $EE
+      LDA #$41
+  @DebugTrackOK:
+    STA music_track
+  @DebugNoTrackChange:

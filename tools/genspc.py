@@ -34,6 +34,11 @@ import os, re
 #  a write -- is a 30Hz modulation in its own right, which is audible and
 #  confounds exactly the comparison it was meant to serve.
 _NOCACHE = os.environ.get("FFTONE", "")
+#  APUSTAT: report the triangle voice's ENVX to the 65816 on every ack, so a
+#  debug build can show on screen what the DSP itself thinks the envelope is
+#  doing.  Off by default -- it costs an $F2 write and an $F3 read per packet,
+#  and port access timing is under suspicion for the popping on hardware.
+_APUSTAT = os.environ.get("FFAPUSTAT", "")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
@@ -82,6 +87,8 @@ class Asm:
     def and_a_imm(self, i):    self.emit(0x28, i)
     def or_a_imm(self, i):     self.emit(0x08, i)
     def asl_a(self):           self.emit(0x1C)
+    def lsr_dp(self, d):       self.emit(0x4B, d)
+    def ror_dp(self, d):       self.emit(0x6B, d)
     def xcn_a(self):           self.emit(0x9F)
     def clrp(self):            self.emit(0x20)
     def di(self):              self.emit(0xC0)
@@ -109,7 +116,19 @@ class Asm:
 
 # direct-page variables (page 0, clear of the $F0-$FF I/O registers)
 LAST, CMD, VOL, VB, PHI, MASK = 0x00, 0x01, 0x02, 0x03, 0x04, 0x05
-WIDX    = 0x06        # waveform index from the sequence byte
+WIDX    = 0x06
+CURSZ   = 0x08        # hysteresis scratch: size class we are already playing
+NEWSZ   = 0x09        # ...and the one the 65816 asked for
+MAXSHIFT = 2          # octaves we will stay put across before giving in
+#  FFHYST selects where the keep-the-waveform logic applies:
+#    all (default)  every tonal voice
+#    tri            the triangle only; the pulses switch exactly as the table
+#                   says, as they did before hysteresis existed
+#    0              nowhere, for bisecting against an otherwise identical build
+_HYSTMODE = os.environ.get("FFHYST", "all")
+HYSTERESIS = _HYSTMODE != "0"
+HYST_TRI_ONLY = _HYSTMODE == "tri"
+PLO     = 0x07        # packet byte 2, LATCHED -- see the read of $F6 below        # waveform index from the sequence byte
 MASKTAB = 0x10        # four bytes: 1<<voice
 DIRBASE = 0x0500      # directory: entry n at DIRBASE + 4n, eight of them --
                       # two per voice, so one can be rewritten while the DSP
@@ -120,10 +139,18 @@ NEWSRCN = 0x1C        # scratch: the slot being switched to
 ENDXACC = 0x1D        # ENDX bits seen since each voice last consumed its own
 DEADCNT = 0x20        # four bytes: packets since each voice last looped
 DEADFRAMES = 8        # ...before we conclude it has stopped and key it again
+LIVENESS = False      # ...but the recovery is OFF; see the block near "keys"
 VOLC    = 0x24        # four bytes: volume each voice was last actually sent
 PITCHLC = 0x28        # four bytes: ...and its pitch, low
 PITCHHC = 0x2C        # four bytes: ...and high
 KONPEND = 0x30        # nonzero while a key-on is still asserted in KON
+KOFFSTICK = 0x31      # APUSTAT: KOFF's triangle bit has been SEEN set since the
+                      #   voice was last keyed on.  Release is sticky and
+                      #   overrides GAIN, so a key-off only has to be sampled
+                      #   once to kill the voice for good -- and this driver
+                      #   writes KOFF=0 before every key-on, so a stray bit is
+                      #   wiped within a note or two.  Reading KOFF live then
+                      #   shows clear long after it did the damage.
 
 def _check_opcodes():
     """No two mnemonics may emit the same opcode byte.
@@ -155,7 +182,7 @@ def program():
     for i in range(4):
         a.mov_dp_imm(SRCNV + i, i)
         a.mov_dp_imm(LASTIDX + i, 0xFF)
-        a.mov_dp_imm(DEADCNT + i, 0)
+        if LIVENESS: a.mov_dp_imm(DEADCNT + i, 0)
         a.mov_dp_imm(VOLC + i, 0xFF)     # nothing has been sent yet, so the
         a.mov_dp_imm(PITCHLC + i, 0xFF)  #   first packet always writes
         a.mov_dp_imm(PITCHHC + i, 0xFF)
@@ -247,6 +274,26 @@ def program():
     a.xcn_a()                 # $30 -> $03: the voice number...
     a.mov_x_a(); a.mov_a_dpx(MASKTAB)
     a.mov_dp_a(MASK)          # ...and its key mask
+    #  Byte 2 of the packet, taken ONCE.
+    #
+    #  $F6 is a port the 65816 drives, not memory we own.  It used to be read
+    #  live at each of the four places below, and the 65816 writes $F5-$F7 and
+    #  only then $F4 to announce a packet -- so while this code is still
+    #  reading byte 2 of packet N, the next packet's byte 2 can already be
+    #  sitting in the port.  Nothing in the handshake prevents that.
+    #
+    #  Read twice, it tears two ways: the compare decides to write using one
+    #  value while another reaches the DSP, and worse, the cache records one
+    #  value while the DSP receives the other -- after which the cache lies,
+    #  the next equal value is skipped as "unchanged", and the voice is left
+    #  at the wrong pitch until it next moves.  The two crystals drift, so it
+    #  happens at some slow beat rather than never or always, and an emulator
+    #  that clocks both deterministically does not show it at all.
+    #
+    #  This is why the pitch tone ROM pops on hardware and the volume one,
+    #  with identical write traffic, does not: volume comes from VOL, which is
+    #  latched, and pitch-low came straight from the port.
+    a.mov_a_dp(0xF6); a.mov_dp_a(PLO)
     # A key-off writes KOFF and nothing else.  Zeroing the volume in the same
     # packet -- as a first version did -- cuts the output dead before the
     # DSP's release can fade it, and that cut is a click on every note-off,
@@ -311,14 +358,71 @@ def program():
     # byte is the global noise rate, written into FLG's low five bits (echo
     # writes stay disabled, bit 5).
     a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.bne("tonal")
-    a.mov_a_dp(0xF6); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
+    a.mov_a_dp(PLO); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
     a.jmp("keys")
     a.label("tonal")
     # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top
     # bits.  Skipped entirely when neither byte has moved -- see volset.
     a.mov_a_dp(0xF7); a.and_a_imm(0x3F); a.mov_dp_a(PHI)
     a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
-    a.mov_a_dp(0xF6)
+
+    #  Which waveform does the 65816 want?  (This used to be computed further
+    #  down, just before the repoint; it has to happen here now because the
+    #  decision below can rewrite the pitch, and the pitch is written next.)
+    a.mov_a_dp(LAST)
+    for _ in range(3): a.lsr_a()                                # 0..31
+    a.mov_dp_a(WIDX)
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
+    a.mov_a_dp(WIDX); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
+    a.label("pulsewave")
+
+    #  Stay on the waveform we already have, if we can.
+    #
+    #  Switching waveform is what makes a note thump.  SRCN is latched at the
+    #  next loop wrap while the pitch applies at once, so for the rest of the
+    #  cycle the voice plays the OLD waveform at the NEW rate -- measured as a
+    #  stretched, flat note for about three quarters of a cycle before the
+    #  frequency snaps right.  Every large onset transient in the menu track
+    #  wrote SRCN; not one note that kept its waveform thumped.
+    #
+    #  A cycle half as long needs half the pitch for the same note, and the
+    #  sizes are powers of two, so "the same note on the waveform we already
+    #  have" is just a shift.  Only downward: genapu picks the LONGEST cycle
+    #  that stays under the $3FFF ceiling, so a longer one would always
+    #  overflow.  That halves the switches rather than ending them.
+    #
+    #  Never across a family -- a different duty is a real change of timbre,
+    #  not of resolution -- and never more than MAXSHIFT octaves, or a bass
+    #  run would drag a tiny cycle down with it and sound coarse.
+    a.mov_a_dp(WIDX)
+    a.cmp_a_dpx(LASTIDX)
+    a.beq("wavedecided")                        # already on it
+    if not HYSTERESIS:
+        a.bra("wavedecided")                    # FFHYST=0: never keep
+    if HYST_TRI_ONLY:
+        a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10)
+        a.bne("wavedecided")                    # FFHYST=tri: pulses always switch
+    a.mov_a_dpx(LASTIDX); a.eor_a_dp(WIDX); a.and_a_imm(0xF8)
+    a.bne("wavedecided")                        # different duty -> must switch
+    a.mov_a_dpx(LASTIDX); a.and_a_imm(0x07); a.mov_dp_a(CURSZ)
+    a.mov_a_dp(WIDX); a.and_a_imm(0x07); a.mov_dp_a(NEWSZ)
+    a.mov_a_dp(NEWSZ); a.cmp_a_dp(CURSZ)
+    a.bcc("wavedecided")                        # ours is longer -> pitch would
+    a.beq("wavedecided")                        #   have to rise -> must switch
+    a.mov_a_dp(CURSZ); a.clc(); a.adc_a_imm(MAXSHIFT)
+    a.cmp_a_dp(NEWSZ)
+    a.bcc("wavedecided")                        # further than we will stretch
+    a.label("shiftdown")
+    a.mov_a_dp(CURSZ); a.cmp_a_dp(NEWSZ)
+    a.beq("keepwave")
+    a.lsr_dp(PHI); a.ror_dp(PLO)                # pitch >>= 1, 16 bits
+    a.mov_a_dp(CURSZ); a.inc_a(); a.mov_dp_a(CURSZ)
+    a.bra("shiftdown")
+    a.label("keepwave")
+    a.mov_a_dpx(LASTIDX); a.mov_dp_a(WIDX)      # ...so the repoint below skips
+    a.label("wavedecided")
+
+    a.mov_a_dp(PLO)
     a.cmp_a_dpx(PITCHLC)
     a.bne("pitchwrite")
     a.mov_a_dp(PHI)
@@ -326,22 +430,35 @@ def program():
     if "pitch" not in _NOCACHE:
         a.beq("pitchsame")
     a.label("pitchwrite")
-    a.mov_a_dp(0xF6); a.mov_dpx_a(PITCHLC)
+    a.mov_a_dp(PLO); a.mov_dpx_a(PITCHLC)
     a.mov_a_dp(PHI);  a.mov_dpx_a(PITCHHC)
-    a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(0xF6); a.mov_dp_a(0xF3)
+    #  High byte FIRST.
+    #
+    #  The DSP has no sixteen-bit pitch write, so between the two bytes it
+    #  holds a mixture of old and new -- and which mixture depends entirely on
+    #  the order.  Low first leaves (old high, new low), and since the high
+    #  byte carries the coarse pitch that mixture can be wildly wrong: going
+    #  from $3B69 to $257B it held $3B7B, 59% too fast.  The voice plays at
+    #  that rate until the second write lands, which is a frequency glitch --
+    #  heard as a click at the start of the note, with no step in amplitude
+    #  anywhere, which is why looking for a jump in the output never found it.
+    #
+    #  High first leaves (new high, old low).  The low byte is only a fine
+    #  trim, so the same note passes through $2569 instead -- 0.2% from its
+    #  target.  Measured against the menu track, the notes Andy could hear were
+    #  exactly those whose high byte moved furthest, and the faintest was the
+    #  smallest move.
+    #
+    #  The same two writes, in the other order; it costs nothing.
     a.mov_a_dp(VB); a.or_a_imm(3);   a.mov_dp_a(0xF2); a.mov_a_dp(PHI);  a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(2);   a.mov_dp_a(0xF2); a.mov_a_dp(PLO); a.mov_dp_a(0xF3)
     a.label("pitchsame")
     #  Repoint this voice's directory entry (start and loop) at the waveform
     #  the 65816 chose.  Both duty and cycle length ride in the sequence byte's
     #  top five bits; the triangle's eight sit above the pulses' thirty-two.
     #  The entry is the loop address too, so a change with no key-on takes hold
     #  at the end of the cycle in progress rather than cutting one short.
-    a.mov_a_dp(LAST)
-    for _ in range(3): a.lsr_a()                                    # 0..31
-    a.mov_dp_a(WIDX)
-    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
-    a.mov_a_dp(WIDX); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
-    a.label("pulsewave")
+    #  WIDX and the keep-or-switch decision were settled above.
     #  Repoint the voice's waveform -- without ever letting the DSP read a
     #  half-written pointer.
     #
@@ -376,44 +493,103 @@ def program():
     a.mov_a_dp(NEWSRCN); a.mov_dp_a(0xF3)
     a.label("dirdone")
 
-    #  Is this voice still making sound?
+    #  Voice liveness recovery -- DISABLED, deliberately.
     #
-    #  The 65816 keys a voice on when it starts sounding and not again while it
-    #  believes it still is, so a voice the DSP stops for any reason stays
-    #  stopped.  That hardly matters for a staccato part -- it re-keys every
-    #  note and repairs itself within a note or two -- but a sustained one can
-    #  go thousands of frames without a key event.  Measured: the overworld
-    #  bassline re-keys every twelve to twenty-four frames and recovers on its
-    #  own; the menu bassline runs its notes together and does not.
+    #  This watched ENVX and, after DEADFRAMES packets of a zero envelope on a
+    #  voice the 65816 still believes is sounding, forced a key-on to bring it
+    #  back.  It did work -- a voice was seen recovering on hardware.  It is
+    #  off regardless, because recovering from a fault is not the same as not
+    #  having one, and a recovery that finishes in about eight frames, an
+    #  eighth of a second, is quick enough to pass for a brief glitch while the
+    #  real bug goes unhunted.  That is precisely what happened here.
     #
-    #  This asked ENDX first, which was the wrong question.  ENDX says the BRR
-    #  engine is still advancing, and a voice whose envelope is pinned at zero
+    #  It also appears not to have been doing the job credited to it.  Measured
+    #  2026-09-26 over ten minutes of the menu bassline -- the sustained legato
+    #  case this was written for -- the triangle's envelope never reached zero
+    #  and this never fired once.  So it was not what restored the channel when
+    #  a drop was heard: a mask with no demonstrated benefit.
+    #
+    #  Keeping it also costs bus traffic.  Reading ENVX is a $F2 write and an
+    #  $F3 read per packet per voice, and the timing of accesses to those ports
+    #  is itself under suspicion for the popping on real hardware.
+    #
+    #  Set LIVENESS = True to restore it for an experiment.  The history is
+    #  worth keeping, so the original is below intact.  Note in particular that
+    #  it first asked ENDX, which was the wrong question: ENDX only says the
+    #  BRR engine is advancing, and a voice whose envelope is pinned at zero
     #  keeps looping and keeps setting it -- alive by that test, and silent.
-    #  ENVX is the envelope itself, so zero there while we believe the voice
-    #  should be sounding is the symptom rather than a proxy for it.
-    #
-    #  A key-on ramps the envelope up from zero, so a freshly keyed voice reads
-    #  zero for a frame or two; DEADFRAMES is well clear of that.
-    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("livedone")
-    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()
-    a.mov_a_dp(VB); a.or_a_imm(0x08); a.mov_dp_a(0xF2)      # ENVX for this voice
-    a.mov_a_dp(0xF3)
-    a.bne("alive")
-    a.mov_a_dpx(DEADCNT); a.inc_a(); a.mov_dpx_a(DEADCNT)
-    a.cmp_a_imm(DEADFRAMES)
-    a.bcc("livedone")
-    a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
-    a.mov_a_dp(CMD); a.or_a_imm(0x40); a.mov_dp_a(CMD)      # force a key-on
-    a.bra("livedone")
-    a.label("alive")
-    a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
-    a.label("livedone")
+    if LIVENESS:
+        #  Is this voice still making sound?
+        #
+        #  The 65816 keys a voice on when it starts sounding and not again while it
+        #  believes it still is, so a voice the DSP stops for any reason stays
+        #  stopped.  That hardly matters for a staccato part -- it re-keys every
+        #  note and repairs itself within a note or two -- but a sustained one can
+        #  go thousands of frames without a key event.  Measured: the overworld
+        #  bassline re-keys every twelve to twenty-four frames and recovers on its
+        #  own; the menu bassline runs its notes together and does not.
+        #
+        #  This asked ENDX first, which was the wrong question.  ENDX says the BRR
+        #  engine is still advancing, and a voice whose envelope is pinned at zero
+        #  keeps looping and keeps setting it -- alive by that test, and silent.
+        #  ENVX is the envelope itself, so zero there while we believe the voice
+        #  should be sounding is the symptom rather than a proxy for it.
+        #
+        #  A key-on ramps the envelope up from zero, so a freshly keyed voice reads
+        #  zero for a frame or two; DEADFRAMES is well clear of that.
+        a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("livedone")
+        a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()
+        a.mov_a_dp(VB); a.or_a_imm(0x08); a.mov_dp_a(0xF2)      # ENVX for this voice
+        a.mov_a_dp(0xF3)
+        a.bne("alive")
+        a.mov_a_dpx(DEADCNT); a.inc_a(); a.mov_dpx_a(DEADCNT)
+        a.cmp_a_imm(DEADFRAMES)
+        a.bcc("livedone")
+        a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
+        a.mov_a_dp(CMD); a.or_a_imm(0x40); a.mov_dp_a(CMD)      # force a key-on
+        a.bra("livedone")
+        a.label("alive")
+        a.mov_a_imm(0); a.mov_dpx_a(DEADCNT)
+        a.label("livedone")
     a.label("keys")
     a.mov_a_dp(CMD); a.and_a_imm(0x40); a.beq("ack")
     a.dsp(0x5C, 0x00)                # a key-on needs KOFF clear first
     a.mov_a_dp(MASK); a.dsp_a(0x4C)  # KON = mask
     a.mov_dp_imm(KONPEND, 1)         # release it on the next packet
+    if _APUSTAT:
+        a.mov_dp_imm(KOFFSTICK, 0)   # a fresh key-on starts the history over
+
     a.label("ack")
+    #  The ports are bidirectional: $F4 carries our acknowledge, and $F5-$F7
+    #  are free in this direction.  Spend one of them on the triangle voice's
+    #  ENVX, so the 65816 can see the envelope the DSP actually has rather than
+    #  the one it assumes.  That is the difference between "the voice is dead
+    #  and we never re-keyed it" and "we stopped asking for it".
+    if _APUSTAT:
+        a.mov_a_imm(TRIANGLE_VOICE * 0x10 + 8); a.mov_dp_a(0xF2)
+        a.mov_a_dp(0xF3); a.mov_dp_a(0xF5)
+        #  KOFF read back.  A bit set here that we never wrote is a key-off
+        #  that arrived on its own, which is a corrupted register write rather
+        #  than anything in the driver's logic -- and the same hazard the
+        #  popping points at.  Worth one more port to tell the two apart.
+        a.mov_a_imm(0x5C); a.mov_dp_a(0xF2)
+        a.mov_a_dp(0xF3); a.and_a_imm(1 << TRIANGLE_VOICE)
+        a.beq("koffclear")
+        a.mov_a_dp(KOFFSTICK); a.or_a_imm(0x08); a.mov_dp_a(KOFFSTICK)
+        a.label("koffclear")
+        #  bit 2 = KOFF as it reads right now, bit 3 = ever seen set
+        a.mov_a_imm(0x5C); a.mov_dp_a(0xF2)
+        a.mov_a_dp(0xF3); a.and_a_imm(1 << TRIANGLE_VOICE)
+        a.or_a_dp(KOFFSTICK)
+        a.mov_dp_a(0xF6)
+        #  KON read back too.  KON is a level the DSP samples, not an edge it
+        #  catches, so a bit left set re-keys that voice every sample and pins
+        #  its envelope at zero -- silent, permanently, with no key-off
+        #  anywhere.  This driver clears KON on the packet after a key-on, off
+        #  a single global KONPEND, so a clear that goes missing looks exactly
+        #  like the fault on the screen.  Worth ruling in or out directly.
+        a.mov_a_imm(0x4C); a.mov_dp_a(0xF2)
+        a.mov_a_dp(0xF3); a.mov_dp_a(0xF7)
     a.mov_a_dp(LAST); a.mov_dp_a(0xF4)   # acknowledge
     a.jmp("loop")
     a.link()
@@ -496,11 +672,29 @@ def square(num, den, period):
     reps = max(1, 16 // period)              # short cycles fill a whole block
     return brr_wave(cycle * reps, BRR_SCALE)
 
+#  Index of the staircase step whose value is zero, so a cycle can be phased
+#  to start there: steps[7] == 8, and 8 - 8 == 0.
+ZEROPHASE = 7
+
 def triangle(period):
     """The NES triangle: a 32-step staircase 15..0, 0..15, resampled to the
     cycle length in use.  Longer cycles do not add steps -- the NES has 32 and
-    no more -- they place the same steps more sharply in time."""
+    no more -- they place the same steps more sharply in time.
+
+    Phased to begin at a zero crossing rather than at the peak.  A key-on
+    restarts the BRR at the waveform's first sample, and at the peak that means
+    the note opens by stepping to full scale and, for a long cycle, sitting
+    there for dozens of samples before the ramp moves -- a DC thump at the
+    start of the note, worse the lower the note.  The NES has no such artifact
+    because its triangle sequencer is not reset when a note begins; the phase
+    reset is ours, so the least we can do is reset to zero.
+
+    The rotation is free.  The looped sequence is a pure function of i mod
+    period either way, so the loop stays exact at any phase -- measured for
+    every size.  It needs no split start/loop addresses either: the zero lands
+    on sample 0, which is a block boundary by definition."""
     steps = list(range(15, -1, -1)) + list(range(0, 16))
+    steps = steps[ZEROPHASE:] + steps[:ZEROPHASE]
     cycle = [steps[i * 32 // period] - 8 for i in range(period)]   # -8..+7
     reps = max(1, 16 // period)
     return brr_wave(cycle * reps, BRR_SCALE)
