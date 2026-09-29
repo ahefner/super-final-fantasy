@@ -92,6 +92,8 @@ class Asm:
     def asl_a(self):           self.emit(0x1C)
     def lsr_dp(self, d):       self.emit(0x4B, d)
     def ror_dp(self, d):       self.emit(0x6B, d)
+    def asl_dp(self, d):       self.emit(0x0B, d)
+    def rol_dp(self, d):       self.emit(0x2B, d)
     def xcn_a(self):           self.emit(0x9F)
     def clrp(self):            self.emit(0x20)
     def di(self):              self.emit(0xC0)
@@ -124,13 +126,27 @@ CURSZ   = 0x08        # hysteresis scratch: size class we are already playing
 NEWSZ   = 0x09        # ...and the one the 65816 asked for
 MAXSHIFT = 2          # octaves we will stay put across before giving in
 #  FFHYST selects where the keep-the-waveform logic applies:
-#    all (default)  every tonal voice
-#    tri            the triangle only; the pulses switch exactly as the table
-#                   says, as they did before hysteresis existed
+#    tri (default)  the triangle only; the pulses switch exactly as the table
+#                   says.  Holding a pulse on a shorter cycle costs it
+#                   harmonics, since a cycle of N samples carries at most N/2.
+#                   In the Prelude a falling run stayed on one two sizes past
+#                   its own and then had to jump three at once, from nothing
+#                   above 8 kHz back to full bandwidth: the timbre lurch Andy
+#                   heard.  Switching by the table keeps every note's source
+#                   rate within an octave of TARGET_RATE, so a switch only
+#                   moves the top of the band a few dB; and 66 switches in 29
+#                   seconds is the fewest any TARGET_RATE gives that arpeggio.
+#                   The triangle has little up there to lose, and its switch
+#                   is a thump in the bass, so it keeps the hysteresis.
+#    all            every tonal voice
 #    0              nowhere, for bisecting against an otherwise identical build
-_HYSTMODE = os.environ.get("FFHYST", "all")
+_HYSTMODE = os.environ.get("FFHYST", "tri")
 HYSTERESIS = _HYSTMODE != "0"
 HYST_TRI_ONLY = _HYSTMODE == "tri"
+#  FFHYSTUP=1 also holds a LONGER waveform for a higher note, doubling the pitch,
+#  whenever that still fits in 14 bits.  At TARGET_RATE 127000 there is almost no
+#  room; below 64000 there is a whole octave.  Off by default.
+HYST_UP = os.environ.get("FFHYSTUP", "") == "1"
 PLO     = 0x07        # packet byte 2, LATCHED -- see the read of $F6 below        # waveform index from the sequence byte
 MASKTAB = 0x10        # four bytes: 1<<voice
 DIRBASE = 0x0500      # directory: entry n at DIRBASE + 4n, eight of them --
@@ -462,8 +478,12 @@ def program():
     a.mov_a_dpx(LASTIDX); a.and_a_imm(0x07); a.mov_dp_a(CURSZ)
     a.mov_a_dp(WIDX); a.and_a_imm(0x07); a.mov_dp_a(NEWSZ)
     a.mov_a_dp(NEWSZ); a.cmp_a_dp(CURSZ)
-    a.bcc("wavedecided")                        # ours is longer -> pitch would
-    a.beq("wavedecided")                        #   have to rise -> must switch
+    if HYST_UP:
+        a.beq("wavedecided")
+        a.bcc("tryup")                          # ours is longer: try doubling
+    else:
+        a.bcc("wavedecided")                    # ours is longer -> pitch would
+        a.beq("wavedecided")                    #   have to rise -> must switch
     a.mov_a_dp(CURSZ); a.clc(); a.adc_a_imm(MAXSHIFT)
     a.cmp_a_dp(NEWSZ)
     a.bcc("wavedecided")                        # further than we will stretch
@@ -473,6 +493,17 @@ def program():
     a.lsr_dp(PHI); a.ror_dp(PLO)                # pitch >>= 1, 16 bits
     a.mov_a_dp(CURSZ); a.inc_a(); a.mov_dp_a(CURSZ)
     a.bra("shiftdown")
+    if HYST_UP:
+        #  The note went UP past a boundary.  Keep the longer cycle by doubling
+        #  the pitch -- but only one octave, and only if bit 13 is still clear,
+        #  since PHI holds the pitch's top six bits and a doubled $2000 or more
+        #  would pass the $3FFF ceiling.
+        a.label("tryup")
+        a.mov_a_dp(NEWSZ); a.inc_a(); a.cmp_a_dp(CURSZ)
+        a.bne("wavedecided")                    # more than an octave up
+        a.mov_a_dp(PHI); a.and_a_imm(0x20)
+        a.bne("wavedecided")                    # doubling would overflow
+        a.asl_dp(PLO); a.rol_dp(PHI)            # pitch <<= 1, 16 bits
     a.label("keepwave")
     a.mov_a_dpx(LASTIDX); a.mov_dp_a(WIDX)      # ...so the repoint below skips
     a.label("wavedecided")
