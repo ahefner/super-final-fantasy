@@ -44,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
 
 LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
+ECHOPAGE = 0xF0       # an unused page for ESA; echo writes are never enabled
 DIRPAGE = 0x05         # directory at $0500.  It has to be page aligned, so
                        # whatever sits below it is the program's whole budget:
                        # $0200..$04FF, 768 bytes.  It was one page lower, and
@@ -193,7 +194,32 @@ def program():
     # of whatever the upload left on the other ports.
     a.mov_a_dp(0xF4); a.mov_dp_a(LAST)
     # S-DSP global set-up
-    a.dsp(0x6C, 0x20)         # FLG: reset off, mute off, echo writes disabled
+    #  Start from a known DSP, not whatever it powered up holding.
+    #
+    #  The register file is SRAM: on real hardware it comes up as whatever the
+    #  cells settle to, where an emulator hands you zeroes.  This used to write
+    #  only the registers it meant to use, and it released the soft reset
+    #  FIRST -- so for the dozen writes that followed, any voice holding
+    #  power-on garbage (a latched KON bit, a random SRCN, pitch, envelope) was
+    #  free to sound, and ADSR2, all of voices 4-7, ESA, EDL, EFB and the FIR
+    #  taps were never written at all.  Differences between an emulator and a
+    #  console are exactly where uninitialised state hides.
+    #
+    #  So: assert the soft reset (every voice held in release at zero), zero
+    #  every register but FLG itself, give the few that need values their
+    #  values, and only then let go.  FLG is skipped because zeroing it would
+    #  clear the reset -- and enable echo writes, into RAM at an ESA not yet set.
+    a.dsp(0x6C, 0xE0)         # FLG: soft reset + mute + echo writes off
+    a.mov_a_imm(0x00)
+    a.label("dspclr")
+    a.cmp_a_imm(0x6C); a.beq("dspclrnext")
+    a.mov_dp_a(0xF2); a.mov_dp_imm(0xF3, 0x00)
+    a.label("dspclrnext")
+    a.inc_a(); a.cmp_a_imm(0x80); a.bne("dspclr")
+    #  Echo is never used, and its writes stay disabled -- but give it a page
+    #  that holds nothing, rather than the zero page the loop just pointed it at.
+    a.dsp(0x6D, ECHOPAGE)     # ESA
+    a.dsp(0x0F, 0x7F)         # FIR0: identity (silent anyway, EVOL is zero)
     #  Main volume, backed off far enough that the mix cannot clip.
     #
     #  The pulses are unipolar (see square()), so every voice's offset pushes
@@ -220,17 +246,12 @@ def program():
     #  they are summed at.
     a.dsp(0x0C, 0x7C)         # MVOL_L
     a.dsp(0x1C, 0x7C)         # MVOL_R
-    a.dsp(0x2C, 0x00)         # EVOL_L
-    a.dsp(0x3C, 0x00)         # EVOL_R
     a.dsp(0x5C, 0xFF)         # KOFF everything
-    a.dsp(0x4C, 0x00)         # KON nothing
-    a.dsp(0x2D, 0x00)         # PMON off
     a.dsp(0x3D, 0x08)         # NON: voice 3 plays the noise generator
-    a.dsp(0x4D, 0x00)         # EON off
     a.dsp(0x5D, DIRPAGE)      # DIR
     for v in range(4):        # each voice: its own directory entry, gain mode
+        #  (ADSR1 and ADSR2 are zero from the loop: bit 7 clear means GAIN)
         a.dsp(v * 0x10 + 0x04, v)        # SRCN = voice; the entry is repointed
-        a.dsp(v * 0x10 + 0x05, 0x00)     # ADSR1: bit7 clear -> GAIN used
         # GAIN in linear-increase mode at the fastest rate: 0 to full in 64
         # samples, 2 ms.  Not direct mode.  With direct gain the voice jumps
         # from silence to its first sample at key-on, and the interpolator --
@@ -239,6 +260,7 @@ def program():
         # threshold where an attack reads as soft, and key-off gets the DSP's
         # release fade for free.
         a.dsp(v * 0x10 + 0x07, 0xDF)     # GAIN: linear increase, rate 31
+    a.dsp(0x6C, 0x20)         # FLG: NOW release reset and mute; echo writes stay off
     a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
     a.mov_dp_imm(0xF4, 0)     # tell the 65816 we are alive: ack = 0
 
@@ -246,6 +268,27 @@ def program():
     a.mov_a_dp(0xF4)          # sequence number from the 65816
     a.cmp_a_dp(LAST)
     a.beq("loop")             # unchanged: nothing to do
+    #  ...and only believe it once a second read agrees.
+    #
+    #  The two chips run on unrelated clocks, and a read of a communication
+    #  port that lands on the other side's write can return a torn mix of old
+    #  and new bits (snes.nesdev.org/wiki/Errata: "A SPC700 program may want
+    #  to read twice and only proceed when two subsequent reads have the same
+    #  value").  This byte is both the doorbell and the waveform index, and it
+    #  was accepted on any difference from one read -- so a torn read became a
+    #  phantom packet carrying a garbage waveform, processed once wrong and
+    #  then again right.  On the triangle a garbage index reached past ADDRTAB
+    #  into sample data; if the voice wrapped inside that window it played
+    #  garbage, hit END-without-LOOP, and died for good -- the cutout.  With
+    #  hysteresis on the pulses, the wrong pass could hold a wrong waveform and
+    #  shift the pitch at once -- the pulse glitch.  Emulators never tear a
+    #  read, which is why neither showed in ares or Mesen.
+    #
+    #  The other three ports are safe: the 65816 writes them before this one
+    #  and not again until we acknowledge.  Its own poll of our reply is safe
+    #  too, since it compares against the exact byte it expects.
+    a.cmp_a_dp(0xF4)
+    a.bne("loop")             # changed between reads: not settled yet
     a.mov_dp_a(LAST)
 
     #  Release the previous packet's key-on before doing anything else.
@@ -373,7 +416,10 @@ def program():
     for _ in range(3): a.lsr_a()                                # 0..31
     a.mov_dp_a(WIDX)
     a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
-    a.mov_a_dp(WIDX); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
+    #  Mask to the triangle's own eight, whatever arrived: an index past them
+    #  reads beyond ADDRTAB into sample data and repoints the voice at garbage.
+    a.mov_a_dp(WIDX); a.and_a_imm(0x07)
+    a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
     a.label("pulsewave")
 
     #  Stay on the waveform we already have, if we can.
