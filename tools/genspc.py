@@ -57,7 +57,9 @@ class Asm:
     def __init__(self, org):
         self.org = org; self.code = bytearray(); self.labels = {}; self.fix = []
     def pc(self): return self.org + len(self.code)
-    def label(self, n): self.labels[n] = self.pc()
+    def label(self, n):
+        assert n not in self.labels, "label defined twice: " + n
+        self.labels[n] = self.pc()
     def emit(self, *b): self.code += bytes(b)
     # instructions
     def mov_a_imm(self, i):    self.emit(0xE8, i)
@@ -192,7 +194,14 @@ def program():
     # Port 0 still holds the boot ROM's final handshake value.  Take that as the
     # sequence baseline rather than 0, or it reads as a first packet -- one made
     # of whatever the upload left on the other ports.
-    a.mov_a_dp(0xF4); a.mov_dp_a(LAST)
+    #  Read twice, like every other read of this port: see the packet loop.
+    #  A torn baseline would either be taken for a first packet built from
+    #  leftover upload state, or match and swallow the first real one.
+    a.label("baselinerd")
+    a.mov_a_dp(0xF4)
+    a.cmp_a_dp(0xF4)
+    a.bne("baselinerd")
+    a.mov_dp_a(LAST)
     # S-DSP global set-up
     #  Start from a known DSP, not whatever it powered up holding.
     #
