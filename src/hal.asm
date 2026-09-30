@@ -4583,6 +4583,35 @@ init_halvars:
     inx
     cpx #512
     bcc :-
+
+    ;  ...and clear the 32-byte high table behind them.  flush_oam DMAs 544
+    ;  bytes: the 512-byte table above, then two bits per sprite holding the
+    ;  ninth bit of X and the size select.  Nothing else in the port ever
+    ;  writes those 32 bytes -- hal_oamdma stops at 256, having only 64 NES
+    ;  sprites to convert -- so until now they were whatever WRAM powered up
+    ;  holding, DMA'd into OAM every frame.
+    ;
+    ;  Zero is not a compromise here, it is the right answer for both fields.
+    ;  The NES's OAM X is eight bits, so the ninth is always clear -- as
+    ;  hal_oamdma's own comment says -- and the game uses 8x8 sprites
+    ;  throughout, which is the small size OBSEL is set up for.  A set size bit
+    ;  turns a sprite into a 16x16 drawing tiles N, N+1, N+16 and N+17, which
+    ;  for a menu character reaches a row further into the CHR than the pose
+    ;  occupies; a set X bit moves it 256 pixels, off the screen.
+    ;
+    ;  This is the same trap as NESPALPREV above, and it hid the same way.
+    ;  Reset does not clear a console's WRAM and power-on contents are largely
+    ;  repeatable, so the fault comes back identically across resets and power
+    ;  cycles; an emulator hands out zeroed WRAM, which is exactly correct, so
+    ;  neither ares nor Mesen can show it.
+    ldx #0
+@hitable:
+    stz a:OAMSHADOW+512,x
+    inx
+    inx
+    cpx #32
+    bcc @hitable
+
     LEAVE16
     lda #1
     sta a:h_oamdirty
