@@ -16,13 +16,24 @@ ClearBGPalette:
 ;;  instead.
 ;;
 ;;    The two plates are exempt.  They are Talk_norm objects, and removing
-;;  them would take the Rod and the Lute out of the game.
+;;  them would take the Rod and the Lute out of the game.  The Earth Cave's rod
+;;  plate showed what getting that wrong looks like: Talk_CoOGuy hides the
+;;  object and then prints the line, so the plate gave its "nothing happens"
+;;  message and vanished anyway, taking the staircase under it with the Rod.
+;;
+;;    The id has to be re-read from mapobj_id rather than taken from temp RAM.
+;;  TalkToObject does back the object id up -- but into tmp+6, which it then
+;;  overwrites with the resolved handler pointer immediately before dispatching.
+;;  tmp through tmp+3 hold the object's four bytes of talk data, not its id, so
+;;  the first version of this compared a dialogue byte against $16 and $17 and
+;;  the exemption never fired.  X still indexes the object here: TalkToObject
+;;  uses only A and Y after its own LDA mapobj_id, X.
 ;;
 ;;    It replaces the dispatching JMP rather than being called before it, so
 ;;  the call sites stay three bytes: bank $0E's object data is pinned at $95D5
 ;;  and TalkToObject sits above it.
 ;;
-;;    In: (tmp+6) = the handler TalkToObject resolved, tmp = the object id.
+;;    In: (tmp+6) = the handler TalkToObject resolved, X = the object index.
 ;;    Out: does not return -- it jumps to the handler, as the code it replaced
 ;;  did.
 ;;
@@ -33,7 +44,7 @@ OptGuillotine:
     AND #OPTFM_GUILLOTINE
     BEQ @out
 
-    LDA tmp             ; the object's own id, from its talk data
+    LDA mapobj_id, X    ; the object's own id, straight from the map object
     CMP #OBJID_RODPLATE
     BEQ @out
     CMP #OBJID_LUTEPLATE

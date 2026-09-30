@@ -336,22 +336,43 @@ def test_derive():
 
 def test_guillotine():
     """Talk_norm is redirected only when the flag is on and the object is not
-    one of the two plates."""
+    one of the two plates.
+
+    The object id comes from mapobj_id, X -- not from temp RAM.  TalkToObject
+    backs the id up into tmp+6 and then overwrites it with the resolved handler
+    pointer before dispatching, and tmp through tmp+3 hold the object's four
+    bytes of talk data.  An earlier version of both the code and this test read
+    tmp, so the plate exemption never fired and the Earth Cave's rod plate gave
+    its "nothing happens" line and vanished anyway.  Every case below therefore
+    puts a *decoy* in tmp: reading temp RAM again cannot pass this.
+    """
     talk_norm, coo = SYM["Talk_norm"], SYM["Talk_CoOGuy"]
+    MAPOBJ_ID = 0x6F00                       # mapobj + $00, and mapobj is SRAM
+    SLOT = 0x10                              # X is the struct offset, $10 each
     RODPLATE, LUTEPLATE, ORDINARY, OTHER = 0x16, 0x17, 0x20, 0x30
-    for flag, objid, handler, want in (
-            (0, ORDINARY, talk_norm, talk_norm),                 # flag off
-            (OPTF_GUILLOTINE_HI, ORDINARY, talk_norm, coo),      # the whole point
-            (OPTF_GUILLOTINE_HI, RODPLATE, talk_norm, talk_norm),
-            (OPTF_GUILLOTINE_HI, LUTEPLATE, talk_norm, talk_norm),
-            (OPTF_GUILLOTINE_HI, ORDINARY, coo, coo)):           # other handlers alone
+    for flag, objid, decoy, handler, want in (
+            (0, ORDINARY, ORDINARY, talk_norm, talk_norm),          # flag off
+            (OPTF_GUILLOTINE_HI, ORDINARY, OTHER, talk_norm, coo),  # the whole point
+            (OPTF_GUILLOTINE_HI, RODPLATE, OTHER, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, LUTEPLATE, OTHER, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, ORDINARY, OTHER, coo, coo),        # other handlers alone
+            #  The two that pin down which byte is read.  A plate with an
+            #  ordinary id in tmp must still be spared, and an ordinary object
+            #  with a plate id in tmp must still be taken.
+            (OPTF_GUILLOTINE_HI, RODPLATE, ORDINARY, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, LUTEPLATE, ORDINARY, talk_norm, talk_norm),
+            (OPTF_GUILLOTINE_HI, ORDINARY, RODPLATE, talk_norm, coo),
+            (OPTF_GUILLOTINE_HI, ORDINARY, LUTEPLATE, talk_norm, coo)):
         bus, cpu = machine()
         setblk(bus, OPT_FLAGS + 1, flag)
-        bus.wram[TMP] = objid
+        bus.sram[MAPOBJ_ID - 0x6000 + SLOT] = objid
+        for i in range(4):                   # the talk data TalkToObject leaves
+            bus.wram[TMP + i] = decoy
         bus.wram[TMP + 6] = handler & 0xFF
         bus.wram[TMP + 7] = handler >> 8
-        #  it ends in JMP (tmp+6), so point that at the sentinel-friendly stub:
-        #  run it and see where it lands rather than where it returns
+        cpu.x = SLOT
+        #  it ends in JMP (tmp+6): run it and see where it lands, not where it
+        #  returns
         cpu.pbr, cpu.pc = 0xA7, SYM["OptGuillotine"]
         try:
             for _ in range(200):
@@ -361,9 +382,8 @@ def test_guillotine():
         except Exception as e:
             fails.append("OptGuillotine raised %s" % e)
             continue
-        got = cpu.pc
-        check("guillotine flag=%d obj=$%02X handler=$%04X" % (flag, objid, handler),
-              "$%04X" % got, "$%04X" % want)
+        check("guillotine flag=%d obj=$%02X tmp=$%02X handler=$%04X"
+              % (flag, objid, decoy, handler), "$%04X" % cpu.pc, "$%04X" % want)
 
 
 MSGROWS_TOTAL = 12
