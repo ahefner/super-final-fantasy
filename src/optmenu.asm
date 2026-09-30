@@ -128,6 +128,28 @@ opt_settings:
 
     LDA #$08
     STA soft2000                ; sprites from the right pattern table
+
+    ;  Put the hand where it belongs before the screen comes on.  OAM still
+    ;  holds the title screen's cursor, at the Y of whichever row was chosen
+    ;  there, and nothing between here and the first pass of the loop replaces
+    ;  it: opt_waitrelease flushes for as many frames as the button is held,
+    ;  every one of them uploading that stale sprite.  So the hand appeared at
+    ;  the title screen's position -- for a tap, about a frame -- and only
+    ;  jumped to the list once the loop began.
+    ;
+    ;  Two breaths, because both halves of the path are deferred and in this
+    ;  order.  soft2000 is a plain RAM write that the vblank service copies
+    ;  into h_ppuctrl, and hal_oamdma reads h_ppuctrl to choose the sprite
+    ;  pattern table; then the DMA only fills OAMSHADOW, which the *next*
+    ;  flush uploads.  With the screen still off the two frames cost nothing,
+    ;  and breathing rather than plain waiting keeps the music driver fed the
+    ;  way the rest of the build path does.
+    JSR opt_menu_breathe        ; soft2000 -> h_ppuctrl
+    JSR opt_menu_cursor
+    LDA #>oam
+    wOAMDMA                     ; oam -> OAMSHADOW
+    JSR opt_menu_breathe        ; ...and OAMSHADOW -> the hardware
+
     LDA #$1E
     wPPUMASK                    ; ...and back on
 
@@ -139,19 +161,7 @@ opt_settings:
     JSR opt_waitrelease         ; nothing the title screen was holding carries in
 
   @loop:
-    JSR ClearOAM
-    LDA OPTMENU_SEL
-    SEC
-    SBC OPTMENU_TOP
-    ASL A
-    ASL A
-    ASL A
-    CLC
-    ADC #(OPTLIST_TOP * 8) - 1
-    STA spr_y
-    LDA #(OPTLIST_COL * 8) - 16
-    STA spr_x
-    JSR DrawCursor
+    JSR opt_menu_cursor
 
     JSR WaitForVBlank_L
     LDA #>oam
@@ -789,6 +799,26 @@ opt_menu_ppuaddr:
     LDA OPTMENU_ADDR
     wPPUADDR
     RTS
+
+
+;;  Place the hand beside the selected row, in the OAM buffer.
+;;
+;;  Split out of the loop so the entry path can use it too: the cursor has to
+;;  be in OAM before the screen is revealed, not a frame or more after.
+opt_menu_cursor:
+    JSR ClearOAM
+    LDA OPTMENU_SEL
+    SEC
+    SBC OPTMENU_TOP             ; rows down from the top of the visible list
+    ASL A
+    ASL A
+    ASL A                       ; ...times eight scanlines
+    CLC
+    ADC #(OPTLIST_TOP * 8) - 1
+    STA spr_y
+    LDA #(OPTLIST_COL * 8) - 16
+    STA spr_x
+    JMP DrawCursor
 
 
 ;;  The two menu chirps.
