@@ -34,6 +34,7 @@
 .export hal_reset
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
+.export aux_edge
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_theendclear, hal_theendplot, hal_theendand
 .export hal_ntblit
@@ -1041,6 +1042,7 @@ readpad_nes:                    ; -> A
     lda a:HVBJOY
     and #$01                    ; don't read mid auto-latch
     bne @wait
+
     lda a:JOY1L
     and #$80                    ; SNES A -> NES A, already in place
     sta a:h_t0
@@ -1052,6 +1054,93 @@ readpad_nes:                    ; -> A
     lda a:JOY1H
     and #$3F                    ; Select, Start and the d-pad already line up
     ora a:h_t0
+    rts
+
+;;  Controller Reset -- the detection half.
+;;
+;;  L, X and Y cannot ride in joy: it is eight bits wide and every one is spoken
+;;  for.  So they are read here, once a frame, straight after the flush, and the
+;;  result is left in h_padreset for the game to act on.  WaitForVBlank is what
+;;  reads it, which is why this is the right cadence and the right place --
+;;  every frame loop in the game waits for vblank, so there is no such thing as
+;;  a loop this misses.
+;;
+;;  That is the whole reason it is not hooked into the joypad handlers the way
+;;  FFR does it.  Those only run when the game reads buttons, and plenty of
+;;  loops never do: both palette fades, so the inn's save fade could not be
+;;  reset out of, and the battle message waits, and any transition.  Hooking
+;;  readers means hunting them one at a time forever.
+;;
+;;  Detection only.  The reset itself leaves from WaitForVBlank, in game code,
+;;  because that is where a reset can safely be taken.
+;;
+;;  Straight after the flush is also what makes the HVBJOY wait free: the
+;;  auto-latch runs at the top of vblank and is long finished by the time the
+;;  transfers are done, so the wait below falls through.  A read that lands mid
+;;  latch can tear, and a torn reading here would be a reset nobody asked for.
+aux_capture:
+@wait:
+    lda a:HVBJOY
+    and #$01                    ; don't read mid auto-latch
+    bne @wait
+    lda a:JOY1L
+    and #(JOYAUX_L | JOYAUX_X)  ; L and X, already in their own bits
+    sta a:h_joyaux
+    lda a:JOY1H
+    and #$40                    ; Y lives in the high byte, and nothing in the
+    lsr a                       ;   NES byte wants it -- the #$3F mask drops it
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    lsr a                       ; ...parked in bit 0, where JOY1L's signature
+    ora a:h_joyaux              ;   nibble never puts anything
+    sta a:h_joyaux
+    rts
+
+
+;;  Fire on the press, which is both the faster feel and the simpler rule: the
+;;  combo bits changed since last frame, and what they changed *to* is a whole
+;;  combo.  Nothing else is needed.
+;;
+;;  A press edge is naturally one-shot, which is what keeps the reset from going
+;;  round again.  The buttons are still down when the title screen comes up, but
+;;  h_joyauxprev already holds the combo -- nothing in OnReset or the zero page
+;;  wipe reaches $08xx -- so there is no change and no second edge.  Firing on
+;;  release needed a deliberate trick to get the same property, and left a
+;;  stale-prev hazard besides: a combo sitting in h_joyauxprev from power-on
+;;  WRAM was a reset on the first frame that read it.  On a press edge that same
+;;  garbage is harmless, because the first frame can only ever *clear* it.
+;;
+;;  Clobbers A and X.  Sets h_padreset to the combo pressed, which the game
+;;  clears when it acts on it.
+aux_detect:
+    jsr aux_capture
+    ;  no fallthrough guard needed -- aux_edge is the rest of this routine, split
+    ;  out only so tools/test_options.py can drive the edge with a reading of its
+    ;  own choosing instead of the console's pad.
+aux_edge:
+    lda a:h_joyaux
+    and #PADRESET_MASK
+    tax                         ; X = the combo bits held now
+    cpx a:h_joyauxprev
+    beq @done                   ; unchanged since last frame: no edge either way
+    stx a:h_joyauxprev
+    cpx #PADRESET_SOFT
+    beq @soft
+    cpx #PADRESET_HARD
+    beq @hard
+@done:
+    rts
+
+@soft:
+    lda #PADRESET_SOFT
+    sta a:h_padreset
+    rts
+
+@hard:
+    lda #PADRESET_HARD
+    sta a:h_padreset
     rts
 
 hal_joyupdate:
@@ -1235,6 +1324,7 @@ hal_waitvbl:
     stz a:h_latch
 
     jsr hal_flush
+    jsr aux_detect              ; once a frame, and the only place it happens
     ENTER16
     inc a:h_frame
     LEAVE16
@@ -4503,6 +4593,12 @@ init_halvars:
     stz a:h_readbuf
     stz a:h_curbank
     stz a:h_joyshift
+    ;  Both of these are read before anything writes them, and a combo left in
+    ;  h_joyauxprev by power-on WRAM would reset the game during the boot that
+    ;  read it.  Same trap as NESPALPREV and the OAM high table above.
+    stz a:h_joyaux
+    stz a:h_joyauxprev
+    stz a:h_padreset
     stz a:h_rastercount
     stz a:h_emphasis
     stz a:h_greyscale

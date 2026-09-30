@@ -162,16 +162,17 @@ def test_presets():
     #  and 15 is the +30 most of FFR's own presets use.
     #  Bit 21 is Thief/Ninja hit growth, and Improved carries it -- the only
     #  variation it does, because a Thief that misses is a bug in all but name.
-    want = {0: (0x00000000, 2, 10, 3, 3, 2),
-            1: (0x0027BFFF, 2, 10, 3, 3, 5),
-            2: (0x03FFFFFF, 5, 6, 3, 3, 15)}
+    #
+    want = {0: (0x0000000000, 2, 10, 3, 3, 2),
+            1: (0x000027BFFF, 2, 10, 3, 3, 5),
+            2: (0x0003FFFFFF, 5, 6, 3, 3, 15)}
     for preset, (f, g, e, en, bo, el) in want.items():
         bus, cpu = machine()
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
         call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
         name = ("Vanilla", "Improved", "Deluxe")[preset]
-        check("%s: flags" % name, "$%08X" % flags(bus), "$%08X" % f)
+        check("%s: flags" % name, "$%010X" % flags(bus), "$%010X" % f)
         check("%s: gold/xp step" % name, blk(bus, OPT_GOLDXP), g)
         check("%s: encounter step" % name, blk(bus, OPT_ENCOUNTER), e)
         check("%s: enemy step" % name, blk(bus, OPT_ENEMY), en)
@@ -1691,6 +1692,144 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- Controller Reset -------------------------------------------------------
+#  Two halves.  aux_detect in the HAL watches the pad once a frame and leaves
+#  the combo it saw released in h_padreset; opt_padreset, called from
+#  WaitForVBlank, acts on it.  Both are exercised here.
+#
+#  L + X restarts with work RAM intact so battlestep and battlestep_sign at $F5
+#  and $F6 survive; that pair is the index into lut_RNG that decides whether a
+#  step produces an encounter, and GameStart's ClearZeroPage stops at $EF.
+#  L + Y clears zero page first, which takes them with it.
+#
+#  The edge is the press: the combo bits changed, and what they changed to is a
+#  whole combo.
+def test_padreset():
+    JOYAUX_L, JOYAUX_X, JOYAUX_Y = 0x20, 0x40, 0x01
+    SOFT = JOYAUX_L | JOYAUX_X
+    HARD = JOYAUX_L | JOYAUX_Y
+    MASK = SOFT | HARD
+    H_AUX, H_PREV, H_FIRE = 0x08B9, 0x08BA, 0x08BB
+    CHUNK0_BANK = 0xA1
+
+    # --- the acting half ----------------------------------------------------
+    def act(fire):
+        bus, cpu = machine()
+        for a in range(0x00, 0x100):        # recognisable in zero page...
+            bus.wram[a] = 0xA5
+        for a in range(0x200, 0x800):       # ...and past it, to catch a spill
+            bus.wram[a] = 0x5E
+        bus.wram[H_FIRE] = fire
+        sram_before = bytes(bus.sram)
+        cpu.a, cpu.x, cpu.y = 0x77, 0x5A, 0x3C
+        cpu.pbr, cpu.pc = CHUNK_OPT_BANK, SYM["opt_padreset"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        what = "ran away at $%02X:%04X" % (cpu.pbr, cpu.pc)
+        for _ in range(4000):
+            if cpu.pc == 0xFFFE:
+                what = "returned"; break
+            if cpu.pbr == CHUNK0_BANK and cpu.pc == SYM["OnReset"]:
+                what = "reset"; break
+            cpu.step()
+        return what, bus, cpu, sram_before
+
+    #  Nothing pending is the common case -- this runs every frame of the game.
+    what, bus, cpu, _ = act(0x00)
+    check("nothing pending: returns", what, "returned")
+    check("nothing pending: A preserved", cpu.a, 0x77)
+    check("nothing pending: X preserved", cpu.x, 0x5A)
+    check("nothing pending: zero page untouched", bus.wram[0x80], 0xA5)
+
+    what, bus, _, sram = act(SOFT)
+    check("soft pending: resets", what, "reset")
+    check("soft pending: battlestep survives", bus.wram[0xF5], 0xA5)
+    check("soft pending: battlestep_sign survives", bus.wram[0xF6], 0xA5)
+    check("soft pending: zero page untouched", bus.wram[0x80], 0xA5)
+    check("soft pending: flag cleared so it cannot re-fire", bus.wram[H_FIRE], 0x00)
+    check("soft pending: SRAM untouched", bytes(bus.sram), sram)
+
+    what, bus, _, sram = act(HARD)
+    check("hard pending: resets", what, "reset")
+    check("hard pending: battlestep cleared", bus.wram[0xF5], 0x00)
+    check("hard pending: battlestep_sign cleared", bus.wram[0xF6], 0x00)
+    check("hard pending: zero page cleared", sum(bus.wram[0x01:0x100]), 0)
+    check("hard pending: $00 left alone", bus.wram[0x00], 0xA5)
+    check("hard pending: flag cleared so it cannot re-fire", bus.wram[H_FIRE], 0x00)
+    #  The one that matters most: a hard reset must not cost the save file or the
+    #  settings.  unsram is $6000, the saved file $6400-$67FF and the option
+    #  block $6E00, all SRAM -- and the wipe is direct-page, so it cannot reach
+    #  them whatever DBR holds.  The stack page is skipped below because this
+    #  harness's own pushes live there.
+    check("hard pending: SRAM untouched", bytes(bus.sram), sram)
+    check("hard pending: WRAM past zero page untouched",
+          set(bus.wram[0x0200:0x0800]), {0x5E})
+
+    # --- the detecting half -------------------------------------------------
+    #  aux_detect reads the pad itself, so drive h_joyaux and call the part
+    #  below the capture.  Feeding one reading per call is one frame per call.
+    if "aux_edge" not in SYM:
+        skipped.append("aux_detect's edge: no aux_edge symbol to call")
+        return
+
+    def detect(seq, prev=0x00):
+        bus, cpu = machine()
+        bus.wram[H_PREV] = prev
+        bus.wram[H_FIRE] = 0x00
+        fired = []
+        for i, aux in enumerate(seq):
+            bus.wram[H_AUX] = aux
+            cpu.pbr, cpu.pc = 0xC0, SYM["aux_edge"]   # HALBANK
+            cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+            for _ in range(400):
+                if cpu.pc == 0xFFFE:
+                    break
+                cpu.step()
+            if bus.wram[H_FIRE]:
+                fired.append((i, bus.wram[H_FIRE]))
+                bus.wram[H_FIRE] = 0x00
+        return fired
+
+    #  The press is the edge, and only the press: holding fires once, on the
+    #  first frame, and never again however long it is held.
+    check("soft pressed and held: fires once, on the first frame",
+          detect([SOFT] * 8), [(0, SOFT)])
+    check("hard pressed and held: fires once, on the first frame",
+          detect([HARD] * 8), [(0, HARD)])
+    check("soft pressed a frame in", detect([0x00, SOFT, SOFT]), [(1, SOFT)])
+
+    #  Releasing is not an edge -- that is the whole change from the previous
+    #  arrangement, and the reason the reset cannot go round again: the buttons
+    #  are still held when the title screen comes up, prev already holds the
+    #  combo, so there is nothing for the next frame to see.
+    check("released again: no second fire",
+          detect([SOFT, SOFT, 0x00, 0x00]), [(0, SOFT)])
+    check("still held after a reset: no second fire", detect([SOFT], prev=SOFT), [])
+
+    #  Arriving at a combo from a partial press counts, since the bits changed
+    #  and what they changed to is a combo.
+    check("L first, then X", detect([JOYAUX_L, SOFT]), [(1, SOFT)])
+    check("Y first, then L", detect([JOYAUX_Y, HARD]), [(1, HARD)])
+
+    #  L with X and Y together is neither combo -- the decode is CPX on the
+    #  masked byte, not AND -- and rolling off it into one is.
+    check("L with both X and Y", detect([MASK] * 4), [])
+    check("all three, then X released", detect([MASK, HARD]), [(1, HARD)])
+
+    #  A combo left in h_joyauxprev by power-on WRAM cannot fire on a press
+    #  edge: the first frame can only clear it.  hal_reset zeroes it anyway.
+    check("stale combo remembered, nothing held: never fires",
+          detect([0x00] * 4, prev=SOFT), [])
+
+    #  No other reading fires.
+    bad = None
+    for aux in range(0x100):
+        got = detect([aux])
+        want = [(0, aux & MASK)] if (aux & MASK) in (SOFT, HARD) else []
+        if got != want:
+            bad = (aux, got, want); break
+    check("every aux reading, pressed from nothing", bad, None)
+
+
 # --- Weapon Stats and Double Weapon Crit Rate -------------------------------
 #  Vanilla reads none of the three fields this fills.  The crit rate it does
 #  set is the weapon's position in the list, which is the number the shop box
@@ -2451,7 +2590,8 @@ def main():
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
-              test_spellflags, test_tmprsabr, test_cur4):
+              test_spellflags, test_tmprsabr, test_cur4,
+              test_padreset):
         try:
             t()
         except Exception as e:

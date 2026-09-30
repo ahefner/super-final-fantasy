@@ -55,8 +55,11 @@
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
 .export opt_openchests
 .export opt_freestuff, opt_housemp
+.export opt_padreset
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
+;  The game's own reset entry, for Controller Reset.
+.import OnReset
 .import lut_LvlUpHitRateBonus
 .import opt_spelloverride
 .import lut_WaitString
@@ -2392,6 +2395,99 @@ opt_thiefgrowth:
 ;;  about, the order, is asserted rather than eyeballed.
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Controller Reset -- the acting half
+;;
+;;  L + X restarts the game with work RAM intact; L + Y wipes zero page on the
+;;  way through.  The point of the first is that battlestep and battlestep_sign
+;;  at $F5 and $F6 are the index into lut_RNG that decides whether a step
+;;  produces an encounter, and GameStart's ClearZeroPage stops at $EF -- so they
+;;  survive an ordinary reset, and re-entering from a known index is how the
+;;  encounter table gets manipulated.  The second is for when that is not
+;;  wanted: on a console the alternative is reaching for the console itself.
+;;
+;;  Unconditional, with no flag.  L, X and Y are buttons the cartridge never
+;;  had, so no vanilla behaviour is displaced and there is nothing a player
+;;  might want switched off.
+;;
+;;  aux_detect in the HAL does the looking, once a frame after the flush, and
+;;  leaves the combo in h_padreset on the frame it is pressed.  This is called from WaitForVBlank and acts
+;;  on it.  One call site, because every frame loop in the game waits for
+;;  vblank -- which is the whole reason for the split.  FFR instead hooks the
+;;  three joypad handlers, and those only run when the game reads buttons: both
+;;  palette fades poll nothing, so the inn's save fade could not be reset out
+;;  of, and the same is true of the battle message waits and the transitions.
+;;
+;;  What gets cleared is FFR's choice, unchanged: zero page $01 to $FF, by
+;;  direct-page indexed store, so work RAM only.  SRAM is never written --
+;;  neither the live state at unsram ($6000), nor the saved file at
+;;  $6400-$67FF, nor the option block at $6E00 -- so a hard reset costs neither
+;;  the save nor the settings.  Nothing has moved since FFR, so nothing about
+;;  the range needed rethinking.
+;;
+;;  FFR's hard reset jumps straight to GameStart, where this goes through
+;;  OnReset like the soft one: the hardware is already up either way, so the
+;;  longer path costs a few hundred cycles and removes one thing that can be
+;;  subtly wrong.
+;;
+;;  In:  nothing -- h_padreset is the whole input.
+;;  Out: A, X and the flags unchanged -- or it never returns.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_padreset:
+    PHP
+    PHX
+    PHA                         ; WaitForVBlank's caller may want A
+    ;  h_padreset is WRAM at $08xx, and every bank a game chunk runs in mirrors
+    ;  WRAM at $0000-$1FFF, so plain absolute reaches it whichever chunk called.
+    LDA h_padreset
+    BEQ @out
+    ;  Clear it before leaving, or the first vblank wait after the reset acts on
+    ;  it again.  Neither the wipe below nor OnReset touches this byte.
+    LDX #$00
+    STX h_padreset
+    CMP #PADRESET_HARD
+    BEQ @hard
+    BRA @enter
+  @out:
+    PLA
+    PLX
+    PLP
+    RTL
+
+  @hard:
+    ;  $FF down to $01, so the encounter index goes with everything else.  $00
+    ;  is left alone because the loop ends on it, which is what FFR does too.
+    ;
+    ;  Direct page, not absolute: the direct page is always bank 0, so this is
+    ;  $0000-$00FF and cannot reach SRAM whatever DBR happens to hold.  That
+    ;  matters because SRAM is where the save lives -- unsram at $6000, the
+    ;  saved file at $6400-$67FF, the option block at $6E00 -- and a hard reset
+    ;  must cost none of them.
+    ;
+    ;  FFR resets the stack before its wipe; no need here, because OnReset does
+    ;  TXS a few instructions in.  Nothing below may depend on zero page again,
+    ;  and nothing does: the only state carried from here is in the registers.
+    LDX #$FF
+    LDA #$00
+  @wipe:
+    STA $00, X
+    DEX
+    BNE @wipe
+
+  @enter:
+    ;  Enter the reset exactly as hal_reset does: PBR and DBR both CHUNK0.  The
+    ;  fixed bank is stamped into every chunk, so a near JMP would land in a
+    ;  copy of OnReset running under whichever chunk happened to call us, and
+    ;  the bank the game comes back up in should not depend on that.  The stack
+    ;  is left as it is -- OnReset resets it with TXS a few instructions in.
+    LDA #CHUNK0
+    PHA
+    PLB
+    JML OnReset + BANK00FAR
+
 
 opt_housemp:
     LDA OPTFB_HOUSEMP

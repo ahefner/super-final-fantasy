@@ -21,11 +21,22 @@ OnIRQ:                   ; IRQs point here, but the game doesn't use IRQs, so it
 @LoopForever:
     JMP @LoopForever     ; then loop forever! (or really until the NMI is triggered)
 --- NEW
+.import opt_padreset
+
 WaitForVBlank:
     ; Wait for vblank to start, then hand the frame to the HAL, which pushes
     ; everything the game drew since the last frame -- pattern tiles, tilemap,
     ; palette, OAM and scroll -- from the WRAM shadows into VRAM by DMA.
     JSL hal_waitvbl + HALFAR
+
+    ;  Controller Reset, and the only site it needs: every frame loop in the
+    ;  game passes through here, so there is no loop where the combo goes
+    ;  unnoticed.  aux_detect set h_padreset during the call above, on the frame
+    ;  the combo was pressed; this acts on it, and does not return if it does.  Hooking the joypad handlers the way FFR does misses every loop
+    ;  that reads no buttons -- both palette fades, the battle message waits,
+    ;  the transitions.
+    JSL opt_padreset + OPTFAR
+
     RTS
 
 OnIRQ:                   ; IRQs point here, but the game doesn't use IRQs

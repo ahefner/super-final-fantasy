@@ -910,6 +910,12 @@ h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
 h_swpcnt        = HAL_VARS+$B6  ; TRISWEEP: frames the current pitch has held
 h_swptimer      = HAL_VARS+$B7  ; TRISWEEP: the NES timer being swept (2 bytes)
 h_apustatcnt    = HAL_VARS+$B5  ; APUSTAT: consecutive frames the fault has held
+h_joyaux        = HAL_VARS+$B9  ; the pad buttons the NES never had: see
+                                ;   readpad_nes and JOYAUX_ below
+h_joyauxprev    = HAL_VARS+$BA  ; ...as they read on the previous frame, for the
+                                ;   release edge
+h_padreset      = HAL_VARS+$BB  ; nonzero when a reset combo has been let go of:
+                                ;   which one, as PADRESET_SOFT or _HARD
 h_apuon         = HAL_VARS+$71  ; bit per voice: was it sounding last frame?
 h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
 h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
@@ -1158,6 +1164,28 @@ OPTFB_FREETAIL    = OPT_FLAGS+4 ; bit 35
 OPTFM_FREETAIL    = $08
 OPTFB_FREEROD     = OPT_FLAGS+4 ; bit 36
 OPTFM_FREEROD     = $10
+;  Controller Reset is unconditional -- no flag.  L with X or Y is a combo no
+;  NES-era code can express, so there is nothing for a player to turn off: it
+;  cannot collide with anything the game does, and a cartridge that shipped
+;  without these buttons cannot miss them.
+;
+;  The three pad buttons the NES never had, as readpad_nes files them into
+;  h_joyaux.  L and X keep their own places in JOY1L; Y lives in JOY1H, and is
+;  parked in bit 0, which JOY1L's signature nibble never sets.
+;
+;  Nothing in the game can see these -- joy is eight bits wide and every one of
+;  them is spoken for -- so a combo built from them cannot collide with anything
+;  the game does, which is the point of choosing them.
+JOYAUX_L          = $20
+JOYAUX_X          = $40
+JOYAUX_Y          = $01
+
+;  The controller reset combos.  Tested against the masked byte with CMP rather
+;  than with AND, so L with both X and Y is neither combo rather than
+;  ambiguously one of them.
+PADRESET_MASK     = JOYAUX_L | JOYAUX_X | JOYAUX_Y
+PADRESET_SOFT     = JOYAUX_L | JOYAUX_X  ; L + X: the ordinary reset path
+PADRESET_HARD     = JOYAUX_L | JOYAUX_Y  ; L + Y: ...with zero page wiped first
 
 ;  How far below the dialogue's own text the chest description starts.  The
 ;  box is seven map rows, its text begins four tile rows down, and the
