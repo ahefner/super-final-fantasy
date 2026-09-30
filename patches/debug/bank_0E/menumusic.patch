@@ -1,0 +1,16 @@
+--- OLD
+    LDA #$41
+    STA music_track        ; Start up the crystal theme music
+--- NEW
+    ;  DEBUG BUILD ONLY.  The title screen plays the start-menu music ($51)
+    ;  instead of the crystal theme ($41), so the legato bassline that drops
+    ;  the triangle channel is sounding within seconds of reset.  The overworld
+    ;  bassline is staccato and re-keys every twelve to twenty-four frames,
+    ;  which repairs the fault before it can be heard; the menu one runs its
+    ;  notes together and does not, so this is where the bug shows.
+    ;
+    ;  Reaching the real menu means navigating there, and a scripted run types
+    ;  into whatever window is frontmost.  Playing it from the title screen
+    ;  needs no input at all.  Build without FFDEBUG=menumusic to drop this.
+    LDA #$51
+    STA music_track

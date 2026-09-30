@@ -1268,6 +1268,9 @@ hal_flush:
     jsr flush_raster
     jsr flush_ntsplit
     jsr flush_altar
+  .ifdef APUSTAT
+    jsr flush_apustat
+  .endif
     lda a:h_hdmaen              ; ...and only now does the register hear about it
     sta a:HDMAEN
   .ifdef SCROLLSTAT
@@ -2151,6 +2154,117 @@ emit_span:
     bne @chunk
     rts
 
+  .ifdef AUDIOTEST
+  .ifndef TRISWEEP
+;;  A known pattern on one voice, so a pop can be attributed instead of guessed
+;;  at.  Music changes pitch, volume and waveform together, which is why
+;;  listening to it cannot separate them.  This drives pulse 1 alone through
+;;  four eight-second segments, repeating:
+;;
+;;    0  steady      nothing changes at all -- the control
+;;    1  volume      steps every eight frames, pitch held
+;;    2  pitch       alternates every sixteen frames, volume held.  The two
+;;                   timers sit in different size classes, so this exercises
+;;                   the directory repoint as well
+;;    3  note        silenced and re-sounded every sixteen frames
+;;
+;;  Everything downstream is the production path: the shadow is overwritten
+;;  here and the packet builder and the SPC700 program see nothing unusual.
+.a8
+.i16
+audio_test_pattern:
+    ;  Two pulses, entirely static, for ever.  No segments and no dither: the
+    ;  variable is which register's write cache the *build* bypasses, chosen by
+    ;  FFTONE at build time, so the tone itself never changes and any pop is
+    ;  purely the write traffic.
+    stz a:APUSHADOW+$01
+    stz a:APUSHADOW+$05
+    lda #$03                    ; both pulses, nothing else
+    sta a:APUSHADOW+$15
+    lda #$B8                    ; duty 2, halted, constant volume, level 8
+    sta a:APUSHADOW+$00
+    lda #253
+    sta a:APUSHADOW+$02
+    stz a:APUSHADOW+$03
+    lda #$B8
+    sta a:APUSHADOW+$04
+    lda #169                    ; a fifth up
+    sta a:APUSHADOW+$06
+    stz a:APUSHADOW+$07
+    rts
+  .endif
+  .endif
+
+  .ifdef TRISWEEP
+TRISWEEP_BOT  = 16              ; the lowest timer the pitch table calls musical
+TRISWEEP_TOP  = 768             ; ...and past the highest
+TRISWEEP_STEP = 1               ; every timer, not one in four
+TRISWEEP_HOLD = 10              ; frames per pitch; a whole sweep is about 125s
+TRISWEEP_GAP  = 3               ; ...of which the last few are silent, so each
+                                ;    pitch is a note-on rather than a tone
+
+;;  Walk the triangle through every pitch it can be given, one at a time.
+;;
+;;    The clicks are deterministic and pitch-dependent, so the question is
+;;  which pitches.  Finding that inside the game's own music means recording it
+;;  and measuring wavelengths by hand.  Playing every pitch in order instead
+;;  puts each one at a known place on the timeline, so a capture can say which
+;;  ones misbehave without anybody counting waveforms.
+;;
+;;    Nothing else sounds, so any discontinuity in the output belongs to the
+;;  triangle.  The linear counter is given control and a maxed reload so the
+;;  note never gates itself off mid-pitch.
+audio_test_pattern:
+    ;  Gate the channel off for the last TRISWEEP_GAP frames of each pitch, so
+    ;  every pitch arrives as a genuine note -- key-off, silence, key-on --
+    ;  rather than a steady tone.  The clicks are heard at the START of notes,
+    ;  and a sweep that merely holds each pitch never starts one, so it cannot
+    ;  reproduce them however many pitches it covers.
+    lda a:h_swpcnt
+    cmp #(TRISWEEP_HOLD - TRISWEEP_GAP)
+    bcc @TriSweepOn
+      stz a:APUSHADOW+$15       ; silent: the HAL sees the channel stop and
+      bra @TriSweepGated        ;   sends a key-off; the next frame re-keys it
+@TriSweepOn:
+    lda #$04                    ; triangle alone
+    sta a:APUSHADOW+$15
+@TriSweepGated:
+    lda #$FF                    ; linear counter: control set, reload maxed
+    sta a:APUSHADOW+$08
+    lda a:h_swpcnt
+    inc a
+    sta a:h_swpcnt
+    cmp #TRISWEEP_HOLD
+    bcc @TriSweepHold
+      stz a:h_swpcnt
+      lda a:h_swptimer          ; timer += step, carried by hand in 8 bits
+      clc
+      adc #TRISWEEP_STEP
+      sta a:h_swptimer
+      bcc @TriSweepNoCarry
+        inc a:h_swptimer+1
+@TriSweepNoCarry:
+      lda a:h_swptimer+1        ; past the top (or uninitialised)?  start over
+      cmp #>TRISWEEP_TOP
+      bcc @TriSweepHold
+      bne @TriSweepWrap
+      lda a:h_swptimer
+      cmp #<TRISWEEP_TOP
+      bcc @TriSweepHold
+@TriSweepWrap:
+      lda #<TRISWEEP_BOT
+      sta a:h_swptimer
+      lda #>TRISWEEP_BOT
+      sta a:h_swptimer+1
+@TriSweepHold:
+    lda a:h_swptimer
+    sta a:APUSHADOW+$0A         ; timer low
+    lda a:h_swptimer+1
+    and #$07
+    sta a:APUSHADOW+$0B         ; timer high
+    rts
+  .endif
+
 ; --- the altar beam ----------------------------------------------------
 ;;  The NES draws this by toggling the monochrome bit at a counted cycle offset
 ;;  within each scanline: 120 pixels of grey per line, drifting one dot right
@@ -2391,6 +2505,102 @@ flush_ntsplit:
     sta a:h_hdmaen
     stz a:h_ntsplits
     rts
+
+.ifdef APUSTAT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  APUSTAT -- flag the triangle cutout, and say which way it died
+;;
+;;    Confirmed on hardware: when the triangle cuts out, the game still has it
+;;  enabled, the HAL still believes it is keyed on, and the DSP's own ENVX for
+;;  that voice is zero.  The voice is dead underneath both of them, so the
+;;  cause is past the packet -- in the SPC or the DSP -- and neither the music
+;;  driver nor h_apuon is where to look for it.
+;;
+;;  h_apuon is why it is permanent rather than what causes it: while its bit is
+;;  set the HAL sends pitch and volume only and never a key-on, so a voice that
+;;  dies underneath is never revived.
+;;
+;;  Two things this now does beyond flagging it:
+;;
+;;  DEBOUNCE.  A staccato note-off lands on the same condition for a frame or
+;;  two -- the envelope reaches zero before the HAL notices the channel has
+;;  gone quiet and clears h_apuon -- which made the overworld flicker.  A real
+;;  cutout never ends, so require the condition to hold STAT_DEBOUNCE frames.
+;;
+;;  WHICH MECHANISM.  The SPC reports KOFF's readback alongside ENVX.  A bit
+;;  set there is a key-off nobody sent, which is a corrupted register write --
+;;  the same hazard the popping points at, and it would make both faults one
+;;  bug.  A clear bit means the voice died without a key-off, which points at
+;;  the BRR END-without-LOOP kill instead, and those want different fixes.
+;;
+;;      green   the fault, with KOFF bit 2 SET   -- a key-off we never sent
+;;      red     the fault, with KOFF bit 2 CLEAR -- died without one
+;;
+;;  A whole-screen tint rather than digits: readable at a glance from across a
+;;  room, and it needs no font tiles, which are not in VRAM on a map screen.
+;;
+;;  This owns CGWSEL/CGADSUB and will fight the orb beam's colour maths.
+;;  Debug builds only.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+STAT_OFF      = $E0             ; all three channels selected, intensity zero
+STAT_RED      = $3F
+STAT_GREEN    = $5F
+STAT_BLUE     = $9F
+STAT_DEBOUNCE = 12              ; frames, about a fifth of a second
+
+flush_apustat:
+    sep #$20
+    .a8
+    lda a:APUSHADOW+$15         ; is the game still asking for the triangle?
+    and #$04
+    beq @NotFaulted
+    lda a:h_apuon               ; does the HAL believe it is keyed on?
+    and #$04
+    beq @NotFaulted
+    ;  The SPC reports the DSP's ENVX for that voice back through the
+    ;  acknowledge port.  The ports are bidirectional, so this is its value.
+    lda a:APUIO1
+    bne @NotFaulted
+
+    lda a:h_apustatcnt          ; held long enough to not be a note-off?
+    cmp #STAT_DEBOUNCE
+    bcs @Show
+      inc a:h_apustatcnt
+      bra @Clear
+@Show:
+    stz a:CGWSEL                ; colour maths everywhere, unwindowed
+    lda #$3F
+    sta a:CGADSUB               ; add the fixed colour to every layer
+    ;  bit 3, not bit 2: Release is sticky and overrides GAIN, so a key-off
+    ;  only has to be sampled once to kill the voice -- and KOFF=0 before every
+    ;  key-on wipes the evidence within a note or two.  The SPC latches whether
+    ;  the bit was ever seen set since this voice was keyed on.
+    lda a:APUIO2
+    and #$08
+    beq @NotKeyedOff
+      lda #STAT_GREEN           ; a key-off nobody sent
+      sta a:COLDATA
+      rts
+@NotKeyedOff:
+    lda a:APUIO3                ; KON as the DSP actually holds it
+    and #$04
+    beq @Red
+      lda #STAT_BLUE            ; pinned in key-on: re-keyed every sample
+      sta a:COLDATA
+      rts
+@Red:
+    lda #STAT_RED               ; neither -- the envelope was zeroed some
+    sta a:COLDATA               ;   other way, which leaves the BRR kill
+    rts
+
+@NotFaulted:
+    stz a:h_apustatcnt
+@Clear:
+    stz a:CGADSUB               ; no maths, so COLDATA cannot show
+    lda #STAT_OFF
+    sta a:COLDATA
+    rts
+.endif
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The map's attribute update
@@ -3015,6 +3225,9 @@ hal_apu_frame:
     sep #$20
     .a8
     .i16
+  .ifdef AUDIOTEST
+    jsr audio_test_pattern
+  .endif
     jsr apu_noiseenv
     jsr apu_trilinear
     ldy #0                      ; Y = the channel's register base in the shadow
@@ -3023,6 +3236,14 @@ hal_apu_frame:
     stz a:h_apuvoice
 @pulse:
     lda a:APUSHADOW+$15
+  .ifdef SOLOMASK
+    ;  DEBUG: only the channels in SOLOMASK may sound ($01 pulse 1, $02 pulse 2,
+    ;  $04 triangle, $08 noise).  Masking here rather than at the shadow keeps
+    ;  the game's own $4015 intact and routes the silenced voices through the
+    ;  normal silent path, so each gets a proper key-off and h_apuon stays
+    ;  consistent -- they are genuinely not playing, not merely muted.
+    and #SOLOMASK
+  .endif
     and a:h_apumask             ; enabled?
     beq @silent
     lda a:APUSHADOW+0,y
@@ -3136,6 +3357,14 @@ hal_apu_frame:
     lda #$04
     sta a:h_apumask
     lda a:APUSHADOW+$15
+  .ifdef SOLOMASK
+    ;  DEBUG: only the channels in SOLOMASK may sound ($01 pulse 1, $02 pulse 2,
+    ;  $04 triangle, $08 noise).  Masking here rather than at the shadow keeps
+    ;  the game's own $4015 intact and routes the silenced voices through the
+    ;  normal silent path, so each gets a proper key-off and h_apuon stays
+    ;  consistent -- they are genuinely not playing, not merely muted.
+    and #SOLOMASK
+  .endif
     and #$04
     beq @silent
     lda a:h_trilin              ; the linear counter, clocked by apu_trilin
@@ -3190,6 +3419,14 @@ hal_apu_frame:
     lda #$08
     sta a:h_apumask
     lda a:APUSHADOW+$15
+  .ifdef SOLOMASK
+    ;  DEBUG: only the channels in SOLOMASK may sound ($01 pulse 1, $02 pulse 2,
+    ;  $04 triangle, $08 noise).  Masking here rather than at the shadow keeps
+    ;  the game's own $4015 intact and routes the silenced voices through the
+    ;  normal silent path, so each gets a proper key-off and h_apuon stays
+    ;  consistent -- they are genuinely not playing, not merely muted.
+    and #SOLOMASK
+  .endif
     and #$08
     beq @noisesilent
     lda a:h_nzlen               ; the length counter has run out

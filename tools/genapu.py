@@ -70,6 +70,9 @@ PITCH_MAX  = 0x3FFF           # 14-bit pitch register
 #  low end gains the most.
 SIZES       = [8, 16, 32, 64, 128, 256, 512, 1024]
 TARGET_RATE = 127000.0     # a hair under 128000, so rounding cannot pass $3FFF
+#  FFRATE overrides it for listening tests.  Lower is darker and aliases less, and
+#  below 64000 it leaves a whole octave of pitch headroom for upward hysteresis.
+TARGET_RATE = float(os.environ.get("FFRATE", TARGET_RATE))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT  = os.path.join(os.path.dirname(HERE), "src", "apupitch.inc")

@@ -4,6 +4,16 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p out gen
 
+#  FFDEBUG=...,apustat paints three bars across the top of the screen showing
+#  whether the game, the HAL and the DSP each believe the triangle is sounding.
+#  It needs both halves: the ca65 define for the bars, and FFAPUSTAT so the SPC
+#  program reports the DSP's ENVX back through the acknowledge port.  This sits
+#  above the generators rather than with the other FFDEBUG cases below, because
+#  genspc.py reads FFAPUSTAT and runs before them.
+case "$FFDEBUG" in
+  *apustat*) CA65EXTRA="$CA65EXTRA -DAPUSTAT"; export FFAPUSTAT=1 ;;
+esac
+
 python3 tools/genpal.py
 python3 tools/genapu.py
 python3 tools/genspc.py
@@ -15,6 +25,29 @@ python3 tools/convert.py
 #  source patch, so it rides on a ca65 define rather than the patch-name gate.
 case "$FFDEBUG" in
   *dark*) CA65EXTRA="$CA65EXTRA -DFFDARK" ;;
+esac
+case "$FFDEBUG" in
+  *tone*) CA65EXTRA="$CA65EXTRA -DAUDIOTEST" ;;
+esac
+
+#  FFDEBUG=...,trisweep replaces the tone pattern with a sweep of the triangle
+#  through every pitch it can be given, so a capture can say which ones click.
+case "$FFDEBUG" in
+  *trisweep*) CA65EXTRA="$CA65EXTRA -DAUDIOTEST -DTRISWEEP" ;;
+esac
+
+#  FFDEBUG=...,trionly silences the pulses and the noise so the triangle plays
+#  alone.  The directory slots are per-voice and do not overlap, so if the
+#  cutout survives with nothing else sounding it is the triangle's own
+#  repoint racing its own loop wrap; if it stops, the corruption comes from
+#  another voice or from bus contention.
+#  FFDEBUG=...,trionly / pulse1 / pulse2 / noiseonly silences every channel but
+#  the named one, so an artifact can be attributed to a voice without guessing.
+case "$FFDEBUG" in
+  *trionly*)   CA65EXTRA="$CA65EXTRA -DSOLOMASK=\$04" ;;
+  *pulse1*)    CA65EXTRA="$CA65EXTRA -DSOLOMASK=\$01" ;;
+  *pulse2*)    CA65EXTRA="$CA65EXTRA -DSOLOMASK=\$02" ;;
+  *noiseonly*) CA65EXTRA="$CA65EXTRA -DSOLOMASK=\$08" ;;
 esac
 
 #  FFDEBUG=vanilla|improved|deluxe forces that option preset on every boot,

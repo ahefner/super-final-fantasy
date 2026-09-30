@@ -907,6 +907,9 @@ h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send
 
 h_apuseq        = HAL_VARS+$6E  ; audio packet sequence number
 h_apuok         = HAL_VARS+$6F  ; nonzero once the SPC700 program answered
+h_swpcnt        = HAL_VARS+$B6  ; TRISWEEP: frames the current pitch has held
+h_swptimer      = HAL_VARS+$B7  ; TRISWEEP: the NES timer being swept (2 bytes)
+h_apustatcnt    = HAL_VARS+$B5  ; APUSTAT: consecutive frames the fault has held
 h_apuon         = HAL_VARS+$71  ; bit per voice: was it sounding last frame?
 h_apumask       = HAL_VARS+$72  ; 1<<voice for the channel being translated
 h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
