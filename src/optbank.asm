@@ -162,6 +162,24 @@ opt_init:
     PHB
     PHK
     PLB                         ; DBR = this bank, for lut_Presets below
+
+    ;  Clear the victory poses before anything can read them.  They are scratch
+    ;  at OPTBLOCK+$B0, above the settings the checksum covers, and until now
+    ;  only the shop path ever wrote them -- so on a cartridge that had not been
+    ;  through a shop they were whatever the battery held.  DrawOBSprite adds
+    ;  the byte to its tile base with no range check, so $FF from a fresh
+    ;  cartridge drew the whole party one tile into the previous class's CHR.
+    ;
+    ;  This runs before the magic and checksum tests rather than inside @reset,
+    ;  because a block that validates perfectly says nothing about the bytes
+    ;  above it: the settings can be intact and the scratch still arbitrary.
+    ;  Every boot, unconditionally, is the only version of this that holds.
+    LDA #$00
+    STA OPTPOSE+0
+    STA OPTPOSE+1
+    STA OPTPOSE+2
+    STA OPTPOSE+3
+
 .ifdef OPT_FORCE
     LDA #OPT_FORCED_PRESET      ; FFDEBUG build: ignore SRAM, always this preset
     JSR opt_loadpreset

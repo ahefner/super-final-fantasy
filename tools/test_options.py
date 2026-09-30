@@ -1654,14 +1654,41 @@ def test_shoppose():
           poses(0x1C + 1, party, cursx=0x28), [0, 0, 0, 0])
 
     #  opt_pose turns DrawOBSprite's stat index back into a character number.
-    for i, sx in enumerate((0x00, 0x40, 0x80, 0xC0)):
+    #  POSE_VICTORY in one slot and zero in the others, so the value proves
+    #  which byte was read rather than merely that some byte was.
+    def posemachine(flagbits):
         bus, cpu = machine()
+        for i in range(4):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        return bus, cpu
+
+    for i, sx in enumerate((0x00, 0x40, 0x80, 0xC0)):
+        bus, cpu = posemachine(F_SHOPINFO)
         for k in range(4):
-            bus.sram[OPTPOSE - 0x6000 + k] = 0x10 + k
+            bus.sram[OPTPOSE - 0x6000 + k] = POSE_VICTORY if k == i else 0
         cpu.x = sx
         call(cpu, "opt_pose")
-        check("stat index $%02X is character %d" % (sx, i), cpu.a, 0x10 + i)
+        check("stat index $%02X is character %d" % (sx, i), cpu.a, POSE_VICTORY)
         check("stat index $%02X survives the call" % sx, cpu.x, sx)
+
+    #  DrawOBSprite adds this byte to its tile base with CLC / ADC and no range
+    #  check, so a byte that is neither pose draws the character out of another
+    #  class's CHR.  The poses are scratch in SRAM above the checksummed
+    #  settings, so a cartridge that has never been through a shop presents
+    #  whatever the battery held -- $FF on a fresh one, which made the base
+    #  tmp-1.  Both locks are checked: the flag test, which also covers the
+    #  hook site being an unconditional JSL, and the clamp behind it.
+    for name, flag, val in (("flag off",            0,          0xFF),
+                            ("flag off, zero",      0,          0x00),
+                            ("flag on, fresh SRAM", F_SHOPINFO, 0xFF),
+                            ("flag on, mid-range",  F_SHOPINFO, 0x7F),
+                            ("flag on, just over",  F_SHOPINFO, 0x0F)):
+        bus, cpu = posemachine(flag)
+        for k in range(4):
+            bus.sram[OPTPOSE - 0x6000 + k] = val
+        cpu.x = 0x00
+        call(cpu, "opt_pose")
+        check("%s: no tile offset" % name, cpu.a, 0)
 
 
 # --- Weapon Stats and Double Weapon Crit Rate -------------------------------

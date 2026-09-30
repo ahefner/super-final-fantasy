@@ -1082,8 +1082,32 @@ lut_MagicPermis = lut_MagicPermisPtr + 24
 ;  Asked by DrawOBSprite, once per character per frame.
 ;  In: X = the character's stat index ($00, $40, $80, $C0).
 ;  Out: A = the tile offset of the pose to draw.
+;
+;  A is the whole contract, and the caller adds it to the tile base with no
+;  range check of any kind -- CLC / ADC tmp, straight into DrawSimple2x3Sprite.
+;  So anything but 0 or POSE_VICTORY here draws a character out of somebody
+;  else's graphics.
+;
+;  Hence the flag test, which the hook site cannot do for us: it is an
+;  unconditional JSL on DrawOBSprite's standing path, so this routine runs in
+;  every menu whether Shop Information is on or not.  The pose bytes live at
+;  OPTBLOCK+$B0, which is SRAM above the checksummed settings, and only the
+;  shop path ever writes them.  On a cartridge that had not yet been through a
+;  shop they read as whatever the battery held -- $FF on a fresh one, which
+;  made the tile base tmp-1 and drew every party member one tile into the
+;  previous class's CHR.  Invisible under emulation, where the .ram starts
+;  zeroed and zero is the right answer.
+;
+;  opt_init zeroes them now as well, so this is the second of two locks on the
+;  same door.  Both are wanted: the init covers the value, this covers the
+;  read, and the read is the one that cannot be reached by any SRAM state.
 opt_pose:
-    PHX
+    LDA OPTFB_SHOPINFO
+    AND #OPTFM_SHOPINFO
+    BNE :+
+      LDA #$00                  ; feature off: no pose, and never a stray byte
+      RTL
+:   PHX
     TXA
     LSR A                       ; the stat index is the character number
     LSR A                       ;   shifted up by six
@@ -1094,7 +1118,10 @@ opt_pose:
     TAX
     LDA OPTPOSE, X
     PLX
-    RTL
+    CMP #POSE_VICTORY + 1       ; only the two poses are legal offsets
+    BCC :+
+      LDA #$00
+:   RTL
 
 opt_zeroposes:
     LDA #$00
