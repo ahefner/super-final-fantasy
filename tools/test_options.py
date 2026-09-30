@@ -2054,13 +2054,17 @@ def test_menuinfo():
 F_CHESTINFO = 1 << 13
 
 
-def _chestinfo(flagbits, dlgsfx, itemid):
+DLGID_TCGET, DLGID_CANTCARRY = 0xF0, 0xF1
+
+
+def _chestinfo(flagbits, dlgid, itemid, dlgsfx=2):
     bus, cpu = machine()
     for i in range(4):
         setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
     bus.wram[0x61] = itemid             # dlg_itemid
-    bus.wram[0x7D] = dlgsfx             # dlgsfx
+    bus.wram[0x7D] = dlgsfx             # dlgsfx -- deliberately NOT the tell
     bus.sram[OPTDESC - 0x6000] = 0xAA   # poison: untouched means no description
+    cpu.a = dlgid                       # the dialogue being drawn, the real tell
     try:
         call(cpu, "opt_chestinfo")
     except Exception:
@@ -2069,23 +2073,39 @@ def _chestinfo(flagbits, dlgsfx, itemid):
 
 
 def test_chestinfo():
-    #  dlgsfx is what tells a chest from a conversation: OpenTreasureChest
-    #  sets it to 1 or 2 for the jingle, and it is zeroed before any other
-    #  dialogue.  A stale dlg_itemid must not be enough on its own.
+    #  What tells a chest from a conversation is the dialogue id, and only that.
+    #  This used to read dlgsfx, which is not a chest flag but which sound to
+    #  play: every NPC who hands over an item sets it for the fanfare, so Sarda
+    #  giving up the Rod drew the stats of the last weapon out of a chest across
+    #  his line.  Every case below therefore leaves dlgsfx at 2 -- the chest
+    #  jingle, the most misleading value there is -- so reading it again cannot
+    #  pass this.
     check("a conversation draws nothing, whatever was last in a chest",
-          _chestinfo(F_CHESTINFO, 0, 0x1C), "skipped")
+          _chestinfo(F_CHESTINFO, 0x00, 0x1C), "skipped")
     check("the flag off draws nothing",
-          _chestinfo(0, 2, 0x1C), "skipped")
+          _chestinfo(0, DLGID_TCGET, 0x1C), "skipped")
+
+    #  The three that pin down the regression.  Sarda's dialogue is an ordinary
+    #  id with the fanfare set; the Black Orb's plays the chest jingle outright,
+    #  which is why narrowing to dlgsfx = 2 would not have been enough; and
+    #  "you can't carry anymore" is a chest but not a chest *get*, and has its
+    #  own handling in opt_dlgident.
+    check("an item-giving NPC draws nothing", _chestinfo(F_CHESTINFO, 0x2A, 0x1C, dlgsfx=1), "skipped")
+    check("the Black Orb draws nothing", _chestinfo(F_CHESTINFO, 0x31, 0x1C, dlgsfx=2), "skipped")
+    check("a full inventory draws nothing",
+          _chestinfo(F_CHESTINFO, DLGID_CANTCARRY, 0x1C), "skipped")
+
     #  Potions and key items have no description; only gear does.
     for itemid in (0x00, 0x01, 0x19, 0x1B, 0x6C):
         check("a chest holding item $%02X draws nothing" % itemid,
-              _chestinfo(F_CHESTINFO, 2, itemid), "skipped")
+              _chestinfo(F_CHESTINFO, DLGID_TCGET, itemid), "skipped")
     for itemid in (0x1C, 0x2F, 0x43, 0x44, 0x6B):
         check("a chest holding item $%02X describes it" % itemid,
-              _chestinfo(F_CHESTINFO, 2, itemid), "drew")
+              _chestinfo(F_CHESTINFO, DLGID_TCGET, itemid), "drew")
     #  The renderer is shared with the shops, so a spell id would describe
     #  itself too -- no chest in the game contains one.
-    check("the renderer is the shops own", _chestinfo(F_CHESTINFO, 2, 0xB0), "drew")
+    check("the renderer is the shops own",
+          _chestinfo(F_CHESTINFO, DLGID_TCGET, 0xB0), "drew")
 
 
 # --- Treasures --------------------------------------------------------------

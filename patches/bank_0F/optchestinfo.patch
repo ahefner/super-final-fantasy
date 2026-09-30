@@ -5,6 +5,10 @@
 .import opt_chestinfo
 
     PLA                      ; then pull the dialogue text ID that was pushed at the start of the routine
+    PHA                      ; ...and keep a copy: the id is the only thing that
+                             ;   tells Chest Information a chest from a
+                             ;   conversation, and DrawDialogueString eats A
     JSR DrawDialogueString   ; draw it...
+    PLA                      ; the id again, for the hook below
     JSL opt_chestinfo + OPTFAR  ; ...and then, for a chest holding a weapon or
     RTS                         ;   a piece of armour, what it does

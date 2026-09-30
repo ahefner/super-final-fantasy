@@ -1941,17 +1941,28 @@ opt_magicspell:
 ;;  modal loop here and nothing to erase.  The box's own wait dismisses both.
 ;;
 ;;  DrawDialogueBox draws every dialogue in the game, so this has to know a
-;;  chest from a conversation.  dlgsfx is the tell: OpenTreasureChest sets it
-;;  to 1 or 2 to pick the jingle, and it is zeroed before any other dialogue.
-;;  That costs nothing, which matters -- the hook is in the fixed bank.
+;;  chest from a conversation, and the dialogue id is the only thing that
+;;  actually says so.  It arrives in A: the hook site keeps it on the stack
+;;  across DrawDialogueString, which is two bytes where stashing it in the
+;;  option block was three, and bank $0F had two.
+;;
+;;  This used to read dlgsfx, on the theory that only a chest sets it.  dlgsfx is
+;;  not a chest flag, it is which sound to play, and every NPC who hands over an
+;;  item sets it for the fanfare -- so Sarda handing over the Rod drew the stats
+;;  of whatever weapon came out of the last chest across his line, dlg_itemid
+;;  still holding it.  Narrowing to dlgsfx = 2, the chest jingle rather than the
+;;  fanfare, would have fixed Sarda and every other gift but not Talk_BlackOrb,
+;;  which plays the chest jingle too.  The id has none of those ambiguities:
+;;  DLGID_TCGET is the chest's own dialogue and nothing else uses it.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;  In: A = the dialogue id being drawn.
 opt_chestinfo:
     PHB
+    CMP #DLGID_TCGET            ; a conversation, not a chest
+    BNE @out
     LDA OPTFB_CHESTINFO
     AND #OPTFM_CHESTINFO
-    BEQ @out
-    LDA dlgsfx                  ; a conversation, not a chest
     BEQ @out
     LDA #OPTCTX_CHEST
     STA OPTCTX
