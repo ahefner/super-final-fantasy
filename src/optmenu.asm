@@ -178,10 +178,10 @@ opt_settings:
     STA OPTMENU_PREV
 
     LDA OPTMENU_EDGE
-    AND #PAD_B
+    AND #PAD_B | PAD_START
     BNE @done
     LDA OPTMENU_EDGE
-    AND #PAD_A | PAD_START
+    AND #PAD_A
     BNE @act
     LDA OPTMENU_EDGE
     AND #PAD_DOWN
@@ -205,6 +205,15 @@ opt_settings:
     JMP @loop
 
   @done:
+    ;  Start leaves rather than toggling.  The title screen treats A and Start
+    ;  as the same button, so arriving here Start already means "yes" -- but on
+    ;  a list of switches the useful sense of "yes, done" is to leave, and a
+    ;  second way to flip the row under the cursor is no use at all.
+    ;
+    ;  Nothing has to put the title cursor back on Continue: the way out is
+    ;  JMP EnterTitleScreen, and IntroTitlePrepare along that path already
+    ;  stores zero to cursor along with the button catchers.
+    ;
     ;  The game plays the selection effect for B as well as A -- backing out
     ;  of a menu is a choice.  LineupMenu_UpdateJoy ORs the two catchers
     ;  together and plays the one sound for either.
