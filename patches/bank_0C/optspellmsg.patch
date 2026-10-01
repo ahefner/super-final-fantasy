@@ -1,0 +1,13 @@
+--- OLD
+  : LDA lut_MagicBattleMessages, X  ; Get the desired message to print
+    BEQ @DelayAndExit               ; if 0, don't print anything.  Instead, just delay and exit
+--- NEW
+.export lut_MagicBattleMessages
+.import opt_magicmsg
+
+    ;  The same byte, except that LIFE and LIF2 carry BTLMSG_INEFFECTIVENOW --
+    ;  which was true until Cast Life made them work.  With the flag on they
+    ;  carry 0 instead, which is what PURE and LAMP carry: say nothing here and
+    ;  let the ailment message do the talking.  See opt_magicmsg.
+  : JSL opt_magicmsg + OPTFAR       ; Get the desired message to print
+    BEQ @DelayAndExit               ; if 0, don't print anything.  Instead, just delay and exit

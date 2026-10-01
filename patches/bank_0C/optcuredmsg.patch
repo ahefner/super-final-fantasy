@@ -1,0 +1,16 @@
+--- OLD
+  @AilmentCured:
+    TXA                             ; use loop counter to get message
+    CLC
+    ADC #ALTBTLMSG_CURED_1-1        ; -1 since loop counter is 1 based
+    BNE @PrintMessageAndNext        ; print it and keep looping
+--- NEW
+.import opt_curedmsg
+
+  @AilmentCured:
+    ;  The same sum, except for AIL_DEAD.  That is bit 0, so the counter is 8,
+    ;  and 8 lands on ALTBTLMSG_SLAIN -- the wording for inflicting death, which
+    ;  is what this table holds because vanilla never cures it in battle.  Four
+    ;  bytes for four.  See opt_curedmsg.
+    JSL opt_curedmsg + OPTFAR       ; use loop counter to get message
+    BNE @PrintMessageAndNext        ; print it and keep looping

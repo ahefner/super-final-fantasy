@@ -1,0 +1,16 @@
+--- OLD
+Battle_PlMag_TargetOnePlayer:
+    JSR DrawCombatBox_Defender              ; Draw defender box
+    JSR BtlMag_LoadPlayerDefenderStats      ; Load defender stats (and do "hit with magic" animation/sound)
+    JSR Battle_PlMag_IsPlayerValid          ; Is this a valid target?
+--- NEW
+.import opt_playervalid
+
+Battle_PlMag_TargetOnePlayer:
+    JSR DrawCombatBox_Defender              ; Draw defender box
+    JSR BtlMag_LoadPlayerDefenderStats      ; Load defender stats (and do "hit with magic" animation/sound)
+
+    ;  The same question, except that Cast Life has to be able to point LIFE and
+    ;  LIF2 at the one party member this routine exists to refuse.  Everything
+    ;  else answers exactly as it did.  See opt_playervalid.
+    JSL opt_playervalid + OPTFAR            ; Is this a valid target?

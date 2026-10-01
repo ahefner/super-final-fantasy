@@ -56,11 +56,13 @@
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_padreset
-.export opt_magicgfx, opt_castlife
+.export opt_magicgfx, opt_castlife, opt_playervalid
+.export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
 ;  The game's own reset entry, for Controller Reset.
 .import OnReset
+.import lut_MagicBattleMessages
 .import lut_LvlUpHitRateBonus
 .import opt_spelloverride
 .import lut_WaitString
@@ -1784,6 +1786,115 @@ lut_SpellFixEnd:
 lut_LifeRecord:
   .BYTE   0, $01, 0, $10, $08, 224, 43, 0      ; LIFE
   .BYTE   0, $81, 0, $10, $08, 224, 44, 0      ; LIF2
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Cast Life in Battle -- the two messages
+;;
+;;  With the spell working, it narrated itself wrongly twice: "Ineffective now",
+;;  and then "Slain" as it stood the character back up.  Both are vanilla data
+;;  that only ever had to make sense for a spell that could not be cast.
+;;
+;;  The first is lut_MagicBattleMessages, one byte per spell.  LIFE and LIF2
+;;  carry $4A, BTLMSG_INEFFECTIVENOW, and BtlMag_PrintMagicMessage prints it
+;;  unconditionally for a spell that connected.  The fix is the convention the
+;;  game already uses for a cure: PURE and LAMP both carry 0, print nothing, and
+;;  let the ailment message speak.  So these two carry 0 as well, while the flag
+;;  is on.
+;;
+;;  The second is arithmetic.  HandleAilmentChanges walks the eight ailment bits
+;;  low first, with X counting 8 down to 1, and a cured bit takes
+;;  ALTBTLMSG_CURED_1 - 1 + X.  POISON lands on NEUTRALIZED and SLEEP on WOKEUP,
+;;  but AIL_DEAD is bit 0, so X is 8 and it lands on ALTBTLMSG_SLAIN -- the
+;;  wording for inflicting death, because vanilla never cures it in battle.  Its
+;;  neighbour is the same kind of placeholder: the table's entry for curing
+;;  STONE is INEFFECTIVENOW, and the comment in Constants.inc says why.
+;;
+;;  ALTBTLMSG_CURED_1 is the generic "cured", which is what PURE's own cure of
+;;  CONF prints.  Reusing it costs nothing; a word of its own would mean growing
+;;  the alt-message table, which is a bigger change than this is worth.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Replaces the LDA lut_MagicBattleMessages, X in BtlMag_PrintMagicMessage.
+;  In: X = the spell.  Out: A = the message, Z set if there is none -- which is
+;  the flag the BEQ after the call reads, and RTL does not disturb it.
+opt_magicmsg:
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @vanilla
+    CPX #SPELL_LIFE
+    BEQ @silent
+    CPX #SPELL_LIF2
+    BNE @vanilla
+  @silent:
+    LDA #$00                    ; as PURE and LAMP do
+    RTL
+  @vanilla:
+    LDA f:lut_MagicBattleMessages + BANK0CFAR, X
+    RTL
+
+;  Replaces the TXA / CLC / ADC at @AilmentCured, four bytes for four.
+;  In: X = the ailment loop counter, 8 down to 1.  Out: A = the message, and
+;  nonzero, which the BNE after the call depends on.
+opt_curedmsg:
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @vanilla
+    CPX #$08                    ; the counter when the bit is AIL_DEAD
+    BNE @vanilla
+    LDA #ALTBTLMSG_CURED_1      ; ...rather than the wording for dying
+    RTL
+  @vanilla:
+    TXA
+    CLC
+    ADC #ALTBTLMSG_CURED_1 - 1
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Cast Life in Battle -- letting the spell reach a corpse at all
+;;
+;;  Battle_PlMag_TargetOnePlayer asks Battle_PlMag_IsPlayerValid whether the
+;;  chosen party member can be targeted, and that routine answers "no" for
+;;  anyone dead or stoned -- so the caller jumps to Battle_ShowIneffective
+;;  before the spell effect is ever reached.  Which is to say the record and the
+;;  HP were both beside the point until this: the only party member LIFE is for
+;;  is the one the targeting refuses.
+;;
+;;  This replaces the JSR, so it has to answer the same question the same way:
+;;  Z set for a valid target, clear for an invalid one, and the vanilla test is
+;;  reproduced below rather than called, there being no path into bank $0C.
+;;
+;;  FFR passes any CureAilment spell, effect $08, whatever its mask.  This asks
+;;  for the two Life tags as well, so PURE, LAMP and AMUT keep refusing a corpse
+;;  exactly as they do on the cartridge -- there is no reason for this flag to
+;;  change where they can be pointed.
+;;
+;;  In:  btl_entityptr_obrom points at the target's out-of-battle stats.
+;;  Out: Z set if the target is valid.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_playervalid:
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @vanilla
+    LDA btlmag_effect
+    CMP #BTLMAG_CUREAILMENT
+    BNE @vanilla
+    LDA btlmag_effectivity
+    CMP #CASTLIFE_LIFE
+    BEQ @valid
+    CMP #CASTLIFE_LIF2
+    BNE @vanilla
+  @valid:
+    LDA #$00                    ; Z set -- a corpse is precisely the target
+    RTL
+
+  @vanilla:
+    LDY #ch_ailments - ch_stats
+    LDA (btl_entityptr_obrom), Y
+    AND #AIL_DEAD | AIL_STONE
+    RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

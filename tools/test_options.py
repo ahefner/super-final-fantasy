@@ -1712,6 +1712,131 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- Cast Life in Battle, the two messages -----------------------------------
+#  With the spell working it narrated itself wrongly twice.  Both are vanilla
+#  data that only had to make sense for a spell that could not be cast.
+def test_lifemessages():
+    F_CASTLIFE = (3, 0x01)
+    SPELL_CURE, SPELL_LAMP, SPELL_PURE = 0, 8, 24
+    SPELL_LIFE, SPELL_LIF2 = 33, 56
+    INEFFECTIVENOW, CURED_1, SLAIN = 0x4A, 0x0D, 0x14
+
+    def flags_on(bus, on):
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i,
+                   F_CASTLIFE[1] if (on and i == F_CASTLIFE[0]) else 0)
+
+    def msg(spell, castlife):
+        bus, cpu = machine()
+        flags_on(bus, castlife)
+        cpu.x = spell
+        call(cpu, "opt_magicmsg")
+        return cpu.a, bool(cpu.p & 0x02)        # value, Z
+
+    def cured(counter, castlife):
+        bus, cpu = machine()
+        flags_on(bus, castlife)
+        cpu.x = counter
+        call(cpu, "opt_curedmsg")
+        return cpu.a, bool(cpu.p & 0x02)
+
+    #  Vanilla really does hand LIFE the "ineffective" message, and really does
+    #  hand PURE and LAMP nothing -- which is the convention being copied.
+    check("LIFE's cartridge message is INEFFECTIVENOW",
+          msg(SPELL_LIFE, False)[0], INEFFECTIVENOW)
+    check("LIF2's too", msg(SPELL_LIF2, False)[0], INEFFECTIVENOW)
+    check("PURE carries none", msg(SPELL_PURE, False), (0x00, True))
+    check("LAMP carries none", msg(SPELL_LAMP, False), (0x00, True))
+
+    #  With the flag on, the two Life spells say nothing, and Z is set so the
+    #  caller's BEQ skips the message box.
+    check("LIFE silent with the flag on", msg(SPELL_LIFE, True), (0x00, True))
+    check("LIF2 silent with the flag on", msg(SPELL_LIF2, True), (0x00, True))
+    #  Everything else keeps its own, flag either way.
+    for name, spell in (("CURE", SPELL_CURE), ("PURE", SPELL_PURE),
+                        ("LAMP", SPELL_LAMP)):
+        check("%s unchanged by the flag" % name,
+              msg(spell, True)[0], msg(spell, False)[0])
+
+    #  The cured-ailment message.  Counter 8 is AIL_DEAD, bit 0; 6 is POISON.
+    check("DEAD cured, flag off: SLAIN", cured(8, False)[0], SLAIN)
+    check("DEAD cured, flag on: CURED", cured(8, True)[0], CURED_1)
+    for counter in range(1, 8):
+        want = CURED_1 - 1 + counter
+        check("counter %d unchanged, flag off" % counter, cured(counter, False)[0], want)
+        check("counter %d unchanged, flag on" % counter, cured(counter, True)[0], want)
+    #  ...and never zero, since the caller branches on BNE.
+    for counter in range(1, 9):
+        for on in (False, True):
+            check("counter %d nonzero, flag %s" % (counter, "on" if on else "off"),
+                  cured(counter, on)[1], False)
+
+    #  The wiring for both.
+    for name in ("opt_magicmsg", "opt_curedmsg"):
+        tgt = SYM[name]
+        jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+        check("the battle calls %s" % name, jsl in ROMDATA, True)
+
+
+# --- Cast Life in Battle, reaching a corpse at all ---------------------------
+#  Battle_PlMag_TargetOnePlayer refuses a dead or stoned target before the spell
+#  effect is reached, which is why the record and the HP were both beside the
+#  point on their own: the only party member LIFE is for is the one the
+#  targeting rejects.  Z set means valid.
+def test_playervalid():
+    F_CASTLIFE = (3, 0x01)
+    LIFE, LIF2 = 0x01, 0x81
+    CUREAILMENT = 0x08
+    AIL_DEAD, AIL_STONE, AIL_POISON = 0x01, 0x02, 0x04
+    OBROM = 0x92                                # btl_entityptr_obrom, zero page
+    STATS = 0x0400                              # somewhere in low RAM for the stats
+
+    def valid(ailments, effect, effectivity, castlife=True):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i,
+                   F_CASTLIFE[1] if (castlife and i == F_CASTLIFE[0]) else 0)
+        bus.wram[OBROM] = STATS & 0xFF
+        bus.wram[OBROM + 1] = STATS >> 8
+        bus.wram[STATS + 1] = ailments          # ch_ailments is ch_stats + 1
+        bus.sram[0x686E - 0x6000] = effect      # btlmag_effect
+        bus.sram[0x6874 - 0x6000] = effectivity # btlmag_effectivity
+        call(cpu, "opt_playervalid")
+        return "valid" if cpu.p & 0x02 else "refused"     # Z
+
+    #  The whole point: a dead target, for the two Life spells, with the flag on.
+    check("dead, LIFE", valid(AIL_DEAD, CUREAILMENT, LIFE), "valid")
+    check("dead, LIF2", valid(AIL_DEAD, CUREAILMENT, LIF2), "valid")
+
+    #  With the flag off it refuses, as the cartridge does.
+    check("dead, LIFE, flag off",
+          valid(AIL_DEAD, CUREAILMENT, LIFE, castlife=False), "refused")
+
+    #  And the relaxation is narrower than FFR's, which passes any CureAilment
+    #  spell: PURE, LAMP and AMUT still cannot be pointed at a corpse.
+    for name, mask in (("PURE", 0x04), ("LAMP", 0x08), ("AMUT", 0x40)):
+        check("dead, %s, flag on" % name,
+              valid(AIL_DEAD, CUREAILMENT, mask), "refused")
+
+    #  Everything else answers exactly as the vanilla test did.
+    for name, ail, want in (("healthy", 0x00, "valid"),
+                            ("poisoned", AIL_POISON, "valid"),
+                            ("stoned", AIL_STONE, "refused"),
+                            ("dead and stoned", AIL_DEAD | AIL_STONE, "refused")):
+        for on in (False, True):
+            check("%s, CURE, flag %s" % (name, "on" if on else "off"),
+                  valid(ail, 0x07, 0x10, castlife=on), want)
+
+    #  A Life tag on a spell that is not CureAilment is not a Life spell.
+    check("dead, effect 7 with the LIFE tag",
+          valid(AIL_DEAD, 0x07, LIFE), "refused")
+
+    #  The wiring.
+    tgt = SYM["opt_playervalid"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    check("TargetOnePlayer calls opt_playervalid", jsl in ROMDATA, True)
+
+
 # --- Cast Life in Battle, the half that makes it stick -----------------------
 #  The record alone never worked: CureAilment clears AIL_DEAD and then
 #  PerformSpellEffect puts it back because HP is still zero, so the bit nets to
@@ -2749,7 +2874,8 @@ def main():
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
               test_spellflags, test_tmprsabr, test_cur4,
-              test_padreset, test_magicgfx, test_castlife):
+              test_padreset, test_magicgfx, test_castlife,
+              test_playervalid, test_lifemessages):
         try:
             t()
         except Exception as e:
