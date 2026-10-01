@@ -1712,6 +1712,62 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- the selection menu's graphic and palette --------------------------------
+#  Read through the selection pointer, not the casting one -- the same split
+#  OptMagicTarget exists for.  Cast Life is where it showed: vanilla LIFE and
+#  LIF2 are blank stubs, so the menu recorded graphic 0, which is not one of the
+#  eight any spell uses, and the animation drew out of the caster's own CHR.
+def test_magicgfx():
+    MAGDATA = open('game/bin/0C_81E0_magicdata.bin','rb').read()
+    SPELL_LIFE, SPELL_LIF2, SPELL_CURE, SPELL_HARM = 33, 56, 0, 10
+    F_CASTLIFE = (3, 0x01)                      # bit 24
+    BTLCMD_MAGGFX, BTLCMD_MAGPAL, BTLCMD_SPELLSEL = 0x68B3, 0x68B4, 0x6B7D
+
+    def gfx(spell, castlife):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i,
+                   F_CASTLIFE[1] if (castlife and i == F_CASTLIFE[0]) else 0)
+        rec = MAGDATA[spell * 8: spell * 8 + 8]
+        for k, b in enumerate(rec):             # ($80) -> the cartridge's record
+            bus.wram[0x0500 + k] = b
+        bus.wram[0x80], bus.wram[0x81] = 0x00, 0x05
+        bus.sram[BTLCMD_SPELLSEL - 0x6000] = spell
+        call(cpu, "opt_magicgfx")
+        return (bus.sram[BTLCMD_MAGGFX - 0x6000],
+                bus.sram[BTLCMD_MAGPAL - 0x6000]), (rec[5], rec[6])
+
+    #  FFR's own values for the two spells, from SpellBalance.EnableLifeInBattle.
+    check("LIFE with Cast Life on", gfx(SPELL_LIFE, True)[0], (224, 43))
+    check("LIF2 with Cast Life on", gfx(SPELL_LIF2, True)[0], (224, 44))
+
+    #  Off, they stay the blank stubs the cartridge ships, graphic 0 and all --
+    #  which is exactly why the flag has to supply them.
+    for name, spell in (("LIFE", SPELL_LIFE), ("LIF2", SPELL_LIF2)):
+        got, van = gfx(spell, False)
+        check("%s with Cast Life off is vanilla" % name, got, van)
+        check("%s vanilla really is a blank stub" % name, van, (0, 0))
+
+    #  And nothing else is disturbed, flag either way.
+    for name, spell in (("CURE", SPELL_CURE), ("HARM", SPELL_HARM)):
+        for on in (False, True):
+            got, van = gfx(spell, on)
+            check("%s untouched, Cast Life %s" % (name, "on" if on else "off"),
+                  got, van)
+
+    #  ...and that the game actually calls it.  Everything above passes with the
+    #  routine present and the patch site reverted, which is how the bug got in:
+    #  the reads are the wiring, not the routine.  So assert the wiring -- the
+    #  JSL is there, and the unhooked sequence it replaced is not.
+    rom = ROMDATA
+    tgt = SYM["opt_magicgfx"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    check("the selection menu calls opt_magicgfx", jsl in rom, True)
+    #  LDY #$05 / LDA ($80),Y / STA $68B3 -- the read it replaced
+    unhooked = bytes([0xA0, 0x05, 0xB1, 0x80, 0x8D, 0xB3, 0x68])
+    check("the unhooked graphic read is gone", unhooked in rom, False)
+
+
 # --- Controller Reset -------------------------------------------------------
 #  Two halves.  aux_detect in the HAL watches the pad once a frame and leaves
 #  the combo it saw released in h_padreset; opt_padreset, called from
@@ -2631,7 +2687,7 @@ def main():
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
               test_spellflags, test_tmprsabr, test_cur4,
-              test_padreset):
+              test_padreset, test_magicgfx):
         try:
             t()
         except Exception as e:

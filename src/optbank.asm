@@ -56,6 +56,7 @@
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_padreset
+.export opt_magicgfx
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
 ;  The game's own reset entry, for Controller Reset.
@@ -1783,6 +1784,43 @@ lut_SpellFixEnd:
 lut_LifeRecord:
   .BYTE   0, $01, 0, $10, $08, 224, 43, 0      ; LIFE
   .BYTE   0, $81, 0, $10, $08, 224, 44, 0      ; LIF2
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The graphic and palette the selection menu records
+;;
+;;  Two more bytes read through the *selection* pointer rather than the casting
+;;  one, which is the split OptMagicTarget already exists for.  The target byte
+;;  was told about overrides; these two were not, so a spell whose record the
+;;  options bank replaces got the cartridge's graphic and palette instead.
+;;
+;;  Cast Life in Battle is where that showed.  Vanilla LIFE and LIF2 are blank
+;;  stubs -- hit rate 255, target 16, and zero in every other field -- because
+;;  vanilla has no in-battle effect for them, so the menu recorded graphic 0 and
+;;  palette 0.  Zero is not one of the eight graphics any spell uses, so the
+;;  animation drew out of whatever was at the bottom of the sprite CHR: bits of
+;;  the caster.  Our record carries FFR's own 224 and 43/44, and now they arrive.
+;;
+;;  In:  ($80) = the record GetPointerToMagicData returned, $6B7D = the spell.
+;;  Out: $68B3 = graphic, $68B4 = palette, after any override.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_magicgfx:
+    LDY #MAGDATA_GRAPHIC
+    JSR @field
+    STA BTLCMD_MAGGFX
+    LDY #MAGDATA_PALETTE
+    JSR @field
+    STA BTLCMD_MAGPAL
+    RTL
+
+  @field:
+    LDX BTLCMD_SPELLSEL         ; the spell the menu is on, already zero based
+    JSR opt_spelloverride       ; C set and A = the replacement, if there is one
+    BCS @out
+    LDA ($80), Y                ; ...otherwise the cartridge's own byte
+  @out:
+    RTS
 
 
 ;;  Does a flag replace this byte of this spell's record?

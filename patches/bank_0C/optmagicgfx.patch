@@ -1,0 +1,17 @@
+--- OLD
+    LDY #$05
+    LDA ($80), Y
+    STA $68B3                       ; put magic graphic at 68B3 (temp)
+    
+    LDY #$06
+    LDA ($80), Y
+    STA $68B4                       ; put magic palette at 68B4 (temp)
+--- NEW
+.import opt_magicgfx
+
+    ;  The graphic and palette, through the override.  These are read on the
+    ;  selection pointer, which OptMagicTarget already had to be taught about
+    ;  for the target byte -- these two were missed, so a spell the options
+    ;  bank rewrites was drawn with the cartridge's graphic.  See opt_magicgfx.
+    ;  Fourteen bytes become four, which this bank is glad of.
+    JSL opt_magicgfx + OPTFAR

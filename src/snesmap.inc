@@ -1194,6 +1194,12 @@ PADRESET_HARD     = JOYAUX_L | JOYAUX_Y  ; L + Y: ...with zero page wiped first
 OPTCHEST_DY       = 3
 OPTLINEI          = OPTBLOCK+$C2  ; where the line being drawn starts
 OPTLINEE          = OPTBLOCK+$C3  ; and where its line break was
+
+;  The battle magic menu's scratch, named rather than left as bare addresses.
+;  opt_magicgfx fills the first two; the third is what the menu is pointing at.
+BTLCMD_MAGGFX     = $68B3       ; the graphic the selection recorded...
+BTLCMD_MAGPAL     = $68B4       ; ...and its palette
+BTLCMD_SPELLSEL   = $6B7D       ; the selected spell, zero based by this point
 OPTFB_WEAPONSTATS = OPT_FLAGS+2 ; bit 16
 OPTFM_WEAPONSTATS = $01
 OPTFB_CRITRATE    = OPT_FLAGS+2 ; bit 20
