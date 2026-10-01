@@ -67,6 +67,7 @@
 .import opt_spelloverride
 .import lut_WaitString
 .import lut_CantHoldWhat
+.import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright
 .export opt_commit_body
@@ -1163,6 +1164,8 @@ opt_retarget_pick:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_dlgident:
+    CPX #(DLGID_TCGET * 2) .MOD $100
+    BEQ @found
     CPX #(DLGID_CANTCARRY * 2) .MOD $100
     BNE @out
     LDA OPTFB_IDTREASURE
@@ -1171,6 +1174,20 @@ opt_dlgident:
     LDA #<lut_CantHoldWhat
     STA text_ptr
     LDA #>lut_CantHoldWhat
+    STA text_ptr+1
+    RTL
+
+    ;  The chest's own dialogue, shortened from three lines to one -- but only
+    ;  when Chest Information is appending its six, which is what makes the
+    ;  longest items overflow the box.  With the flag off the cartridge's
+    ;  wording stands, because there is nothing wrong with it.
+  @found:
+    LDA OPTFB_CHESTINFO
+    AND #OPTFM_CHESTINFO
+    BEQ @out
+    LDA #<lut_YouFound
+    STA text_ptr
+    LDA #>lut_YouFound
     STA text_ptr+1
   @out:
     RTL

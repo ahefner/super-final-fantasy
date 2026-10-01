@@ -1959,8 +1959,20 @@ opt_magicspell:
 ;;  In: A = the dialogue id being drawn.
 opt_chestinfo:
     PHB
-    CMP #DLGID_TCGET            ; a conversation, not a chest
+    CMP #DLGID_TCGET
+    BEQ @chest
+    ;  ...and the full-inventory message, which is the one time the description
+    ;  decides something: whether to go and drop a thing and come back.  It only
+    ;  reads well with Identify Treasures also on, because that is what replaces
+    ;  "Can't hold anymore." with a one-line message naming the item -- and
+    ;  OPTCHEST_DY assumes one line.  FFR couples the same pair for the same
+    ;  reason.
+    CMP #DLGID_CANTCARRY        ; a conversation, not a chest
     BNE @out
+    LDA OPTFB_IDTREASURE
+    AND #OPTFM_IDTREASURE
+    BEQ @out
+  @chest:
     LDA OPTFB_CHESTINFO
     AND #OPTFM_CHESTINFO
     BEQ @out

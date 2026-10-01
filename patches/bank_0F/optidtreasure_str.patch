@@ -10,7 +10,14 @@ DrawPalette:
 ;;    Dialogue $F1 is "Can't hold anymore." -- which does not say what it is
 ;;  you cannot hold, so a full inventory in front of a chest means reloading
 ;;  to find out whether the chest mattered.  This is the replacement: the same
-;;  opening, then a line break and the item name, the way $F0 ends.
+;;  opening and then the item name.
+;;
+;;    One line, not two.  It was "Can't hold" / name until Chest Information
+;;  started appending its description here as well, which it does when both
+;;  flags are on -- and a full pack is exactly when the stats decide what you
+;;  do next.  OPTCHEST_DY is the message's line count, so both messages this
+;;  bank supplies have to be one line for one offset to serve them.  FFR writes
+;;  the same string, "Can't hold.. #", under the same pair of flags.
 ;;
 ;;    It lives in the fixed bank rather than with the other dialogue because
 ;;  that bank is a raw data blob with a pointer table baked into it.  The
@@ -25,8 +32,38 @@ lut_CantHoldWhat:
   .BYTE $8C, $A4, $B1, $BE, $B7      ; "Can't"
   .BYTE $FF                          ; " "
   .BYTE $AB, $B2, $AF, $A7           ; "hold"
-  .BYTE $01                          ; line break
-  .BYTE $02                          ; the item's name
+  .BYTE $C0, $C0                     ; ".."
+  .BYTE $FF                          ; " "
+  .BYTE $02                          ; ...and the item's name, same line
+  .BYTE $00
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Chest Information
+;;
+;;    Dialogue $F0 is "In the treasure box," / "you found.." / the name --
+;;  three lines for what one can say.  That is fine on its own, and it is what
+;;  the cartridge shows whenever Chest Information is off.  With the flag on,
+;;  six lines of description follow it, and the longest items need ten rows in a
+;;  box that holds nine: the Fire Sword wrote over the bottom border.
+;;
+;;    Nine items reach six description lines, three of which are spell ids no
+;;  chest contains.  Folding these three rows into one leaves eight, so every
+;;  possible chest fits with a row to spare.  This is FFR's answer as well --
+;;  ShopInformation.cs swaps the same string for "You found.. #" when its chest
+;;  info and identify flags are both on.
+;;
+;;  Control code $02 prints dlg_itemid's name; here it follows on the same line.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_YouFound:
+  .BYTE $A2, $B2, $B8                ; "You"
+  .BYTE $FF                          ; " "
+  .BYTE $A9, $B2, $B8, $B1, $A7      ; "found"
+  .BYTE $C0, $C0                     ; ".."
+  .BYTE $FF                          ; " "
+  .BYTE $02                          ; ...and the item's name, same line
   .BYTE $00
 
 

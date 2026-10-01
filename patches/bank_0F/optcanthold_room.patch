@@ -1,0 +1,13 @@
+--- OLD
+ ;; Unused
+
+.BYTE $EA, $EA, $EA, $EA, $EA
+--- NEW
+ ;; Unused
+ ;;
+ ;;   Three now, not five.  The two went to lut_CantHoldWhat, which grew when it
+ ;;   was folded onto one line so Chest Information could append a description
+ ;;   under it -- see optidtreasure_str.patch.  The other block of slack in this
+ ;;   bank is down to one byte, so this is where the rest of it lives.
+
+.BYTE $EA, $EA, $EA

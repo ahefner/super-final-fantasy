@@ -5,7 +5,7 @@
       LDA lut_DialoguePtrTbl+$101, X
       STA text_ptr+1
 --- NEW
-.export lut_CantHoldWhat
+.export lut_CantHoldWhat, lut_YouFound
 .import opt_dlgident
 
     @HiTbl:

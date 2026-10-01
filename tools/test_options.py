@@ -887,9 +887,37 @@ def test_idtreasure():
         fails.append("lut_CantHoldWhat is not terminated within 32 bytes")
         text = []
     check("the string prints the item name", 0x02 in text, True)
-    check("the string has one line break", text.count(0x01), 1)
-    check("the string is not longer than the box is wide",
-          sum(1 for b in text if b >= 0x7A), 10)
+    #  One line, not two.  Chest Information appends a description under this
+    #  message when both flags are on, and OPTCHEST_DY is the message's line
+    #  count, so one offset only serves both messages if both are one line.
+    check("the string is one line", text.count(0x01), 0)
+    check("the string's own text is 13 glyphs",
+          sum(1 for b in text if b >= 0x7A), 13)
+
+    #  ...and the name that follows it has to fit beside it.  The longest gear
+    #  name in the game decides that, so measure it rather than assume: the
+    #  pointer table is at $B700 of BANK_ITEMS, which is BANK_DIALOGUE.
+    BOX_COLS = 28
+    worst = (0, None)
+    for item in range(0x1C, 0x6C):
+        lo = chunkbyte(0x0A, 0xB700 + item * 2)
+        hi = chunkbyte(0x0A, 0xB700 + item * 2 + 1)
+        ptr = lo | (hi << 8)
+        if not 0x8000 <= ptr <= 0xFFFF:
+            continue
+        n = 0
+        while n < 24:
+            b = chunkbyte(0x0A, ptr + n)
+            if b in (0x00, 0x01, 0x05):
+                break
+            n += 1
+        if n > worst[0]:
+            worst = (n, item)
+    check("the longest gear name was found", worst[1] is not None, True)
+    for name, glyphs in (("Can't hold.. ", 13), ("You found.. ", 12)):
+        check("%r plus the longest name fits %d columns" % (name, BOX_COLS),
+              glyphs + worst[0] <= BOX_COLS, True)
+    check("the longest gear name is 8 glyphs", worst[0], 8)
 
 
 def chunkbyte(bank, addr):
@@ -1712,6 +1740,84 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- the shortened chest dialogue --------------------------------------------
+#  Dialogue $F0 is three lines, and Chest Information appends up to six more, so
+#  the longest items need ten rows in a box that holds nine.  Folding the three
+#  into one leaves eight.  opt_dlgident swaps the pointer, the same way Identify
+#  Treasures swaps $F1.
+def test_youfound():
+    F_IDTREASURE = (0, 0x10)                    # bit 4
+    F_CHESTINFO = (1, 0x20)                     # bit 13
+    DLGID_TCGET, DLGID_CANTCARRY = 0xF0, 0xF1
+    TEXT_PTR = 0x3E                             # text_ptr, zero page
+
+    def swapped(dlgid, idtreasure=False, chestinfo=False):
+        bus, cpu = machine()
+        for i in range(5):
+            v = 0
+            if idtreasure and i == F_IDTREASURE[0]: v |= F_IDTREASURE[1]
+            if chestinfo and i == F_CHESTINFO[0]: v |= F_CHESTINFO[1]
+            setblk(bus, OPT_FLAGS + i, v)
+        bus.wram[TEXT_PTR] = 0xAA               # poison: untouched means no swap
+        bus.wram[TEXT_PTR + 1] = 0xAA
+        cpu.x = (dlgid * 2) & 0xFF              # as DrawDialogueString leaves it
+        call(cpu, "opt_dlgident")
+        got = bus.wram[TEXT_PTR] | (bus.wram[TEXT_PTR + 1] << 8)
+        return got
+
+    UNTOUCHED = 0xAAAA
+    youfound, canthold = SYM["lut_YouFound"], SYM["lut_CantHoldWhat"]
+
+    #  The chest get, which is the overflow being fixed.
+    check("TCGET with Chest Information on",
+          swapped(DLGID_TCGET, chestinfo=True), youfound)
+    check("TCGET with it off keeps the cartridge wording",
+          swapped(DLGID_TCGET), UNTOUCHED)
+    #  Identify Treasures is a different flag and must not stand in for it.
+    check("TCGET with only Identify Treasures on",
+          swapped(DLGID_TCGET, idtreasure=True), UNTOUCHED)
+
+    #  The full-inventory message still belongs to Identify Treasures alone.
+    check("CANTCARRY with Identify Treasures on",
+          swapped(DLGID_CANTCARRY, idtreasure=True), canthold)
+    check("CANTCARRY with only Chest Information on",
+          swapped(DLGID_CANTCARRY, chestinfo=True), UNTOUCHED)
+    check("CANTCARRY with both on", 
+          swapped(DLGID_CANTCARRY, idtreasure=True, chestinfo=True), canthold)
+    check("TCGET with both on", 
+          swapped(DLGID_TCGET, idtreasure=True, chestinfo=True), youfound)
+
+    #  Every other dialogue in the game is left alone, both flags on.
+    bad = None
+    for dlgid in range(0x80, 0x100):
+        if dlgid in (DLGID_TCGET, DLGID_CANTCARRY):
+            continue
+        if swapped(dlgid, idtreasure=True, chestinfo=True) != UNTOUCHED:
+            bad = dlgid; break
+    check("no other dialogue is swapped", bad, None)
+
+    #  And the string really is one line: no break code before the name.
+    off = youfound - 0xC000
+    #  walk it out of the image via the fixed bank's copy in chunk 0
+    base = ROMDATA.find(bytes([0xA2, 0xB2, 0xB8, 0xFF, 0xA9, 0xB2, 0xB8, 0xB1, 0xA7]))
+    check("lut_YouFound is in the image", base >= 0, True)
+    if base >= 0:
+        body = ROMDATA[base:base + 16]
+        end = body.find(0x00)
+        lines = body[:end].count(0x01) + 1
+        check("one line, no break code", lines, 1)
+        check("ends with the item-name code", body[end - 1], 0x02)
+
+        #  The invariant the two halves share: the description starts on the
+        #  first row the message does not occupy, so the offset is the message's
+        #  line count.  Leaving it at the cartridge's 3 after shortening the
+        #  string to 1 left a blank line and still overran the box.
+        import re as _re
+        dy = int(_re.search(r'^OPTCHEST_DY\s*=\s*(\d+)',
+                            open('src/snesmap.inc').read(), _re.M).group(1))
+        check("OPTCHEST_DY matches the message's line count", dy, lines)
+
+
 # --- Cast Life in Battle, the two messages -----------------------------------
 #  With the spell working it narrated itself wrongly twice.  Both are vanilla
 #  data that only had to make sense for a spell that could not be cast.
@@ -2295,6 +2401,7 @@ def test_menuinfo():
 #  whatever was last in a chest.  Only the rejections are checked here -- past
 #  them it calls DrawComplexString, which needs a PPU.
 F_CHESTINFO = 1 << 13
+F_IDTREASURE = 1 << 4
 
 
 DLGID_TCGET, DLGID_CANTCARRY = 0xF0, 0xF1
@@ -2335,8 +2442,17 @@ def test_chestinfo():
     #  own handling in opt_dlgident.
     check("an item-giving NPC draws nothing", _chestinfo(F_CHESTINFO, 0x2A, 0x1C, dlgsfx=1), "skipped")
     check("the Black Orb draws nothing", _chestinfo(F_CHESTINFO, 0x31, 0x1C, dlgsfx=2), "skipped")
-    check("a full inventory draws nothing",
+    #  The full-inventory message gets the description too, but only with
+    #  Identify Treasures also on -- that is what makes it a one-line message
+    #  naming the item, which is what OPTCHEST_DY assumes.
+    check("a full inventory, Chest Information alone",
           _chestinfo(F_CHESTINFO, DLGID_CANTCARRY, 0x1C), "skipped")
+    check("a full inventory, both flags",
+          _chestinfo(F_CHESTINFO | F_IDTREASURE, DLGID_CANTCARRY, 0x1C), "drew")
+    check("a full inventory, Identify Treasures alone",
+          _chestinfo(F_IDTREASURE, DLGID_CANTCARRY, 0x1C), "skipped")
+    check("a full inventory holding a potion still draws nothing",
+          _chestinfo(F_CHESTINFO | F_IDTREASURE, DLGID_CANTCARRY, 0x19), "skipped")
 
     #  Potions and key items have no description; only gear does.
     for itemid in (0x00, 0x01, 0x19, 0x1B, 0x6C):
@@ -2875,7 +2991,8 @@ def main():
               test_elembonus, test_thiefninja, test_thiefhit,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
-              test_playervalid, test_lifemessages):
+              test_playervalid, test_lifemessages,
+              test_youfound):
         try:
             t()
         except Exception as e:

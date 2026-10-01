@@ -1,0 +1,13 @@
+--- OLD
+; unused space
+  .BYTE $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF
+--- NEW
+; unused space
+;
+;   One now, not fifteen.  The fourteen went to lut_YouFound, the shortened
+;   chest dialogue Chest Information needs so the longest items stop writing over
+;   the bottom of the box -- see optidtreasure_str.patch.  This block is what a
+;   bank with no free space actually has left, and spending it is the point of
+;   declaring it.  Nothing is pinned past here: convert.py reports no data blobs
+;   for this bank at all, so the tail may move.
+  .BYTE $FF

@@ -1196,11 +1196,16 @@ PADRESET_MASK     = JOYAUX_L | JOYAUX_X | JOYAUX_Y
 PADRESET_SOFT     = JOYAUX_L | JOYAUX_X  ; L + X: the ordinary reset path
 PADRESET_HARD     = JOYAUX_L | JOYAUX_Y  ; L + Y: ...with zero page wiped first
 
-;  How far below the dialogue's own text the chest description starts.  The
-;  box is seven map rows, its text begins four tile rows down, and the
-;  message above takes two of those -- so this is the first free row, and
-;  what is left below it is what a description has to fit in.
-OPTCHEST_DY       = 3
+;  How far below the dialogue's own text the chest description starts, which is
+;  to say the first row the message above does not occupy.
+;
+;  This was 3, for the cartridge's three-line "In the treasure box," / "you
+;  found.." / name.  Chest Information now swaps that for the one-line
+;  lut_YouFound, so the first free row is the next one -- and leaving this at 3
+;  cost both a blank line and the row the longest items needed.  The two are
+;  always consistent, because opt_chestinfo and the pointer swap are gated on the
+;  same flag; change one and this has to move with it.
+OPTCHEST_DY       = 1
 OPTLINEI          = OPTBLOCK+$C2  ; where the line being drawn starts
 OPTLINEE          = OPTBLOCK+$C3  ; and where its line break was
 
