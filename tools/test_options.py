@@ -1712,6 +1712,68 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- Cast Life in Battle, the half that makes it stick -----------------------
+#  The record alone never worked: CureAilment clears AIL_DEAD and then
+#  PerformSpellEffect puts it back because HP is still zero, so the bit nets to
+#  no change and the spell reads as ineffective.  FFR's LIFE works only because
+#  ExtConsumables replaces CureAilment wholesale.  opt_castlife replaces the
+#  JSR BtlMag_MarkSpellConnected at that routine's tail and supplies the HP.
+def test_castlife():
+    F_CASTLIFE = (3, 0x01)                      # bit 24
+    LIFE, LIF2 = 0x01, 0x81
+    CASTLIFE_HP = 0x10
+    SPELLCONNECTED = 0x685C
+    HP, HPMAX = 0x687A, 0x6880                  # math buffer slots
+
+    def cast(effectivity, maxhp, castlife=True, hp=0):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i,
+                   F_CASTLIFE[1] if (castlife and i == F_CASTLIFE[0]) else 0)
+        bus.sram[0x6874 - 0x6000] = effectivity          # btlmag_effectivity
+        bus.sram[HPMAX - 0x6000] = maxhp & 0xFF
+        bus.sram[HPMAX + 1 - 0x6000] = maxhp >> 8
+        bus.sram[HP - 0x6000] = hp & 0xFF
+        bus.sram[HP + 1 - 0x6000] = hp >> 8
+        bus.sram[SPELLCONNECTED - 0x6000] = 0
+        call(cpu, "opt_castlife")
+        got = bus.sram[HP - 0x6000] | (bus.sram[HP + 1 - 0x6000] << 8)
+        return got, bus.sram[SPELLCONNECTED - 0x6000]
+
+    #  Whatever else happens, the store it replaced still happens.
+    for name, eff, on in (("LIFE", LIFE, True), ("LIF2", LIF2, True),
+                          ("LIFE, flag off", LIFE, False),
+                          ("PURE", 0x04, True), ("LAMP", 0x08, True),
+                          ("AMUT", 0x40, True)):
+        check("%s: still marks the spell connected" % name,
+              cast(eff, 400, castlife=on)[1], 1)
+
+    #  LIFE stands them up with a flat 16; LIF2 refills.
+    check("LIFE: 16 HP", cast(LIFE, 400)[0], CASTLIFE_HP)
+    check("LIF2: max HP", cast(LIF2, 400)[0], 400)
+    #  ...and LIFE never exceeds what they have, however small that is.
+    check("LIFE with max 9: all of it", cast(LIFE, 9)[0], 9)
+    check("LIFE with max 16: exactly it", cast(LIFE, 16)[0], 16)
+    check("LIFE with max 17: the flat value", cast(LIFE, 17)[0], CASTLIFE_HP)
+    check("LIF2 with max 9: all of it", cast(LIF2, 9)[0], 9)
+
+    #  Flag off, no HP at all -- which is vanilla, and is the bug the flag fixes.
+    check("LIFE with the flag off: no HP", cast(LIFE, 400, castlife=False)[0], 0)
+    check("LIF2 with the flag off: no HP", cast(LIF2, 400, castlife=False)[0], 0)
+
+    #  And the three real CureAilment spells are untouched, flag either way.
+    for name, eff in (("PURE", 0x04), ("LAMP", 0x08), ("AMUT", 0x40)):
+        for on in (False, True):
+            check("%s untouched, flag %s" % (name, "on" if on else "off"),
+                  cast(eff, 400, castlife=on, hp=123)[0], 123)
+
+    #  The wiring, which the routine's own behaviour cannot show: CureAilment
+    #  calls it, and the JSR it replaced is gone from that tail.
+    tgt = SYM["opt_castlife"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    check("CureAilment calls opt_castlife", jsl in ROMDATA, True)
+
+
 # --- the selection menu's graphic and palette --------------------------------
 #  Read through the selection pointer, not the casting one -- the same split
 #  OptMagicTarget exists for.  Cast Life is where it showed: vanilla LIFE and
@@ -2687,7 +2749,7 @@ def main():
               test_treasures, test_menusfx, test_housemp,
               test_elembonus, test_thiefninja, test_thiefhit,
               test_spellflags, test_tmprsabr, test_cur4,
-              test_padreset, test_magicgfx):
+              test_padreset, test_magicgfx, test_castlife):
         try:
             t()
         except Exception as e:

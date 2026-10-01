@@ -1,0 +1,18 @@
+--- OLD
+    LDA btlmag_effectivity          ; Otherwise, cure ailment bits
+    EOR #$FF
+    AND btlmag_defender_ailments
+    STA btlmag_defender_ailments
+    JSR BtlMag_MarkSpellConnected   ; and mark the spell as connected
+--- NEW
+.import opt_castlife
+
+    LDA btlmag_effectivity          ; Otherwise, cure ailment bits
+    EOR #$FF
+    AND btlmag_defender_ailments
+    STA btlmag_defender_ailments
+
+    ;  Marks the spell connected, as the JSR here did -- and for LIFE and LIF2
+    ;  also gives the HP without which the comment above this routine comes
+    ;  true and they just die again.  See opt_castlife.
+    JSL opt_castlife + OPTFAR

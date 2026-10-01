@@ -203,6 +203,14 @@ OPTFB_SPELLFIX  = OPT_FLAGS+2
 OPTFM_SPELLFIX  = $02    ; bit 17
 OPTFB_CASTLIFE  = OPT_FLAGS+3
 OPTFM_CASTLIFE  = $01    ; bit 24
+
+;  How FFR's replacement BtlMag_Effect_CureAilment tells the two Life spells
+;  apart, and we follow it: the effectivity byte, which for every other
+;  CureAilment spell is a real ailment mask.  Vanilla's three are LAMP ($08),
+;  PURE ($04) and AMUT ($40), so neither value can collide.
+CASTLIFE_LIFE   = $01           ; ...which is AIL_DEAD, and also the mask
+CASTLIFE_LIF2   = $81           ; ...and this is not a mask at all, just a tag
+CASTLIFE_HP     = $10           ; what LIFE leaves them standing with
 OPTFB_LOK2      = OPT_FLAGS+3
 OPTFM_LOK2      = $02    ; bit 25
 

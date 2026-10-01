@@ -56,7 +56,7 @@
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_padreset
-.export opt_magicgfx
+.export opt_magicgfx, opt_castlife
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP
 ;  The game's own reset entry, for Controller Reset.
@@ -1784,6 +1784,77 @@ lut_SpellFixEnd:
 lut_LifeRecord:
   .BYTE   0, $01, 0, $10, $08, 224, 43, 0      ; LIFE
   .BYTE   0, $81, 0, $10, $08, 224, 44, 0      ; LIF2
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Cast Life in Battle -- the half that makes it stick
+;;
+;;  BtlMag_Effect_CureAilment clears AIL_DEAD happily enough, and then
+;;  BtlMag_PerformSpellEffect puts it straight back, because the defender's HP
+;;  is still zero.  HandleAilmentChanges compares the bit before and after, sees
+;;  no net change, and the spell reads as ineffective.  Disch's comment on the
+;;  routine says it outright: "it does not set the HP to a nonzero value, so
+;;  they'll just die again."
+;;
+;;  So the record alone was never going to be enough, which is the thing worth
+;;  recording here: FFR's EnableLifeInBattle writes the same eight bytes we do,
+;;  and the reason its LIFE works is that ExtConsumables replaces the whole of
+;;  CureAilment in bank $1C -- unconditionally, with no flag of its own -- and
+;;  that replacement checks the effectivity for $01 and $81 and diverts to
+;;  RecoverHP and SetHPToMax.  The $81 is not an ailment mask with AIL_CONF
+;;  along for the ride; it is FFR's tag for LIF2.
+;;
+;;  This replaces the JSR BtlMag_MarkSpellConnected at the tail of CureAilment,
+;;  so the mark is done here too.  One byte at the call site, and no need to
+;;  call back into bank $0C -- which there is no path for.
+;;
+;;  Two deliberate differences from FFR.  It reaches RecoverHP, which rolls
+;;  rand[16,32] from the effectivity it sets to $10; this writes the $10 flat.
+;;  That keeps the battle RNG untouched, which matters more here than it does in
+;;  FFR: Controller Reset exists so the player can re-enter the game at a chosen
+;;  RNG index, and a spell that draws a random number only when a flag is on
+;;  would make that flag change the sequence.  And FFR's LIF2 path never marks
+;;  the spell connected, so it heals without saying it worked; this marks both.
+;;
+;;  In:  btlmag_effectivity, as CureAilment left it.
+;;  Out: nothing.  HP is written straight into the defender's math buffer slot.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_castlife:
+    LDA #$01
+    STA btlmag_spellconnected   ; what the JSR this replaced did
+
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @out
+    LDA btlmag_effectivity
+    CMP #CASTLIFE_LIF2
+    BEQ @full
+    CMP #CASTLIFE_LIFE
+    BNE @out
+
+    ;  LIFE: on their feet with CASTLIFE_HP, or everything they have if that is
+    ;  somehow less.  A dead character's HP is zero, so writing is the same as
+    ;  adding, and it cannot be the high byte that decides.
+    LDA btlmag_defender_hpmax+1
+    BNE @flat                   ; max HP >= 256, so the flat value is safe
+    LDA btlmag_defender_hpmax
+    CMP #CASTLIFE_HP
+    BCC @full                   ; max HP below it: give them all of it
+  @flat:
+    LDA #CASTLIFE_HP
+    STA btlmag_defender_hp
+    STZ btlmag_defender_hp+1
+    RTL
+
+    ;  LIF2: what BtlMag_SetHPToMax would have done.
+  @full:
+    LDA btlmag_defender_hpmax
+    STA btlmag_defender_hp
+    LDA btlmag_defender_hpmax+1
+    STA btlmag_defender_hp+1
+  @out:
+    RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
