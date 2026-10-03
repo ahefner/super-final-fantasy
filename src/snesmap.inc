@@ -1206,6 +1206,12 @@ PADRESET_HARD     = JOYAUX_L | JOYAUX_Y  ; L + Y: ...with zero page wiped first
 ;  always consistent, because opt_chestinfo and the pointer swap are gated on the
 ;  same flag; change one and this has to move with it.
 OPTCHEST_DY       = 1
+
+;  Spell names are four characters each, every one of them, which is what lets
+;  lut_SpellNames be a flat table indexed by slot*4.  gen/spellnames.inc asserts
+;  its own size against this, and the generator fails outright if any name in
+;  the cartridge is a different length.
+SPELLNAME_WIDTH   = 4
 OPTLINEI          = OPTBLOCK+$C2  ; where the line being drawn starts
 OPTLINEE          = OPTBLOCK+$C3  ; and where its line break was
 

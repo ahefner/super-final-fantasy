@@ -17,6 +17,7 @@ esac
 python3 tools/genpal.py
 python3 tools/genapu.py
 python3 tools/genspc.py
+python3 tools/genspellnames.py
 python3 tools/genbeam.py
 python3 tools/convert.py
 

@@ -26,6 +26,7 @@
 .segment "BANK_OPT"
 
 .export lut_DTE1, lut_DTE2, lut_BattleScramble, lut_ShopTypes
+.export lut_SpellNames
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  DTE table
@@ -62,6 +63,27 @@ lut_DTE1:
 
 lut_BattleScramble:
     .INCBIN "../game/bin/0F_FCF1_rngtable.bin"
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The spell names, four bytes each
+;;
+;;  A copy, which wants justifying.  The chest description is drawn by
+;;  DrawDialogueString, and its "item name" control code reads
+;;  lut_ItemNamePtrTbl out of whatever bank is mapped -- where
+;;  DrawComplexString's pages in BANK_ITEMS for itself.  The dialogue renderer
+;;  maps whatever cur_bank names on every line break, and that has to be this
+;;  chunk or the RTS out of the renderer lands in another bank's data.  So the
+;;  control code cannot be used from here at all.
+;;
+;;  Following the cartridge's pointer table at runtime instead would need a
+;;  16-bit index or a direct-page pointer: the names are not regular enough for
+;;  eight bits, since slot 50's begins at $BEFD and straddles the page.  Four
+;;  bytes times sixty-four is 256, slot*4 fits in a byte, and the generator
+;;  reads the real pointers so it cannot drift from them.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.include "spellnames.inc"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Which kind of shop each shop id is

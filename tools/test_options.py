@@ -1740,6 +1740,95 @@ def test_shoppose():
         check("%s: no tile offset" % name, cpu.a, 0)
 
 
+# --- the "Cast" line, and the two renderers it has to satisfy ----------------
+#  The renderers differ in one way that decides this.  DrawComplexString's
+#  item-name code pages in BANK_ITEMS itself, so the shop, equip and magic boxes
+#  can use control code $02 and not care which bank is mapped.
+#  DrawDialogueString's $02 reads lut_ItemNamePtrTbl straight out of whatever
+#  bank is mapped -- and its line breaks map whatever cur_bank names, which has
+#  to be the options chunk or the RTS out of the renderer lands in another
+#  bank's data.  Naming the dialogue bank read the table and then crashed.
+#
+#  So the chest path expands the name itself, out of lut_SpellNames.
+def test_castline():
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID = 0x6E50, 0x6EC1, 0x61
+    OPTCTX_SHOP, OPTCTX_CHEST = 0, 3
+    CUR_BANK, CHUNK_OPT_NES = 0x57, 0x11
+    MG_START, WIDTH = 0xB0, 4
+
+    wep = open("game/bin/0C_8000_weapondata.bin", "rb").read()
+    arm = open("game/bin/0C_8140_armordata.bin", "rb").read()
+    casters = [(28 + i, wep[i * 8 + 3] - 1)
+               for i in range(len(wep) // 8) if wep[i * 8 + 3]]
+    casters += [(68 + i, arm[i * 4 + 3] - 1)
+                for i in range(len(arm) // 4) if arm[i * 4 + 3]]
+    check("the cartridge has gear that casts", len(casters), 12)
+
+    def build(item, ctx):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, 0xFF)
+        bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50] = bytes(0x50)
+        bus.sram[OPTCTX_A - 0x6000] = ctx
+        bus.wram[DLG_ITEMID] = item
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        end = buf.find(0)
+        return buf[:end], bus.wram[DLG_ITEMID]
+
+    #  The name the cartridge holds, read through its own pointer table in the
+    #  built image -- not through our copy, so the two derivations are separate.
+    def cartridge_name(slot):
+        item = MG_START + slot
+        p = (chunkbyte(0x0A, 0xB700 + item * 2)
+             | (chunkbyte(0x0A, 0xB700 + item * 2 + 1) << 8))
+        return bytes(chunkbyte(0x0A, p + k) for k in range(WIDTH))
+
+    bad = None
+    for item, slot in casters:
+        body, dlg = build(item, OPTCTX_CHEST)
+        if not body.endswith(cartridge_name(slot)):
+            bad = ("$%02X names the wrong spell" % item,); break
+        if 0x02 in body:
+            bad = ("$%02X still uses control code $02" % item,); break
+        if dlg != item:
+            bad = ("$%02X clobbered dlg_itemid" % item,); break
+    check("every casting item names its spell in a chest", bad, None)
+
+    bad = None
+    for item, slot in casters:
+        body, _ = build(item, OPTCTX_SHOP)
+        if body[-2:] != bytes([0x02, MG_START + slot]):
+            bad = ("$%02X" % item, body[-2:].hex()); break
+    check("every casting item still uses $02 in a shop", bad, None)
+
+    for item in (0x1C, 0x44):
+        for ctx in (OPTCTX_SHOP, OPTCTX_CHEST):
+            body, _ = build(item, ctx)
+            check("item $%02X has no cast line (ctx %d)" % (item, ctx),
+                  0x02 in body, False)
+
+    #  Our copy has to agree with the cartridge for all 64.
+    tbl = SYM["lut_SpellNames"]
+    bad = None
+    for slot in range(64):
+        ours = bytes(chunkbyte(0x11, tbl + slot * WIDTH + k) for k in range(WIDTH))
+        if ours != cartridge_name(slot):
+            bad = (slot, ours.hex()); break
+    check("lut_SpellNames matches the cartridge", bad, None)
+
+    #  The invariant that cost a crash.
+    start = SYM["opt_chestinfo"]
+    body = bytes(chunkbyte(0x11, start + i) for i in range(160))
+    tgt = SYM["DrawDialogueString_PtrLoaded"]
+    at = body.find(bytes([0x20, tgt & 0xFF, tgt >> 8]))
+    check("opt_chestinfo calls the dialogue renderer", at >= 0, True)
+    if at >= 0:
+        check("it names the options chunk before rendering",
+              bytes([0xA9, CHUNK_OPT_NES, 0x85, CUR_BANK]) in body[:at], True)
+
+
 # --- the shortened chest dialogue --------------------------------------------
 #  Dialogue $F0 is three lines, and Chest Information appends up to six more, so
 #  the longest items need ten rows in a box that holds nine.  Folding the three
@@ -2992,7 +3081,7 @@ def main():
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
-              test_youfound):
+              test_youfound, test_castline):
         try:
             t()
         except Exception as e:

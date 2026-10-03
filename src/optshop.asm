@@ -51,6 +51,7 @@
 
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
+.import lut_SpellNames
 .import DrawDialogueString_PtrLoaded
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
 .import OptShopFrameFar, OptCallFar
@@ -681,24 +682,49 @@ opt_term:
 ;  built.  The spell field is 1-based and magic starts at item MG_START.
 ;  In: A = the spell field, already known nonzero.
 opt_castline:
-    PHA
+    PHA                         ; the field, before opt_nl gets to clobber A
     JSR opt_nl
     LDA #WORD_CAST
     JSR opt_word
+    PLA
+
+    LDX OPTCTX
+    CPX #OPTCTX_CHEST
+    BEQ @chest
+
+    ;  Shop, equip and magic: control code $02 and then the magic item id.
+    ;  DrawComplexString resolves it, and its handler pages in BANK_ITEMS for
+    ;  itself, so it does not care which bank is mapped.
+    PHA
     LDA #$02
     JSR opt_emit
     PLA
     CLC
     ADC #MG_START - 1
-    LDX OPTCTX
-    CPX #OPTCTX_CHEST
-    BEQ @chest
     JMP opt_emit
+
   @chest:
-    ;  The dialogue renderer's $02 draws whatever dlg_itemid names, and does
-    ;  not take an id from the string -- so the spell goes there instead.
-    ;  The chest's own item has been drawn by the time this is read.
-    STA dlg_itemid
+    ;  DrawDialogueString's $02 is not the same: it reads lut_ItemNamePtrTbl out
+    ;  of whatever bank is mapped, and the renderer maps whatever cur_bank names
+    ;  on every line break -- which has to be this chunk, or the RTS out of the
+    ;  renderer lands in another bank's data.  Naming the dialogue bank read the
+    ;  table correctly and crashed on the way home; leaving it drew a fragment of
+    ;  somebody's conversation after the word "Cast".  So the name is expanded
+    ;  here instead, out of lut_SpellNames -- see optdata.asm for why that copy
+    ;  exists.  Long addressing, because the table is in this bank and DBR
+    ;  belongs to whichever chunk called us.
+    SEC
+    SBC #$01                    ; the field is 1-based; A is now the slot
+    ASL A
+    ASL A                       ; ...times the stride
+    TAX
+    LDY #SPELLNAME_WIDTH
+  @name:
+    LDA f:lut_SpellNames + OPTFAR, X
+    JSR opt_emit                ; keeps X, and never touches Y
+    INX
+    DEY
+    BNE @name
     RTS
 
 ;  One line naming the bits set in A: the lowest one, or "All" for all eight.
@@ -1997,8 +2023,24 @@ opt_chestinfo:
     STA text_ptr
     LDA #>OPTDESC
     STA text_ptr+1
+    ;  A line break calls CallMusicPlay, which swaps back to whatever cur_bank
+    ;  names -- so this decides which bank is mapped for the rest of the string.
+    ;  It has to be the dialogue bank, because control code $02 reads
+    ;  lut_ItemNamePtrTbl at $B700 of BANK_ITEMS, and BANK_ITEMS is
+    ;  BANK_DIALOGUE.  Naming the options chunk here left every break mapping
+    ;  that chunk instead, so the one code in the string that reads a table got
+    ;  a garbage pointer and drew dialogue text: a weapon or armour that casts a
+    ;  spell printed "Cast " and then a fragment of somebody's conversation.
+    ;
+    ;  Nothing wants the options chunk mapped meanwhile.  OPTDESC is SRAM, the
+    ;  renderer is the fixed bank, and opt_descgear has already run -- which is
+    ;  also why the five lines above the Cast line were always correct.
     LDA #CHUNK_OPT              ; a line break calls CallMusicPlay, which
-    STA cur_bank                ;   returns through this
+    STA cur_bank                ;   returns through this -- so this has to name
+                                ;   the chunk the RTS below comes back into, and
+                                ;   naming the dialogue bank instead crashed on
+                                ;   the first chest.  See opt_castline for why
+                                ;   the spell name no longer needs that bank.
     JSR DrawDialogueString_PtrLoaded
 
     PLA
