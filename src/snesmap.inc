@@ -478,10 +478,9 @@ h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
 h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
 h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
 h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
-h_sfxlast       = HAL_VARS+$92  ; last frame's sq2_sfx, to spot an effect
-                                ;   starting again with identical register bytes
-NESZP_SQ2SFX    = $007E         ; the game's own "pulse 2 is busy with a sound
-                                ;   effect for N more frames" countdown
+h_sqrst         = HAL_VARS+$C4  ; set by a $4003/$4007 write: the sweep starts
+                                ;   over from the period just written, even if
+                                ;   the bytes were the same as last time
 h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
@@ -508,6 +507,17 @@ h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
 h_trilin        = HAL_VARS+$A8  ; the counter itself; at zero the channel is mute
 h_trirel        = HAL_VARS+$A9  ; reload flag, set by a write to $400B
 h_trtick        = HAL_VARS+$AA  ; half-frames left to clock this video frame
+
+;  The pulse channels' NES envelopes.  Everything the music driver plays is
+;  constant volume, but PlaySFX_Error writes $8C to $4004: the constant bit
+;  clear, so its low nibble is a decay period and the level comes from here.
+;  Interleaved four bytes apart, so the shadow's own offset for the channel --
+;  Y = 0 or 4 -- indexes them too.
+h_pestart       = HAL_VARS+$BC  ; a $4003/$4007 write restarts the envelope
+h_pediv         = HAL_VARS+$BD  ; quarter-frames until the level steps
+h_pedecay       = HAL_VARS+$BE  ; envelope level, 15 down to 0
+                                ;   (pulse 2's three are at +$C0..+$C2)
+h_petick        = HAL_VARS+$C8  ; half-frames left to clock this video frame
 ;  The tilemap word ClearNT leaves everywhere: tile 0, and the palette number
 ;  from an attribute byte of $FF, which is 3 in each quadrant.  nt_attr stores
 ;  a palette as (bits & 3) << 2 in the high byte, so that is $0C.

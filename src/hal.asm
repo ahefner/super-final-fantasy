@@ -3164,6 +3164,7 @@ hal_apu_frame:
     jsr audio_test_pattern
   .endif
     jsr apu_noiseenv
+    jsr apu_pulseenv
     jsr apu_trilinear
     ldy #0                      ; Y = the channel's register base in the shadow
     lda #$01
@@ -3182,8 +3183,15 @@ hal_apu_frame:
     and a:h_apumask             ; enabled?
     beq @silent
     lda a:APUSHADOW+0,y
-    and #$0F                    ; sounding?
-    beq @silent
+    and #$10                    ; constant volume, or the envelope's level?
+    beq @penv
+      lda a:APUSHADOW+0,y
+      and #$0F
+      bra @phavevol
+@penv:
+    lda a:h_pedecay,y
+@phavevol:
+    beq @silent                 ; sounding?
     sta a:h_apuvol
     rep #$20
     .a16
@@ -3433,15 +3441,14 @@ hal_apu_frame:
 ;;  threshold.  The chirp travels from timer 32 to 8, which is 3.4kHz to
 ;;  12.4kHz.  With no sweep it was one flat tone, which is what was reported.
 ;;
-;;  Two ticks a frame: the game never writes $4017, so the frame counter stays
-;;  in its power-on four-step mode and the half-frame clock is 120Hz.
+;;  One or two ticks a frame: the game sets the five-step sequence, whose
+;;  half-frame clock is 96Hz, and hal_apu_frame works out how many fall in
+;;  each video frame.
 ;;
-;;  Nothing records which register the CPU wrote -- the shadow keeps values,
-;;  not events -- so a write is inferred from the period differing from the one
-;;  last seen.  That is sound here rather than merely convenient: the driver
-;;  will not rewrite a frequency that has not changed, because writing $4003
-;;  would reset the duty, so a period that changes is always a real write and
-;;  one that holds still belongs to the sweep.
+;;  It starts over from the period the CPU wrote whenever $4003/$4007 is
+;;  written, which the hooks record in h_sqrst -- see hal_w4003.  A period
+;;  differing from the one last seen counts too, for a write to the low byte
+;;  alone, which has no hook.
 ;;
 ;;  Entry: native, A and index registers 16 bits, X = 0 for pulse 1 or 2 for
 ;;  pulse 2, Y = that channel's base in the shadow (0 or 4).
@@ -3453,29 +3460,20 @@ apu_sweep:
     sta a:h_swreg               ; EPPP NSSS
     ;  Has the CPU set this channel going again?
     ;
-    ;  A period differing from the one last seen is one answer, but not a
-    ;  complete one: an effect replayed before it has finished writes the very
-    ;  same register bytes, and a shadow that keeps values cannot tell that
-    ;  from no write at all.  The menu chirp does exactly this -- it sounded
-    ;  once and then stayed quiet however fast the cursor moved.
-    ;
-    ;  The game keeps its own record though.  Everything that takes pulse 2
-    ;  loads sq2_sfx with its length in frames and the music driver counts it
-    ;  down, so a value that has gone *up* since last frame is a new effect.
-    ;  Reading it here costs nothing, where detecting the register write would
-    ;  have meant extra code at every write site in banks that have no room.
-    ;  Every sweep in this game is on pulse 2; there is no sq1_sfx.
-    cpx #2
-    bne @byperiod
-    lda a:NESZP_SQ2SFX
+    ;  The write itself is the answer.  An effect replayed before it has
+    ;  finished writes the very same register bytes -- the menu chirp does,
+    ;  however fast the cursor moves, and PlaySFX_Error does every frame for
+    ;  sixteen -- and a shadow that keeps values cannot tell that from no write
+    ;  at all.  This used to guess from sq2_sfx rising instead, which caught
+    ;  the chirp but not the error sound: that sets sq2_sfx once and then
+    ;  holds the game, so the music driver never counts it down and it never
+    ;  rises again.  The sweep ran on from the first frame, past the mute
+    ;  threshold in three, and the alarm came out as a short chirp.
+    lda a:h_sqrst,x
     and #$00FF
-    cmp a:h_sfxlast
-    beq @samesfx
-    bcc @samesfx
-      sta a:h_sfxlast
+    beq @byperiod
+      stz a:h_sqrst,x
       bra @reload
-@samesfx:
-    sta a:h_sfxlast
 @byperiod:
     lda a:APUSHADOW+2,y
     and #$07FF
@@ -3609,6 +3607,68 @@ apu_noiseenv:
     dec a:h_nztick
     bne @half
 @out:
+    rts
+
+;;  One video frame of the pulse channels' envelopes, clocked exactly as the
+;;  noise one is.  Only PlaySFX_Error uses them -- see h_pedecay -- and there
+;;  a $4007 write every frame restarts the level at 15 well before the decay
+;;  period of 12 lets it fall, so the error sound plays at full level, where
+;;  reading that 12 as a volume played it at four fifths.
+.a8
+.i16
+apu_pulseenv:
+    lda a:h_swtickn
+    beq @out                    ; no half-frame fell in this video frame
+    sta a:h_petick
+@half:
+    ldy #0
+    jsr apu_penvclk             ; two quarter-frames to every half-frame
+    jsr apu_penvclk
+    ldy #4
+    jsr apu_penvclk
+    jsr apu_penvclk
+    dec a:h_petick
+    bne @half
+@out:
+    rts
+
+;;  One quarter-frame of a pulse envelope.  Y = the channel's base in the
+;;  shadow, 0 or 4, which indexes its envelope state as well.
+.a8
+.i16
+apu_penvclk:
+    lda a:h_pestart,y
+    beq @run
+      lda #0
+      sta a:h_pestart,y         ; a $4003/$4007 write restarts it at full level
+      lda #15
+      sta a:h_pedecay,y
+      lda a:APUSHADOW,y
+      and #$0F
+      sta a:h_pediv,y           ; the divider's period is that nibble plus one
+      rts
+@run:
+    lda a:h_pediv,y
+    beq @step
+      dec a
+      sta a:h_pediv,y
+      rts
+@step:
+    lda a:APUSHADOW,y
+    and #$0F
+    sta a:h_pediv,y
+    lda a:h_pedecay,y
+    beq @wrap
+      dec a
+      sta a:h_pedecay,y
+      rts
+@wrap:
+    lda a:APUSHADOW,y
+    and #$20                    ; the halt bit doubles as the envelope's loop
+    beq @done
+      lda #15
+      sta a:h_pedecay,y
+@done:
     rts
 
 ;;  The triangle's linear counter, clocked on the same quarter-frames as the
@@ -3949,6 +4009,13 @@ hal_clearnt:
 ;;  The check is made here rather than in the macro: the banks have no room,
 ;;  and this way the expensive part runs only when a channel actually goes
 ;;  quiet, not on every note the driver plays.
+;;
+;;  The pulse hooks also record that the write happened.  On a NES, writing
+;;  $4003 or $4007 restarts the channel's envelope and sets its period afresh,
+;;  so a sweep starts over from the value written -- and that holds even when
+;;  the bytes are the same ones as last time, which the shadow cannot show.
+;;  PlaySFX_Error depends on exactly that: it writes identical bytes sixteen
+;;  frames running, and on a console each write restarts the tone.
 .a8
 .i8
 hal_w4003:
@@ -3956,6 +4023,10 @@ hal_w4003:
     php
     pha
     phx
+    lda #1
+    sta a:h_sqrst               ; the sweep starts over from this period
+    sta a:h_pestart             ; ...and the envelope from full level
+    lda a:APUSHADOW+$03         ; apu_ifmuted wants the value that was written
     ldx #$02
     bra apu_ifmuted
 hal_w4007:
@@ -3963,6 +4034,10 @@ hal_w4007:
     php
     pha
     phx
+    lda #1
+    sta a:h_sqrst+2
+    sta a:h_pestart+4
+    lda a:APUSHADOW+$07
     ldx #$06
     bra apu_ifmuted
 hal_w400b:
@@ -4270,7 +4345,13 @@ init_halvars:
     stz a:h_altaron
     stz a:h_altarframe
     stz a:h_apufull
-    stz a:h_sfxlast
+    stz a:h_pestart
+    stz a:h_pediv
+    stz a:h_pedecay
+    stz a:h_pestart+4
+    stz a:h_pediv+4
+    stz a:h_pedecay+4
+    stz a:h_petick
     stz a:h_swacc
     stz a:h_swacc+1
     stz a:h_swtickn
@@ -4278,6 +4359,7 @@ init_halvars:
     ldx #0
 :   stz a:h_swper,x             ; two bytes per pulse channel, four channels'
     stz a:h_swseen,x            ;   worth of slots: clear the lot
+    stz a:h_sqrst,x
     stz a:h_swdiv,x
     stz a:h_swmute,x
     inx
