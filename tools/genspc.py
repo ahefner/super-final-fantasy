@@ -129,6 +129,12 @@ class Asm:
     def addw_ya_dp(self, d):   self.emit(0x7A, d)     # carry in ignored
     def subw_ya_dp(self, d):   self.emit(0x9A, d)     # C set = no borrow
     def decw_dp(self, d):      self.emit(0x1A, d)
+    def cmpw_ya_dp(self, d):   self.emit(0x5A, d)     # C set = YA >= word
+    def inc_dp(self, d):       self.emit(0xAB, d)
+    def cmp_y_dp(self, d):     self.emit(0x7E, d)
+    def mov_dp_y(self, d):     self.emit(0xCB, d)
+    def inc_abs(self, a):      self.emit(0xAC, a & 0xFF, a >> 8)
+    def dec_abs(self, a):      self.emit(0x8C, a & 0xFF, a >> 8)
     def branch(self, op, lab):
         self.emit(op, 0); self.fix.append((len(self.code) - 1, lab))
     def beq(self, l): self.branch(0xF0, l)
@@ -223,11 +229,12 @@ T16     = 0x4E        # word: the period being swept or looked up
 TGT     = 0x50        # word: the sweep's target period
 PTR     = 0x52        # word: table pointer
 PTBASE  = 0x54        # word: address of the period -> pitch table
-STBASE  = 0x56        # word: address of the period -> cycle length table
 TACC    = 0x58        # quarter-milliseconds counted toward the next half-frame
 TSEQ    = 0x59        # which interval of TPAT is running
 TPAT    = 0x5A        # six bytes: the intervals between half-frame clocks
 SV      = 0x60        # the voice halfclk is sweeping
+SZ      = 0x61        # scratch: the cycle-length index applyt is counting
+THRESH  = 0x62        # seven words: the period at which each longer cycle starts
 
 #  The half-frame clock.  The game selects the APU's five-step sequence
 #  ($4017 = $C0), whose half-frame clocks fall at 7456.5 and 18640.5 of every
@@ -493,13 +500,19 @@ def emit_sweep(a):
     a.label("tgret")
     a.ret()
 
-    #  applyt: PLO, PHI and WIDX for voice X at period T16, from the tables.
+    #  applyt: PLO, PHI and WIDX for voice X at period T16.  The pitch comes
+    #  from the table; the cycle length is how many of the seven thresholds
+    #  the period has reached, since it only grows as the period does.
     a.label("applyt")
     a.movw_ya_dp(T16); a.addw_ya_dp(T16); a.addw_ya_dp(PTBASE); a.movw_dp_ya(PTR)
     a.mov_y_imm(0); a.mov_a_idy(PTR); a.mov_dp_a(PLO)
     a.inc_y(); a.mov_a_idy(PTR); a.mov_dp_a(PHI)
-    a.movw_ya_dp(T16); a.addw_ya_dp(STBASE); a.movw_dp_ya(PTR)
-    a.mov_y_imm(0); a.mov_a_idy(PTR); a.or_a_dpx(SWDUTY); a.mov_dp_a(WIDX)
+    a.mov_dp_imm(SZ, 0)
+    a.movw_ya_dp(T16)
+    for i in range(len(SIZE_THRESH)):
+        a.cmpw_ya_dp(THRESH + 2 * i); a.bcc("szdone"); a.inc_dp(SZ)
+    a.label("szdone")
+    a.mov_a_dp(SZ); a.or_a_dpx(SWDUTY); a.mov_dp_a(WIDX)
     a.ret()
 
     #  setmute: voice X is (A nonzero) or is not silenced by its sweep.  A
@@ -526,6 +539,50 @@ def emit_sweep(a):
     a.dec_y(); a.bne("smdelay")
     a.label("smret")
     a.ret()
+
+
+#  The boot ROM moves one byte per handshake, about 29us a byte measured,
+#  which made the image the slowest thing in the whole boot once the pulse
+#  tables joined it.  So it carries only this loader, and the loader takes
+#  the image three bytes a handshake -- one from each third, so each port
+#  feeds a contiguous run and one index serves all three.
+#
+#  Each handshake is the 65816 writing $2141-$2143 and then the index's low
+#  byte to $2140; the loader echoes it once all three are read.  The index
+#  starts at 0, where the boot ROM's last value is never 0, and the thirds
+#  are whole pages, so the last echo is $FF and cannot be mistaken for the
+#  program's "alive" zero.  A single read of $F4 is enough here, unlike the
+#  driver's loop: only the exact next index is accepted, and a torn read can
+#  only produce that once all its bits are the new ones.
+LDR = 0xFF00          # clear of the image, below the boot ROM at $FFC0
+
+def loader(pages):
+    """The loader, for an image in three thirds of `pages` pages each."""
+    a = Asm(LDR)
+    third = pages * 256
+    a.labels["entry"] = LOAD
+    a.mov_y_imm(0)                       # index, and the handshake value
+    a.label("lwait")
+    a.cmp_y_dp(0xF4); a.bne("lwait")
+    a.mov_a_dp(0xF5)
+    a.label("s1"); a.mov_absy_a(LOAD)
+    a.mov_a_dp(0xF6)
+    a.label("s2"); a.mov_absy_a(LOAD + third)
+    a.mov_a_dp(0xF7)
+    a.mov_dp_y(0xF4)                     # all three read: acknowledge
+    a.label("s3"); a.mov_absy_a(LOAD + 2 * third)
+    a.inc_y(); a.bne("lwait")
+    for lab in ("s1", "s2", "s3"):       # next page of each third: the
+        a.inc_abs(a.labels[lab] + 2)     #   stores' own high bytes
+    a.label("lpagesop"); a.dec_abs(0)    # (operand patched below)
+    a.bne("lwait")
+    a.jmp("entry")
+    a.label("lpages"); a.emit(pages)
+    lp = a.labels["lpages"]
+    pos = a.labels["lpagesop"] - LDR
+    a.code[pos + 1] = lp & 0xFF; a.code[pos + 2] = lp >> 8
+    a.link()
+    return bytes(a.code)
 
 
 def program():
@@ -636,7 +693,8 @@ def program():
     a.label("swregclr")
     a.mov_dpx_a(SWREG); a.dec_x(); a.bpl("swregclr")
     a.mov_dp_imm(PTBASE, PTAB & 0xFF); a.mov_dp_imm(PTBASE + 1, PTAB >> 8)
-    a.mov_dp_imm(STBASE, STAB & 0xFF); a.mov_dp_imm(STBASE + 1, STAB >> 8)
+    for i, th in enumerate(SIZE_THRESH):
+        a.mov_dp_imm(THRESH + 2 * i, th & 0xFF); a.mov_dp_imm(THRESH + 2 * i + 1, th >> 8)
     for i, n in enumerate(HALFTICKS): a.mov_dp_imm(TPAT + i, n)
     a.mov_dp_imm(TSEQ, 0); a.mov_dp_imm(TACC, 0)
     a.mov_dp_imm(0xFA, T0DIV)  # timer 0: quarter-milliseconds
@@ -1082,15 +1140,23 @@ TRIWAVE0 = len(SIZES) * len(DUTIES)          # index of the triangle's first
 TRIANGLE_VOICE = 2
 NOISE_VOICE = 3
 
-#  The pulses' NES period -> S-DSP pitch and cycle-length tables, the same
-#  ones genapu.py computes, placed after the sample data.  The sweep moves a
-#  period between packets, so the pitch has to be looked up here.
+#  The pulses' NES period -> S-DSP pitch table, the one genapu.py computes,
+#  placed after the sample data.  The sweep moves a period between packets,
+#  so the pitch has to be looked up here.
+#
+#  Its companion cycle-length table is not shipped: the cycle only ever gets
+#  longer as the period does, so seven thresholds say everything its 2048
+#  bytes did, and every byte sent costs boot time.  Checked against the table
+#  for every period.
 import genapu
 _PULSE_PITCH, _PULSE_SIZE = genapu.table(16)
+_SIZEIDX = [sz >> 3 for sz in _PULSE_SIZE]
+SIZE_THRESH = [min(t for t in range(1, 2048) if _SIZEIDX[t] >= k)
+               for k in range(1, len(SIZES))]
+assert all(_SIZEIDX[t] == sum(t >= th for th in SIZE_THRESH)
+           for t in range(1, 2048)), "cycle length is not monotonic in the period"
 PTAB = BRRBASE + sum(len(w) for w in WAVES)
-STAB = PTAB + 2 * len(_PULSE_PITCH)
-TABLES = b"".join(bytes([p & 0xFF, p >> 8]) for p in _PULSE_PITCH) \
-       + bytes(sz >> 3 for sz in _PULSE_SIZE)      # size index, not pre-shifted
+TABLES = b"".join(bytes([p & 0xFF, p >> 8]) for p in _PULSE_PITCH)
 
 def main():
     prog = program()
@@ -1119,15 +1185,26 @@ def main():
     image += dirent + addrtab + brr
     assert len(image) + LOAD == PTAB, (hex(len(image) + LOAD), hex(PTAB))
     image += TABLES
+    #  Padded to three thirds of whole pages, for the loader.
+    pages = -(-len(image) // (3 * 256))
+    third = pages * 256
+    assert LOAD + 3 * third <= LDR, "image would overwrite its own loader"
+    padded = image + bytes(3 * third - len(image))
+    ldr = loader(pages)
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
         f.write("SPCPROG_LOAD  = $%04X\n" % LOAD)
-        f.write("SPCPROG_ENTRY = $%04X\n" % LOAD)
         f.write("SPCPROG_LEN   = %d\n" % len(image))
+        f.write("SPCPROG_THIRD = %d     ; bytes per loader stream\n" % third)
+        f.write("SPCLDR_LOAD   = $%04X\n" % LDR)
+        f.write("SPCLDR_LEN    = %d\n" % len(ldr))
+        f.write("spcldr:\n")
+        f.write("    .byte " + ",".join("$%02X" % b for b in ldr) + "\n")
         f.write("spcprog:\n")
-        for i in range(0, len(image), 16):
-            f.write("    .byte " + ",".join("$%02X" % b for b in image[i:i+16]) + "\n")
-    print("SPC program %d bytes, image %d bytes -> %s" % (len(prog), len(image), OUT))
+        for i in range(0, len(padded), 16):
+            f.write("    .byte " + ",".join("$%02X" % b for b in padded[i:i+16]) + "\n")
+    print("SPC program %d bytes, image %d bytes (%d sent), loader %d bytes -> %s"
+          % (len(prog), len(image), len(padded), len(ldr), OUT))
 
 if __name__ == "__main__":
     main()

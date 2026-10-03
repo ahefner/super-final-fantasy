@@ -2987,15 +2987,21 @@ flush_scroll:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Audio: the SPC700 side
 ;;
-;;  The SPC700 runs a small fixed program (tools/genspc.py) that does nothing
-;;  but apply what it is told to the S-DSP.  All the thinking happens over
-;;  here, where it can be traced.  Two pieces: getting that program into the
-;;  SPC700 at reset through its boot ROM, and one packet per voice per frame.
+;;  The SPC700 runs a small fixed program (tools/genspc.py) that applies what
+;;  it is told to the S-DSP.  Nearly all the thinking happens over here, where
+;;  it can be traced; the exception is the pulses' sweep units, which move a
+;;  pitch on the APU's own half-frame clock, faster than one packet a frame
+;;  can follow, so the SPC700 runs them.  Two pieces here: getting that
+;;  program into the SPC700 at reset, and one packet per voice per frame.
 ;;
 ;;  Packet, three data ports then the sequence number last:
 ;;      APUIO1  bit 7 key-off, bit 6 key-on, bits 5-4 voice, bits 3-0 volume
-;;      APUIO2  pitch low        APUIO3  pitch high
+;;      APUIO2  triangle: pitch low; pulse: the NES period, low; noise: rate
+;;      APUIO3  triangle: pitch high; pulse: the period's top three bits, and
+;;              bit 7 set when the CPU wrote $4003/$4007 (the sweep restarts)
 ;;      APUIO0  sequence number; the SPC700 acts when it changes and echoes it
+;;  A pulse's sweep register goes in a packet of its own when it changes:
+;;  both key bits set on APUIO1, the register on APUIO2.
 ;;
 ;;  Every wait on the SPC700 is bounded.  If it never answers -- a failed upload,
 ;;  a cartridge without one -- the game runs silent rather than hanging.
@@ -3007,6 +3013,13 @@ flush_scroll:
 ;;  port 0" with the index echoed back as the acknowledgement; and a zero on
 ;;  port 1 with an index that has jumped by at least two makes it jump to the
 ;;  address on 2/3.
+;;
+;;  That is one byte per handshake, about 29us each, and the image is 13KB.
+;;  So the boot ROM carries only a 44-byte loader (genspc.py), which then
+;;  takes the image three bytes a handshake: one from each third of it on
+;;  ports 1-3, with the index's low byte on port 0, echoed back.  The image
+;;  sits in ROM padded to three thirds of whole pages, so one index walks all
+;;  three.
 .a8
 .i8
 spc_upload:
@@ -3027,13 +3040,13 @@ spc_upload:
 @notyet:
     dex
     bne @ready
-    bra @out                    ; nobody home
+    jmp @out                    ; nobody home (past a branch's reach now)
 @go:
     lda #$01
     sta a:APUIO1                ; a transfer follows...
-    lda #<SPCPROG_LOAD
+    lda #<SPCLDR_LOAD
     sta a:APUIO2                ; ...to this address
-    lda #>SPCPROG_LOAD
+    lda #>SPCLDR_LOAD
     sta a:APUIO3
     lda #$CC
     sta a:APUIO0
@@ -3041,20 +3054,20 @@ spc_upload:
     bcs @out                    ;   SPC700 that does not answer as the emulator's
     ldx #0                      ;   did must leave a silent game, not a hung one
 @byte:
-    lda f:spcprog + HALFAR,x
+    lda f:spcldr + HALFAR,x
     sta a:APUIO1
     txa                         ; the low byte of the index is the handshake
     sta a:APUIO0
     jsr spc_ack
     bcs @out
     inx
-    cpx #SPCPROG_LEN
+    cpx #SPCLDR_LEN
     bne @byte
     lda #$00
     sta a:APUIO1                ; no more data: jump...
-    lda #<SPCPROG_ENTRY
-    sta a:APUIO2                ; ...here
-    lda #>SPCPROG_ENTRY
+    lda #<SPCLDR_LOAD
+    sta a:APUIO2                ; ...to the loader
+    lda #>SPCLDR_LOAD
     sta a:APUIO3
     txa
     clc
@@ -3064,8 +3077,41 @@ spc_upload:
 :   sta a:APUIO0
     jsr spc_ack
     bcs @out
-    sta a:h_apuseq              ; the program takes this as its baseline, so the
-                                ;   first real packet must count on from it
+    ;  The loader, three bytes a handshake.  The index is counted on before
+    ;  the wait rather than after it, so the SPC700's turn hides it, and the
+    ;  next three bytes go out the moment the echo arrives.
+    ldx #0
+@triple:
+    lda f:spcprog + HALFAR,x
+    sta a:APUIO1
+    lda f:spcprog + HALFAR + SPCPROG_THIRD,x
+    sta a:APUIO2
+    lda f:spcprog + HALFAR + 2 * SPCPROG_THIRD,x
+    sta a:APUIO3
+    txa                         ; the low byte of the index is the handshake,
+    sta a:APUIO0                ;   written last
+    inx
+    ldy #$4000
+@echo:
+    cmp a:APUIO0
+    beq @got
+    dey
+    bne @echo
+    bra @out
+@got:
+    cpx #SPCPROG_THIRD
+    bne @triple
+    ;  The first packet's port-0 byte has to differ from two things: the
+    ;  program's baseline, this last index ($FF), or it is not seen at all;
+    ;  and the zero the program writes to say it is alive, which is still
+    ;  sitting on port 0 as the "echo" when that packet goes out -- match it
+    ;  and apu_send takes the stale zero for an acknowledgement, overwrites
+    ;  the packet while the SPC700 is reading it, and the voice is keyed on
+    ;  twice with half of one packet and half of another.  Counting on from
+    ;  the baseline gave a counter of 0, which a sweep packet (no waveform
+    ;  bits) turns into a whole zero byte.  Starting the count at 1 can be
+    ;  neither: its low three bits are 001.
+    stz a:h_apuseq
     ;  The program announces itself by writing zero to port 0.
     ldx #$FFFF
 @alive:
