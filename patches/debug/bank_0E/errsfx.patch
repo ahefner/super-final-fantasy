@@ -1,0 +1,19 @@
+--- OLD
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+--- NEW
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+
+    ;  DEBUG BUILD ONLY.  Play the menu error sound every 128 frames, so a
+    ;  capture can hear it with no one at the controls.  The intro story is
+    ;  where the game sits unattended (see trackcycle); PlaySFX_Error holds the
+    ;  game for its sixteen frames, which only pauses the text animation.
+    ;  $EF is the same undeclared zero-page byte trackcycle uses, so build with
+    ;  one or the other.  Build without FFDEBUG=errsfx to drop this.
+    INC $EF
+    LDA $EF
+    AND #$7F
+    BNE @DebugNoErrSfx
+      JSR PlaySFX_Error
+  @DebugNoErrSfx:

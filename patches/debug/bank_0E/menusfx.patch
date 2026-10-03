@@ -1,0 +1,24 @@
+--- OLD
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+--- NEW
+    JSR IntroStory_Frame   ; Do a frame
+    INC framecounter       ; and update the frame counter
+
+    ;  DEBUG BUILD ONLY.  The menus' two sweep chirps in turn, one every 64
+    ;  frames -- select, then cursor move -- so a capture can check the sweep
+    ;  emulation against them with no one at the controls.  Shares $EF with
+    ;  errsfx and trackcycle, so build with only one of the three.  Build
+    ;  without FFDEBUG=menusfx to drop this.
+    INC $EF
+    LDA $EF
+    AND #$3F
+    BNE @DebugNoMenuSfx
+      LDA $EF
+      AND #$40
+      BNE @DebugMenuMove
+        JSR PlaySFX_MenuSel
+        JMP @DebugNoMenuSfx
+  @DebugMenuMove:
+        JSR PlaySFX_MenuMove
+  @DebugNoMenuSfx:
