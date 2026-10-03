@@ -2,30 +2,43 @@
 """
 genspc.py -- build the SPC700 program and its sample data into src/spcprog.inc
 
-The SPC700 side of the audio port is deliberately dumb: the 65816 works out
-what every voice should be doing each frame and sends it over the four I/O
-ports; this program just applies it to the S-DSP.  Keeping the logic on the
-65816 keeps it where it can be traced and profiled.  Nothing here needs to
-change once it works.
+The SPC700 side of the audio port is mostly dumb: the 65816 works out what
+every voice should be doing each frame and sends it over the four I/O ports,
+and this program applies it to the S-DSP.  Keeping the logic on the 65816
+keeps it where it can be traced and profiled.  The one exception is the pulse
+channels' sweep units, which move a pitch on the APU's own half-frame clock,
+faster than the 65816's once-a-frame packets can follow -- so they run here,
+off timer 0 (see emit_sweep).
 
 Port protocol (65816 -> SPC700), one packet per voice per frame:
     $2141  cmd    bit 7 key-off, bit 6 key-on, bits 5-4 voice, bits 3-0 volume
-    $2142  pitch, low byte           (S-DSP 14-bit pitch, from apupitch.inc)
-    $2143  pitch, high byte in bits 5-0; bits 7-6 select the waveform (duty)
+    $2142  triangle: pitch, low byte (S-DSP 14-bit pitch, from apupitch.inc)
+           pulse:    the NES period, low byte
+           noise:    the DSP noise rate
+    $2143  triangle: pitch, high byte in bits 5-0
+           pulse:    the period's top three bits in bits 2-0; bit 7 set when
+                     the CPU wrote $4003/$4007, which starts the sweep over
+    $2140  sequence number, written last; the SPC700 acts when it changes and
+           echoes it back as the acknowledgement.  Bits 7-3 carry the
+           waveform: for the triangle its cycle length, for a pulse its duty
+           in bits 7-6 (the cycle length comes from the table here).
+A pulse's sweep register travels in a packet of its own, sent only when it
+changes: both key bits set in $2141, the register in $2142.
 
-Each voice's directory entry is rewritten to the chosen waveform on every
-packet.  The DSP reads a voice's loop address from the directory each time
+Each voice's directory entry is repointed to the chosen waveform as packets
+arrive.  The DSP reads a voice's loop address from the directory each time
 the sample loops, so a duty change takes effect at the next cycle with no
 key-on -- which is how the NES does it, and the only way a change mid-note
 does not click.
-    $2140  sequence number, written last; the SPC700 acts when it changes and
-           echoes it back as the acknowledgement.
 
 SPC700 memory:
     $0200  this program
-    $0400  sample directory (DIR = $04), one entry per waveform
-    $0410  BRR sample data
+    $0700  sample directory (DIR = $07): two entries per voice
+    $0720  waveform address table
+    $0770  BRR sample data
+    after  the pulse period -> pitch and cycle-length tables
 """
+import os, re
 import os, re
 
 #  Diagnostic only: FFTONE=vol or FFTONE=pitch suppresses that register's
@@ -45,12 +58,12 @@ OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
 
 LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
 ECHOPAGE = 0xF0       # an unused page for ESA; echo writes are never enabled
-DIRPAGE = 0x05         # directory at $0500.  It has to be page aligned, so
+DIRPAGE = 0x07         # directory at $0700.  It has to be page aligned, so
                        # whatever sits below it is the program's whole budget:
-                       # $0200..$04FF, 768 bytes.  It was one page lower, and
-                       # the program grew past the 512 bytes that left it.
-ADDRTAB = 0x0520       # waveform address table, one word per waveform
-BRRBASE = 0x0570       # BRR sample data (past a 40-entry address table)
+                       # $0200..$06FF, 1280 bytes.  It has moved up twice as the
+                       # program grew, the second time for the sweep units.
+ADDRTAB = (DIRPAGE << 8) + 0x20   # waveform address table, one word per waveform
+BRRBASE = ADDRTAB + 0x50          # BRR sample data (past a 40-entry address table)
 
 # --- a very small SPC700 assembler ----------------------------------------
 class Asm:
@@ -97,13 +110,36 @@ class Asm:
     def xcn_a(self):           self.emit(0x9F)
     def clrp(self):            self.emit(0x20)
     def di(self):              self.emit(0xC0)
+    def ret(self):             self.emit(0x6F)
+    def setc(self):            self.emit(0x80)
+    def dec_a(self):           self.emit(0x9C)
+    def dec_x(self):           self.emit(0x1D)
+    def dec_y(self):           self.emit(0xDC)
+    def inc_y(self):           self.emit(0xFC)
+    def mov_x_dp(self, d):     self.emit(0xF8, d)
+    def mov_dp_x(self, d):     self.emit(0xD8, d)
+    def mov_x_imm(self, i):    self.emit(0xCD, i)
+    def mov_y_imm(self, i):    self.emit(0x8D, i)
+    def cmp_x_imm(self, i):    self.emit(0xC8, i)
+    def sbc_a_dpx(self, d):    self.emit(0xB4, d)     # SBC A,dp+X
+    def or_a_dpx(self, d):     self.emit(0x14, d)     # OR A,dp+X
+    def mov_a_idy(self, d):    self.emit(0xF7, d)     # MOV A,[dp]+Y
+    def movw_ya_dp(self, d):   self.emit(0xBA, d)     # YA = word at dp
+    def movw_dp_ya(self, d):   self.emit(0xDA, d)
+    def addw_ya_dp(self, d):   self.emit(0x7A, d)     # carry in ignored
+    def subw_ya_dp(self, d):   self.emit(0x9A, d)     # C set = no borrow
+    def decw_dp(self, d):      self.emit(0x1A, d)
     def branch(self, op, lab):
         self.emit(op, 0); self.fix.append((len(self.code) - 1, lab))
     def beq(self, l): self.branch(0xF0, l)
     def bne(self, l): self.branch(0xD0, l)
     def bra(self, l): self.branch(0x2F, l)
+    def bcs(self, l): self.branch(0xB0, l)
+    def bpl(self, l): self.branch(0x10, l)
     def jmp(self, l):
         self.emit(0x5F, 0, 0); self.fix.append((len(self.code) - 2, ("abs", l)))
+    def call(self, l):
+        self.emit(0x3F, 0, 0); self.fix.append((len(self.code) - 2, ("abs", l)))
     def link(self):
         for pos, lab in self.fix:
             if isinstance(lab, tuple):
@@ -149,7 +185,7 @@ HYST_TRI_ONLY = _HYSTMODE == "tri"
 HYST_UP = os.environ.get("FFHYSTUP", "") == "1"
 PLO     = 0x07        # packet byte 2, LATCHED -- see the read of $F6 below        # waveform index from the sequence byte
 MASKTAB = 0x10        # four bytes: 1<<voice
-DIRBASE = 0x0500      # directory: entry n at DIRBASE + 4n, eight of them --
+DIRBASE = DIRPAGE << 8  # directory: entry n at DIRBASE + 4n, eight of them --
                       # two per voice, so one can be rewritten while the DSP
                       # is still reading the other
 LASTIDX = 0x14        # four bytes: waveform index each voice was last given
@@ -171,6 +207,36 @@ KOFFSTICK = 0x31      # APUSTAT: KOFF's triangle bit has been SEEN set since the
                       #   wiped within a note or two.  Reading KOFF live then
                       #   shows clear long after it did the damage.
 
+#  The pulse channels' sweep units, which run here rather than on the 65816 --
+#  see halfclk.  Four bytes each, indexed by voice like the rest, though only
+#  the two pulses use them.
+P7      = 0x0A        # packet byte 3, LATCHED like PLO
+NEWMUTE = 0x0B        # scratch: what target decided
+SWTL    = 0x32        # four bytes: each pulse's period as its sweep has it, low
+SWTH    = 0x36        #   ...and high
+SWREG   = 0x3A        # four bytes: its sweep register, EPPP NSSS
+SWDIV   = 0x3E        # four bytes: half-frames before the sweep next moves it
+SWMUTE  = 0x42        # four bytes: nonzero while the sweep holds it silent
+SWON    = 0x46        # four bytes: nonzero while the 65816 has it sounding
+SWDUTY  = 0x4A        # four bytes: its duty times eight, for the waveform index
+T16     = 0x4E        # word: the period being swept or looked up
+TGT     = 0x50        # word: the sweep's target period
+PTR     = 0x52        # word: table pointer
+PTBASE  = 0x54        # word: address of the period -> pitch table
+STBASE  = 0x56        # word: address of the period -> cycle length table
+TACC    = 0x58        # quarter-milliseconds counted toward the next half-frame
+TSEQ    = 0x59        # which interval of TPAT is running
+TPAT    = 0x5A        # six bytes: the intervals between half-frame clocks
+SV      = 0x60        # the voice halfclk is sweeping
+
+#  The half-frame clock.  The game selects the APU's five-step sequence
+#  ($4017 = $C0), whose half-frame clocks fall at 7456.5 and 18640.5 of every
+#  18641 APU cycles: 12.50ms apart, then 8.33.  Timer 0 counts quarter-
+#  milliseconds (its 8kHz base divided by 2), and the pattern below repeats
+#  every three sequences, 62.5ms, with no drift.
+T0DIV     = 2
+HALFTICKS = [50, 33, 50, 33, 50, 34]
+
 def _check_opcodes():
     """No two mnemonics may emit the same opcode byte.
 
@@ -190,263 +256,12 @@ def _check_opcodes():
             "$%02X used by %s" % (op, " and ".join(n)) for op, n in dupes.items()))
 
 
-def program():
-    _check_opcodes()
-    a = Asm(LOAD)
-    a.di(); a.clrp()
-    # key-on mask table, written into direct page at start-up
-    for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
-    #  Which directory slot each voice points at, and the waveform index it was
-    #  last given.  $FF is not a real index, so the first packet always moves.
-    for i in range(4):
-        a.mov_dp_imm(SRCNV + i, i)
-        a.mov_dp_imm(LASTIDX + i, 0xFF)
-        if LIVENESS: a.mov_dp_imm(DEADCNT + i, 0)
-        a.mov_dp_imm(VOLC + i, 0xFF)     # nothing has been sent yet, so the
-        a.mov_dp_imm(PITCHLC + i, 0xFF)  #   first packet always writes
-        a.mov_dp_imm(PITCHHC + i, 0xFF)
-    a.mov_dp_imm(ENDXACC, 0)
-    a.mov_dp_imm(KONPEND, 0)
-    # Port 0 still holds the boot ROM's final handshake value.  Take that as the
-    # sequence baseline rather than 0, or it reads as a first packet -- one made
-    # of whatever the upload left on the other ports.
-    #  Read twice, like every other read of this port: see the packet loop.
-    #  A torn baseline would either be taken for a first packet built from
-    #  leftover upload state, or match and swallow the first real one.
-    a.label("baselinerd")
-    a.mov_a_dp(0xF4)
-    a.cmp_a_dp(0xF4)
-    a.bne("baselinerd")
-    a.mov_dp_a(LAST)
-    # S-DSP global set-up
-    #  Start from a known DSP, not whatever it powered up holding.
-    #
-    #  The register file is SRAM: on real hardware it comes up as whatever the
-    #  cells settle to, where an emulator hands you zeroes.  This used to write
-    #  only the registers it meant to use, and it released the soft reset
-    #  FIRST -- so for the dozen writes that followed, any voice holding
-    #  power-on garbage (a latched KON bit, a random SRCN, pitch, envelope) was
-    #  free to sound, and ADSR2, all of voices 4-7, ESA, EDL, EFB and the FIR
-    #  taps were never written at all.  Differences between an emulator and a
-    #  console are exactly where uninitialised state hides.
-    #
-    #  So: assert the soft reset (every voice held in release at zero), zero
-    #  every register but FLG itself, give the few that need values their
-    #  values, and only then let go.  FLG is skipped because zeroing it would
-    #  clear the reset -- and enable echo writes, into RAM at an ESA not yet set.
-    a.dsp(0x6C, 0xE0)         # FLG: soft reset + mute + echo writes off
-    a.mov_a_imm(0x00)
-    a.label("dspclr")
-    a.cmp_a_imm(0x6C); a.beq("dspclrnext")
-    a.mov_dp_a(0xF2); a.mov_dp_imm(0xF3, 0x00)
-    a.label("dspclrnext")
-    a.inc_a(); a.cmp_a_imm(0x80); a.bne("dspclr")
-    #  Echo is never used, and its writes stay disabled -- but give it a page
-    #  that holds nothing, rather than the zero page the loop just pointed it at.
-    a.dsp(0x6D, ECHOPAGE)     # ESA
-    a.dsp(0x0F, 0x7F)         # FIR0: identity (silent anyway, EVOL is zero)
-    #  Main volume, backed off far enough that the mix cannot clip.
-    #
-    #  The pulses are unipolar (see square()), so every voice's offset pushes
-    #  the same way instead of partly cancelling as bipolar waves would, and
-    #  the worst case is just the sum of all four peaks.  Measured against the
-    #  emulator's own output, one unit of a voice's VOL is worth about 242 at
-    #  MVOL $68, and VOL reaches 60+60+45+60 = 225 with both pulses loud, the
-    #  triangle under them and a noise effect on top.  That is 54572 against a
-    #  32767 ceiling: it clips, and not rarely enough to ignore -- it is what
-    #  the overworld and town music do.
-    #
-    #  $7C leaves that worst case just inside the rail, so no combination of
-    #  channels can clip, and changes no voice's level relative to another.
-    #  (It reads as twice the figure this once was because BRR_SCALE dropped by
-    #  one at the same time and halved every sample: the product, and with it
-    #  the output level, is unchanged.)
-    #
-    #  The bill is really the unipolar waveforms': half their swing is a DC
-    #  offset nobody can hear -- the console AC-couples its output -- but it
-    #  occupies headroom all the same.  A NES has the same shape of problem
-    #  and answers it with a non-linear mixer that compresses as channels pile
-    #  up instead of clipping.  Nothing here can do that: the SPC700 sets a
-    #  volume per voice and the DSP sums them, so the only lever is the level
-    #  they are summed at.
-    a.dsp(0x0C, 0x7C)         # MVOL_L
-    a.dsp(0x1C, 0x7C)         # MVOL_R
-    a.dsp(0x5C, 0xFF)         # KOFF everything
-    a.dsp(0x3D, 0x08)         # NON: voice 3 plays the noise generator
-    a.dsp(0x5D, DIRPAGE)      # DIR
-    for v in range(4):        # each voice: its own directory entry, gain mode
-        #  (ADSR1 and ADSR2 are zero from the loop: bit 7 clear means GAIN)
-        a.dsp(v * 0x10 + 0x04, v)        # SRCN = voice; the entry is repointed
-        # GAIN in linear-increase mode at the fastest rate: 0 to full in 64
-        # samples, 2 ms.  Not direct mode.  With direct gain the voice jumps
-        # from silence to its first sample at key-on, and the interpolator --
-        # which softens every other edge of a stretched low-pitch square --
-        # cannot soften that one, so it clicks.  A 2 ms ramp is below the
-        # threshold where an attack reads as soft, and key-off gets the DSP's
-        # release fade for free.
-        a.dsp(v * 0x10 + 0x07, 0xDF)     # GAIN: linear increase, rate 31
-    a.dsp(0x6C, 0x20)         # FLG: NOW release reset and mute; echo writes stay off
-    a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
-    a.mov_dp_imm(0xF4, 0)     # tell the 65816 we are alive: ack = 0
-
-    a.label("loop")
-    a.mov_a_dp(0xF4)          # sequence number from the 65816
-    a.cmp_a_dp(LAST)
-    a.beq("loop")             # unchanged: nothing to do
-    #  ...and only believe it once a second read agrees.
-    #
-    #  The two chips run on unrelated clocks, and a read of a communication
-    #  port that lands on the other side's write can return a torn mix of old
-    #  and new bits (snes.nesdev.org/wiki/Errata: "A SPC700 program may want
-    #  to read twice and only proceed when two subsequent reads have the same
-    #  value").  This byte is both the doorbell and the waveform index, and it
-    #  was accepted on any difference from one read -- so a torn read became a
-    #  phantom packet carrying a garbage waveform, processed once wrong and
-    #  then again right.  On the triangle a garbage index reached past ADDRTAB
-    #  into sample data; if the voice wrapped inside that window it played
-    #  garbage, hit END-without-LOOP, and died for good -- the cutout.  With
-    #  hysteresis on the pulses, the wrong pass could hold a wrong waveform and
-    #  shift the pitch at once -- the pulse glitch.  Emulators never tear a
-    #  read, which is why neither showed in ares or Mesen.
-    #
-    #  The other three ports are safe: the 65816 writes them before this one
-    #  and not again until we acknowledge.  Its own poll of our reply is safe
-    #  too, since it compares against the exact byte it expects.
-    a.cmp_a_dp(0xF4)
-    a.bne("loop")             # changed between reads: not settled yet
-    a.mov_dp_a(LAST)
-
-    #  Release the previous packet's key-on before doing anything else.
-    #
-    #  KON is a level the DSP samples, not an edge it catches.  Left set, a
-    #  voice is keyed on again every sample period, and every key-on resets
-    #  that voice's envelope to zero -- so a voice whose bit stays in KON goes
-    #  silent and stays silent, until some later key-on for another voice
-    #  happens to overwrite the byte.  That is minutes, if the music does not
-    #  need the other voices.
-    #
-    #  Clearing it here rather than straight after the write gives the DSP its
-    #  sample period to latch it: packets are separated by the 65816's
-    #  handshake round trip, which is hundreds of microseconds, where the few
-    #  cycles between the write and the acknowledge would not be enough.
-    a.mov_a_dp(KONPEND)       # ...but only if one is actually asserted: an
-    a.beq("nokon")            #   idle voice should put nothing on the bus
-    a.dsp(0x4C, 0x00)
-    a.mov_dp_imm(KONPEND, 0)
-    a.label("nokon")
-
-    a.mov_a_dp(0xF5)          # cmd
-    a.mov_dp_a(CMD)
-    a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
-    a.mov_dp_a(VB)
-    a.xcn_a()                 # $30 -> $03: the voice number...
-    a.mov_x_a(); a.mov_a_dpx(MASKTAB)
-    a.mov_dp_a(MASK)          # ...and its key mask
-    #  Byte 2 of the packet, taken ONCE.
-    #
-    #  $F6 is a port the 65816 drives, not memory we own.  It used to be read
-    #  live at each of the four places below, and the 65816 writes $F5-$F7 and
-    #  only then $F4 to announce a packet -- so while this code is still
-    #  reading byte 2 of packet N, the next packet's byte 2 can already be
-    #  sitting in the port.  Nothing in the handshake prevents that.
-    #
-    #  Read twice, it tears two ways: the compare decides to write using one
-    #  value while another reaches the DSP, and worse, the cache records one
-    #  value while the DSP receives the other -- after which the cache lies,
-    #  the next equal value is skipped as "unchanged", and the voice is left
-    #  at the wrong pitch until it next moves.  The two crystals drift, so it
-    #  happens at some slow beat rather than never or always, and an emulator
-    #  that clocks both deterministically does not show it at all.
-    #
-    #  This is why the pitch tone ROM pops on hardware and the volume one,
-    #  with identical write traffic, does not: volume comes from VOL, which is
-    #  latched, and pitch-low came straight from the port.
-    a.mov_a_dp(0xF6); a.mov_dp_a(PLO)
-    # A key-off writes KOFF and nothing else.  Zeroing the volume in the same
-    # packet -- as a first version did -- cuts the output dead before the
-    # DSP's release can fade it, and that cut is a click on every note-off,
-    # loud on the smooth triangle and audible on a low pulse sitting on a long
-    # plateau.  Leave VOL and PITCH where they are; the release does the rest.
-    a.mov_a_dp(CMD); a.and_a_imm(0x80); a.beq("sounding")
-    a.mov_a_dp(MASK); a.dsp_a(0x5C)  # KOFF = mask
-    a.jmp("ack")
-    a.label("sounding")
-    a.mov_a_dp(CMD)
-    #  One NES nibble, scaled per voice, because the three kinds of voice do
-    #  not arrive at the same amplitude.  Our pulses are unipolar and peak at
-    #  14336, the triangle is bipolar and peaks at 16384, and the noise is not
-    #  a waveform of ours at all -- the DSP's own generator, which spans the
-    #  whole sixteen-bit range.  Left at the same scale the noise comes out
-    #  four times a pulse where a NES puts it at 1.17, which is audible as the
-    #  noise channel sitting far too high in the mix.
-    #
-    #  The targets are the NES's non-linear mixer at full level: a pulse at
-    #  0.1494, the triangle at 0.2464 and noise at 0.1744, or 1.65 and 1.17
-    #  times a pulse.  Against those, x4 / x3 / x1 gives 1.50 and 1.00 -- the
-    #  triangle a little under and the noise a little under, both inside a
-    #  decibel and a half, which is as close as whole multiples of a four-bit
-    #  nibble reach.
-    #
-    #  It also settles the last of the headroom: the noise at x4 put the
-    #  worst case at 44619 against a 32767 rail, and at x1 it is 29746.
-    a.and_a_imm(0x0F)         # NES 4-bit volume
-    a.mov_dp_a(VOL)           # x1 -- which is the noise voice's share
-    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("volset")
-    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("trivol")
-    a.mov_a_dp(VOL); a.asl_a(); a.asl_a()         # x4 for the pulses: unipolar
-    a.mov_dp_a(VOL)                               #   swings half as far
-    a.bra("volset")
-    a.label("trivol")
-    a.mov_a_dp(VOL); a.asl_a(); a.mov_dp_a(PHI)   # x3 for the triangle
-    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)
-    a.mov_dp_a(VOL)
-    a.label("volset")
-    #  Only write what changed.
-    #
-    #  A packet arrives for every sounding voice every frame whether or not
-    #  anything about it moved, and this rewrote volume and pitch each time.
-    #  Measured on two steady voices, that is twelve DSP register writes a
-    #  frame carrying values the DSP already holds.  Each one is a chance to
-    #  land on the moment the DSP is reading that register in its own
-    #  thirty-two cycle voice loop, and two voices double the chances -- which
-    #  is where the popping starts.  Held music notes are the same situation.
-    #
-    #  So cache what was last sent per voice and skip the write when it has not
-    #  moved.  With nothing changing, nothing is written at all.
+def emit_tone(a):
+    """tone: put WIDX, PHI and PLO onto voice VB -- the waveform decision, the
+    pitch, and the directory repoint.  Called for every tonal packet, and by
+    the sweep whenever it moves a pulse's period between packets."""
+    a.label("tone")
     a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
-    a.mov_a_dp(VOL)
-    a.cmp_a_dpx(VOLC)
-    if "vol" not in _NOCACHE:
-        a.beq("volsame")
-    a.mov_dpx_a(VOLC)
-    a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
-    a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
-    a.label("volsame")
-    # The noise voice takes no pitch or waveform: instead its packet's pitch-low
-    # byte is the global noise rate, written into FLG's low five bits (echo
-    # writes stay disabled, bit 5).
-    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.bne("tonal")
-    a.mov_a_dp(PLO); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
-    a.jmp("keys")
-    a.label("tonal")
-    # PITCH_L, PITCH_H straight from the ports; the duty rides in PITCH_H's top
-    # bits.  Skipped entirely when neither byte has moved -- see volset.
-    a.mov_a_dp(0xF7); a.and_a_imm(0x3F); a.mov_dp_a(PHI)
-    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
-
-    #  Which waveform does the 65816 want?  (This used to be computed further
-    #  down, just before the repoint; it has to happen here now because the
-    #  decision below can rewrite the pitch, and the pitch is written next.)
-    a.mov_a_dp(LAST)
-    for _ in range(3): a.lsr_a()                                # 0..31
-    a.mov_dp_a(WIDX)
-    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.bne("pulsewave")
-    #  Mask to the triangle's own eight, whatever arrived: an index past them
-    #  reads beyond ADDRTAB into sample data and repoints the voice at garbage.
-    a.mov_a_dp(WIDX); a.and_a_imm(0x07)
-    a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
-    a.label("pulsewave")
-
     #  Stay on the waveform we already have, if we can.
     #
     #  Switching waveform is what makes a note thump.  SRCN is latched at the
@@ -578,6 +393,469 @@ def program():
     a.mov_a_dp(VB); a.or_a_imm(0x04); a.mov_dp_a(0xF2)              # DSP SRCN
     a.mov_a_dp(NEWSRCN); a.mov_dp_a(0xF3)
     a.label("dirdone")
+    a.ret()
+
+
+def emit_sweep(a):
+    """The NES sweep unit, for each pulse, run from timer 0.
+
+    The 65816 used to run it, once per video frame, and that could not do
+    what the console does: PlaySFX_Error restarts pulse 2 at 867Hz every
+    frame and the sweep halves its period once or twice before the next
+    restart, so the pitch climbs 867 -> 1721 (-> 3390) inside each frame.  One
+    pitch per frame cannot make that.  Here each half-frame clock moves the
+    period when it falls, and the new pitch goes straight onto the DSP.
+
+    The arithmetic is the hardware's, as hal.asm had it: the change is the
+    period shifted right; rising pitch subtracts it (pulse 1 one more, being
+    ones' complement), falling pitch adds it; the channel is silent while the
+    period is under 8 or the target past $7FF, and a silent channel's period
+    does not move.  The divider counts down half-frames and moves the period
+    when it reaches zero, then reloads.
+    """
+    #  halfclk: one half-frame clock, for both pulses.
+    a.label("halfclk")
+    a.mov_x_dp(TSEQ)
+    a.mov_a_dp(TACC); a.setc(); a.sbc_a_dpx(TPAT); a.mov_dp_a(TACC)
+    a.inc_x(); a.cmp_x_imm(len(HALFTICKS)); a.bne("hcnext"); a.mov_x_imm(0)
+    a.label("hcnext")
+    a.mov_dp_x(TSEQ)
+    a.mov_dp_imm(SV, 0); a.call("sweepv")
+    a.mov_dp_imm(SV, 1); a.call("sweepv")
+    a.ret()
+
+    #  sweepv: one clock of voice SV's sweep.
+    #  Cheap unless the period actually moves: the music never sweeps, and
+    #  this runs between packets, so whatever it spends is added to the time
+    #  the 65816 waits for its next acknowledgement.  SWMUTE is always the
+    #  silence for the period and register as they stand -- every change to
+    #  either goes through target -- so it can be read here, not recomputed.
+    a.label("sweepv")
+    a.mov_x_dp(SV)
+    a.mov_a_dpx(SWON); a.beq("svret")
+    a.mov_a_dpx(SWDIV); a.beq("svupd")
+    a.dec_a(); a.mov_dpx_a(SWDIV)       # not this clock
+    a.ret()
+    a.label("svupd")
+    a.mov_a_dpx(SWREG); a.xcn_a(); a.and_a_imm(0x07); a.mov_dpx_a(SWDIV)
+    a.mov_a_dpx(SWREG); a.and_a_imm(0x80); a.beq("svret")   # disabled
+    a.mov_a_dpx(SWREG); a.and_a_imm(0x07); a.beq("svret")   # shift 0 never moves it
+    a.mov_a_dpx(SWMUTE); a.bne("svret")                     # silent: frozen
+    a.mov_a_dpx(SWTL); a.mov_dp_a(T16); a.mov_a_dpx(SWTH); a.mov_dp_a(T16 + 1)
+    a.call("target")
+    a.mov_a_dp(TGT); a.mov_dpx_a(SWTL); a.mov_dp_a(T16)
+    a.mov_a_dp(TGT + 1); a.mov_dpx_a(SWTH); a.mov_dp_a(T16 + 1)
+    a.call("applyt")                    # the new pitch...
+    a.mov_a_x(); a.xcn_a(); a.mov_dp_a(VB)
+    a.call("tone")                      # ...onto the DSP
+    a.mov_x_dp(SV)
+    a.call("target")                    # and silent now, at the new period?
+    a.mov_a_dp(NEWMUTE)
+    a.jmp("setmute")
+    a.label("svret")
+    a.ret()
+
+    #  swcheck: is voice X silenced by its sweep, at the period it has?
+    a.label("swcheck")
+    a.mov_a_dpx(SWTL); a.mov_dp_a(T16); a.mov_a_dpx(SWTH); a.mov_dp_a(T16 + 1)
+    a.call("target")
+    a.mov_a_dp(NEWMUTE)
+    a.jmp("setmute")
+
+    #  target: from period T16 and voice X's sweep register, the period the
+    #  sweep is heading for (TGT) and whether the channel is silent (NEWMUTE).
+    a.label("target")
+    a.mov_a_dp(T16); a.mov_dp_a(TGT); a.mov_a_dp(T16 + 1); a.mov_dp_a(TGT + 1)
+    a.mov_a_dpx(SWREG); a.and_a_imm(0x07); a.beq("tgshifted")  # shift 0: the change
+    a.mov_y_a()                                                #   is the whole period
+    a.label("tgshift")
+    a.lsr_dp(TGT + 1); a.ror_dp(TGT)
+    a.dec_y(); a.bne("tgshift")
+    a.label("tgshifted")
+    a.mov_a_dpx(SWREG); a.and_a_imm(0x08); a.bne("tgdown")
+    a.movw_ya_dp(T16); a.addw_ya_dp(TGT); a.movw_dp_ya(TGT)    # falling pitch
+    a.bra("tgmute")
+    a.label("tgdown")
+    a.movw_ya_dp(T16); a.subw_ya_dp(TGT); a.bcs("tgnoborrow")  # rising pitch,
+    a.mov_a_imm(0); a.mov_y_a()                                #   but not past 0
+    a.label("tgnoborrow")
+    a.movw_dp_ya(TGT)
+    a.cmp_x_imm(0); a.bne("tgmute")       # pulse 1 negates in ones' complement:
+    a.movw_ya_dp(TGT); a.beq("tgmute")    #   one further, unless already 0
+    a.decw_dp(TGT)
+    a.label("tgmute")
+    a.mov_dp_imm(NEWMUTE, 1)
+    a.mov_a_dp(T16 + 1); a.bne("tghigh")
+    a.mov_a_dp(T16); a.cmp_a_imm(8); a.bcc("tgret")            # period under 8
+    a.label("tghigh")
+    a.mov_a_dp(TGT + 1); a.cmp_a_imm(0x08); a.bcs("tgret")     # target past $7FF
+    a.mov_dp_imm(NEWMUTE, 0)
+    a.label("tgret")
+    a.ret()
+
+    #  applyt: PLO, PHI and WIDX for voice X at period T16, from the tables.
+    a.label("applyt")
+    a.movw_ya_dp(T16); a.addw_ya_dp(T16); a.addw_ya_dp(PTBASE); a.movw_dp_ya(PTR)
+    a.mov_y_imm(0); a.mov_a_idy(PTR); a.mov_dp_a(PLO)
+    a.inc_y(); a.mov_a_idy(PTR); a.mov_dp_a(PHI)
+    a.movw_ya_dp(T16); a.addw_ya_dp(STBASE); a.movw_dp_ya(PTR)
+    a.mov_y_imm(0); a.mov_a_idy(PTR); a.or_a_dpx(SWDUTY); a.mov_dp_a(WIDX)
+    a.ret()
+
+    #  setmute: voice X is (A nonzero) or is not silenced by its sweep.  A
+    #  change keys it off, or on again.  The 65816 does not know -- the voice
+    #  is still sounding as far as it is concerned -- so this owns both edges.
+    a.label("setmute")
+    a.cmp_a_dpx(SWMUTE); a.beq("smret")
+    a.mov_dpx_a(SWMUTE)
+    a.mov_a_dpx(SWMUTE); a.beq("smon")
+    a.mov_a_dpx(MASKTAB); a.dsp_a(0x5C)  # KOFF this voice
+    a.bra("smwait")
+    a.label("smon")
+    a.dsp(0x5C, 0x00)                    # a key-on needs KOFF clear first
+    a.mov_a_dpx(MASKTAB); a.dsp_a(0x4C)  # KON
+    a.mov_dp_imm(KONPEND, 1)             # the next packet releases it
+    a.label("smwait")
+    #  Hold off for the DSP to see it.  It samples KON and KOFF every second
+    #  output sample, 62.5us, and the next write to either register -- for
+    #  this voice or another -- replaces the whole byte.  Packets are spaced
+    #  by the 65816's round trip, but this runs between them, and one can be
+    #  waiting.  Sixteen turns of this loop are 96 cycles, 94us.
+    a.mov_y_imm(16)
+    a.label("smdelay")
+    a.dec_y(); a.bne("smdelay")
+    a.label("smret")
+    a.ret()
+
+
+def program():
+    _check_opcodes()
+    a = Asm(LOAD)
+    a.di(); a.clrp()
+    # key-on mask table, written into direct page at start-up
+    for i in range(4): a.mov_dp_imm(MASKTAB + i, 1 << i)
+    #  Which directory slot each voice points at, and the waveform index it was
+    #  last given.  $FF is not a real index, so the first packet always moves.
+    for i in range(4):
+        a.mov_dp_imm(SRCNV + i, i)
+        a.mov_dp_imm(LASTIDX + i, 0xFF)
+        if LIVENESS: a.mov_dp_imm(DEADCNT + i, 0)
+        a.mov_dp_imm(VOLC + i, 0xFF)     # nothing has been sent yet, so the
+        a.mov_dp_imm(PITCHLC + i, 0xFF)  #   first packet always writes
+        a.mov_dp_imm(PITCHHC + i, 0xFF)
+    a.mov_dp_imm(ENDXACC, 0)
+    a.mov_dp_imm(KONPEND, 0)
+    # Port 0 still holds the boot ROM's final handshake value.  Take that as the
+    # sequence baseline rather than 0, or it reads as a first packet -- one made
+    # of whatever the upload left on the other ports.
+    #  Read twice, like every other read of this port: see the packet loop.
+    #  A torn baseline would either be taken for a first packet built from
+    #  leftover upload state, or match and swallow the first real one.
+    a.label("baselinerd")
+    a.mov_a_dp(0xF4)
+    a.cmp_a_dp(0xF4)
+    a.bne("baselinerd")
+    a.mov_dp_a(LAST)
+    # S-DSP global set-up
+    #  Start from a known DSP, not whatever it powered up holding.
+    #
+    #  The register file is SRAM: on real hardware it comes up as whatever the
+    #  cells settle to, where an emulator hands you zeroes.  This used to write
+    #  only the registers it meant to use, and it released the soft reset
+    #  FIRST -- so for the dozen writes that followed, any voice holding
+    #  power-on garbage (a latched KON bit, a random SRCN, pitch, envelope) was
+    #  free to sound, and ADSR2, all of voices 4-7, ESA, EDL, EFB and the FIR
+    #  taps were never written at all.  Differences between an emulator and a
+    #  console are exactly where uninitialised state hides.
+    #
+    #  So: assert the soft reset (every voice held in release at zero), zero
+    #  every register but FLG itself, give the few that need values their
+    #  values, and only then let go.  FLG is skipped because zeroing it would
+    #  clear the reset -- and enable echo writes, into RAM at an ESA not yet set.
+    a.dsp(0x6C, 0xE0)         # FLG: soft reset + mute + echo writes off
+    a.mov_a_imm(0x00)
+    a.label("dspclr")
+    a.cmp_a_imm(0x6C); a.beq("dspclrnext")
+    a.mov_dp_a(0xF2); a.mov_dp_imm(0xF3, 0x00)
+    a.label("dspclrnext")
+    a.inc_a(); a.cmp_a_imm(0x80); a.bne("dspclr")
+    #  Echo is never used, and its writes stay disabled -- but give it a page
+    #  that holds nothing, rather than the zero page the loop just pointed it at.
+    a.dsp(0x6D, ECHOPAGE)     # ESA
+    a.dsp(0x0F, 0x7F)         # FIR0: identity (silent anyway, EVOL is zero)
+    #  Main volume, backed off far enough that the mix cannot clip.
+    #
+    #  The pulses are unipolar (see square()), so every voice's offset pushes
+    #  the same way instead of partly cancelling as bipolar waves would, and
+    #  the worst case is just the sum of all four peaks.  Measured against the
+    #  emulator's own output, one unit of a voice's VOL is worth about 242 at
+    #  MVOL $68, and VOL reaches 60+60+45+60 = 225 with both pulses loud, the
+    #  triangle under them and a noise effect on top.  That is 54572 against a
+    #  32767 ceiling: it clips, and not rarely enough to ignore -- it is what
+    #  the overworld and town music do.
+    #
+    #  $7C leaves that worst case just inside the rail, so no combination of
+    #  channels can clip, and changes no voice's level relative to another.
+    #  (It reads as twice the figure this once was because BRR_SCALE dropped by
+    #  one at the same time and halved every sample: the product, and with it
+    #  the output level, is unchanged.)
+    #
+    #  The bill is really the unipolar waveforms': half their swing is a DC
+    #  offset nobody can hear -- the console AC-couples its output -- but it
+    #  occupies headroom all the same.  A NES has the same shape of problem
+    #  and answers it with a non-linear mixer that compresses as channels pile
+    #  up instead of clipping.  Nothing here can do that: the SPC700 sets a
+    #  volume per voice and the DSP sums them, so the only lever is the level
+    #  they are summed at.
+    a.dsp(0x0C, 0x7C)         # MVOL_L
+    a.dsp(0x1C, 0x7C)         # MVOL_R
+    a.dsp(0x5C, 0xFF)         # KOFF everything
+    a.dsp(0x3D, 0x08)         # NON: voice 3 plays the noise generator
+    a.dsp(0x5D, DIRPAGE)      # DIR
+    for v in range(4):        # each voice: its own directory entry, gain mode
+        #  (ADSR1 and ADSR2 are zero from the loop: bit 7 clear means GAIN)
+        a.dsp(v * 0x10 + 0x04, v)        # SRCN = voice; the entry is repointed
+        # GAIN in linear-increase mode at the fastest rate: 0 to full in 64
+        # samples, 2 ms.  Not direct mode.  With direct gain the voice jumps
+        # from silence to its first sample at key-on, and the interpolator --
+        # which softens every other edge of a stretched low-pitch square --
+        # cannot soften that one, so it clicks.  A 2 ms ramp is below the
+        # threshold where an attack reads as soft, and key-off gets the DSP's
+        # release fade for free.
+        a.dsp(v * 0x10 + 0x07, 0xDF)     # GAIN: linear increase, rate 31
+    a.dsp(0x6C, 0x20)         # FLG: NOW release reset and mute; echo writes stay off
+    a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
+    #  The sweep units start idle.  SWREG starts at $FF because that is what
+    #  the 65816 believes it last sent (h_swsent), so the two agree from the
+    #  start and the first real value is always sent.
+    a.mov_a_imm(0); a.mov_x_imm(3)
+    a.label("swclr")
+    for arr in (SWON, SWMUTE, SWDIV, SWTL, SWTH, SWDUTY): a.mov_dpx_a(arr)
+    a.dec_x(); a.bpl("swclr")
+    a.mov_a_imm(0xFF); a.mov_x_imm(3)
+    a.label("swregclr")
+    a.mov_dpx_a(SWREG); a.dec_x(); a.bpl("swregclr")
+    a.mov_dp_imm(PTBASE, PTAB & 0xFF); a.mov_dp_imm(PTBASE + 1, PTAB >> 8)
+    a.mov_dp_imm(STBASE, STAB & 0xFF); a.mov_dp_imm(STBASE + 1, STAB >> 8)
+    for i, n in enumerate(HALFTICKS): a.mov_dp_imm(TPAT + i, n)
+    a.mov_dp_imm(TSEQ, 0); a.mov_dp_imm(TACC, 0)
+    a.mov_dp_imm(0xFA, T0DIV)  # timer 0: quarter-milliseconds
+    a.mov_dp_imm(0xF1, 0x81)  # ...running; boot ROM still mapped; ports untouched
+    a.mov_dp_imm(0xF4, 0)     # tell the 65816 we are alive: ack = 0
+
+    a.label("loop")
+    a.mov_a_dp(0xF4)          # sequence number from the 65816
+    a.cmp_a_dp(LAST)
+    a.bne("pkt")              # changed: a packet, probably
+    #  No packet: keep the half-frame clock.  T0OUT is four bits and clears
+    #  when read, so it has to be read at least every 3.75ms; nothing in a
+    #  packet takes a tenth of that.
+    a.mov_a_dp(0xFD)          # T0OUT: quarter-milliseconds since the last read
+    a.beq("loop")
+    a.clc(); a.adc_a_dp(TACC); a.mov_dp_a(TACC)
+    a.mov_x_dp(TSEQ); a.cmp_a_dpx(TPAT)
+    a.bcc("loop")
+    a.call("halfclk")
+    a.bra("loop")
+    a.label("pkt")
+    #  ...and only believe it once a second read agrees.
+    #
+    #  The two chips run on unrelated clocks, and a read of a communication
+    #  port that lands on the other side's write can return a torn mix of old
+    #  and new bits (snes.nesdev.org/wiki/Errata: "A SPC700 program may want
+    #  to read twice and only proceed when two subsequent reads have the same
+    #  value").  This byte is both the doorbell and the waveform index, and it
+    #  was accepted on any difference from one read -- so a torn read became a
+    #  phantom packet carrying a garbage waveform, processed once wrong and
+    #  then again right.  On the triangle a garbage index reached past ADDRTAB
+    #  into sample data; if the voice wrapped inside that window it played
+    #  garbage, hit END-without-LOOP, and died for good -- the cutout.  With
+    #  hysteresis on the pulses, the wrong pass could hold a wrong waveform and
+    #  shift the pitch at once -- the pulse glitch.  Emulators never tear a
+    #  read, which is why neither showed in ares or Mesen.
+    #
+    #  The other three ports are safe: the 65816 writes them before this one
+    #  and not again until we acknowledge.  Its own poll of our reply is safe
+    #  too, since it compares against the exact byte it expects.
+    a.cmp_a_dp(0xF4)
+    a.bne("loop")             # changed between reads: not settled yet
+    a.mov_dp_a(LAST)
+
+    #  Release the previous packet's key-on before doing anything else.
+    #
+    #  KON is a level the DSP samples, not an edge it catches.  Left set, a
+    #  voice is keyed on again every sample period, and every key-on resets
+    #  that voice's envelope to zero -- so a voice whose bit stays in KON goes
+    #  silent and stays silent, until some later key-on for another voice
+    #  happens to overwrite the byte.  That is minutes, if the music does not
+    #  need the other voices.
+    #
+    #  Clearing it here rather than straight after the write gives the DSP its
+    #  sample period to latch it: packets are separated by the 65816's
+    #  handshake round trip, which is hundreds of microseconds, where the few
+    #  cycles between the write and the acknowledge would not be enough.
+    a.mov_a_dp(KONPEND)       # ...but only if one is actually asserted: an
+    a.beq("nokon")            #   idle voice should put nothing on the bus
+    a.dsp(0x4C, 0x00)
+    a.mov_dp_imm(KONPEND, 0)
+    a.label("nokon")
+
+    a.mov_a_dp(0xF5)          # cmd
+    a.mov_dp_a(CMD)
+    a.and_a_imm(0x30)         # voice bits are already voice*16 == DSP reg base
+    a.mov_dp_a(VB)
+    a.xcn_a()                 # $30 -> $03: the voice number...
+    a.mov_x_a(); a.mov_a_dpx(MASKTAB)
+    a.mov_dp_a(MASK)          # ...and its key mask
+    #  Byte 2 of the packet, taken ONCE.
+    #
+    #  $F6 is a port the 65816 drives, not memory we own.  It used to be read
+    #  live at each of the four places below, and the 65816 writes $F5-$F7 and
+    #  only then $F4 to announce a packet -- so while this code is still
+    #  reading byte 2 of packet N, the next packet's byte 2 can already be
+    #  sitting in the port.  Nothing in the handshake prevents that.
+    #
+    #  Read twice, it tears two ways: the compare decides to write using one
+    #  value while another reaches the DSP, and worse, the cache records one
+    #  value while the DSP receives the other -- after which the cache lies,
+    #  the next equal value is skipped as "unchanged", and the voice is left
+    #  at the wrong pitch until it next moves.  The two crystals drift, so it
+    #  happens at some slow beat rather than never or always, and an emulator
+    #  that clocks both deterministically does not show it at all.
+    #
+    #  This is why the pitch tone ROM pops on hardware and the volume one,
+    #  with identical write traffic, does not: volume comes from VOL, which is
+    #  latched, and pitch-low came straight from the port.
+    a.mov_a_dp(0xF6); a.mov_dp_a(PLO)
+    a.mov_a_dp(0xF7); a.mov_dp_a(P7)    # and byte 3, for the same reason
+    #  A sweep packet: both key bits set, which no other packet has.  Byte 2
+    #  is the pulse's sweep register, sent only when it changes.  The period
+    #  it is sweeping stays put, but the new setting may silence it or let it
+    #  sound again.
+    a.mov_a_dp(CMD); a.and_a_imm(0xC0); a.cmp_a_imm(0xC0); a.bne("notaux")
+    a.mov_a_dp(PLO); a.mov_dpx_a(SWREG)                 # X = voice
+    a.mov_a_dpx(SWON); a.beq("auxdone")
+    a.call("swcheck")
+    a.label("auxdone")
+    a.jmp("ack")
+    a.label("notaux")
+    # A key-off writes KOFF and nothing else.  Zeroing the volume in the same
+    # packet -- as a first version did -- cuts the output dead before the
+    # DSP's release can fade it, and that cut is a click on every note-off,
+    # loud on the smooth triangle and audible on a low pulse sitting on a long
+    # plateau.  Leave VOL and PITCH where they are; the release does the rest.
+    a.mov_a_dp(CMD); a.and_a_imm(0x80); a.beq("sounding")
+    a.mov_a_dp(MASK); a.dsp_a(0x5C)  # KOFF = mask
+    a.mov_a_imm(0); a.mov_dpx_a(SWON)   # (X = voice) its sweep stops too
+    a.jmp("ack")
+    a.label("sounding")
+    a.mov_a_dp(CMD)
+    #  One NES nibble, scaled per voice, because the three kinds of voice do
+    #  not arrive at the same amplitude.  Our pulses are unipolar and peak at
+    #  14336, the triangle is bipolar and peaks at 16384, and the noise is not
+    #  a waveform of ours at all -- the DSP's own generator, which spans the
+    #  whole sixteen-bit range.  Left at the same scale the noise comes out
+    #  four times a pulse where a NES puts it at 1.17, which is audible as the
+    #  noise channel sitting far too high in the mix.
+    #
+    #  The targets are the NES's non-linear mixer at full level: a pulse at
+    #  0.1494, the triangle at 0.2464 and noise at 0.1744, or 1.65 and 1.17
+    #  times a pulse.  Against those, x4 / x3 / x1 gives 1.50 and 1.00 -- the
+    #  triangle a little under and the noise a little under, both inside a
+    #  decibel and a half, which is as close as whole multiples of a four-bit
+    #  nibble reach.
+    #
+    #  It also settles the last of the headroom: the noise at x4 put the
+    #  worst case at 44619 against a 32767 rail, and at x1 it is 29746.
+    a.and_a_imm(0x0F)         # NES 4-bit volume
+    a.mov_dp_a(VOL)           # x1 -- which is the noise voice's share
+    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.beq("volset")
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("trivol")
+    a.mov_a_dp(VOL); a.asl_a(); a.asl_a()         # x4 for the pulses: unipolar
+    a.mov_dp_a(VOL)                               #   swings half as far
+    a.bra("volset")
+    a.label("trivol")
+    a.mov_a_dp(VOL); a.asl_a(); a.mov_dp_a(PHI)   # x3 for the triangle
+    a.mov_a_dp(VOL); a.clc(); a.adc_a_dp(PHI)
+    a.mov_dp_a(VOL)
+    a.label("volset")
+    #  A pulse packet carries the NES period itself, and the sweep runs from
+    #  it here.  It starts over when the packet says the CPU wrote $4003/$4007
+    #  (bit 7 of byte 3) or on a key-on; otherwise the sweep keeps the period
+    #  it has, which may have moved since the 65816 last looked.
+    a.mov_a_dp(VB); a.cmp_a_imm(0x20); a.bcs("notpulse")
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
+    a.mov_a_imm(1); a.mov_dpx_a(SWON)
+    a.mov_a_dp(LAST); a.lsr_a(); a.lsr_a(); a.lsr_a(); a.and_a_imm(0x18)
+    a.mov_dpx_a(SWDUTY)                 # duty * 8: the waveform family
+    #  Without a restart the sweep's own period and silence stand as they are:
+    #  nothing here can change them, and a packet with no restart has no
+    #  key-on either.  Working the target out anyway would cost two hundred
+    #  cycles a packet for nothing.
+    a.mov_a_dp(CMD); a.and_a_imm(0x40); a.bne("restart")
+    a.mov_a_dp(P7); a.and_a_imm(0x80); a.beq("notpulse")
+    a.label("restart")
+    a.mov_a_dp(PLO); a.mov_dpx_a(SWTL); a.mov_dp_a(T16)
+    a.mov_a_dp(P7); a.and_a_imm(0x07); a.mov_dpx_a(SWTH); a.mov_dp_a(T16 + 1)
+    a.mov_a_dpx(SWREG); a.xcn_a(); a.and_a_imm(0x07); a.mov_dpx_a(SWDIV)
+    a.call("target")
+    a.mov_a_dp(NEWMUTE); a.beq("pulseheard")
+    #  Silenced by its sweep: no key-on, and a key-off if it was sounding.
+    a.mov_a_dp(CMD); a.and_a_imm(0xBF); a.mov_dp_a(CMD)
+    a.mov_a_imm(1); a.call("setmute")
+    a.bra("notpulse")
+    a.label("pulseheard")
+    a.mov_a_dpx(SWMUTE); a.beq("notpulse")
+    a.mov_a_imm(0); a.mov_dpx_a(SWMUTE)   # sounding again: key it on below
+    a.mov_a_dp(CMD); a.or_a_imm(0x40); a.mov_dp_a(CMD)
+    a.label("notpulse")
+    #  Only write what changed.
+    #
+    #  A packet arrives for every sounding voice every frame whether or not
+    #  anything about it moved, and this rewrote volume and pitch each time.
+    #  Measured on two steady voices, that is twelve DSP register writes a
+    #  frame carrying values the DSP already holds.  Each one is a chance to
+    #  land on the moment the DSP is reading that register in its own
+    #  thirty-two cycle voice loop, and two voices double the chances -- which
+    #  is where the popping starts.  Held music notes are the same situation.
+    #
+    #  So cache what was last sent per voice and skip the write when it has not
+    #  moved.  With nothing changing, nothing is written at all.
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
+    a.mov_a_dp(VOL)
+    a.cmp_a_dpx(VOLC)
+    if "vol" not in _NOCACHE:
+        a.beq("volsame")
+    a.mov_dpx_a(VOLC)
+    a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    a.label("volsame")
+    # The noise voice takes no pitch or waveform: instead its packet's pitch-low
+    # byte is the global noise rate, written into FLG's low five bits (echo
+    # writes stay disabled, bit 5).
+    a.mov_a_dp(VB); a.cmp_a_imm(NOISE_VOICE * 0x10); a.bne("tonal")
+    a.mov_a_dp(PLO); a.and_a_imm(0x1F); a.or_a_imm(0x20); a.dsp_a(0x6C)
+    a.jmp("keys")
+    a.label("tonal")
+    a.mov_a_dp(VB); a.cmp_a_imm(TRIANGLE_VOICE * 0x10); a.beq("tritone")
+    #  A pulse: its pitch and cycle length come from the period the sweep now
+    #  has, through genapu.py's pulse tables, which sit in this image.
+    a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
+    a.mov_a_dpx(SWTL); a.mov_dp_a(T16); a.mov_a_dpx(SWTH); a.mov_dp_a(T16 + 1)
+    a.call("applyt")
+    a.bra("tonego")
+    a.label("tritone")
+    # PITCH_L, PITCH_H straight from the ports.  Skipped entirely when neither
+    # byte has moved -- see volset.
+    a.mov_a_dp(P7); a.and_a_imm(0x3F); a.mov_dp_a(PHI)
+    #  The cycle length rides in the sequence byte's top bits.  Masked to the
+    #  triangle's own eight, whatever arrived: an index past them reads beyond
+    #  ADDRTAB into sample data and repoints the voice at garbage.
+    a.mov_a_dp(LAST)
+    for _ in range(3): a.lsr_a()
+    a.and_a_imm(0x07); a.clc(); a.adc_a_imm(TRIWAVE0); a.mov_dp_a(WIDX)
+    a.label("tonego")
+    a.call("tone")
 
     #  Voice liveness recovery -- DISABLED, deliberately.
     #
@@ -678,6 +956,8 @@ def program():
         a.mov_a_dp(0xF3); a.mov_dp_a(0xF7)
     a.mov_a_dp(LAST); a.mov_dp_a(0xF4)   # acknowledge
     a.jmp("loop")
+    emit_tone(a)
+    emit_sweep(a)
     a.link()
     return bytes(a.code)
 
@@ -802,6 +1082,16 @@ TRIWAVE0 = len(SIZES) * len(DUTIES)          # index of the triangle's first
 TRIANGLE_VOICE = 2
 NOISE_VOICE = 3
 
+#  The pulses' NES period -> S-DSP pitch and cycle-length tables, the same
+#  ones genapu.py computes, placed after the sample data.  The sweep moves a
+#  period between packets, so the pitch has to be looked up here.
+import genapu
+_PULSE_PITCH, _PULSE_SIZE = genapu.table(16)
+PTAB = BRRBASE + sum(len(w) for w in WAVES)
+STAB = PTAB + 2 * len(_PULSE_PITCH)
+TABLES = b"".join(bytes([p & 0xFF, p >> 8]) for p in _PULSE_PITCH) \
+       + bytes(sz >> 3 for sz in _PULSE_SIZE)      # size index, not pre-shifted
+
 def main():
     prog = program()
     assert len(prog) <= DIRBASE - LOAD, (len(prog), DIRBASE - LOAD)
@@ -827,6 +1117,8 @@ def main():
     assert ADDRTAB + len(addrtab) <= BRRBASE, len(addrtab)
     addrtab += bytes(BRRBASE - ADDRTAB - len(addrtab))
     image += dirent + addrtab + brr
+    assert len(image) + LOAD == PTAB, (hex(len(image) + LOAD), hex(PTAB))
+    image += TABLES
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
         f.write("SPCPROG_LOAD  = $%04X\n" % LOAD)

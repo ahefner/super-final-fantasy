@@ -466,25 +466,24 @@ h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
 h_apuvol        = HAL_VARS+$74  ; its NES volume nibble
 h_apupitch      = HAL_VARS+$75  ; 2 bytes: its S-DSP pitch
 h_apuwait       = HAL_VARS+$77  ; apu_send's bounded-wait counter
+h_apuwaithi     = HAL_VARS+$CB  ; ...and its high byte
 h_apuwave       = HAL_VARS+$78  ; waveform index, pre-shifted into the sequence
                                 ;   byte's bits 7-3: duty and cycle length
-;  Sweep unit state, two bytes per pulse channel so one index serves both:
+;  The pulses' sweep units run on the SPC700 (see genspc.py).  What is kept
+;  here is what it takes to tell it when one starts over, and what its
+;  register says.  Two bytes per pulse channel so one index serves both:
 ;  X = 0 for pulse 1, 2 for pulse 2.
-h_swper         = HAL_VARS+$7A  ; the period the sweep now owns
 h_swseen        = HAL_VARS+$7E  ; the period the CPU last wrote, to spot writes
-h_swdiv         = HAL_VARS+$82  ; half-frames left before the next update
-h_swmute        = HAL_VARS+$86  ; nonzero while the sweep is silencing it
-h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
-h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
-h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
-h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
 h_sqrst         = HAL_VARS+$C4  ; set by a $4003/$4007 write: the sweep starts
                                 ;   over from the period just written, even if
                                 ;   the bytes were the same as last time
-h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
-h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
+h_swsent        = HAL_VARS+$BF  ; the sweep register last sent to the SPC700;
+                                ;   indexed by Y = 0 or 4, so pulse 2's is +$C3
+h_pkrst         = HAL_VARS+$C9  ; scratch: $80 if this packet restarts the sweep
+h_hfacc         = HAL_VARS+$96  ; fractional half-frame accumulator
+h_hftickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
-                                ;   own, so it may advance the sweep clock
+                                ;   own, so it may advance the half-frame clock
 ;  The noise channel's NES envelope and length counter.  It is the only
 ;  channel this game drives with them: its $400C writes clear the
 ;  constant-volume bit, so the low nibble is a decay rate and the level comes

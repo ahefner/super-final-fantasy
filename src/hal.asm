@@ -1140,7 +1140,8 @@ hal_waitvbl:
     phx
     phy
     lda #1
-    sta a:h_apufull             ; this is the frame's own call: tick the sweep
+    sta a:h_apufull             ; this is the frame's own call: advance the
+                                ;   half-frame clock
     jsr hal_apu_frame           ; this frame's sound, sent before the wait so
                                 ;   it costs idle time rather than vblank
   .ifdef SCROLLSTAT
@@ -3107,9 +3108,11 @@ spc_ack:
 ;;  counters throughout, amplitude done in software in the low nibble of the
 ;;  control register every frame, $4015 used to gate channels for sound
 ;;  effects.  So per pulse channel, per frame: it sounds if $4015 enables it,
-;;  its volume nibble is nonzero and its timer is 8 or more (the NES mutes a
-;;  pulse below that); its pitch is the timer through the table; its duty is
-;;  the top two control bits.  A voice going from silent to sounding is a
+;;  its volume is nonzero -- the nibble, or the envelope's level when the
+;;  constant bit is clear -- and its timer is 8 or more (the NES mutes a
+;;  pulse below that); the timer itself goes to the SPC700, which runs the
+;;  sweep and looks up the pitch; its duty is the top two control bits.  A
+;;  voice going from silent to sounding is a
 ;;  key-on, sounding to silent a key-off, and nothing else is -- the driver's
 ;;  volume-0 rest is the note boundary, and a same-pitch $4003 rewrite mid-note
 ;;  is a phase restart the ear cannot hear on a constant-volume square.
@@ -3127,23 +3130,25 @@ hal_apu_frame:
     .i16
     ;  How many half-frame clocks fall in this video frame.  The game writes
     ;  $C0 to $4017 (bank_0F: "alternative pAPU frame counter method"), which
-    ;  selects the five-step sequence, and that clocks the sweep at 96Hz where
-    ;  the four-step mode would give 120Hz.  96 does not divide 60, so carry
-    ;  the remainder between frames and the ticks fall 1,2,1,2,2 -- eight every
-    ;  five frames.  Running two a frame, as this first did, sweeps a quarter
-    ;  too fast, which is audible beside a console.
+    ;  selects the five-step sequence, and that runs the half-frame clock at
+    ;  96Hz where the four-step mode would give 120Hz.  96 does not divide 60,
+    ;  so carry the remainder between frames and the ticks fall 1,2,1,2,2 --
+    ;  eight every five frames.  Running two a frame, as this first did, ran
+    ;  the sweep a quarter too fast, which is audible beside a console.  The
+    ;  sweep has since moved to the SPC700, which keeps this clock for itself;
+    ;  here it paces the envelopes and the triangle's linear counter.
     ;  Only the call made once per frame by hal_waitvbl advances this.  The
     ;  register hooks below call hal_apu_frame too, to get a silence out
-    ;  without waiting for the frame, and if those also ticked the sweep it
+    ;  without waiting for the frame, and if those also ticked the clock it
     ;  would run fast -- the very fault that was just corrected.
     lda a:h_apufull
     and #$00FF
     bne @fullframe
-      stz a:h_swtickn
+      stz a:h_hftickn
       bra @accdone
 @fullframe:
     stz a:h_apufull
-    lda a:h_swacc
+    lda a:h_hfacc
     clc
     adc #96
     ldx #0
@@ -3154,8 +3159,8 @@ hal_apu_frame:
     inx
     bra @acctick
 @accstore:
-    sta a:h_swacc
-    stx a:h_swtickn
+    sta a:h_hfacc
+    stx a:h_hftickn
 @accdone:
     sep #$20
     .a8
@@ -3181,8 +3186,10 @@ hal_apu_frame:
     and #SOLOMASK
   .endif
     and a:h_apumask             ; enabled?
-    beq @silent
-    lda a:APUSHADOW+0,y
+    bne :+
+@psilent:
+      jmp @silent               ; the shared key-off path is out of branch reach
+:   lda a:APUSHADOW+0,y
     and #$10                    ; constant volume, or the envelope's level?
     beq @penv
       lda a:APUSHADOW+0,y
@@ -3191,50 +3198,66 @@ hal_apu_frame:
 @penv:
     lda a:h_pedecay,y
 @phavevol:
-    beq @silent                 ; sounding?
+    beq @psilent                ; sounding?
     sta a:h_apuvol
     rep #$20
     .a16
-    ;  The sweep unit owns this channel's period once the driver has set it,
-    ;  so the note comes from there rather than straight from the shadow.  It
-    ;  also decides when the period has run past either end and the channel
-    ;  falls silent.
-    tya                         ; Y is 0 or 4; the sweep state is two bytes wide
+    tya                         ; Y is 0 or 4; the two-byte slots want 0 or 2
     lsr a
     tax                         ; X = 0 for pulse 1, 2 for pulse 2
-    jsr apu_sweep
-    lda a:h_swmute,x
-    bne @silent16
-    lda a:h_swper,x
-    pha                         ; keep the timer: the size table indexes by it
-    asl a                       ; word index
-    tax                         ; (long addressing indexes by X only)
-    lda f:apupitch_pulse + HALFAR,x
-    sta a:h_apupitch
-    pla
-    tax                         ; X = timer, for the byte-wide size table
-    sep #$20
+    lda a:APUSHADOW+2,y
+    and #$07FF                  ; the period the CPU wrote
+    cmp #8
+    bcs :+
+      jmp @silent16             ; under 8 a NES mutes the channel outright
+:   sta a:h_apupitch            ; (the packet carries the period, not a pitch)
+    ;  Does the sweep start over?  When the CPU wrote $4003/$4007, which the
+    ;  hook recorded, or when the period moved without that -- a write to the
+    ;  low byte alone.  A key-on starts it over as well; the SPC700 sees that
+    ;  for itself.
+    stz a:h_pkrst
+    cmp a:h_swseen,x
+    beq :+
+      sta a:h_swseen,x
+      lda #$0080
+      sta a:h_pkrst
+:   lda a:h_sqrst,x
+    and #$00FF
+    beq :+
+      stz a:h_sqrst,x
+      lda #$0080
+      sta a:h_pkrst
+:   sep #$20
     .a8
-    ;  The waveform this pitch was computed for.  Duty and cycle length travel
-    ;  together in the sequence byte's top five bits: the duty bits are already
-    ;  in position 7-6 in the control register, and the table's size index is
-    ;  pre-shifted to 5-3, so this is two loads and an OR.
-    lda f:apusize_pulse + HALFAR,x
-    sta a:h_apuwave
+    ;  The sweep register travels in a packet of its own, sent only when it
+    ;  changes -- the music driver writes $7F to it every frame -- and ahead of
+    ;  the note, so a restart in this frame's packet runs on the new setting.
+    lda a:APUSHADOW+1,y
+    cmp a:h_swsent,y
+    beq @swsame
+      sta a:h_swsent,y
+      sta a:APUIO2
+      stz a:APUIO3
+      stz a:h_apuwave           ; nothing for the doorbell's top bits
+      lda #$C0                  ; both key bits: a sweep packet
+      ora a:h_apuvoice
+      sta a:APUIO1
+      jsr apu_send
+@swsame:
     lda a:APUSHADOW+0,y
-    and #$C0                    ; duty
-    ora a:h_apuwave
-    sta a:h_apuwave
-    lda a:h_apupitch+1          ; PITCH_H alone now: the duty has its own field
-    sta a:APUIO3
+    and #$C0                    ; duty, in the doorbell's top two bits; the
+    sta a:h_apuwave             ;   cycle length is the SPC700's to choose
     lda a:h_apupitch
     sta a:APUIO2
+    lda a:h_apupitch+1          ; the period's top three bits
+    ora a:h_pkrst               ; ...and bit 7: start the sweep over
+    sta a:APUIO3
     lda a:h_apuvol
     ora a:h_apuvoice
     pha
     lda a:h_apuon
     and a:h_apumask
-    bne @sounding               ; already sounding: pitch and volume only
+    bne @sounding               ; already sounding: period and volume only
       pla
       ora #$40                  ; silent last frame: key-on
       pha
@@ -3431,149 +3454,6 @@ hal_apu_frame:
     xce
     rts
 
-;;  One video frame of a pulse channel's sweep unit.
-;;
-;;  The sweep bends a note's period while it sounds: every half-frame it adds
-;;  or subtracts period>>shift, and the channel goes silent when the period
-;;  falls below 8 or the target passes $7FF.  The game drives three effects
-;;  with it -- the menu chirp, the dialogue box opening and closing, and the
-;;  minigame error tone -- and all of them run the period down to the mute
-;;  threshold.  The chirp travels from timer 32 to 8, which is 3.4kHz to
-;;  12.4kHz.  With no sweep it was one flat tone, which is what was reported.
-;;
-;;  One or two ticks a frame: the game sets the five-step sequence, whose
-;;  half-frame clock is 96Hz, and hal_apu_frame works out how many fall in
-;;  each video frame.
-;;
-;;  It starts over from the period the CPU wrote whenever $4003/$4007 is
-;;  written, which the hooks record in h_sqrst -- see hal_w4003.  A period
-;;  differing from the one last seen counts too, for a write to the low byte
-;;  alone, which has no hook.
-;;
-;;  Entry: native, A and index registers 16 bits, X = 0 for pulse 1 or 2 for
-;;  pulse 2, Y = that channel's base in the shadow (0 or 4).
-.a16
-.i16
-apu_sweep:
-    lda a:APUSHADOW+1,y
-    and #$00FF
-    sta a:h_swreg               ; EPPP NSSS
-    ;  Has the CPU set this channel going again?
-    ;
-    ;  The write itself is the answer.  An effect replayed before it has
-    ;  finished writes the very same register bytes -- the menu chirp does,
-    ;  however fast the cursor moves, and PlaySFX_Error does every frame for
-    ;  sixteen -- and a shadow that keeps values cannot tell that from no write
-    ;  at all.  This used to guess from sq2_sfx rising instead, which caught
-    ;  the chirp but not the error sound: that sets sq2_sfx once and then
-    ;  holds the game, so the music driver never counts it down and it never
-    ;  rises again.  The sweep ran on from the first frame, past the mute
-    ;  threshold in three, and the alarm came out as a short chirp.
-    lda a:h_sqrst,x
-    and #$00FF
-    beq @byperiod
-      stz a:h_sqrst,x
-      bra @reload
-@byperiod:
-    lda a:APUSHADOW+2,y
-    and #$07FF
-    cmp a:h_swseen,x
-    beq @running
-@reload:
-    lda a:APUSHADOW+2,y
-    and #$07FF
-    sta a:h_swseen,x
-    sta a:h_swper,x
-    jsr apu_swdiv
-@running:
-    lda a:h_swtickn             ; one frame counter serves both channels, so
-    sta a:h_swticks             ;   the tick count is worked out once a frame
-    bne @tick
-    jmp @noticks                ; out of a branch's reach past the tick body
-@tick:
-    ;  Target and mute are recomputed every half-frame, whether or not the
-    ;  divider fires and whether or not the sweep is enabled.  Silencing a
-    ;  pulse whose period is under 8, or whose target has run past $7FF, is a
-    ;  property of the channel rather than of the sweep being switched on --
-    ;  and a muted channel does not update its period even when the divider
-    ;  does fire, which is what stops a rising sweep dead at the top.
-    lda a:h_swper,x
-    sta a:h_swtmp
-    lda a:h_swreg
-    and #$0007
-    beq @haschange              ; a shift of zero makes the change the period
-@shift:
-    lsr a:h_swtmp
-    dec a
-    bne @shift
-@haschange:
-    lda a:h_swreg
-    and #$0008
-    bne @up
-      lda a:h_swper,x           ; falling pitch: the period grows
-      clc
-      adc a:h_swtmp
-      bra @target
-@up:
-    lda a:h_swper,x             ; rising pitch: the period shrinks
-    sec
-    sbc a:h_swtmp
-    bcc @zero
-    cpx #0
-    bne @target                 ; pulse 2 subtracts the change; pulse 1 negates
-    cmp #0                      ;   with ones' complement, so it takes one more
-    beq @target
-    dec a
-    bra @target
-@zero:
-    lda #0
-@target:
-    sta a:h_swtgt
-    stz a:h_swmute,x
-    lda a:h_swper,x
-    cmp #8
-    bcc @domute
-    lda a:h_swtgt
-    cmp #$0800
-    bcc @divider
-@domute:
-    lda #1
-    sta a:h_swmute,x
-@divider:
-    lda a:h_swdiv,x
-    beq @update
-      dec a
-      sta a:h_swdiv,x
-      bra @next
-@update:
-    jsr apu_swdiv
-    lda a:h_swreg
-    and #$0080
-    beq @next                   ; disabled -- the driver writes $7F -- so the
-    lda a:h_swreg               ;   divider still runs but the period holds
-    and #$0007
-    beq @next                   ; a shift of zero never updates the period
-    lda a:h_swmute,x
-    bne @next                   ; muted: the period is not updated either
-    lda a:h_swtgt
-    sta a:h_swper,x
-@next:
-    dec a:h_swticks
-    beq @out
-    jmp @tick                   ; the tick body is past a branch's reach
-@out:
-    rts
-@noticks:
-    ;  No half-frame fell in this video frame.  The period stays put, but the
-    ;  channel is still silent if it has already run past either end.
-    stz a:h_swmute,x
-    lda a:h_swper,x
-    cmp #8
-    bcs :+
-      lda #1
-      sta a:h_swmute,x
-:   rts
-
 ;;  One video frame of the noise channel's envelope and length counter.
 ;;
 ;;  This is the only channel the game drives with the NES's own envelope.  Its
@@ -3590,7 +3470,7 @@ apu_sweep:
 .a8
 .i16
 apu_noiseenv:
-    lda a:h_swtickn
+    lda a:h_hftickn
     beq @out                    ; no half-frame fell in this video frame
     sta a:h_nztick
 @half:
@@ -3617,7 +3497,7 @@ apu_noiseenv:
 .a8
 .i16
 apu_pulseenv:
-    lda a:h_swtickn
+    lda a:h_hftickn
     beq @out                    ; no half-frame fell in this video frame
     sta a:h_petick
 @half:
@@ -3676,7 +3556,7 @@ apu_penvclk:
 .a8
 .i16
 apu_trilinear:
-    lda a:h_swtickn
+    lda a:h_hftickn
     beq @out                    ; no half-frame fell in this video frame
     sta a:h_trtick
 @half:
@@ -3749,19 +3629,6 @@ apu_envclk:
       lda #15
       sta a:h_nzdecay
 @done:
-    rts
-
-;;  Reload the sweep divider from the register's period field.
-.a16
-.i16
-apu_swdiv:
-    lda a:h_swreg
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    and #$0007
-    sta a:h_swdiv,x
     rts
 
 .a8
@@ -4138,16 +4005,28 @@ apu_send:
     ;  back.  Only enough of it has to change to be noticed, so three bits are
     ;  the sequence and the top five carry the waveform index -- which saves a
     ;  second packet per note, and there was nowhere left in ports 1-3 anyway.
+    ;
+    ;  The wait is 2048 polls, about 8ms.  It was 256, against the few dozen
+    ;  cycles the SPC700 then took to answer, but it now runs the pulses'
+    ;  sweep units between packets, and a packet that lands during a sweep
+    ;  step waits for it -- up to about a millisecond while an effect sweeps.
+    ;  256 polls is a millisecond, so the first such collision read as a dead
+    ;  SPC700 and the game went silent for good.  This only bounds a failure;
+    ;  an answering SPC700 ends the wait as soon as it answers.
+    lda #8
+    sta a:h_apuwaithi
+    stz a:h_apuwait
     inc a:h_apuseq
     lda a:h_apuseq
     and #$07
     ora a:h_apuwave
     sta a:APUIO0
-    stz a:h_apuwait             ; 256 polls: a few thousand cycles, against the
-@wait:                          ;   few dozen the SPC700 takes to answer
+@wait:
     cmp a:APUIO0
     beq @ok
     dec a:h_apuwait
+    bne @wait
+    dec a:h_apuwaithi
     bne @wait
     stz a:h_apuok               ; it stopped answering: go silent, not dead
 @ok:
@@ -4332,8 +4211,7 @@ init_halvars:
     stz a:h_greyscale
     ;  Audio state.  WRAM comes up arbitrary on a console, and these are read
     ;  before anything writes them: a stray h_nzlen would sound the noise
-    ;  channel for up to two and a half seconds at boot, and a stray h_swmute
-    ;  would silence a pulse until the driver next changed its note.
+    ;  channel for up to two and a half seconds at boot.
     stz a:h_nzdecay
     stz a:h_nzdiv
     stz a:h_nzstart
@@ -4352,19 +4230,19 @@ init_halvars:
     stz a:h_pediv+4
     stz a:h_pedecay+4
     stz a:h_petick
-    stz a:h_swacc
-    stz a:h_swacc+1
-    stz a:h_swtickn
-    stz a:h_swtickn+1
+    stz a:h_hfacc
+    stz a:h_hfacc+1
+    stz a:h_hftickn
+    stz a:h_hftickn+1
     ldx #0
-:   stz a:h_swper,x             ; two bytes per pulse channel, four channels'
-    stz a:h_swseen,x            ;   worth of slots: clear the lot
-    stz a:h_sqrst,x
-    stz a:h_swdiv,x
-    stz a:h_swmute,x
+:   stz a:h_swseen,x            ; two bytes per pulse channel, four channels'
+    stz a:h_sqrst,x             ;   worth of slots: clear the lot
     inx
     cpx #4
     bcc :-
+    lda #$FF                    ; what the SPC700's sweep registers start as,
+    sta a:h_swsent              ;   so the two sides agree until the first
+    sta a:h_swsent+4            ;   real value goes over
     lda #$11
     sta a:h_tmcur
     sta a:h_tmframestart
