@@ -931,26 +931,24 @@ h_apuvoice      = HAL_VARS+$73  ; voice<<4, ready for the packet's cmd byte
 h_apuvol        = HAL_VARS+$74  ; its NES volume nibble
 h_apupitch      = HAL_VARS+$75  ; 2 bytes: its S-DSP pitch
 h_apuwait       = HAL_VARS+$77  ; apu_send's bounded-wait counter
+h_apuwaithi     = HAL_VARS+$CB  ; ...and its high byte
 h_apuwave       = HAL_VARS+$78  ; waveform index, pre-shifted into the sequence
                                 ;   byte's bits 7-3: duty and cycle length
-;  Sweep unit state, two bytes per pulse channel so one index serves both:
+;  The pulses' sweep units run on the SPC700 (see genspc.py).  What is kept
+;  here is what it takes to tell it when one starts over, and what its
+;  register says.  Two bytes per pulse channel so one index serves both:
 ;  X = 0 for pulse 1, 2 for pulse 2.
-h_swper         = HAL_VARS+$7A  ; the period the sweep now owns
 h_swseen        = HAL_VARS+$7E  ; the period the CPU last wrote, to spot writes
-h_swdiv         = HAL_VARS+$82  ; half-frames left before the next update
-h_swmute        = HAL_VARS+$86  ; nonzero while the sweep is silencing it
-h_swreg         = HAL_VARS+$8A  ; scratch: the sweep register, EPPP NSSS
-h_swtmp         = HAL_VARS+$8C  ; scratch: period >> shift
-h_swticks       = HAL_VARS+$8E  ; scratch: half-frames left this video frame
-h_swtgt         = HAL_VARS+$90  ; scratch: the period the sweep is heading to
-h_sfxlast       = HAL_VARS+$92  ; last frame's sq2_sfx, to spot an effect
-                                ;   starting again with identical register bytes
-NESZP_SQ2SFX    = $007E         ; the game's own "pulse 2 is busy with a sound
-                                ;   effect for N more frames" countdown
-h_swacc         = HAL_VARS+$96  ; fractional half-frame accumulator
-h_swtickn       = HAL_VARS+$98  ; half-frames falling in this video frame
+h_sqrst         = HAL_VARS+$C4  ; set by a $4003/$4007 write: the sweep starts
+                                ;   over from the period just written, even if
+                                ;   the bytes were the same as last time
+h_swsent        = HAL_VARS+$BF  ; the sweep register last sent to the SPC700;
+                                ;   indexed by Y = 0 or 4, so pulse 2's is +$C3
+h_pkrst         = HAL_VARS+$C9  ; scratch: $80 if this packet restarts the sweep
+h_hfacc         = HAL_VARS+$96  ; fractional half-frame accumulator
+h_hftickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
-                                ;   own, so it may advance the sweep clock
+                                ;   own, so it may advance the half-frame clock
 ;  The noise channel's NES envelope and length counter.  It is the only
 ;  channel this game drives with them: its $400C writes clear the
 ;  constant-volume bit, so the low nibble is a decay rate and the level comes
@@ -973,6 +971,17 @@ h_nztick        = HAL_VARS+$A0  ; half-frames left to clock this video frame
 h_trilin        = HAL_VARS+$A8  ; the counter itself; at zero the channel is mute
 h_trirel        = HAL_VARS+$A9  ; reload flag, set by a write to $400B
 h_trtick        = HAL_VARS+$AA  ; half-frames left to clock this video frame
+
+;  The pulse channels' NES envelopes.  Everything the music driver plays is
+;  constant volume, but PlaySFX_Error writes $8C to $4004: the constant bit
+;  clear, so its low nibble is a decay period and the level comes from here.
+;  Interleaved four bytes apart, so the shadow's own offset for the channel --
+;  Y = 0 or 4 -- indexes them too.
+h_pestart       = HAL_VARS+$BC  ; a $4003/$4007 write restarts the envelope
+h_pediv         = HAL_VARS+$BD  ; quarter-frames until the level steps
+h_pedecay       = HAL_VARS+$BE  ; envelope level, 15 down to 0
+                                ;   (pulse 2's three are at +$C0..+$C2)
+h_petick        = HAL_VARS+$C8  ; half-frames left to clock this video frame
 ;  The tilemap word ClearNT leaves everywhere: tile 0, and the palette number
 ;  from an attribute byte of $FF, which is 3 in each quadrant.  nt_attr stores
 ;  a palette as (bits & 3) << 2 in the high byte, so that is $0C.
