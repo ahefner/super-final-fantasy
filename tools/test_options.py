@@ -3284,6 +3284,65 @@ def test_cur4():
           cast(0, True, who=2), (456, True))
 
 
+# --- the equip box takes the cursor off the screen -------------------------
+#  The hand cursor in the weapon and armour screens sits over the area the
+#  description box covers, so opt_showbox clears OAM before drawing it -- but
+#  only for the equip menu, since the shop's box and cursor do not overlap and
+#  clearing there would cost the victory poses.  FFR does the same, in the same
+#  place.
+#
+#  opt_showbox is not exported, so this looks for the instructions themselves
+#  in the options chunk.  A wiring assertion rather than a behavioural one:
+#  nothing here can run opt_showbox, since it ends in a wait for a button, and
+#  the way this breaks is that the cursor is simply still there -- invisible to
+#  every other test and visible only to someone playing.
+def test_equipcursor():
+    OPTCTX_A, OPTCTX_EQUIP, TEXT_PTR = 0x6EC1, 1, 0x3E
+    clearoam = SYM.get("ClearOAM")
+    check("ClearOAM is in the fixed bank, so a JSR reaches it from any chunk",
+          clearoam is not None and clearoam >= 0xC000, True)
+    if clearoam is None:
+        return
+
+    #  ClearOAM only fills the staging page; the DMA that follows is what puts
+    #  the blank in OAMSHADOW, so the flush during DrawBox's stall shows it.
+    #  Without the DMA the cursor stays up until the menu's next frame, which is
+    #  after the box rather than before it -- so the pair is the assertion, not
+    #  the clear alone.
+    oamdma = SYM.get("nesio_oamdma")
+    check("nesio_oamdma is reachable by JSR from the options chunk",
+          oamdma is not None and oamdma >= 0xC000, True)
+    if oamdma is None:
+        return
+    gate = bytes([0xAD, OPTCTX_A & 0xFF, OPTCTX_A >> 8,   # LDA OPTCTX
+                  0xC9, OPTCTX_EQUIP,                     # CMP #OPTCTX_EQUIP
+                  0xD0, 0x08,                             # BNE over both calls
+                  0x20, clearoam & 0xFF, clearoam >> 8,   # JSR ClearOAM
+                  0xA9, 0x02,                             # LDA #>oam
+                  0x20, oamdma & 0xFF, oamdma >> 8])      # JSR nesio_oamdma
+    base = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    chunk = ROMDATA[base + 0x8000: base + 0x10000]
+
+    at, hits = chunk.find(gate), []
+    while at >= 0:
+        hits.append(at)
+        at = chunk.find(gate, at + 1)
+    check("the equip box clears OAM exactly once", len(hits), 1)
+    if len(hits) != 1:
+        return
+
+    #  At the head of opt_showbox, not somewhere that merely looks alike: the
+    #  routine opens by saving text_ptr, which the shop keeps its own pointer in.
+    follows = chunk[hits[0] + len(gate): hits[0] + len(gate) + 2]
+    check("it sits at the top of opt_showbox, before text_ptr is saved",
+          follows, bytes([0xA5, TEXT_PTR]))
+
+    #  And the shop must not be caught by it: it needs no clear, and one would
+    #  take the victory poses with it.
+    check("the clear is gated, not unconditional",
+          chunk[hits[0] + 3], 0xC9)
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -3302,7 +3361,8 @@ def main():
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
               test_youfound, test_castline,
-              test_descwidth, test_descsynth):
+              test_descwidth, test_descsynth,
+              test_equipcursor):
         try:
             t()
         except Exception as e:

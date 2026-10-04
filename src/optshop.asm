@@ -1083,6 +1083,36 @@ opt_waitbtn:
 
 ;  Draw the description, wait, and put the screen back as it was.
 opt_showbox:
+    ;  The equip menu's hand cursor sits over the area the box is about to
+    ;  cover, so take it out of OAM before drawing rather than leave it on top
+    ;  of the stats.  FFR does this in the same place and for the same reason --
+    ;  "JSR ClearOAM ; clear OAM to hide cursor", immediately before its own
+    ;  equip description box.
+    ;
+    ;    Only the equip menu, because only there do the two land on top of each
+    ;  other -- the shop's box and its cursor do not overlap, so there is
+    ;  nothing to fix and clearing would cost the victory poses Shop Information
+    ;  puts up on purpose.  FFR does not clear them there either.
+    ;
+    ;    Here rather than in opt_equipframe because by this point the box is
+    ;  certain: opt_menubox gives up when opt_descgear has nothing to say, and
+    ;  clearing OAM before that test would blink the cursor out for a frame
+    ;  with no box to replace it.  The menu loop's next frame draws it again.
+    ;    ClearOAM only fills the staging page at $0200 with $F8; on the NES the
+    ;  upload is a separate $4014 write, and here that write is what copies the
+    ;  page into OAMSHADOW, which the flush after it sends to the hardware.  So
+    ;  the clear on its own left the cursor on screen until the menu's next
+    ;  ordinary frame came round -- after the box, not before it.  Doing the DMA
+    ;  here puts the blank in OAMSHADOW now, and DrawBox stalls through
+    ;  MenuCondStall, so the first of those stalls uploads it while the box is
+    ;  still being drawn.
+    LDA OPTCTX
+    CMP #OPTCTX_EQUIP
+    BNE :+
+    JSR ClearOAM
+    LDA #>oam
+    wOAMDMA
+:
     LDA text_ptr                ; the shop loop keeps its cursor-position
     STA OPTSAVEPTR              ;   table pointer in here
     LDA text_ptr+1
