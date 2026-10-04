@@ -206,6 +206,22 @@ wO1:      FFWORD "Full Revive"
 wO2:      FFWORD "Up one floor"
 wO3:      FFWORD "Heal Stoned"
 wO4:      FFWORD "Exit dungeon"
+
+;  For the one case that has room to spell an element out: a single resistance.
+;  "Resistance" is ten of the shop box's twelve columns and the longest name
+;  below is " Lightng" at eight, so both lines fit.  These are FFR's own long
+;  forms -- ShopInformation.cs keeps a long and a short for every element, and
+;  wE0-wE7 above are its short column.  Note Lightng, not Lightning; that is
+;  FFR's spelling and there is no room to improve on it.
+wRESISTANCE: FFWORD "Resistance"
+wL0:      FFWORD "Status"
+wL1:      FFWORD "Poison"
+wL2:      FFWORD "Time"
+wL3:      FFWORD "Death"
+wL4:      FFWORD "Fire"
+wL5:      FFWORD "Ice"
+wL6:      FFWORD "Lightng"
+wL7:      FFWORD "Earth"
 lut_WordsEnd:
 
 ;  Offsets, so one index reaches any word.
@@ -235,6 +251,9 @@ lut_WordOfs:
   .word wPTS - lut_Words, wHP - lut_Words, wATK2 - lut_Words, wHIT2 - lut_Words
   .word wO0 - lut_Words, wO1 - lut_Words, wO2 - lut_Words, wO3 - lut_Words
   .word wO4 - lut_Words
+  .word wRESISTANCE - lut_Words
+  .word wL0 - lut_Words, wL1 - lut_Words, wL2 - lut_Words, wL3 - lut_Words
+  .word wL4 - lut_Words, wL5 - lut_Words, wL6 - lut_Words, wL7 - lut_Words
 lut_WordOfsEnd:
 
 ;  Which word names each of the five routine-0 spells.  Cast Life in Battle
@@ -249,7 +268,10 @@ lut_OOBSpellEnd:
 
 ;  An index that runs off the end of this table reads whatever follows it and
 ;  draws something arbitrary, which is how "All Elements" became "AllBw".
-.assert lut_WordOfsEnd - lut_WordOfs = (WORD_OOB0 + 5) * 2, error, "word index table is the wrong length"
+WORD_RESISTANCE = WORD_OOB0 + 5
+WORD_LELEM0     = WORD_OOB0 + 6      ; eight, in bit order, spelled out
+
+.assert lut_WordOfsEnd - lut_WordOfs = (WORD_LELEM0 + 8) * 2, error, "word index table is the wrong length"
 
 
 ;  A set bit in an equip permission word means that class CANNOT use the
@@ -880,10 +902,23 @@ opt_descgear:
     LDX OPTGEARI
     LDY #ARMOR_RESIST
     JSR opt_armbyte
-    BEQ @aspell
-    PHA
+    BNE :+                      ; a jump, not a branch: the single-resistance
+      JMP @aspell               ;   block below is out of branch range
+:   PHA
     JSR opt_nl
-    LDA #WORD_RESIST
+    PLA
+    PHA
+    JSR opt_bitscan             ; OPTBITN is how many, OPTBITLO the lowest
+    LDA OPTBITN
+    CMP #$01
+    BNE :+
+      ;  Exactly one, which is most of the armour in the game: name it in full
+      ;  on a line of its own.  FFR does the same -- its short forms are for
+      ;  the lines that have to carry two names, and for "<element> Element",
+      ;  where twelve columns leave room for four characters and nothing more.
+      ;  A jump rather than a branch: the block is too far for one.
+      JMP @aone
+:   LDA #WORD_RESIST
     JSR opt_word
     PLA
     LDX #WORD_ELEM0
@@ -900,24 +935,41 @@ opt_descgear:
     ;  four-letter name is already eleven of the twelve columns.  Two names
     ;  fit beside each other; anything past that is counted instead, which
     ;  only one piece of armour in the game needs.
+    ;  Up to three names, laid out as FFR lays them out: the first shares the
+    ;  "Resist" line, the second starts a line of its own and the third follows
+    ;  it after a comma.  ShopInformation.cs spells this as an alternating
+    ;  delimiter list, "\n " then ", ", for exactly this shape.
+    ;
+    ;    Three fit in twelve columns at the worst case: "Resist Deat" is eleven
+    ;  and " Lit., Eart" is eleven.  The previous shape put "Resist" alone on a
+    ;  line and stopped after two names, so the Dragon Armour spent a whole
+    ;  third line saying "and 1 more" about an element there was room to name.
   @alist:
-    JSR opt_nl
-    LDA #CHR_SPACE
-    JSR opt_emit
     LDX #$00
     LDA #$00
     STA OPTPERMFIRST            ; how many have been named so far
   @aloop:
     JSR opt_bitnext
     BCC @aspell
-    LDA OPTPERMFIRST
+    LDA OPTBITN                 ; four or more cannot all be named...
+    CMP #$04
+    BCC @afits
+    LDA OPTPERMFIRST            ; ...so the second one is the last
     CMP #$02
     BCS @amore
-    LDA OPTPERMFIRST            ; CMP above left the flags describing the
-    BEQ @aname                  ;   comparison, not the count
+  @afits:
+    LDA OPTPERMFIRST
+    BEQ @asp                    ; the first stays on the "Resist" line
+    CMP #$01
+    BEQ @anl                    ; the second opens the next one
+    LDA #CHR_COMMA              ; and the third trails the second
+    JSR opt_emit
+    BRA @asp
+  @anl:
+    JSR opt_nl
+  @asp:
     LDA #CHR_SPACE
     JSR opt_emit
-  @aname:
     INC OPTPERMFIRST
     TXA
     PHA
@@ -928,16 +980,35 @@ opt_descgear:
     TAX
     INX
     BRA @aloop
+
+    ;  Four or more: name two and count the rest, which is FFR's " and N+"
+    ;  rather than the old " and N more" -- " Lit. and 6+" is twelve columns
+    ;  exactly where " Lit. and 6 more" would be sixteen.  No armour in the
+    ;  cartridge has four resistances, but a randomised one can.
   @amore:
-    JSR opt_nl                  ; "and 1 more" for the ones that did not fit
-    LDA #WORD_AND
+    LDA #WORD_AND               ; the word carries both its spaces
     JSR opt_word
     LDA OPTBITN
     SEC
     SBC #$02
     JSR opt_num
-    LDA #WORD_MORE
+    LDA #CHR_PLUS
+    JSR opt_emit
+    BRA @aspell                 ; the block below is a separate path, not a tail
+
+    ;  One resistance, and the only line with room to spell the element out.
+    ;  Reached by a jump from the count test above, so nothing falls in here.
+  @aone:
+    LDA #WORD_RESISTANCE
     JSR opt_word
+    JSR opt_nl
+    LDA #CHR_SPACE
+    JSR opt_emit
+    LDA OPTBITLO
+    CLC
+    ADC #WORD_LELEM0            ; spelled out; see wL0
+    JSR opt_word
+    PLA                         ; the byte the paths above hand back
 
   @aspell:
     LDX OPTGEARI

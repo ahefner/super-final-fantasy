@@ -1034,6 +1034,7 @@ CHR_SPACE       = $FF
 CHR_PCT         = $E0
 ;  mkrom draws a plus into this slot; see overlay_plus there for why it is
 ;  not $7B, which is where FFR's character table puts one.
+CHR_COMMA       = $BF
 CHR_MINUS       = $C2
 CHR_PLUS        = $E6
 

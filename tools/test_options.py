@@ -1611,8 +1611,10 @@ def test_shopinfo():
           describe(0x1C + 38, F_WEAPONSTATS)[5], "All Elements")
     check("armour resisting everything says so",
           describe(0x44 + 31)[3], "Resist All")
-    check("armour resisting three names two and counts the rest",
-          describe(0x44 + 9)[4:6], [" Fire Ice", " and 1 more"])
+    #  The Dragon Armour, and the reason the layout changed: three elements in
+    #  the two lines that used to name two and spend a third on "and 1 more".
+    check("armour resisting three names all three",
+          describe(0x44 + 9)[3:5], ["Resist Fire", " Ice, Lit."])
     check("a weapon nobody can use lists nobody",
           describe(0x1C + 39)[3], "All classes")
 
@@ -1739,6 +1741,224 @@ def test_shoppose():
         call(cpu, "opt_pose")
         check("%s: no tile offset" % name, cpu.a, 0)
 
+
+# --- no description line may overflow the box it is drawn in ------------------
+#  The binding box is the shop's: OPTINFO_W is $0E, so twelve usable columns.
+#  The chest's is full width, twenty-eight.  Nothing guarded this, which is how
+#  the element words came to be cut to four characters with no record of why --
+#  "<element> Element" is twelve exactly, and "Lightning Element" is seventeen.
+#
+#  FFR solves it the same way and keeps both forms: ShopInformation.cs carries a
+#  long and a short name per element, spells the name out when an armour has
+#  exactly one resistance, and uses the short forms for the lines that carry two
+#  names and for the element line.
+def test_descwidth():
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID = 0x6E50, 0x6EC1, 0x61
+    NARROW, CHEST = 12, 28          # OPTINFO_W - 2, and a full-width box
+
+    def lines(item, ctx):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, 0xFF)
+        bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50] = bytes(0x50)
+        bus.sram[OPTCTX_A - 0x6000] = ctx
+        bus.wram[DLG_ITEMID] = item
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        if not (cpu.p & 0x01):
+            return []
+        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        end = buf.find(0)
+        #  Only $05 breaks a line; everything else is one tile or a code below
+        #  $1A, and opt_emit is the only writer.
+        return buf[:end].split(b"\x05")
+
+    everything = list(range(0x1C, 0x6C)) + [0xB0 + s for s in range(64)]
+    for ctx, cols, label in ((0, NARROW, "shop"), (1, NARROW, "equip"),
+                             (2, NARROW, "magic"), (3, CHEST, "chest")):
+        worst = (0, None, None)
+        for item in everything:
+            for ln in lines(item, ctx):
+                if len(ln) > worst[0]:
+                    worst = (len(ln), ln, item)
+        check("%s: longest line within %d columns" % (label, cols),
+              worst[0] <= cols, True)
+        if worst[0] > cols:
+            fails.append("   %s: item $%02X needs %d columns: %r"
+                         % (label, worst[2], worst[0], worst[1]))
+
+    #  And the single-resistance case spells the element out, as FFR does.
+    arm = open("game/bin/0C_8140_armordata.bin", "rb").read()
+    singles = [68 + i for i in range(len(arm) // 4)
+               if bin(arm[i * 4 + 2]).count("1") == 1]
+    check("the cartridge has armour with one resistance", len(singles), 8)
+    bad = None
+    for item in singles:
+        body = b"\x05".join(lines(item, 3))
+        #  "Resistance" is eleven glyphs where "Resist" is six, so the long
+        #  header is the tell, and no four-letter abbreviation should appear.
+        if len(lines(item, 3)) < 2:
+            bad = ("$%02X has no resistance line" % item,); break
+    check("every single-resistance armour names it on its own line", bad, None)
+
+
+
+# --- the description fits the box for records the cartridge never had --------
+#  test_descwidth above sweeps the fifty-two items the cartridge ships, which
+#  is a regression test and nothing more: Phase 3 randomises these records, so
+#  passing it says nothing about what a generator can produce.
+#
+#  The weapon and armour records ARE the description's only inputs, though, so
+#  driving the bytes directly covers every item that could ever exist.  Each
+#  byte is swept over all 256 values with the others at their worst, which
+#  catches a line too wide for its box; then every axis's worst value is
+#  applied at once, because the axes land on separate lines and the thing they
+#  share is the eighty-byte buffer that opt_emit truncates in silence.
+#
+#  This found a real fault when it was written.  " Pois and 2+" is twelve
+#  columns and fits; the first draft emitted a space before the word " and ",
+#  which already carries its own, and thirteen columns wrote over the border.
+#  No cartridge armour has four resistances, so nothing in the cartridge sweep
+#  could have reached it -- and a randomiser reaches it immediately.
+def test_descsynth():
+    NARROW, CHEST = 12, 28          # OPTINFO_W - 2, and a full-width box
+    ROWS, ROWS_CHEST = 7, 8         # OPTINFO_H leaves seven text rows
+
+    #  NES bank $0C runs at chunk $A1+$0C, and the image wraps banks at 32.
+    IMG = ((0xA1 + 0x0C) & 0x1F) * 0x10000
+    WEP_OFF, ARM_OFF = IMG + 0x8000, IMG + 0x8140
+    for off, name in ((WEP_OFF, "0C_8000_weapondata.bin"),
+                      (ARM_OFF, "0C_8140_armordata.bin")):
+        blob = open(os.path.join(ROOT, "game", "bin", name), "rb").read()
+        if ROMDATA[off:off + len(blob)] != blob:
+            fails.append("   the %s offset is wrong -- sweeping nothing" % name)
+            return
+    rom = bytearray(ROMDATA)        # one buffer, patched in place
+
+    WEP0, ARM0 = 28, 68             # the first weapon's and armour's item ids
+
+    #  Offset within the record, the value that makes its line longest, and the
+    #  values the field can hold.  Everything is a free byte except the spell,
+    #  which is 1-based into the sixty-four spells with 0 for none; the count of
+    #  spells is fixed, so no index outside that can arise.
+    SPELLS = range(65)
+    BYTE = range(256)
+    WEP = ((0, "hit", 99, BYTE), (1, "damage", 99, BYTE), (2, "crit", 99, BYTE),
+           (3, "spell", 33, SPELLS), (4, "element", 0xFF, BYTE),
+           (5, "category", 0xFF, BYTE))
+    ARM = ((0, "evade", 99, BYTE), (1, "absorb", 99, BYTE),
+           (2, "resist", 0x0F, BYTE), (3, "spell", 33, SPELLS))
+
+    def put(base, stride, fields, slot=0):
+        rec = base + slot * stride
+        rom[rec:rec + stride] = bytes(stride)
+        for off, val in fields:
+            rom[rec + off] = val
+
+    def desc(item, ctx):
+        """The lines as the screen will show them, and the bytes they cost.
+
+        These are two different numbers and both matter.  Control code $02 is
+        two bytes in the buffer that draw a four-glyph spell name on screen, so
+        counting bytes understates the width by two and counting the escape as
+        text overstates it.  Spell names are exactly four glyphs -- genspellnames
+        fails the build otherwise -- so the placeholder below is the true width.
+        """
+        bus, cpu = machine()
+        bus.rom = rom
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, 0xFF)
+        bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50] = bytes(0x50)
+        bus.sram[0x6EC1 - 0x6000] = ctx
+        bus.wram[0x61] = item
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        if not (cpu.p & 0x01):
+            return None
+        buf = bytes(bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50])
+        end = buf.find(0)
+        raw = buf[:end] if end >= 0 else buf
+        out, i = [[]], 0
+        while i < len(raw):
+            b = raw[i]
+            if b == 0x05:
+                out.append([])
+            elif b == 0x02:
+                out[-1].append("name")          # four glyphs, as wide as it draws
+                i += 1
+            else:
+                ch = _decode(b)
+                out[-1].append(ch if ch is not None else "\\x%02X" % b)
+            i += 1
+        return ["".join(l) for l in out], len(raw)
+
+    worst_line, worst_total, worst_rows = (0, None, None), (0, None), (0, None)
+    over, nover = [], [0]           # a few examples, and how many there were
+
+    def measure(item, ctx, cols, rows, label):
+        nonlocal worst_line, worst_total, worst_rows
+        got = desc(item, ctx)
+        if got is None:
+            return
+        ls, total = got
+        nover[0] += sum(1 for ln in ls if len(ln) > cols) + (len(ls) > rows)
+        for ln in ls:
+            if len(ln) > worst_line[0]:
+                worst_line = (len(ln), ln, label)
+            if len(ln) > cols and len(over) < 4:
+                over.append("   %s: %d columns in a %d-column box: %r"
+                            % (label, len(ln), cols, ln))
+        if total > worst_total[0]:
+            worst_total = (total, label)
+        if len(ls) > worst_rows[0]:
+            worst_rows = (len(ls), label)
+        if len(ls) > rows and len(over) < 4:
+            over.append("   %s: %d rows in a %d-row box" % (label, len(ls), rows))
+
+    #  Two boxes, not four.  Inside opt_descgear the only context test is
+    #  opt_castline's CPX #OPTCTX_CHEST, so the shop, equip and magic contexts
+    #  generate the same bytes and sweeping all three triples the work for
+    #  nothing.  That equivalence is asserted below rather than assumed.
+    boxes = ((0, NARROW, ROWS, "narrow"), (3, CHEST, ROWS_CHEST, "chest"))
+
+    #  Every value of every byte, with the rest of the record at its worst.
+    for base, stride, spec, item0, kind in ((WEP_OFF, 8, WEP, WEP0, "weapon"),
+                                            (ARM_OFF, 4, ARM, ARM0, "armour")):
+        for off, name, _w, domain in spec:
+            for val in domain:
+                put(base, stride, [(o, val if o == off else w)
+                                   for o, _n, w, _d in spec])
+                for ctx, cols, rows, box in boxes:
+                    measure(item0, ctx, cols, rows,
+                            "%s %s=$%02X %s" % (kind, name, val, box))
+
+        #  and every axis at its worst at the same time, for the buffer
+        put(base, stride, [(o, w) for o, _n, w, _d in spec])
+        for ctx, cols, rows, box in boxes:
+            measure(item0, ctx, cols, rows, "%s worst-case %s" % (kind, box))
+
+    #  The claim the sweep above rests on: the three narrow contexts agree.
+    #  Checked across the records that exercise every branch of the thing that
+    #  could tell them apart -- a casting item, a resistance list and neither.
+    same = True
+    for fields, base, stride, item0 in (
+            (((0, 99), (1, 99), (2, 0x0F), (3, 33)), ARM_OFF, 4, ARM0),
+            (((0, 99), (1, 99), (2, 0x0F), (3, 0)), ARM_OFF, 4, ARM0),
+            (((4, 0xFF), (5, 0xFF), (3, 33)), WEP_OFF, 8, WEP0)):
+        put(base, stride, fields)
+        got = [desc(item0, c) for c in (0, 1, 2)]
+        if got[0] != got[1] or got[1] != got[2]:
+            same = False
+    check("the shop, equip and magic contexts generate the same text", same, True)
+
+    check("every generated description fits its box", nover[0], 0)
+    fails.extend(over)
+
+    #  Recorded so a change that eats the margin is visible in the diff rather
+    #  than only when something finally overflows.
+    check("the widest generated line", worst_line[0], 12)
+    check("the longest generated description", worst_total[0], 66)
+    check("the tallest generated description", worst_rows[0], 7)
 
 # --- the "Cast" line, and the two renderers it has to satisfy ----------------
 #  The renderers differ in one way that decides this.  DrawComplexString's
@@ -3081,7 +3301,8 @@ def main():
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
-              test_youfound, test_castline):
+              test_youfound, test_castline,
+              test_descwidth, test_descsynth):
         try:
             t()
         except Exception as e:
