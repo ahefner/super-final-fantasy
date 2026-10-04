@@ -4,16 +4,20 @@
     JSR MenuRecoverPartyHP  ; give the whole party 120 HP
     LDA #$1E
 --- NEW
-.export MenuRecoverPartyMP      ; House MP Restoration reaches it from the
-.import opt_housemp             ;   options chunk, through OptCallFar
+.export MenuRecoverPartyMP      ; House Restoration reaches both from the
+.export MenuFillPartyHP         ;   options chunk, through OptCallFar
+.import opt_housemp
 
     DEC item_house          ; otherwise... remove a house from our inventory
     LDA #120
     JSR MenuRecoverPartyHP  ; give the whole party 120 HP
 
-    ;  ...and the MP too, if House MP Restoration is on.  It has to happen
-    ;  here, in front of the save, or the file written below still holds the
-    ;  old MP.  See opt_housemp for what vanilla does instead.
+    ;  ...and then the rest of the HP, and the MP, if House Restoration is on.
+    ;  Both have to happen here, in front of the save, or the file written
+    ;  below still holds the old values.  The 120 above is left alone: with the
+    ;  flag on the fill that follows makes it redundant rather than wrong, and
+    ;  leaving it keeps this patch to the one JSL this bank has room for.
+    ;  See opt_housemp for what vanilla does instead.
     JSL opt_housemp + OPTFAR
 
     LDA #$1E

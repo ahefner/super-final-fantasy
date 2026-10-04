@@ -16,8 +16,9 @@
 ;;  FFR's table has "/" at $7A and "+" at $7B, and both are drawn literally
 ;;  by DrawComplexString -- but they are below the loaded range and come out
 ;;  as whatever else is in the pattern table, which is kana.  The stock font
-;;  has no plus sign at all, so mkrom draws one over an unused kana at $E6
-;;  and "+" maps there.  $C1 is in range but blank, and $C6/$C7 are the
+;;  has no plus sign at all, so mkrom draws one over an unused kana at $EC
+;;  and "+" maps there -- not $E6, which is the "S" the battle panel draws for
+;;  "Stone".  $C1 is in range but blank, and $C6/$C7 are the
 ;;  Level and Equip icons rather than letters.
 ;;
 ;;  Everything emitted lands at $80 or above, which matters: DrawComplexString
@@ -50,7 +51,7 @@
   .elseif c = '%'
     .byte $E0
   .elseif c = '+'           ; not in the stock font; mkrom draws one here
-    .byte $E6
+    .byte $C1
   .else
     .error "no glyph for this character"
   .endif

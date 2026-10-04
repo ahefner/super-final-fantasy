@@ -23,6 +23,16 @@
 .export opt_settings
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel
+
+;  Exported for tools/test_options.py, which checks every label against the
+;  width the menu actually draws.  Nothing in the game reaches it by name.
+.export lut_OptRows
+
+;  Likewise: the dial value tables, so the harness can confirm every byte they
+;  draw is a digit, a space, CHR_PLUS or CHR_PCT.  A sign written as a literal
+;  here goes on drawing the old tile after the glyph moves, which is how the
+;  elemental dial came to read "S50".
+.export lut_ValTabLo, lut_ValTabHi, lut_ValCount
 .import opt_commit_body
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
@@ -1157,6 +1167,17 @@ OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
 OPTROW_COUNT  = 57
 
+;  A row's label.  The row stores thirty bytes after its two header bytes but
+;  only OPTROW_LABELW of them are drawn, so padding to thirty proves nothing --
+;  FFPAD to 30 accepted "House restores HP and MP" and the menu showed "House
+;  restores HP and".  This checks the width that matters and pads out the rest.
+.macro OPTLABEL txt
+  FFPAD txt, OPTROW_LABELW
+  .repeat OPTROW_STRIDE - OPTROW_LABEL - OPTROW_LABELW
+    .byte $FF
+  .endrep
+.endmacro
+
 lut_OptRows:
   ;  A blank first row, because OPTLIST_TOP only accounts for nametable row 0
   ;  being cropped.  On a CRT row 1 is still half inside the overscan, so a
@@ -1278,10 +1299,8 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $01, $0F   ; House MP restoration
-  .BYTE $91, $B2, $B8, $B6, $A8, $FF, $96, $99, $FF, $B5
-  .BYTE $A8, $B6, $B7, $B2, $B5, $A4, $B7, $AC, $B2, $B1
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $01, $0F   ; House restoration
+  OPTLABEL {"House MP and HP fix"}
   .BYTE $01, $10   ; Weapon stats
   .BYTE $A0, $A8, $A4, $B3, $B2, $B1, $FF, $B6, $B7, $A4
   .BYTE $B7, $B6, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
@@ -1320,10 +1339,13 @@ lut_OptRows:
   .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $A7, $FF, $8C
   .BYTE $9E, $9B, $8E, $FF, $A4, $B1, $A7, $FF, $91, $8E
   .BYTE $8A, $95, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $01, $17   ; Improved Fire spells
-  .BYTE $92, $B0, $B3, $B5, $B2, $B9, $A8, $FF, $8F, $92
-  .BYTE $9B, $8E, $BF, $FF, $95, $92, $9D, $BF, $FF, $92
-  .BYTE $8C, $8E, $BF, $FF, $91, $8A, $9B, $96, $FF, $FF
+  ;  Written as "Improve FIRE, LIT, ICE, HARM" and twenty-eight columns of it,
+  ;  against a row that draws twenty-two -- so HARM has never been on screen,
+  ;  and no description mentions it either.  The cut lands on the comma and
+  ;  reads cleanly, so the bytes now say what they draw and HARM stays in this
+  ;  comment.  Not one tile changes.
+  .BYTE $01, $17   ; Improved Fire spells -- and HARM, which will not fit
+  OPTLABEL {"Improve FIRE, LIT, ICE"}
   .BYTE $01, $18   ; Cast Life in battle
   .BYTE $8C, $A4, $B6, $B7, $FF, $95, $AC, $A9, $A8, $FF
   .BYTE $AC, $B1, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF
@@ -1390,57 +1412,57 @@ VALFIELD = 4
 
 ;  Gold and XP: 0%% to 500%% in 50%% steps
 lut_ValGoldXP:
-  .BYTE $FF, $FF, $80, $E0   ;   0%
-  .BYTE $FF, $85, $80, $E0   ;  50%
-  .BYTE $81, $80, $80, $E0   ; 100%
-  .BYTE $81, $85, $80, $E0   ; 150%
-  .BYTE $82, $80, $80, $E0   ; 200%
-  .BYTE $82, $85, $80, $E0   ; 250%
-  .BYTE $83, $80, $80, $E0   ; 300%
-  .BYTE $83, $85, $80, $E0   ; 350%
-  .BYTE $84, $80, $80, $E0   ; 400%
-  .BYTE $84, $85, $80, $E0   ; 450%
-  .BYTE $85, $80, $80, $E0   ; 500%
+  .BYTE $FF, $FF, $80, CHR_PCT   ;   0%
+  .BYTE $FF, $85, $80, CHR_PCT   ;  50%
+  .BYTE $81, $80, $80, CHR_PCT   ; 100%
+  .BYTE $81, $85, $80, CHR_PCT   ; 150%
+  .BYTE $82, $80, $80, CHR_PCT   ; 200%
+  .BYTE $82, $85, $80, CHR_PCT   ; 250%
+  .BYTE $83, $80, $80, CHR_PCT   ; 300%
+  .BYTE $83, $85, $80, CHR_PCT   ; 350%
+  .BYTE $84, $80, $80, CHR_PCT   ; 400%
+  .BYTE $84, $85, $80, CHR_PCT   ; 450%
+  .BYTE $85, $80, $80, CHR_PCT   ; 500%
 
 ;  Encounter rate: labelled by its effect on the overworld
 lut_ValEncounter:
   .BYTE $FF, $98, $A9, $A9   ;  Off
-  .BYTE $FF, $81, $80, $E0   ;  10%
-  .BYTE $FF, $82, $80, $E0   ;  20%
-  .BYTE $FF, $83, $80, $E0   ;  30%
-  .BYTE $FF, $84, $80, $E0   ;  40%
-  .BYTE $FF, $85, $80, $E0   ;  50%
-  .BYTE $FF, $86, $80, $E0   ;  60%
-  .BYTE $FF, $87, $80, $E0   ;  70%
-  .BYTE $FF, $88, $80, $E0   ;  80%
-  .BYTE $FF, $89, $80, $E0   ;  90%
-  .BYTE $81, $80, $80, $E0   ; 100%
-  .BYTE $81, $85, $80, $E0   ; 150%
-  .BYTE $82, $80, $80, $E0   ; 200%
-  .BYTE $83, $80, $80, $E0   ; 300%
+  .BYTE $FF, $81, $80, CHR_PCT   ;  10%
+  .BYTE $FF, $82, $80, CHR_PCT   ;  20%
+  .BYTE $FF, $83, $80, CHR_PCT   ;  30%
+  .BYTE $FF, $84, $80, CHR_PCT   ;  40%
+  .BYTE $FF, $85, $80, CHR_PCT   ;  50%
+  .BYTE $FF, $86, $80, CHR_PCT   ;  60%
+  .BYTE $FF, $87, $80, CHR_PCT   ;  70%
+  .BYTE $FF, $88, $80, CHR_PCT   ;  80%
+  .BYTE $FF, $89, $80, CHR_PCT   ;  90%
+  .BYTE $81, $80, $80, CHR_PCT   ; 100%
+  .BYTE $81, $85, $80, CHR_PCT   ; 150%
+  .BYTE $82, $80, $80, CHR_PCT   ; 200%
+  .BYTE $83, $80, $80, CHR_PCT   ; 300%
 
 ;  Enemy and boss stats: 25%% to 500%% in 25%% steps
 lut_ValStat:
-  .BYTE $FF, $82, $85, $E0   ;  25%
-  .BYTE $FF, $85, $80, $E0   ;  50%
-  .BYTE $FF, $87, $85, $E0   ;  75%
-  .BYTE $81, $80, $80, $E0   ; 100%
-  .BYTE $81, $82, $85, $E0   ; 125%
-  .BYTE $81, $85, $80, $E0   ; 150%
-  .BYTE $81, $87, $85, $E0   ; 175%
-  .BYTE $82, $80, $80, $E0   ; 200%
-  .BYTE $82, $82, $85, $E0   ; 225%
-  .BYTE $82, $85, $80, $E0   ; 250%
-  .BYTE $82, $87, $85, $E0   ; 275%
-  .BYTE $83, $80, $80, $E0   ; 300%
-  .BYTE $83, $82, $85, $E0   ; 325%
-  .BYTE $83, $85, $80, $E0   ; 350%
-  .BYTE $83, $87, $85, $E0   ; 375%
-  .BYTE $84, $80, $80, $E0   ; 400%
-  .BYTE $84, $82, $85, $E0   ; 425%
-  .BYTE $84, $85, $80, $E0   ; 450%
-  .BYTE $84, $87, $85, $E0   ; 475%
-  .BYTE $85, $80, $80, $E0   ; 500%
+  .BYTE $FF, $82, $85, CHR_PCT   ;  25%
+  .BYTE $FF, $85, $80, CHR_PCT   ;  50%
+  .BYTE $FF, $87, $85, CHR_PCT   ;  75%
+  .BYTE $81, $80, $80, CHR_PCT   ; 100%
+  .BYTE $81, $82, $85, CHR_PCT   ; 125%
+  .BYTE $81, $85, $80, CHR_PCT   ; 150%
+  .BYTE $81, $87, $85, CHR_PCT   ; 175%
+  .BYTE $82, $80, $80, CHR_PCT   ; 200%
+  .BYTE $82, $82, $85, CHR_PCT   ; 225%
+  .BYTE $82, $85, $80, CHR_PCT   ; 250%
+  .BYTE $82, $87, $85, CHR_PCT   ; 275%
+  .BYTE $83, $80, $80, CHR_PCT   ; 300%
+  .BYTE $83, $82, $85, CHR_PCT   ; 325%
+  .BYTE $83, $85, $80, CHR_PCT   ; 350%
+  .BYTE $83, $87, $85, CHR_PCT   ; 375%
+  .BYTE $84, $80, $80, CHR_PCT   ; 400%
+  .BYTE $84, $82, $85, CHR_PCT   ; 425%
+  .BYTE $84, $85, $80, CHR_PCT   ; 450%
+  .BYTE $84, $87, $85, CHR_PCT   ; 475%
+  .BYTE $85, $80, $80, CHR_PCT   ; 500%
 
 ;  Per-scalar: where its readouts are and how many there are.  The block
 ;  fields are consecutive, so the option byte itself is OPT_GOLDXP indexed by
@@ -1455,32 +1477,36 @@ lut_ValStat:
 ;  under that sign instead of under their digits.  Aligning the numbers to
 ;  each other reads better than aligning the fields.
 lut_ValElem:
-  .BYTE $FF, $E6, $80, $FF   ;  +0
-  .BYTE $FF, $E6, $82, $FF   ;  +2
-  .BYTE $FF, $E6, $84, $FF   ;  +4   <- vanilla
-  .BYTE $FF, $E6, $86, $FF   ;  +6
-  .BYTE $FF, $E6, $88, $FF   ;  +8
-  .BYTE $E6, $81, $80, $FF   ; +10   <- FFR Improved Vanilla
-  .BYTE $E6, $81, $82, $FF   ; +12
-  .BYTE $E6, $81, $84, $FF   ; +14
-  .BYTE $E6, $81, $86, $FF   ; +16
-  .BYTE $E6, $81, $88, $FF   ; +18
-  .BYTE $E6, $82, $80, $FF   ; +20
-  .BYTE $E6, $82, $82, $FF   ; +22
-  .BYTE $E6, $82, $84, $FF   ; +24
-  .BYTE $E6, $82, $86, $FF   ; +26
-  .BYTE $E6, $82, $88, $FF   ; +28
-  .BYTE $E6, $83, $80, $FF   ; +30   <- FFR default
-  .BYTE $E6, $83, $82, $FF   ; +32
-  .BYTE $E6, $83, $84, $FF   ; +34
-  .BYTE $E6, $83, $86, $FF   ; +36
-  .BYTE $E6, $83, $88, $FF   ; +38
-  .BYTE $E6, $84, $80, $FF   ; +40
-  .BYTE $E6, $84, $82, $FF   ; +42   <- FFR 2025 tournament
-  .BYTE $E6, $84, $84, $FF   ; +44
-  .BYTE $E6, $84, $86, $FF   ; +46
-  .BYTE $E6, $84, $88, $FF   ; +48
-  .BYTE $E6, $85, $80, $FF   ; +50
+  ;  The sign is CHR_PLUS, not a literal.  Written as $E6 it survived the
+  ;  glyph moving twice and went on drawing whatever art was left behind --
+  ;  the second move put the "S" of the battle panel's "Stone" in front of
+  ;  every number in this table.
+  .BYTE $FF, CHR_PLUS, $80, $FF   ;  +0
+  .BYTE $FF, CHR_PLUS, $82, $FF   ;  +2
+  .BYTE $FF, CHR_PLUS, $84, $FF   ;  +4   <- vanilla
+  .BYTE $FF, CHR_PLUS, $86, $FF   ;  +6
+  .BYTE $FF, CHR_PLUS, $88, $FF   ;  +8
+  .BYTE CHR_PLUS, $81, $80, $FF   ; +10   <- FFR Improved Vanilla
+  .BYTE CHR_PLUS, $81, $82, $FF   ; +12
+  .BYTE CHR_PLUS, $81, $84, $FF   ; +14
+  .BYTE CHR_PLUS, $81, $86, $FF   ; +16
+  .BYTE CHR_PLUS, $81, $88, $FF   ; +18
+  .BYTE CHR_PLUS, $82, $80, $FF   ; +20
+  .BYTE CHR_PLUS, $82, $82, $FF   ; +22
+  .BYTE CHR_PLUS, $82, $84, $FF   ; +24
+  .BYTE CHR_PLUS, $82, $86, $FF   ; +26
+  .BYTE CHR_PLUS, $82, $88, $FF   ; +28
+  .BYTE CHR_PLUS, $83, $80, $FF   ; +30   <- FFR default
+  .BYTE CHR_PLUS, $83, $82, $FF   ; +32
+  .BYTE CHR_PLUS, $83, $84, $FF   ; +34
+  .BYTE CHR_PLUS, $83, $86, $FF   ; +36
+  .BYTE CHR_PLUS, $83, $88, $FF   ; +38
+  .BYTE CHR_PLUS, $84, $80, $FF   ; +40
+  .BYTE CHR_PLUS, $84, $82, $FF   ; +42   <- FFR 2025 tournament
+  .BYTE CHR_PLUS, $84, $84, $FF   ; +44
+  .BYTE CHR_PLUS, $84, $86, $FF   ; +46
+  .BYTE CHR_PLUS, $84, $88, $FF   ; +48
+  .BYTE CHR_PLUS, $85, $80, $FF   ; +50
 
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
@@ -1596,11 +1622,12 @@ lut_Desc_17:  ; NPC guillotine
   .BYTE $9D, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $B7, $B2, $FF, $A4, $B1, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $97, $99, $8C, $FF, $FF
   .BYTE $B5, $A8, $B0, $B2, $B9, $A8, $B6, $FF, $AC, $B7, $FF, $A9, $B5, $B2, $B0, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF
 
-lut_Desc_18:  ; House MP restoration
-  FFLINES 3
-  FFPAD {"HOUSEs restore MP whether or"}, 28
-  FFPAD {"not you save, and the save"}, 28
-  FFPAD {"records it."}, 28
+lut_Desc_18:  ; House restoration
+  FFLINES 4
+  FFPAD {"HOUSEs restore all HP, not"}, 28
+  FFPAD {"120, and restore MP whether"}, 28
+  FFPAD {"or not you save -- which the"}, 28
+  FFPAD {"save then records."}, 28
 
 lut_Desc_19:  ; Weapon stats
   FFLINES 5

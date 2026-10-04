@@ -78,13 +78,27 @@ def overlay_openchest(data):
 #  available in both.
 #
 #  So the glyph goes in the font page instead, which every screen that draws
-#  text has loaded.  $E6 is a kana the English script never uses -- it and
-#  $EC are the only two codes in $80-$FF that no text region references.
+#  text has loaded.  $C1 is the one slot in $80-$FF with no art in it.
+#
+#  That last sentence is the whole rule, and it took two wrong answers to
+#  arrive at.  The top of the font page is not kana, it is battle-UI artwork:
+#  runs of condensed lettering whose letters straddle the tile boundaries, the
+#  ailment names at $E2-$EA ("Poison" $E2-$E5, "Stone" $E6-$E9, "Asleep"
+#  ending on $EA) and the command labels at $EB-$F6 ("MAGIC" $EB-$EE, "FIGHT"
+#  $EF-$F2, "DRINK" $F3-$F6).  $E6 put a plus through the S of "Stone"; $EC
+#  put one through "MAGIC".
+#
+#  Neither was findable by surveying text, which is why both got through: the
+#  ailment names live in data_BattleMessages as raw tile bytes behind a pointer
+#  table, and the command labels are .BYTE runs inside bank $0F.  The test that
+#  holds this now asks a question that does not depend on finding every string
+#  -- the stock font must have no ink in the tile we paint over.  $E6 and $EC
+#  both had ink.  $C1 and $FF are the only two that do not, and $FF is space.
 #
 #  The font stores its background in plane 1: a blank tile is $00 x8 then
 #  $FF x8, ink is a set bit in plane 0.  The stroke matches the hyphen at
 #  $C2, which is row 4, columns 2-6.
-PLUS_CODE = 0xE6
+PLUS_CODE = 0xC1
 PLUS_ART = ["........",
             "........",
             "....X...",

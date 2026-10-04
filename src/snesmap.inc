@@ -1017,7 +1017,7 @@ CHR_PCT         = $E0
 ;  not $7B, which is where FFR's character table puts one.
 CHR_COMMA       = $BF
 CHR_MINUS       = $C2
-CHR_PLUS        = $E6
+CHR_PLUS        = $C1
 
 ;  Where the box goes: the bottom-left corner, over the command box, which
 ;  the equipment shop erases before it runs the item list.  Fourteen wide

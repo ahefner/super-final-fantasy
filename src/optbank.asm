@@ -59,7 +59,7 @@
 .export opt_magicgfx, opt_castlife, opt_playervalid
 .export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
-.import OptCallFar, MenuRecoverPartyMP
+.import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 ;  The game's own reset entry, for Controller Reset.
 .import OnReset
 .import lut_MagicBattleMessages
@@ -2612,7 +2612,7 @@ opt_thiefgrowth:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;;  House MP Restoration
+;;  House Restoration
 ;;
 ;;    A HOUSE takes 3000 gold, restores 120 HP, offers to save, and then --
 ;;  only if the player said yes -- restores MP.  Two bugs share those four
@@ -2624,6 +2624,18 @@ opt_thiefgrowth:
 ;;  unconditionally.  The vanilla restore after it is left exactly as it was;
 ;;  when this flag is on it runs a second time against full MP, which costs
 ;;  nothing and keeps the patch to one instruction.
+;;
+;;    The flag fills HP as well.  120 is the vanilla figure and it stopped
+;;  being a night's rest a long time before the endgame, where a party has
+;;  several hundred -- which is also why it went unnoticed: on an early party
+;;  120 saturates against a max HP below it and a partial restore cannot be
+;;  told from a full one.  FFR has the two as separate flags, HouseMPRestoration
+;;  and HousesFillHp, both filed under bugfixes rather than variations; they are
+;;  one switch here because nobody who wants either wants the other off.
+;;
+;;    FFR's HP patch writes JSR MenuFillPartyHP followed by a second JSR to
+;;  $B400, which in this bank is Draw Item Target Menu and has no business in a
+;;  HOUSE.  Only the fill is ported.
 ;;
 ;;    The body is here rather than inline at the call site for two reasons.
 ;;  Bank $0E has eighteen bytes and this way it spends four of them.  And a
@@ -2730,7 +2742,9 @@ opt_housemp:
     LDA OPTFB_HOUSEMP
     AND #OPTFM_HOUSEMP
     BEQ @out
-    CALL0E MenuRecoverPartyMP   ; it lives in the bank that called us, and we
+    CALL0E MenuFillPartyHP      ; the rest of the HP, on top of the 120 the
+                                ;   call site has already given
+    CALL0E MenuRecoverPartyMP   ; they live in the bank that called us, and we
   @out:                         ;   are not in that bank any more
     RTL
 

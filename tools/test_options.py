@@ -20,7 +20,7 @@ mirrors $8000-$FFFF into the low half of every chunk, and that copy is never
 addressed, so mutating it proves nothing.  Changing lut_EncDungeonN's vanilla
 numerator from 16 to 15 should fail four of the five live base rates.
 """
-import os, subprocess, sys
+import os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -77,6 +77,25 @@ def labels():
 
 SYM = labels()
 ROMDATA = open(ROM, "rb").read()
+
+
+def chr_plus():
+    """The tile mkrom paints the plus sign onto, from snesmap.inc.
+
+    Parsed rather than written down, because it has moved once already: it was
+    $E6 until a character turned to stone and the battle panel read "+tone",
+    $E6 being the "S" that panel draws.  Anything here that needs the code gets
+    it from the one place the assembler reads.
+    """
+    code = None
+    for line in open(os.path.join(ROOT, "src", "snesmap.inc")):
+        m = re.match(r"CHR_PLUS\s*=\s*\$([0-9A-Fa-f]{2})", line.strip())
+        if m:
+            code = int(m.group(1), 16)
+    return code
+
+
+CHR_PLUS = chr_plus()
 
 
 def machine():
@@ -1475,7 +1494,7 @@ def _decode(b):
     if 0xA4 <= b <= 0xBD:
         return chr(ord("a") + b - 0xA4)
     return {0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-",
-            0xC4: "!", 0xC5: "?", 0xE0: "%", 0xE6: "+"}.get(b)
+            0xC4: "!", 0xC5: "?", 0xE0: "%", CHR_PLUS: "+"}.get(b)
 
 
 def describe(itemid, flagbits=0):
@@ -1562,10 +1581,12 @@ def test_shopinfo():
     #  Every byte drawn has to be a glyph the menu font actually holds.
     #  LoadMenuCHR loads tiles $80-$FF and nothing else, so FFR's "+" at $7B
     #  came out as kana -- and nothing in the build said so, because the
-    #  string was the right length and the right shape.  $C1 is in range but
-    #  blank, and $C6/$C7 are the Level and Equip icons.
+    #  string was the right length and the right shape.  $C6/$C7 are the Level
+    #  and Equip icons.  $C1 was blank and on this list until it became the
+    #  plus: it is the one slot in the page with no art of its own, which is
+    #  why mkrom paints there and why it is no longer a stray.
     CONTROL = {0x00, 0x02, 0x05}
-    NOGLYPH = {0xC1, 0xC3, 0xC6, 0xC7}
+    NOGLYPH = {0xC3, 0xC6, 0xC7} | ({0xC1} - {CHR_PLUS})
     stray = set()
     for flagbits in (0, F_WEAPONSTATS, F_WEAPONSTATS | F_CRITRATE):
         for i in range(40):
@@ -1596,15 +1617,72 @@ def test_shopinfo():
     #  The plus is not in the stock font -- mkrom draws one over an unused
     #  kana.  Without this the text would say "+" and the screen would show
     #  a kana, which is exactly what happened the first time.
+    #
+    #  Three files have to agree on which kana, so read the code rather than
+    #  write it down again: snesmap.inc for the assembler, mkrom.py for the
+    #  tile it paints, fftext.inc for what "+" assembles to.
+    code = CHR_PLUS
+    check("snesmap.inc declares CHR_PLUS", code is not None, True)
+    if code is None:
+        return
+    mk = open(os.path.join(ROOT, "tools", "mkrom.py")).read()
+    check("mkrom.py paints the same tile snesmap.inc names",
+          ("PLUS_CODE = 0x%02X" % code).lower() in mk.lower(), True)
+    ft = open(os.path.join(ROOT, "src", "fftext.inc")).read()
+    check("fftext.inc assembles '+' to that tile",
+          re.search(r"c = '\+'[^\n]*\n\s*\.byte \$%02X" % code, ft,
+                    re.IGNORECASE) is not None, True)
+
     font = (1 + 0x09) * 0x10000 + 0x8800        # BANK_MENUCHR, tiles $80-$FF
-    at = font + (0xE6 - 0x80) * 16
+    at = font + (code - 0x80) * 16
     glyph = ["".join("X" if (ROMDATA[at + y] >> (7 - x)) & 1 else "."
                      for x in range(8)) for y in range(8)]
-    check("the font has a plus sign at $E6", glyph,
+    check("the font has a plus sign at CHR_PLUS", glyph,
           ["........", "........", "....X...", "....X...",
            "..XXXXX.", "....X...", "....X...", "........"])
     check("its background plane is set, like every other glyph",
           set(ROMDATA[at + 8:at + 16]), {0xFF})
+
+    #  And the tile has to be one nothing else draws.  Surveying text to prove
+    #  that does not work: $E6 shipped a plus through the "S" of "Stone" and
+    #  $EC through "MAGIC", because the top of the font page is battle-UI
+    #  artwork -- ailment names at $E2-$EA, command labels at $EB-$F6 -- and
+    #  neither is reachable by walking text.  The ailment names are raw tile
+    #  bytes behind data_BattleMessages' pointer table; the command labels are
+    #  .BYTE runs inside bank $0F.
+    #
+    #  So ask something that holds without enumerating strings: the stock font
+    #  must have no ink in the tile we paint over.  Artwork has ink; a free slot
+    #  does not.  $C1 and $FF are the only two blank tiles and $FF is the space.
+    #  out/bank_09.bin is the font as assembled, before mkrom's overlay.
+    stock = os.path.join(ROOT, "out", "bank_09.bin")
+    if not os.path.exists(stock):
+        skipped.append("no out/bank_09.bin -- the blank-tile check needs a build")
+    else:
+        art = open(stock, "rb").read()
+        base = 0x0800 + (code - 0x80) * 16      # $8800 holds tiles $80-$FF
+        ink = art[base:base + 8]
+        check("the tile the plus replaces is blank in the stock font",
+              set(ink), {0x00})
+
+    #  Belt and braces: the battle messages are the ones that bit first.
+    blob = open(os.path.join(ROOT, "game", "bin",
+                             "0B_8C40_battlemessages.bin"), "rb").read()
+    BASE, PTRS = 0x8C40, 0x310
+    drawn, seen = set(), 0
+    for i in range((len(blob) - PTRS) // 2):
+        a = blob[PTRS + i*2] | (blob[PTRS + i*2 + 1] << 8)
+        o = a - BASE
+        if not (0 <= o < PTRS):
+            continue                    # not a pointer into the text
+        end = blob.find(b"\x00", o)
+        if end < 0:
+            continue
+        seen += 1
+        drawn |= {b for b in blob[o:end] if b >= 0x7A}
+    check("the battle message table still reads", seen > 50, True)
+    check("the plus does not sit on a tile a battle message draws",
+          "$%02X" % code if code in drawn else None, None)
 
     #  Spot checks on the wording, which the sweep above cannot judge.
     check("an all-element weapon says so",
@@ -2916,6 +2994,8 @@ def test_menusfx():
 #  button and nothing can run it.  So: the hook restores when the flag is set,
 #  leaves MP alone when it is clear, and skips the characters the game skips.
 CH_AILMENTS = 0x6101
+CH_CURHP = 0x610A                # ch_stats + $0A, 2 bytes
+CH_MAXHP = 0x610C                # ch_stats + $0C, 2 bytes
 CH_CURMP = 0x6320
 CH_MAXMP = 0x6328
 CH_STRIDE = 0x40
@@ -2923,7 +3003,14 @@ OPTF_HOUSEMP_BIT = 15
 
 
 def test_housemp():
-    def run(flagged, ailments=(0, 0, 0, 0)):
+    #  A late-game party has several hundred HP, so the vanilla 120 is a
+    #  fraction of a rest; the flag fills it.  Max HP here is 999 to make a
+    #  partial restore distinguishable -- on an early party 120 saturates
+    #  against a lower maximum and the two cannot be told apart, which is why
+    #  this went unnoticed through a whole playthrough.
+    MAXHP = 999
+
+    def run(flagged, ailments=(0, 0, 0, 0), curhp=0):
         bus, cpu = machine()
         if flagged:
             setblk(bus, OPT_FLAGS + OPTF_HOUSEMP_BIT // 8, 1 << (OPTF_HOUSEMP_BIT % 8))
@@ -2932,16 +3019,29 @@ def test_housemp():
             for lvl in range(8):
                 bus.sram[CH_MAXMP + c * CH_STRIDE + lvl - 0x6000] = 9
                 bus.sram[CH_CURMP + c * CH_STRIDE + lvl - 0x6000] = 0
+            for off, v in ((CH_MAXHP, MAXHP), (CH_CURHP, curhp)):
+                bus.sram[off + c * CH_STRIDE - 0x6000] = v & 0xFF
+                bus.sram[off + c * CH_STRIDE + 1 - 0x6000] = v >> 8
         call(cpu, "opt_housemp")
-        return [bus.sram[CH_CURMP + c * CH_STRIDE - 0x6000] for c in range(4)]
+        mp = [bus.sram[CH_CURMP + c * CH_STRIDE - 0x6000] for c in range(4)]
+        hp = [bus.sram[CH_CURHP + c * CH_STRIDE - 0x6000]
+              | bus.sram[CH_CURHP + c * CH_STRIDE + 1 - 0x6000] << 8
+              for c in range(4)]
+        return mp, hp
 
-    check("flag clear: a HOUSE does not touch MP here", run(False), [0, 0, 0, 0])
-    check("flag set: every living character is refilled", run(True), [9, 9, 9, 9])
-    #  The routine it reaches is the game's own, which skips the dead and the
-    #  stoned.  Checking that is how we know the trampoline landed on it and
-    #  not on whatever else is at that address.
+    check("flag clear: a HOUSE does not touch MP here", run(False)[0], [0, 0, 0, 0])
+    check("flag clear: nor HP -- the call site's 120 is all of it",
+          run(False)[1], [0, 0, 0, 0])
+    check("flag set: every living character is refilled", run(True)[0], [9, 9, 9, 9])
+    check("flag set: and filled to maximum HP, not by 120",
+          run(True)[1], [MAXHP] * 4)
+    #  The routines it reaches are the game's own, which skip the dead and the
+    #  stoned.  Checking that is how we know the trampoline landed on them and
+    #  not on whatever else is at those addresses.
     check("the dead and the stoned are skipped",
-          run(True, ailments=(0, 0x01, 0x02, 0)), [9, 0, 0, 9])
+          run(True, ailments=(0, 0x01, 0x02, 0))[0], [9, 0, 0, 9])
+    check("...for HP as well",
+          run(True, ailments=(0, 0x01, 0x02, 0))[1], [MAXHP, 0, 0, MAXHP])
 
     #  ...and the ordering, which is the whole of the second bug: restoring
     #  after the save writes a file that still holds the old MP.  That lives
@@ -3343,6 +3443,92 @@ def test_equipcursor():
           chunk[hits[0] + 3], 0xC9)
 
 
+# --- menu row labels fit the columns the menu draws ------------------------
+#  A row stores thirty bytes of label after its two header bytes, and the menu
+#  draws OPTROW_LABELW of them.  Padding to thirty therefore proves nothing:
+#  FFPAD accepted "House restores HP and MP" and the screen showed "House
+#  restores HP and".  The spill is detectable in the data -- a label that runs
+#  past the drawn width leaves a glyph in the bytes beyond it, where a short
+#  one leaves spaces -- so check every row rather than the one that was noticed.
+#
+#  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
+#  is the better guard; this covers the rows that predate it.
+def test_rowlabels():
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 57
+    at = SYM.get("lut_OptRows")
+    check("lut_OptRows is exported for this check", at is not None, True)
+    if at is None:
+        return
+    base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + at
+    over = []
+    for i in range(COUNT):
+        row = ROMDATA[base + i * STRIDE: base + (i + 1) * STRIDE]
+        if len(row) < STRIDE:
+            break
+        spill = row[LBL + W: STRIDE]
+        if any(b != 0xFF for b in spill):
+            drawn = "".join(_decode(b) or "?" for b in row[LBL:LBL + W])
+            lost = "".join(_decode(b) or "?" for b in spill)
+            over.append("   row %d draws %r and loses %r" % (i, drawn, lost.rstrip()))
+    check("every row label fits the columns the menu draws", len(over), 0)
+    fails.extend(over)
+
+    #  And the rows are where they are thought to be, so a pass means something.
+    first = ROMDATA[base: base + STRIDE]
+    check("the table starts on a blank row", first[0], 3)
+
+
+# --- the dial value tables draw only what they mean to ----------------------
+#  Each scalar row draws a four-byte string from one of five tables.  They were
+#  written with the signs as literals -- $E6 for "+", $E0 for "%" -- and $E6 is
+#  where the plus glyph used to live.  Moving the glyph left twenty-six entries
+#  pointing at whatever art remained, and the elemental dial read "S50": the
+#  tile is the "S" of the battle panel's "Stone".
+#
+#  The source now uses CHR_PLUS and CHR_PCT, and this is the check that holds
+#  it: every byte these tables draw must be a digit, a space, or one of those
+#  two signs.  A literal left behind falls outside that set as soon as the
+#  glyph it names moves, which is exactly when it starts drawing the wrong
+#  thing.
+def test_dialvalues():
+    #  The glyph set FFCHAR maps, and nothing else.  Letters and digits because
+    #  some dials read "Off" or "Fast"; the punctuation we actually encode; the
+    #  two signs.  Everything above that in the page is battle-UI artwork, which
+    #  is what a stale sign literal ends up pointing at -- the rule catches it
+    #  not because the byte is unknown but because it is not text.
+    STRIDE = 4
+    TEXT = (set(range(0x80, 0x8A))              # 0-9
+            | set(range(0x8A, 0xA4))            # A-Z
+            | set(range(0xA4, 0xBE))            # a-z
+            | {0xBE, 0xBF, 0xC0, 0xC2, 0xC4, 0xC5}   # ' , . - ! ?
+            | {0xE0, 0xFF})                     # CHR_PCT, space
+    lo, hi, cnt = (SYM.get("lut_ValTabLo"), SYM.get("lut_ValTabHi"),
+                   SYM.get("lut_ValCount"))
+    check("the dial value tables are exported", None not in (lo, hi, cnt), True)
+    if None in (lo, hi, cnt):
+        return
+    bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    allowed = TEXT | {CHR_PLUS}
+    stray, seen = [], 0
+    for t in range(5):
+        addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
+        n = ROMDATA[bank + cnt + t]
+        if not (0x8000 <= addr < 0x10000) or not (0 < n < 64):
+            stray.append("   table %d looks wrong: addr $%04X count %d"
+                         % (t, addr, n))
+            continue
+        for i in range(n):
+            row = ROMDATA[bank + addr + i * STRIDE:][:STRIDE]
+            seen += 1
+            for b in row:
+                if b not in allowed:
+                    stray.append("   table %d entry %d draws $%02X in %r"
+                                 % (t, i, b, "".join(_decode(x) or "?" for x in row)))
+    check("the five tables hold the expected number of entries", seen, 91)
+    check("every byte a dial draws is text, not artwork", len(stray), 0)
+    fails.extend(stray[:4])
+
+
 def main():
     for t in (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
@@ -3361,7 +3547,8 @@ def main():
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
               test_youfound, test_castline,
-              test_descwidth, test_descsynth,
+              test_descwidth, test_descsynth, test_rowlabels,
+              test_dialvalues,
               test_equipcursor):
         try:
             t()
