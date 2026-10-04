@@ -94,6 +94,12 @@ ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
     out/bank_OPTDATA.o out/bank_OPTSHOP.o
 
+#  HAL_VARS is hand-allocated, so two names can land on one byte and assemble
+#  without complaint.  Two branches each taking the same free offset is the
+#  likely case, and the merge of two disjoint hunks is clean, so check it here
+#  rather than hope someone reads the whole map.
+python3 tools/check_halvars.py || exit 1
+
 #  Code in the options bank reaches the fixed bank with a plain JSR, which is
 #  safe until the routine it calls swaps banks.  That is a freeze on hardware
 #  and looks like an ordinary call in the source, so check it every build.

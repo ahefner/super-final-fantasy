@@ -48,25 +48,6 @@
 .import OnReset
 
 ;; Flip to native mode with 16-bit registers, and back again.
-;  Record the scanline reached, for the per-stage flush timing.  Costs four
-;  instructions and only exists in a SCROLLSTAT build.
-.macro STAGE slot
-  .ifdef SCROLLSTAT
-    lda a:STAT78                ; reset the counter read toggle first
-    lda a:SLHV                  ; latch H/V
-    lda a:OPVCT                 ; low 8 bits, halved to leave room for the 9th
-    lsr a
-    sta a:h_stage+slot
-    lda a:OPVCT                 ; second read: bit 0 is counter bit 8.  Without
-    lsr a                       ; it, vblank lines 256-261 alias onto display
-    bcc :+                      ; lines 0-5 -- exactly the range in question
-    lda a:h_stage+slot
-    ora #$80
-    sta a:h_stage+slot
-:
-  .endif
-.endmacro
-
 .macro ENTER16
     clc
     xce
@@ -1235,24 +1216,6 @@ hal_waitvbl:
                                 ;   half-frame clock
     jsr hal_apu_frame           ; this frame's sound, sent before the wait so
                                 ;   it costs idle time rather than vblank
-  .ifdef SCROLLSTAT
-    lda a:RDNMI                 ; did a whole vblank pass while the game worked?
-    bpl :+                      ; then the display advanced a frame and the game
-    inc a:h_missed              ; did not.  This is the blind spot in h_late,
-    bne :+                      ; which only sees arrivals *during* vblank
-    inc a:h_missed+1
-:   lda a:STAT78                ; reset the counter's own read toggle
-    lda a:SLHV                  ; latch the counters: how much of the frame did
-    lda a:OPVCT                 ; the game's own work just use?
-    sta a:h_arrive
-    lda a:HVBJOY                ; arriving here already inside vblank means this
-    bpl @notlate                ; call is for the next frame, not the one just
-    inc a:h_late                ; ending -- a whole frame is about to be lost
-    bne @inside
-    inc a:h_late+1
-    bra @inside
-@notlate:
-  .endif
     ;  Arriving here already inside vblank used to cost a whole frame: the
     ;  code spun out the rest of that vblank and then waited for the next one,
     ;  on the reasoning that the call belonged to the frame about to start.
@@ -1276,10 +1239,6 @@ hal_waitvbl:
     ;    vblank: lines 224..255 read as themselves, and 256..261 read as 0..5.
     ;    That is why a value below 224 at this point means the vblank is nearly
     ;    over, not that the picture has started.
-    ;
-    ;  (A SCROLLSTAT build reads RDNMI above for its own diagnostic and takes
-    ;  the latch with it, so it never serves early.  That build is already
-    ;  documented as unusable for other reasons.)
     lda a:HVBJOY
     bpl @wait                   ; not in vblank yet: the ordinary path
     lda a:RDNMI
@@ -1301,7 +1260,6 @@ hal_waitvbl:
     bpl @wait
     lda a:RDNMI                 ; consume the latch for the vblank we now serve
 @serve:
-    STAGE 5                     ; the instant the wait returned, before anything
                                 ; else runs: separates "the wait came back late"
                                 ; from "something between the wait and the flush
                                 ; ate the time"
@@ -1345,16 +1303,11 @@ hal_flush:
     ;  set it before the transfers, and then it always lands in vblank however
     ;  long they take.  flush_ntsplit still runs last, since its HDMA table
     ;  deliberately overrides BG1HOFS for the dialogue window.
-    STAGE 0
     jsr flush_scroll
     jsr flush_pal
-    STAGE 1
     jsr flush_chr
-    STAGE 2
     jsr flush_nt
-    STAGE 3
     jsr flush_oam
-    STAGE 4
     stz a:h_hdmaen              ; each of the three below asks for its own channel
     jsr flush_raster
     jsr flush_ntsplit
@@ -1364,64 +1317,6 @@ hal_flush:
   .endif
     lda a:h_hdmaen              ; ...and only now does the register hear about it
     sta a:HDMAEN
-  .ifdef SCROLLSTAT
-    ;  Write the trace straight into SRAM, on the page the game cannot reach
-    ;  (see TRACEFAR).  No ring in WRAM, no periodic copy, no trigger, and
-    ;  nothing of the game's own memory touched -- the bytes are simply there in
-    ;  the .ram file whenever the emulator exits.  2600 frames is ~43 seconds.
-    lda a:HVBJOY                ; still inside vblank at the end of the flush?
-    bmi @invbl
-    inc a:h_over
-    bne @invbl
-    inc a:h_over+1
-@invbl:
-    lda a:RDNMI                 ; clear the latch: any vblank seen on the next
-                                ; entry is then one the game genuinely missed
-    lda a:STAT78                ; reset the counter's own read toggle
-    lda a:SLHV                  ; latch H/V: how far into the frame are we now?
-    lda a:OPVCT
-    sta a:h_flushend
-    ENTER16
-    lda a:h_ringidx
-    tax
-    sep #$20
-    .a8
-    lda a:h_frame               ; sequence marker: consecutive proves it is ours
-    sta f:TRACEFAR+$100, x
-    lda a:h_lastx
-    sta f:TRACEFAR+$101, x
-    lda a:h_stage+0             ; scanline at each stage boundary
-    sta f:TRACEFAR+$102, x
-    lda a:h_stage+1
-    sta f:TRACEFAR+$103, x
-    lda a:h_stage+2             ; after flush_chr
-    sta f:TRACEFAR+$104, x
-    lda a:h_stage+3             ; after flush_nt
-    sta f:TRACEFAR+$105, x
-    lda a:h_stage+4             ; after flush_oam
-    sta f:TRACEFAR+$106, x
-    lda a:h_stage+5             ; where the vblank wait returned
-    sta f:TRACEFAR+$107, x
-    rep #$20
-    .a16
-    txa
-    clc
-    adc #8
-    cmp #7808
-    bcc :+
-    lda #0
-:   sta a:h_ringidx
-    sta f:TRACEFAR+8
-    lda #$5A5A
-    sta f:TRACEFAR+0
-    lda a:h_frame
-    sta f:TRACEFAR+2
-    lda a:h_late
-    sta f:TRACEFAR+4
-    lda a:h_over
-    sta f:TRACEFAR+6
-    LEAVE16
-  .endif
     ;  A transition wipe decides visibility through TM, band by band, and its
     ;  frames carry no $2001 write at all -- ScreenWipeFrame's were removed when
     ;  the effect moved to HDMA.  So during a wipe h_ppumask still holds whatever
@@ -2535,16 +2430,8 @@ flush_ntsplit:
     stz a:h_rasterwin
     lda a:h_ntsplits
     bne @build
-  .ifdef SCROLLSTAT
-    stz a:h_hdmaon              ; no table: flush_scroll's value stands
-  .endif
     rts                         ; nothing to split: no channel of its own
 @build:
-  .ifdef SCROLLSTAT
-    lda #1                      ; an HDMA table is about to drive BG1HOFS,
-    sta a:h_hdmaon              ; overriding whatever flush_scroll wrote
-    lda a:h_ntsplits
-  .endif
     ldy #0                      ; write cursor into the table
     ldx #0                      ; which recorded split we are on
     lda a:h_hofsframestart      ; the scroll the frame opened with
@@ -3074,22 +2961,10 @@ flush_scroll:
       sta a:h_t0
       sep #$20
       .a8
-  .ifdef SCROLLSTAT
-    lda a:STAT78                ; when does the scroll actually reach the PPU?
-    lda a:SLHV
-    lda a:OPVCT
-    sta a:h_scrollline
-  .endif
 :   lda a:h_t0
     sta a:BG1HOFS               ; write-twice 16-bit register
-  .ifdef SCROLLSTAT
-    sta a:h_lastx               ; ...and keep it for the scroll trace
-  .endif
     lda a:h_t0+1
     sta a:BG1HOFS
-  .ifdef SCROLLSTAT
-    sta a:h_lastxhi             ; the half a low-byte trace cannot see
-  .endif
     rep #$20
     .a16
     lda a:h_scrolly
@@ -3119,9 +2994,6 @@ flush_scroll:
     .a8
     lda a:h_t1
     sta a:BG1VOFS
-  .ifdef SCROLLSTAT
-    sta a:h_lasty               ; ...and keep it for the scroll trace
-  .endif
     lda a:h_t1+1
     sta a:BG1VOFS
     LEAVE16

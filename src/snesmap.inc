@@ -23,13 +23,6 @@
 ; --- Bank numbers -------------------------------------------------------
 HALBANK         = $C0           ; HAL code lives here (long-addressed)
 HALFAR          = HALBANK * $10000
-TRACEFAR        = $A06000       ; NO LONGER A PRIVATE PAGE.  With 8KB of SRAM
-                                ; every bank aliases the same 8KB, so this is
-                                ; the game's own PRG-RAM and writing here
-                                ; corrupts it.  The SCROLLSTAT trace that used
-                                ; this is therefore unusable; instrument the
-                                ; emulator instead, which is what actually found
-                                ; the last two bugs.
 CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+N
                                 ;
                                 ; $A1 rather than $81 on purpose.  A HiROM cart
@@ -700,10 +693,6 @@ NESNT           = $7E4000       ; 2KB: raw NES nametable RAM (readback+attribs)
 NESPAL          = $7E4800       ; $20 bytes: raw NES palette RAM
 CGSHADOW        = $7E4900       ; 512 bytes: CGRAM image
 
-; Frame at which SCROLLSTAT copies its ring out to SRAM; -D DUMPFRAME=n to move
-.ifndef DUMPFRAME
-DUMPFRAME       = 1800
-.endif
 CHRSHADOW       = $7E8000       ; 16KB: 512 tiles in SNES 4bpp order
 
 ; ------------------------------------------------------------------------
@@ -783,23 +772,6 @@ NES_TOP_CROP    = 8
 
 h_emphasis      = HAL_VARS+$3B  ; $2001 bits 7-5, as R/G/B in bits 2-0
 h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
-
-; Diagnostic (SCROLLSTAT): frames that arrived at WaitForVBlank already inside
-; vblank -- i.e. too late for it, so the game waits out a whole extra frame --
-; and frames whose flush ran past the end of vblank.
-h_ringidx       = HAL_VARS+$48
-h_lastx         = HAL_VARS+$4A   ; final BG1HOFS, as the PPU sees it
-h_arrive        = HAL_VARS+$4C   ; scanline the game reached WaitForVBlank on
-h_lasty         = HAL_VARS+$4E   ; final BG1VOFS, as the PPU sees it
-h_lastxhi       = HAL_VARS+$50   ; BG1HOFS high byte: the nametable-select bit
-h_flushend      = HAL_VARS+$52   ; scanline the flush finished on
-h_stage         = HAL_VARS+$54   ; 6 bytes: scanline after each flush stage,
-                                ; slot 5 = the moment the vblank wait returned
-h_missed        = HAL_VARS+$5A   ; 2 bytes: hardware frames the game never saw
-h_hdmaon        = HAL_VARS+$5C   ; nonzero if HDMA drove BG1HOFS this frame
-h_scrollline    = HAL_VARS+$5D   ; scanline at which BG1HOFS was actually written
-h_late          = HAL_VARS+$44
-h_over          = HAL_VARS+$46
 
 
 ; DMA channel 1, used for the raster-split HDMA
