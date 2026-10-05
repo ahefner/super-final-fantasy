@@ -936,7 +936,11 @@ def test_idtreasure():
     for name, glyphs in (("Can't hold.. ", 13), ("You found.. ", 12)):
         check("%r plus the longest name fits %d columns" % (name, BOX_COLS),
               glyphs + worst[0] <= BOX_COLS, True)
-    check("the longest gear name is 8 glyphs", worst[0], 8)
+    #  Seven, which is the shop list box's interior width and what every weapon
+    #  and armour name is.  This recorded 8 until the Ribbon's stray eighth byte
+    #  was trimmed -- the assertion had been measuring the bug.  See
+    #  test_itemnamewidth, which asserts the rule rather than the maximum.
+    check("the longest gear name is 7 glyphs", worst[0], 7)
 
 
 def chunkbyte(bank, addr):
@@ -3563,6 +3567,48 @@ def test_dialvalues():
     fails.extend(stray[:4])
 
 
+# --- weapon and armour names fit the shop's list box ------------------------
+#  The shop's inventory list is box 2, nine columns wide, so seven between the
+#  borders -- which is why every weapon and armour name in the cartridge is
+#  exactly seven bytes, padded with spaces or ending in an icon tile.  Exactly
+#  one is not: the Ribbon is "Ribbon" and two spaces, and the eighth byte draws
+#  a blank over the right border.  Only visible when selling armour to someone
+#  carrying one, which is why it survived the cartridge -- though not FFR, whose
+#  ItemNames.Write calls a FixRibbonSpace() that drops character 7 when it is a
+#  space.  The same fix at the same byte, arrived at independently.
+#
+#  mkrom trims the terminator back by one.  This checks the whole table, since
+#  the rule is the table's and not that one item's -- and Phase 3 renames these.
+def test_itemnamewidth():
+    WIDTH = 7                   # lut_ShopBox_Wd[2] = $09, less two borders
+    PTR = 0xB700                # lut_ItemNamePtrTbl, in BANK_ITEMS
+    bank = (1 + 0x0A) * 0x10000
+    wrong = []
+    for item in range(28, 108):             # weapons then armour
+        p = bank + PTR + item * 2
+        addr = ROMDATA[p] | ROMDATA[p + 1] << 8
+        if not (0x8000 <= addr < 0xC000):
+            wrong.append("   $%02X has a nonsense pointer $%04X" % (item, addr))
+            continue
+        at = bank + addr - 0x8000
+        end = ROMDATA.find(b"\x00", at)
+        if end < 0 or end - at > 16:
+            wrong.append("   $%02X is unterminated" % item)
+            continue
+        n = end - at
+        if n != WIDTH:
+            text = "".join(_decode(b) or "<%02X>" % b for b in ROMDATA[at:end])
+            wrong.append("   $%02X is %d bytes, not %d: %r" % (item, n, WIDTH, text))
+    check("every weapon and armour name is as wide as the box", len(wrong), 0)
+    fails.extend(wrong[:6])
+
+    #  And the box really is nine wide, so WIDTH above is not folklore.
+    dims = SYM.get("lut_ShopBox_Wd")
+    if dims is not None:
+        at = (1 + 0x0E) * 0x10000 + dims
+        check("the shop's list box is nine columns wide", ROMDATA[at + 2], 0x09)
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -3593,7 +3639,7 @@ def main():
               test_playervalid, test_lifemessages,
               test_youfound, test_castline,
               test_descwidth, test_descsynth, test_rowlabels,
-             test_dialvalues,
+             test_dialvalues, test_itemnamewidth,
              test_equipcursor)
 
     #  A misspelled name must not look like a pass -- that is the whole failure

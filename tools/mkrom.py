@@ -120,6 +120,36 @@ def overlay_plus(data):
     return bytes(out)
 
 
+#  The Ribbon's name is eight bytes where every other weapon and armour name in
+#  the cartridge is seven, and seven is the field the shop draws.  "Ribbon"
+#  followed by two spaces, so the eighth is padding that writes a blank over the
+#  right-hand border of the name box -- visible when selling armour to a
+#  character carrying one, and not visible for longer names like "Dragon" plus
+#  its icon, which are seven and fit.
+#
+#  Trimming the terminator back by one leaves "Ribbon " and changes no glyph.
+#  FFR does exactly this, in FF1Text.cs: ItemNames.Write opens with a
+#  FixRibbonSpace() that drops character 7 when it is a space, unconditionally,
+#  so every FFR rom has it fixed.  Armor.cs's "Don't adjust vanilla Ribbon with
+#  no icon" is a separate decision about shortening names to fit an icon and
+#  says nothing about the box.
+#
+#  The expected bytes are asserted rather than assumed: this is vendored data,
+#  and a patch that silently matches nothing is worse than no patch.
+ITEMS_BANK = "0A"
+RIBBON_AT = 0x3BF5
+RIBBON_WAS = bytes([0x9B, 0xAC, 0xA5, 0xA5, 0xB2, 0xB1, 0xFF, 0xFF, 0x00])
+
+
+def overlay_ribbon(data):
+    at = RIBBON_AT
+    if data[at:at + len(RIBBON_WAS)] != RIBBON_WAS:
+        sys.exit("bank_0A: the Ribbon name is not where it was ($%04X)" % at)
+    out = bytearray(data)
+    out[at + 7] = 0x00              # terminate after seven, as the field is
+    return bytes(out)
+
+
 def nesbank(name):
     if name in ASSEMBLED:
         data = read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
@@ -129,6 +159,8 @@ def nesbank(name):
     data = read(os.path.join(NES, "bank_%s.dat" % name), 0x4000)
     if name == TILESET_CHR_BANK:
         data = overlay_openchest(data)
+    if name == ITEMS_BANK:
+        data = overlay_ribbon(data)
     return data
 
 
