@@ -4,8 +4,9 @@
     JSR MenuRecoverPartyHP  ; give the whole party 120 HP
     LDA #$1E
 --- NEW
-.export MenuRecoverPartyMP      ; House Restoration reaches both from the
+.export MenuRecoverPartyMP      ; House Restoration reaches all three from the
 .export MenuFillPartyHP         ;   options chunk, through OptCallFar
+.export DrawItemTargetMenu
 .import opt_housemp
 
     DEC item_house          ; otherwise... remove a house from our inventory

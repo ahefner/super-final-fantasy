@@ -60,6 +60,7 @@
 .export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
+.import DrawItemTargetMenu
 ;  The game's own reset entry, for Controller Reset.
 .import OnReset
 .import lut_MagicBattleMessages
@@ -2633,9 +2634,13 @@ opt_thiefgrowth:
 ;;  and HousesFillHp, both filed under bugfixes rather than variations; they are
 ;;  one switch here because nobody who wants either wants the other off.
 ;;
-;;    FFR's HP patch writes JSR MenuFillPartyHP followed by a second JSR to
-;;  $B400, which in this bank is Draw Item Target Menu and has no business in a
-;;  HOUSE.  Only the fill is ported.
+;;    FFR's HP patch writes JSR MenuFillPartyHP followed by a JSR to $B400,
+;;  DrawItemTargetMenu.  Both are needed and the second is the less obvious:
+;;  MenuFillPartyHP only writes the numbers, where the MenuRecoverPartyHP the
+;;  call site uses ends in a JMP to that same redraw.  Without it the fill is
+;;  correct and invisible -- the save prompt goes up over a screen still
+;;  showing the pre-fill figures, and the real ones appear only when something
+;;  else repaints, which is after the save.
 ;;
 ;;    The body is here rather than inline at the call site for two reasons.
 ;;  Bank $0E has eighteen bytes and this way it spends four of them.  And a
@@ -2745,7 +2750,16 @@ opt_housemp:
     CALL0E MenuFillPartyHP      ; the rest of the HP, on top of the 120 the
                                 ;   call site has already given
     CALL0E MenuRecoverPartyMP   ; they live in the bank that called us, and we
-  @out:                         ;   are not in that bank any more
+                                ;   are not in that bank any more
+    ;  ...and repaint, because neither of those does.  MenuRecoverPartyHP at
+    ;  the call site ends in a JMP to this, which is why the vanilla 120 shows
+    ;  up and the fill did not: the numbers were right from here on and the
+    ;  screen went on showing the old ones until something else redrew, which
+    ;  is after the save prompt.  This is the second half of FFR's patch, the
+    ;  JSR $B400 beside its JSR $ABD2 -- dismissed earlier as having no
+    ;  business in a HOUSE, when it is the whole reason the fill is visible.
+    CALL0E DrawItemTargetMenu
+  @out:
     RTL
 
 

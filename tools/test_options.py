@@ -3010,8 +3010,17 @@ def test_housemp():
     #  this went unnoticed through a whole playthrough.
     MAXHP = 999
 
+    #  opt_housemp now ends in a repaint, and the repaint reaches the HAL's
+    #  PPU shims, which this machine does not implement and has no business
+    #  implementing.  Stub it with an RTS so the arithmetic stays runnable; the
+    #  call itself is checked below against the untouched image.
+    draw = (((0xA1 + 0x0E) & 0x1F) * 0x10000) + SYM["DrawItemTargetMenu"]
+    stubbed = bytearray(ROMDATA)
+    stubbed[draw] = 0x60
+
     def run(flagged, ailments=(0, 0, 0, 0), curhp=0):
         bus, cpu = machine()
+        bus.rom = stubbed
         if flagged:
             setblk(bus, OPT_FLAGS + OPTF_HOUSEMP_BIT // 8, 1 << (OPTF_HOUSEMP_BIT % 8))
         for c in range(4):
@@ -3042,6 +3051,31 @@ def test_housemp():
           run(True, ailments=(0, 0x01, 0x02, 0))[0], [9, 0, 0, 9])
     check("...for HP as well",
           run(True, ailments=(0, 0x01, 0x02, 0))[1], [MAXHP, 0, 0, MAXHP])
+
+    #  The numbers being right is not enough: neither MenuFillPartyHP nor
+    #  MenuRecoverPartyMP repaints, and the MenuRecoverPartyHP the call site
+    #  uses ends in a JMP to DrawItemTargetMenu.  Porting the fills without
+    #  that redraw left them correct and invisible -- the save prompt sat over
+    #  the pre-fill figures.  Nothing here can run the draw, so look for the
+    #  call: all three go out through OptCallFar, so find the routine's own
+    #  bytes and require the redraw among the addresses it hands over.
+    #  CALL0E hands the target to OptCallFar as two immediates -- "LDA #<addr"
+    #  then "LDA #>addr" into OPTCALLV -- so there is no 16-bit address in the
+    #  instruction stream to look for, only that pair in that order.
+    body = ROMDATA[(CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["opt_housemp"]:][:96]
+    missing = []
+    for name in ("MenuFillPartyHP", "MenuRecoverPartyMP", "DrawItemTargetMenu"):
+        a = SYM[name]
+        #  The high byte has to follow this call's own low byte, not whichever
+        #  came first: MenuFillPartyHP and MenuRecoverPartyMP share $AB, and a
+        #  plain find for the high byte matches the earlier call every time.
+        #  SET0E puts the pair six bytes apart, so allow a little slack.
+        lo = body.find(bytes([0xA9, a & 0xFF]))
+        hi = body.find(bytes([0xA9, a >> 8]), lo + 1) if lo >= 0 else -1
+        if lo < 0 or hi < 0 or hi - lo > 8:
+            missing.append(name)
+    check("the fills and the repaint are all reached from opt_housemp",
+          sorted(missing), [])
 
     #  ...and the ordering, which is the whole of the second bug: restoring
     #  after the save writes a file that still holds the old MP.  That lives
@@ -3530,7 +3564,18 @@ def test_dialvalues():
 
 
 def main():
-    for t in (test_block, test_presets, test_movespeed, test_encounter,
+    """Every test, or just the ones named on the command line.
+
+    The whole suite is eighty seconds, most of it test_chestinfo and
+    test_descsynth driving the 65816 over thousands of cases.  A single test is
+    a tenth of a second, and a build is two, so checking that one assertion
+    bites is a two-second job:
+
+        ./build.sh && python3 tools/test_options.py test_housemp
+
+    Run the suite before committing, not between edits.
+    """
+    tests = (test_block, test_presets, test_movespeed, test_encounter,
               test_noshuffle, test_derive, test_guillotine,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
@@ -3548,8 +3593,21 @@ def main():
               test_playervalid, test_lifemessages,
               test_youfound, test_castline,
               test_descwidth, test_descsynth, test_rowlabels,
-              test_dialvalues,
-              test_equipcursor):
+             test_dialvalues,
+             test_equipcursor)
+
+    #  A misspelled name must not look like a pass -- that is the whole failure
+    #  mode this file exists to catch, and it would be galling to ship it here.
+    want = sys.argv[1:]
+    known = {t.__name__ for t in tests}
+    unknown = [a for a in want if a not in known]
+    if unknown:
+        print("no such test: %s" % ", ".join(unknown))
+        return 2
+
+    for t in tests:
+        if want and t.__name__ not in want:
+            continue
         try:
             t()
         except Exception as e:
@@ -3561,7 +3619,10 @@ def main():
         return 1
     for s_ in skipped:
         print("   skipped: " + s_)
-    print("option hooks: all checks passed")
+    if want:
+        print("option hooks: %s passed" % ", ".join(want))
+    else:
+        print("option hooks: all checks passed")
     return 0
 
 
