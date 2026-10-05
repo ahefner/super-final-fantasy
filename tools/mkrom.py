@@ -37,8 +37,10 @@ ASSEMBLED = {"01", "09", "0B", "0C", "0D", "0E", "0F"}
 ORDER     = ["%02X" % n for n in range(16)]
 
 # Chunks beyond the NES banks: {chunk number: out/bank_<name>.bin}.
-# CHUNK_OPT in src/snesmap.inc must agree with the key here.
-EXTRA_CHUNKS = {0x11: "OPT"}
+# CHUNK_OPT and CHUNK_CREDITS in src/snesmap.inc must agree with the keys here,
+# and the keys must run on from $11 without a gap: the image is assumed dense
+# up to the last of them when it is mirrored out to 2MB below.
+EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS"}
 
 
 def read(path, want):

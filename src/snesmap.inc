@@ -43,6 +43,15 @@ CHUNK0          = $A1           ; PBR for NES bank $00; NES bank N -> CHUNK0+N
 ;  reaches the fixed bank with a plain 16-bit JSR.
 CHUNK_OPT       = $11           ; the options bank: menu, presets, option block
 OPTFAR          = (CHUNK0 + CHUNK_OPT) * $10000
+CHUNK_CREDITS   = $12           ; the credits screen, native code and mode 7
+CREDITSFAR      = (CHUNK0 + CHUNK_CREDITS) * $10000
+
+;  The credits screen's variables and HDMA buffers.  The game's RAM, the
+;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
+;  scene's draw buffer at THEENDBUF, $6800-$6EFF, which is never live while the
+;  title screen is.  The credits keep to the bottom of the bank regardless.
+;  Reset zeroes it with the rest of WRAM.
+CREDITSRAM      = $7F0000
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The ending scene's draw buffer, moved out of PRG-RAM
@@ -496,6 +505,13 @@ BG2HOFS         = $210F
 BG2VOFS         = $2110
 BG3HOFS         = $2111
 BG3VOFS         = $2112
+M7SEL           = $211A         ; mode 7: the plane's wrap and flip
+M7A             = $211B         ; mode 7 matrix, each written twice, low then
+M7B             = $211C         ;   high.  BG1HOFS and BG1VOFS double as the
+M7C             = $211D         ;   plane's scroll
+M7D             = $211E
+M7X             = $211F         ; centre of the transform, also written twice
+M7Y             = $2120
 VMAIN           = $2115
 VMADDL          = $2116
 RDVRAML         = $2139         ; VRAM read port, low / high
@@ -506,14 +522,17 @@ VMDATAH         = $2119
 CGADD           = $2121
 CGDATA          = $2122
 W12SEL          = $2123
+W34SEL          = $2124
 WH0             = $2126
 WH1             = $2127
 WH2             = $2128
 WH3             = $2129
 WBGLOG          = $212A
+WOBJLOG         = $212B
 TM              = $212C
 TS              = $212D
 TMW             = $212E
+TSW             = $212F
 WOBJSEL         = $2125         ; OBJ and colour window enables
 CGWSEL          = $2130
 CGADSUB         = $2131
@@ -860,6 +879,27 @@ DMAP2           = $4320
 BBAD2           = $4321
 A1T2L           = $4322
 A1B2            = $4324
+
+;  HDMA channels 5, 6 and 7 belong to the credits screen, which drives the
+;  text's colour and the mode 7 matrix with them.  The HAL uses 1, 2 and 4,
+;  and turns HDMAEN over every frame from its own channels alone, so the two
+;  never meet.
+DMAP5           = $4350
+BBAD5           = $4351
+A1T5L           = $4352
+A1T5H           = $4353
+A1B5            = $4354
+DMAP6           = $4360
+BBAD6           = $4361
+A1T6L           = $4362
+A1T6H           = $4363
+A1B6            = $4364
+DMAP7           = $4370
+BBAD7           = $4371
+A1T7L           = $4372
+A1T7H           = $4373
+A1B7            = $4374
+DASB7           = $4377         ; indirect HDMA: the bank its data comes from
 
 ; A mid-frame $2000 write swaps which nametable is on screen.  With vertical
 ; mirroring the two nametables sit side by side in one 64-wide tilemap, so the

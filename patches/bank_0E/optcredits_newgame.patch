@@ -1,0 +1,6 @@
+--- OLD
+    LDA #15          ; next box is same X pos and same dims, but at Y=15
+    STA box_y        ;  and contains text "New Game"
+--- NEW
+    LDA #11          ; next box is same X pos and same dims, but at Y=11 --
+    STA box_y        ;  four rows up, with Continue -- and contains "New Game"

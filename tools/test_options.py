@@ -3413,6 +3413,7 @@ def test_cur4():
               | bus.sram[CH_CURHP + 1 + base - 0x6000] << 8)
         return hp, bool(cpu.p & 0x01)               # HP, carry
 
+
     check("flag clear: a corpse is healed anyway", cast(1, False), (456, True))
     check("flag set: the dead are refused", cast(1, True), (7, False))
     check("flag set: the stoned are refused", cast(2, True), (7, False))
@@ -3420,6 +3421,41 @@ def test_cur4():
     #  ...and it is the cursor's character that gets it, not always the first.
     check("the target is the one the cursor picked",
           cast(0, True, who=2), (456, True))
+
+
+# --- the title screen's rows -------------------------------------------------
+#  Four rows now: Continue, New Game, the mode, and Credits.  Up and down wrap
+#  over all four, and left and right are the preset on the mode row and the
+#  respond rate everywhere else -- Credits included, which has nothing of its
+#  own to the side.  A wrap still sized for three rows sends Down from the
+#  mode row back to Continue, and Credits can never be reached.
+TITLE_CURSOR, RESPONDRATE = 0x62, 0xFA
+DIR_RIGHT, DIR_DOWN, DIR_UP = 0x01, 0x04, 0x08
+
+
+def test_titlerows():
+    for row in range(4):
+        for name, d, want in (("down", DIR_DOWN, (row + 1) % 4),
+                              ("up", DIR_UP, (row - 1) % 4)):
+            bus, cpu = machine()
+            bus.wram[TITLE_CURSOR] = row
+            cpu.a = d
+            call(cpu, "opt_titleupdown")
+            check("title row %d, %s" % (row, name), bus.wram[TITLE_CURSOR], want)
+
+    for row, rate_moves in ((0, True), (1, True), (2, False), (3, True)):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        bus.wram[TITLE_CURSOR] = row
+        bus.wram[RESPONDRATE] = 3
+        setblk(bus, OPT_RESPOND, 3)
+        preset = blk(bus, OPT_PRESET)
+        cpu.a = DIR_RIGHT
+        call(cpu, "opt_titleleftright")
+        check("title row %d, right: respond rate" % row,
+              bus.wram[RESPONDRATE], 4 if rate_moves else 3)
+        check("title row %d, right: preset" % row,
+              blk(bus, OPT_PRESET), preset if rate_moves else (preset + 1) % 4)
 
 
 # --- the equip box takes the cursor off the screen -------------------------
@@ -3640,7 +3676,7 @@ def main():
               test_youfound, test_castline,
               test_descwidth, test_descsynth, test_rowlabels,
              test_dialvalues, test_itemnamewidth,
-             test_equipcursor)
+             test_equipcursor, test_titlerows)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

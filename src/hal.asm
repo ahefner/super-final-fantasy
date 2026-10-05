@@ -44,6 +44,7 @@
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
+.export hal_vblaudio, hal_ppureclaim
 
 .import OnReset
 
@@ -1287,6 +1288,118 @@ hal_waitvbl:
     ENTER16
     inc a:h_frame
     LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Lending the PPU to a native screen
+;;
+;;  The credits screen is not the game.  It is SNES code written for the SNES,
+;;  it runs mode 7, and while it is up it owns VRAM, CGRAM and the PPU's
+;;  registers outright -- mode 7 keeps its tilemap and its characters in the
+;;  first 32KB of VRAM, which is exactly where this layer keeps the tilemap and
+;;  the CHR, so there is no sharing to be had.  Two entry points let it do that
+;;  without knowing anything about the shadows.
+;;
+;;  hal_vblaudio is hal_waitvbl without the flush.  The frame's sound still
+;;  goes out and the frame counter still moves, but nothing reaches the PPU: a
+;;  flush would put the mode 1 picture back over the screen's own, and
+;;  flush_scroll alone would move the plane, since BG1HOFS and BG1VOFS are the
+;;  mode 7 scroll too.  It returns at the top of a vblank, so the caller has
+;;  the whole of it for its own transfers.
+;;
+;;  hal_ppureclaim is the way back.  It puts the hardware where reset left it
+;;  -- VRAM and CGRAM zeroed, the registers set by init_ppu -- and then has the
+;;  shadows rebuild the picture, which they can do completely because nothing
+;;  the screen did touched them.  The CHR is sent here and now rather than
+;;  marked: we are in forced blank, and 16KB is more than a flush should carry.
+;;  The tilemap goes through flush_nt, which knows the 30-row duplication; the
+;;  palette and OAM are only marked, for the next flush to send.
+;;
+;;  Both are called in emulation mode, like every other way into this bank.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.a8
+.i8
+hal_vblaudio:
+    php
+    pha
+    phx
+    phy
+    lda #1
+    sta a:h_apufull             ; this frame's own call, as in hal_waitvbl
+    jsr hal_apu_frame
+    ;  Always a fresh vblank, never the tail of the current one.  hal_waitvbl
+    ;  takes pains to rescue a late arrival because the game's frames are
+    ;  heavy and a lost one is visible stutter; a native screen has no such
+    ;  excuse, and starting at the top every time is what makes "the whole of
+    ;  vblank is yours" true.
+@inside:
+    lda a:HVBJOY
+    bmi @inside
+@wait:
+    lda a:HVBJOY
+    bpl @wait
+    lda a:RDNMI                 ; consume the latch, as the flush paths do
+    ENTER16
+    inc a:h_frame
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+hal_ppureclaim:
+    php
+    pha
+    phx
+    phy
+    lda #$80
+    sta a:INIDISP               ; forced blank while VRAM is open
+    stz a:HDMAEN                ; the flush builds this afresh every frame
+
+    jsr clear_vram
+    jsr clear_cgram
+    jsr init_ppu
+
+    ;  The whole of the CHR shadow, straight back.
+    lda #$80
+    sta a:VMAIN
+    lda #$01
+    sta a:DMAP0                 ; two registers: $2118 then $2119
+    lda #$18
+    sta a:BBAD0
+    lda #WRAMBANK
+    sta a:A1B0
+    ENTER16
+    lda #VRAM_CHR
+    sta a:VMADDL
+    lda #.loword(CHRSHADOW)
+    sta a:A1T0L
+    lda #$4000
+    sta a:DAS0L
+    LEAVE16
+    lda #$01
+    sta a:MDMAEN
+
+    ;  Every row of both nametables is dirty end to end.
+    ldx #0
+@rows:
+    stz a:NTCOLLO,x
+    lda #63
+    sta a:NTCOLHI,x
+    inx
+    cpx #30
+    bcc @rows
+    lda #1
+    sta a:h_ntdirty
+    sta a:h_paldirty
+    sta a:h_palforce            ; every entry, not only the ones that moved
+    sta a:h_oamdirty
     ply
     plx
     pla
@@ -4450,6 +4563,20 @@ init_ppu:
     stz a:CGADSUB
     lda #$E0
     sta a:COLDATA
+    ;  Registers nothing in the port turns on, set to off rather than left as
+    ;  power-up found them, which on a console is not promised to be zero.
+    ;  Mosaic would act on BG1 directly; the windows only once TMW or TSW
+    ;  enables them, but those are among the unwritten too.  The credits
+    ;  screen is the one thing that may change any of them, and it hands the
+    ;  PPU back through here.
+    stz a:MOSAIC
+    stz a:W12SEL
+    stz a:W34SEL
+    stz a:WOBJSEL
+    stz a:WBGLOG
+    stz a:WOBJLOG
+    stz a:TMW
+    stz a:TSW
     rts
 
 init_halvars:

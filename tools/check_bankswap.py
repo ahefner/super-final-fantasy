@@ -35,9 +35,13 @@ import os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXED = os.path.join(ROOT, "game", "bank_0F.asm")
-OPT = [os.path.join(ROOT, "src", "optbank.asm"),
-       os.path.join(ROOT, "src", "optmenu.asm"),
-       os.path.join(ROOT, "src", "optshop.asm")]
+#  Each file this project adds a chunk for, with the chunk cur_bank has to name
+#  before a swapping call made from it.  The credits chunk has the same hazard
+#  as the options chunk -- it calls the music driver every frame.
+OPT = [(os.path.join(ROOT, "src", "optbank.asm"), "CHUNK_OPT"),
+       (os.path.join(ROOT, "src", "optmenu.asm"), "CHUNK_OPT"),
+       (os.path.join(ROOT, "src", "optshop.asm"), "CHUNK_OPT"),
+       (os.path.join(ROOT, "src", "credits.asm"), "CHUNK_CREDITS")]
 
 SWAPPERS = ("SwapPRG", "CallMusicPlay", "MusicPlay_L")
 
@@ -144,7 +148,7 @@ def forces_bank(label, bodies):
 def main():
     bodies = fixed_bodies()
     called = {}
-    for path in OPT:
+    for path, chunk in OPT:
         src = open(path, encoding="latin-1").read().split("\n")
         for n, l in enumerate(src, 1):
             code = l.split(";")[0]
@@ -154,7 +158,7 @@ def main():
                 #  before it.  Look back a little way rather than at one line:
                 #  the setup is usually a few instructions above.
                 window = "\n".join(src[max(0, n - 15):n])
-                guarded = "STA cur_bank" in window and "CHUNK_OPT" in window
+                guarded = "STA cur_bank" in window and chunk in window
                 called.setdefault(m.group(1), []).append(
                     ("%s:%d" % (os.path.basename(path), n), guarded))
 
@@ -188,7 +192,7 @@ def main():
         return 1
     if unguarded:
         print("\n%d call(s) would lose the program bank: point cur_bank at "
-              "CHUNK_OPT first." % len(unguarded))
+              "the calling chunk first." % len(unguarded))
         return 1
     print("\nevery options-bank call that swaps banks sets cur_bank first")
     return 0

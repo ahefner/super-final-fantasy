@@ -1,0 +1,10 @@
+--- OLD
+    LDA #11          ; first box is at 11,10  with dims 10x4
+    STA box_x        ;  and contains "Continue" text
+    LDA #10
+    STA box_y
+--- NEW
+    LDA #11          ; first box is at 11,6  with dims 10x4
+    STA box_x        ;  and contains "Continue" text
+    LDA #6           ; four rows up from 10, to make room for the Credits row
+    STA box_y        ;  below the mode box -- see opt_drawpresetbox

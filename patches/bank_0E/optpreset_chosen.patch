@@ -7,16 +7,18 @@
 @OptionChosen:              ; Jumps here when the player presses A or Start (selected an option)
     LDA cursor
     CMP #2
-    BNE @RealChoice         ; the mode row is not a way out of this screen
+    BCC @RealChoice         ; the rows below New Game are not ways out of this screen
 
     ;  Pressing A on a mode opens the settings screen and switches to Custom,
     ;  seeded from whatever mode was showing -- so "start from Deluxe and
     ;  change two things" is the natural path in rather than a special case.
-    JSL opt_settings + OPTFAR
+    ;  Pressing it on Credits opens the credits.  opt_titlechoose tells them
+    ;  apart, so this costs the bank no more than the settings call alone did.
+    JSL opt_titlechoose + OPTFAR
 
     ;  Come back through the top of the title screen rather than into its
     ;  loop: TitleScreen_Copyright calls IntroTitlePrepare, which reloads the
-    ;  menu CHR the settings screen overwrote and clears the nametable.
+    ;  menu CHR the screen overwrote and clears the nametable.
     JMP EnterTitleScreen
 
   @RealChoice:

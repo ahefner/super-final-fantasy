@@ -6,7 +6,7 @@
       JSR DrawComplexString
 --- NEW
 .import opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
-.import opt_titleupdown, opt_titleleftright, opt_settings
+.import opt_titleupdown, opt_titleleftright, opt_titlechoose
 
     LDA #<lut_TitleText_RespondRate
     STA text_ptr

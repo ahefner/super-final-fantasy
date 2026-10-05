@@ -28,6 +28,8 @@
 .include "snesmap.inc"
 ;  CALL0E, for the one hook that has to reach back into bank $0E.
 .include "optcall.inc"
+;  FFTEXT, for the Credits label.
+.include "fftext.inc"
 ;  The game's own variable names, from the generated tree.  build.sh puts
 ;  gen/ on the include path for this file so the options bank can name RAM
 ;  the way the rest of the port does.
@@ -70,7 +72,8 @@
 .import lut_CantHoldWhat
 .import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
-.export opt_titleupdown, opt_titleleftright
+.export opt_titleupdown, opt_titleleftright, opt_titlechoose
+.import opt_settings, credits_screen
 .export opt_commit_body
 
 .import DrawBox
@@ -488,14 +491,18 @@ opt_setbattlerate:
     RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The title screen's preset row
+;;  The title screen's preset and credits rows
 ;;
-;;  A fourth box below "Respond Rate", at (8,24) and four rows tall, so it ends
-;;  on row 27 -- inside the 28 rows the 224-line crop actually shows.  The
-;;  cursor gains a third position; left and right cycle the preset while it is
-;;  there and go on adjusting the respond rate everywhere else, which leaves
-;;  the existing controls exactly as they were for anyone who never moves down
-;;  to the new row.
+;;  Two boxes between "New Game" and "Respond Rate": the mode at (8,16) and
+;;  Credits at (8,20), each four rows tall, with the respond rate below them
+;;  at (8,24) ending on row 27 -- the last of the 28 rows the 224-line crop
+;;  actually shows.  Continue and New Game moved up four rows to make room
+;;  (the two optcredits patches), keeping their one-row gaps.
+;;
+;;  The cursor has four positions.  Left and right cycle the preset on the
+;;  mode row and go on adjusting the respond rate everywhere else, which
+;;  leaves the existing controls exactly as they were for anyone who never
+;;  moves down.  A on either new row opens a screen; see opt_titlechoose.
 ;;
 ;;  The name is redrawn every frame from a fixed nametable address, the way
 ;;  TitleScreen_DrawRespondRate redraws its digit, rather than through
@@ -504,10 +511,18 @@ opt_setbattlerate:
 ;;  characters so a shorter one cannot leave the tail of a longer one behind.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;  The mode box takes the row the respond rate used to have, and the respond
-;  rate moves down to 24 -- see the two patches in patches/bank_0E.
+;  The respond rate moved down to 24 to make room, so the mode box and the
+;  credits box sit where it used to be -- see the patches in patches/bank_0E.
 PRESETBOX_X  = 8
-PRESETBOX_Y  = 20
+PRESETBOX_Y  = 16
+CREDITSBOX_Y = PRESETBOX_Y + 4          ; directly below, sharing an edge row
+CREDITSTEXT_PPU = $2000 + (CREDITSBOX_Y + 2) * 32 + PRESETBOX_X + 1 + 3
+
+;  The title screen's cursor rows.  0 and 1 are the game's own, Continue and
+;  New Game, and the game's code knows them by number.
+TITLEROW_MODE    = 2
+TITLEROW_CREDITS = 3
+TITLE_ROWS       = 4
 PRESETTEXT_ROW = PRESETBOX_Y + 2        ; DrawBox puts its text two rows down
 PRESETNAME_PPU = $2000 + PRESETTEXT_ROW * 32 + PRESETBOX_X + 1
 PRESETNAME_LEN = 14                     ; the box's whole interior
@@ -529,15 +544,23 @@ lut_PresetNames:
 
 ;  Cursor sprite position per row.  Y is one tile row below the box's top, as
 ;  the game's own two entries were.  X has to vary now: the first two boxes
-;  start at column 11 and the mode box at column 8, so a single fixed X either
-;  sits too far from one or overlaps the other.  Sixteen pixels clear of the
-;  box edge in both cases.
+;  start at column 11 and the two below them at column 8, so a single fixed X
+;  either sits too far from one or overlaps the other.  Sixteen pixels clear
+;  of the box edge in both cases.
 lut_TitleCursorY:
-  .BYTE $58, $80, $A8
+  .BYTE $38, $60, (PRESETBOX_Y + 1) * 8, (CREDITSBOX_Y + 1) * 8
 lut_TitleCursorX:
-  .BYTE $48, $48, $30
+  .BYTE $48, $48, $30, $30
 
-;;  Drawn once, with the PPU off, alongside the other three boxes.
+;  Centred in the box's fourteen columns as nearly as seven letters can be,
+;  leaning left by the half column the way the mode names do.
+lut_CreditsLabel:
+  FFTEXT "CREDITS"
+CREDITSLABEL_LEN = * - lut_CreditsLabel
+
+;;  Drawn once, with the PPU off, alongside the other three boxes -- and the
+;;  credits box with it, whose label never changes and so is written here
+;;  rather than every frame.
 opt_drawpresetbox:
     ;  DrawBox can stall a frame, and a stall calls CallMusicPlay, which comes
     ;  back through cur_bank.  It happens not to stall here, because the title
@@ -559,6 +582,30 @@ opt_drawpresetbox:
     LDA #16
     STA box_wd
     JSR DrawBox
+
+    LDA #CREDITSBOX_Y           ; same x and size, four rows down
+    STA box_y
+    LDA #CHUNK_OPT              ; still this bank, said again where the
+    STA cur_bank                ;   bank-swap check can see it
+    JSR DrawBox
+
+    PHB
+    PHK
+    PLB
+    bPPUSTATUS                  ; reset the $2006 write toggle
+    LDA #>CREDITSTEXT_PPU
+    wPPUADDR
+    LDA #<CREDITSTEXT_PPU
+    wPPUADDR
+    LDX #0
+  @label:
+    LDA lut_CreditsLabel, X
+    wPPUDATA
+    INX
+    CPX #CREDITSLABEL_LEN
+    BNE @label
+    PLB
+
     PLA
     STA cur_bank                ; the title screen wants its own value back
     RTL
@@ -602,33 +649,50 @@ opt_titlecursor:
     PLB
     RTL
 
-;;  In: A = the direction bits.  Moves the cursor between three rows.
+;;  In: A = the direction bits.  Moves the cursor between the rows, wrapping.
 opt_titleupdown:
     LDX cursor
     CMP #DOWN
     BNE @up
     INX
-    CPX #3
+    CPX #TITLE_ROWS
     BCC @set
     LDX #0
     BRA @set
   @up:
     DEX
     BPL @set
-    LDX #2
+    LDX #TITLE_ROWS - 1
   @set:
     STX cursor
     RTL
 
+;;  A or Start on a row that is not a way out of the title screen: the title
+;;  loop has already returned for Continue and New Game, so this is the mode
+;;  row or Credits.  Each opens its own screen and returns by RTL, and the
+;;  title screen is then rebuilt from the top -- which both of them need, as
+;;  each overwrites the CHR and the nametable.
+;;
+;;  A dispatcher here rather than a comparison in the patch, because bank $0E
+;;  has no bytes to spare: the call site stays the size it was.
+opt_titlechoose:
+    LDA cursor
+    CMP #TITLEROW_CREDITS
+    BEQ @credits
+    JMP opt_settings            ; its RTL is ours
+  @credits:
+    JML credits_screen + CREDITSFAR
+
 ;;  In: A = the direction bits.  On the preset row this cycles the preset and
 ;;  reseals the block; anywhere else it is the respond rate, as before -- and
 ;;  that now writes through to the block so the setting survives a power cycle.
+;;  "Anywhere else" includes the Credits row, which has nothing to the side.
 opt_titleleftright:
     PHB
     PHK
     PLB
     LDX cursor
-    CPX #2
+    CPX #TITLEROW_MODE
     BEQ @preset
 
     CMP #RIGHT
