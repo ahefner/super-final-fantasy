@@ -95,11 +95,33 @@ CR_YBUF1     = CREDITSRAM+$300  ;   at most 224 lines, so $1C0 bytes each
 
 ;  One line of the text: a length and then the characters, in the game's
 ;  encoding.  A line of nothing is a blank row.
+;
+;  One character beyond the game's font is allowed, written as itself: the
+;  source is UTF-8, so a (c) arrives as the two bytes $C2 $A9, and becomes the
+;  crawl's own glyph.  Anything else outside the font is still an error.
 .macro CRLINE txt
-  .if .strlen(txt) > CR_COLUMNS
+  .local n
+  n .set 0
+  .repeat .strlen(txt), i
+    .if .strat(txt, i) <> $C2
+      n .set n + 1
+    .endif
+  .endrep
+  .if n > CR_COLUMNS
     .error "credits line wider than the screen"
   .endif
-  FFWORD txt
+  .byte n
+  .repeat .strlen(txt), i
+    .if .strat(txt, i) = $C2
+      .if .strat(txt, i + 1) <> $A9
+        .error "the only character the crawl adds to the font is the copyright sign"
+      .endif
+    .elseif .strat(txt, i) = $A9
+      .byte CR_GLYPH_COPYRIGHT
+    .else
+      FFCHAR {.strat(txt, i)}
+    .endif
+  .endrep
 .endmacro
 
 ;;  In emulation mode, from the title screen, by JSL.  Returns by RTL with the
@@ -137,6 +159,13 @@ credits_screen:
     STA a:HDMAEN                ; channels 5, 6 and 7
     LDA #$0F
     STA a:INIDISP               ; ...and on
+
+    ;  ...and the other buffer, before the loop's first vblank shows it.  The
+    ;  loop fills after it flips, so without this its first frame is whatever
+    ;  that buffer held from the last visit -- a flash of the crawl where it
+    ;  was left.  (On a first visit it is zeros, every line on the text's top
+    ;  pixel row, which is blank, so the bug hid until a second visit.)
+    JSR cr_fill
 
     JSR cr_waitrelease          ; the A that brought us here
 
@@ -332,6 +361,7 @@ cr_build:
     BNE @pal
 
     JSR cr_drawtext
+    JSR cr_drawglyphs
 
     SEP #$10
     .i8
@@ -480,6 +510,32 @@ cr_drawtext:
     RTS
 
 
+;;  The crawl's own glyphs, from one bit a pixel to mode 7's eight, into the
+;;  tiles below the font that nothing else uses.  Native, X and Y 16-bit.
+.a8
+.i16
+cr_drawglyphs:
+    LDA #$80
+    STA a:VMAIN                 ; the characters are the high bytes
+    LDX #CR_GLYPHFIRST * 64     ; 64 words to a tile
+    STX a:VMADDL
+    LDX #$0000
+  @row:
+    LDA lut_CrawlGlyphs, X
+  .repeat 8                     ; as in cr_loadfont: carry is the pixel
+    ASL A
+    XBA
+    LDA #$00
+    ROL A
+    STA a:VMDATAH
+    XBA
+  .endrepeat
+    INX
+    CPX #CR_GLYPHSIZE
+    BNE @row
+    RTS
+
+
 ;;  The font, from two bits a pixel to mode 7's eight.
 ;;
 ;;  A glyph is ink (colour 3) on the box's own blue (colour 2), so the ink is
@@ -579,7 +635,24 @@ lut_CreditsPalette:
 
 ;  Placeholder.  The plane is 128 rows deep, which is room for that many
 ;  lines before the table has to be drawn in pieces.
+;  Glyphs the game's font does not have, one bit a pixel, starting at tile
+;  CR_GLYPHFIRST.  Drawn the way the font is: the top row blank and the left
+;  column blank, so it spaces like any other letter.
+CR_GLYPHFIRST = $01             ; tile 0 is the blank every empty cell shows
+lut_CrawlGlyphs:
+CR_GLYPH_COPYRIGHT = CR_GLYPHFIRST + (* - lut_CrawlGlyphs) / 8
+  .byte %00000000
+  .byte %00011100
+  .byte %00100010
+  .byte %01011101
+  .byte %01010001
+  .byte %01011101
+  .byte %00100010
+  .byte %00011100
+CR_GLYPHSIZE = * - lut_CrawlGlyphs
+
 lut_CreditsText:
+  CRLINE ""
   CRLINE "SUPER FINAL FANTASY"
   CRLINE ""
   CRLINE ""
@@ -595,8 +668,8 @@ lut_CreditsText:
   CRLINE "Based on"
   CRLINE "FINAL FANTASY"
   CRLINE ""
-  CRLINE "C 1987 Square  "
-  CRLINE "C 1990 Nintendo"
+  CRLINE "© 1987 Square  "
+  CRLINE "© 1990 Nintendo"
   CRLINE ""
   CRLINE "Programmed By"
   CRLINE "N A S I R"
@@ -619,6 +692,7 @@ lut_CreditsText:
   CRLINE "Developers"
   CRLINE ""
   CRLINE "Entroper"
+  CRLINE "    "
   CRLINE "MeridianBC     nitz    "
   CRLINE "Septimus       tartopan"
   CRLINE "RetroFanMan    wildham "
@@ -628,14 +702,14 @@ lut_CreditsText:
   CRLINE "    "
   CRLINE "Contributors"
   CRLINE "    "
-  CRLINE "  artea          drcatdoctor  "
-  CRLINE "  nic0lette      splitpunched "
-  CRLINE "  onefineday     Darkmoon     "
-  CRLINE "  pinkpuff       bdjeffyp     "
-  CRLINE "  jat2980        Chronometrics"
-  CRLINE "  Oslodo         Barber       "
-  CRLINE "  FranklinRN     Inferna      "
-  CRLINE "  xxxxxxxxxxxxxxx"
+  CRLINE "  artea         drcatdoctor  "
+  CRLINE "  nic0lette     splitpunched "
+  CRLINE "  onefineday    Darkmoon     "
+  CRLINE "  pinkpuff      bdjeffyp     "
+  CRLINE "  jat2980       Chronometrics"
+  CRLINE "  Oslodo        Barber       "
+  CRLINE "  FranklinRN    Inferna      "
+  CRLINE "  xxxxxxxxxxxxxxx            "
   CRLINE "    "
   CRLINE "    "
   CRLINE "Playtesting"
@@ -649,7 +723,7 @@ lut_CreditsText:
   CRLINE "  TristalMTG     PanzerDave "
   CRLINE "  Buffalax       crimsonavix"
   CRLINE "  VampireKnight  Angelique  "
-  CRLINE "  DarkwingDuck.sda"
+  CRLINE "  DarkwingDuck.sda          "
   CRLINE ""
   CRLINE ""
   CRLINE "Special Thanks"
