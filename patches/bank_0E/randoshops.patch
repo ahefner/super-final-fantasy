@@ -1,0 +1,36 @@
+--- OLD
+LoadShopInventory:
+    LDA shop_id          ; get the shop ID
+    ASL A                ; double it
+    TAX                  ; put it in X for indexing
+
+    LDA lut_ShopData, X      ; load up the pointer to shop's inventory
+    STA tmp
+    LDA lut_ShopData+1, X
+    STA tmp+1
+
+    LDY #$04             ; copy 5 items from the inventory (max for a shop)
+  @Loop:
+     LDA (tmp), Y        ; get the item from the shop LUTs
+     STA item_box, Y     ; put it in the item box
+     DEY                 ; decrement loop counter and index
+     BPL @Loop           ; and loop until counter wraps
+
+    LDA #0
+    STA item_box+5       ; put a null terminator at the end of the item_box
+
+    RTS                  ; and exit
+--- NEW
+.import rando_shopinv
+.export LoadShopInventory, lut_ShopData   ; the randomizer and its tests
+
+LoadShopInventory:
+    ;  The randomizer's cache: each shop's five bytes as this routine used to
+    ;  copy them, or dealt anew with shops shuffled.  rando_shopinv writes the
+    ;  terminator too.
+    JSL rando_shopinv + RANDOFAR
+    RTS
+
+    ;  Free: what the copy loop used to take.  Bank $0E is byte-neutral, so the
+    ;  space stays here for a later hook to claim.
+    .res 25, $EA

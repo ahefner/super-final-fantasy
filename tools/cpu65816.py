@@ -296,6 +296,8 @@ class CPU:
         elif op == 0x87: self.store(self.a_dpindlong(), self.a, m8)
         elif op == 0x64: self.store(self.a_dp(), 0, m8)
         elif op == 0x9C: self.store(self.a_abs(), 0, m8)
+        elif op == 0x9E: self.store(self.a_absx(), 0, m8)
+        elif op == 0x74: self.store(self.a_dpx(), 0, m8)
         elif op == 0xA2: v = self.a_imm(x8); self.x = v; self.setzn(v, x8)
         elif op == 0xAE: v = self.load(self.a_abs(), x8); self.x = v; self.setzn(v, x8)
         elif op == 0xA6: v = self.load(self.a_dp(), x8); self.x = v; self.setzn(v, x8)

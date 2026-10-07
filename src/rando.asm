@@ -38,7 +38,7 @@
 .include "Constants.inc"
 .include "variables.inc"
 
-.export rando_newgame, rando_stir, rando_tileprop
+.export rando_newgame, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -56,6 +56,24 @@ wR       = .LOWORD(RW_R)
 wMODE    = .LOWORD(RW_MODE)
 wLIST    = .LOWORD(RW_LIST)
 wPROPS   = .LOWORD(RW_PROPS)
+wWORDS   = .LOWORD(RW_WORDS)
+wWORDSEND = .LOWORD(RW_WORDSEND)
+wI       = .LOWORD(RW_I)
+wE       = .LOWORD(RW_E)
+wP       = .LOWORD(RW_P)
+wQ       = .LOWORD(RW_Q)
+wFIRST   = .LOWORD(RW_FIRST)
+wNSHOPS  = .LOWORD(RW_NSHOPS)
+wNENT    = .LOWORD(RW_NENT)
+wNELIG   = .LOWORD(RW_NELIG)
+wT2      = .LOWORD(RW_T2)
+wITEM    = .LOWORD(RW_ITEM)
+wK       = .LOWORD(RW_K)
+wSHOPID  = .LOWORD(RW_SHOPID)
+wCNT     = .LOWORD(RW_CNT)
+wELIG    = .LOWORD(RW_ELIG)
+wORIG    = .LOWORD(RW_ORIG)
+wSHOPS   = .LOWORD(RW_SHOPS)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -64,8 +82,15 @@ wPROPS   = .LOWORD(RW_PROPS)
 ROMPROPS   = BANK00FAR + lut_SMTilesetProp
 PROPS_SIZE = 8 * 256
 
+;  The shop lists: lut_ShopData in bank $0E, a pointer per shop_id into
+;  zero-terminated lists in the same bank.  Shop 0's pointer is the empty list
+;  that every unused shop_id shares.
+.import lut_ShopData
+ROMSHOPS   = BANK0EFAR + lut_ShopData
+
 ;  Each feature's stream: the seed XORed with this, then warmed up.
 STREAM_TRAPS = $54524150        ; "TRAP"
+STREAM_SHOPS = $53484F50        ; "SHOP"
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change
 ;  in the state slowly, and a seed typed in by hand -- 1, 2, 3 -- would
@@ -419,10 +444,18 @@ build:
     SEP #$20
     .a8
     LDA f:RANDO_SAVEFAR + (RANDO_TRAPS - RANDO_SAVE)
-    BEQ @done                   ; TRAPS_OFF
+    BEQ @shops                  ; TRAPS_OFF
     CMP #TRAPS_MODES
-    BCS @done                   ; a mode this build does not know: as off
+    BCS @shops                  ; a mode this build does not know: as off
     JSR deal_traps
+
+  @shops:
+    JSR copy_shops
+    LDA f:RANDO_SAVEFAR + (RANDO_SHOPS - RANDO_SAVE)
+    BEQ @done                   ; SHOPS_OFF
+    CMP #SHOPS_MODES
+    BCS @done
+    JSR deal_shops
   @done:
     PLP
     RTS
@@ -581,6 +614,420 @@ add_bside:
     STA a:wLIST, Y
     INC a:wLEN
     RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_shops -- every shop's five bytes, as LoadShopInventory took them
+;;
+;;  The game copied five bytes from wherever a shop's pointer led, whatever
+;;  followed the list's terminator: a three-item shop's item_box ends in the
+;;  start of the next shop's list.  Each row here is those five bytes exactly,
+;;  so with shops off item_box is what it always was, inns' and clinics'
+;;  prices included.  Bytes 5-7 of a row are zero.
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_shops:
+    .a8
+    .i16
+    LDY #$0000                  ; shop_id * 8
+  @shop:
+    REP #$20
+    .a16
+    TYA
+    LSR A
+    LSR A                       ; shop_id * 2
+    TAX
+    LDA f:ROMSHOPS, X
+    TAX                         ; where its list is, in bank $0E
+    SEP #$20
+    .a8
+    LDA f:BANK0EFAR + 0, X
+    STA a:wSHOPS + 0, Y
+    LDA f:BANK0EFAR + 1, X
+    STA a:wSHOPS + 1, Y
+    LDA f:BANK0EFAR + 2, X
+    STA a:wSHOPS + 2, Y
+    LDA f:BANK0EFAR + 3, X
+    STA a:wSHOPS + 3, Y
+    LDA f:BANK0EFAR + 4, X
+    STA a:wSHOPS + 4, Y
+    LDA #$00
+    STA a:wSHOPS + 5, Y
+    STA a:wSHOPS + 6, Y
+    STA a:wSHOPS + 7, Y
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #8
+    TAY
+    SEP #$20
+    .a8
+    CPY #RW_SHOPROWS * 8
+    BCC @shop
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_shops -- FFR's ShuffleShops
+;;
+;;  Weapons, then armor, then items, from one stream, each by FFR's
+;;  ShuffleShopType: pool the type's entries and shuffle them, give every shop
+;;  one, then give each of the rest to a shop picked at random from those that
+;;  have fewer than five and do not already sell it.  If an entry fits
+;;  nowhere, start the type over.  Shops change size; an entry keeps its price,
+;;  because prices are the item's, not the shop's.
+;;
+;;  The Caravan is an item shop to FFR, so the BOTTLE is in the pool and can
+;;  land in any town, and rando_caravan keeps the Caravan open as FFR's
+;;  PermanentCaravan does, so whatever lands there can still be bought after
+;;  the fairy is out.  The BOTTLE is always buyable before it is needed: the
+;;  fairy is at Gaia, which needs the airship, and by then every item shop is
+;;  in reach.
+;;
+;;  Not ported: FFR's ImmediatePureAndSoftRequired, PURE and SOFT in the first
+;;  town's item shop, and the reshuffle of that shop that goes with it.  FFR
+;;  does not offer it as a flag; it turns itself on with status-touch changes,
+;;  entrance shuffle and Enemizer, none of which exist here yet.
+;;
+;;  A restart is rare -- 26 seeds in 20,000 for the item shops, never more
+;;  than one, and never for weapons or armor -- so the retry is unbounded, as
+;;  FFR's is.
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_shops:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDX #wWORDS                 ; the counters' high bytes, zeroed once
+  @clear:
+    STZ a:0, X
+    INX
+    INX
+    CPX #wWORDSEND
+    BCC @clear
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_SHOPS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_SHOPS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA #1                      ; weapons: shop_id 1..10
+    JSR deal_type
+    LDA #11                     ; armor: 11..20
+    JSR deal_type
+    LDA #61                     ; items: 61..70, the Caravan last
+    ;  fall through
+
+
+;;  Deal the type whose ten shop_ids start at A.  Those whose pointer is shop
+;;  0's are unused and take no part.
+deal_type:
+    .a8
+    .i16
+    STA a:wFIRST
+
+    ;  The type's shops, in shop_id order, and their entries as the cartridge
+    ;  has them -- read from the rows copy_shops made, up to each terminator.
+    STZ a:wNSHOPS
+    STZ a:wNENT
+    STZ a:wP                    ; 0..9
+  @gather:
+    LDA a:wFIRST
+    CLC
+    ADC a:wP
+    STA a:wQ                    ; the shop_id
+    JSR is_used
+    BCC @gnext
+    LDY a:wNSHOPS
+    LDA a:wQ
+    STA a:wSHOPID, Y
+    INC a:wNSHOPS
+    JSR row_x                   ; X = its row
+    LDA #5
+    STA a:wK
+  @entries:
+    LDA a:wSHOPS, X
+    BEQ @gnext
+    LDY a:wNENT
+    STA a:wORIG, Y
+    INC a:wNENT
+    INX
+    DEC a:wK
+    BNE @entries
+  @gnext:
+    INC a:wP
+    LDA a:wP
+    CMP #10
+    BCC @gather
+
+  @attempt:
+    ;  Empty the type's rows, and shuffle a fresh copy of its entries.
+    STZ a:wP
+  @clr:
+    LDY a:wP
+    LDA #$00
+    STA a:wCNT, Y
+    LDA a:wSHOPID, Y
+    JSR row_x
+    LDA #$00
+    STA a:wSHOPS + 0, X
+    STA a:wSHOPS + 1, X
+    STA a:wSHOPS + 2, X
+    STA a:wSHOPS + 3, X
+    STA a:wSHOPS + 4, X
+    INC a:wP
+    LDA a:wP
+    CMP a:wNSHOPS
+    BCC @clr
+
+    LDX #$0000
+  @copy:
+    LDA a:wORIG, X
+    STA a:wLIST, X
+    INX
+    CPX a:wNENT
+    BCC @copy
+
+    ;  Fisher-Yates, from the top: swap entry i with one drawn below i+1.
+    LDA a:wNENT
+    DEC A
+    STA a:wI
+  @fy:
+    LDA a:wI
+    BEQ @first
+    INC A
+    JSR rando_below
+    STA a:wT2
+    LDX a:wI
+    LDY a:wT2
+    LDA a:wLIST, X
+    PHA
+    LDA a:wLIST, Y
+    STA a:wLIST, X
+    PLA
+    STA a:wLIST, Y
+    DEC a:wI
+    BRA @fy
+
+    ;  One for every shop, in order.
+  @first:
+    STZ a:wE
+    STZ a:wP
+  @one:
+    LDX a:wE
+    LDA a:wLIST, X
+    STA a:wITEM
+    LDA a:wP
+    JSR put
+    INC a:wE
+    INC a:wP
+    LDA a:wP
+    CMP a:wNSHOPS
+    BCC @one
+
+    ;  The rest, each to a random shop with room that lacks it.
+  @rest:
+    LDA a:wE
+    CMP a:wNENT
+    BCS @done
+    LDX a:wE
+    LDA a:wLIST, X
+    STA a:wITEM
+    STZ a:wNELIG
+    STZ a:wP
+  @elig:
+    LDY a:wP
+    LDA a:wCNT, Y
+    CMP #5
+    BCS @enext
+    LDA a:wP
+    JSR has_item
+    BCS @enext
+    LDY a:wNELIG
+    LDA a:wP
+    STA a:wELIG, Y
+    INC a:wNELIG
+  @enext:
+    INC a:wP
+    LDA a:wP
+    CMP a:wNSHOPS
+    BCC @elig
+    LDA a:wNELIG
+    BNE @place
+    JMP @attempt                ; nowhere for it: start the type over
+  @place:
+    JSR rando_below
+    STA a:wT2
+    LDX a:wT2
+    LDA a:wELIG, X
+    JSR put
+    INC a:wE
+    BRA @rest
+  @done:
+    RTS
+
+
+;;  C set if shop_id A is in use: its pointer is not shop 0's.  Keeps X, Y.
+is_used:
+    .a8
+    .i16
+    PHX
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:ROMSHOPS, X
+    CMP f:ROMSHOPS              ; shop 0: the empty list
+    SEP #$20
+    .a8
+    BEQ @no
+    PLX
+    SEC
+    RTS
+  @no:
+    PLX
+    CLC
+    RTS
+
+;;  X = the cache row of shop_id A.  Keeps Y.
+row_x:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    TAX
+    SEP #$20
+    .a8
+    RTS
+
+;;  Shop A (a position in the type's list) gets wITEM, at the end of its row.
+put:
+    .a8
+    .i16
+    STA a:wQ
+    LDY a:wQ
+    LDA a:wSHOPID, Y
+    JSR row_x
+    LDA a:wCNT, Y
+    STA a:wT2
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC a:wT2
+    TAX                         ; the row's next free byte
+    SEP #$20
+    .a8
+    LDA a:wITEM
+    STA a:wSHOPS, X
+    LDA a:wCNT, Y
+    INC A
+    STA a:wCNT, Y
+    RTS
+
+;;  C set if shop A (a position in the type's list) already sells wITEM.
+has_item:
+    .a8
+    .i16
+    STA a:wQ
+    LDY a:wQ
+    LDA a:wSHOPID, Y
+    JSR row_x
+    LDA a:wCNT, Y
+    BEQ @no
+    STA a:wK
+  @loop:
+    LDA a:wSHOPS, X
+    CMP a:wITEM
+    BEQ @yes
+    INX
+    DEC a:wK
+    BNE @loop
+  @no:
+    CLC
+    RTS
+  @yes:
+    SEC
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_shopinv -- LoadShopInventory
+;;
+;;  The game's routine copied five bytes from lut_ShopData into item_box and
+;;  terminated it.  This copies them from the cache instead: as the cartridge
+;;  had them with shops off, dealt with shops on.  Every shop comes through
+;;  here, inns and clinics too, whose rows are their prices, untouched.
+;;
+;;  In: shop_id.  Out: item_box.  A, X, Y, P clobbered; DBR as it was.  The
+;;  game's version also left a pointer in tmp; neither caller reads it.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_shopinv:
+    PHB
+    JSR enter
+    JSR ensure
+    REP #$30
+    .a16
+    .i16
+    LDA z:shop_id
+    AND #$00FF                  ; the byte after it is not ours
+    ASL A
+    ASL A
+    ASL A
+    CLC
+    ADC #wSHOPS
+    TAX
+    LDY #item_box
+    LDA #5 - 1
+    MVN #^RANDOWRAM, #$7E       ; leaves DBR = $7E, which leave puts back
+    SEP #$20
+    .a8
+    LDA #$00
+    STA f:$7E0000 + item_box + 5  ; the terminator, as the game wrote it
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_caravan -- may the party walk into the Caravan?
+;;
+;;  The game shuts the Caravan once the fairy is out of the BOTTLE.  FFR never
+;;  does (PermanentCaravan, one of its unconditional global hacks), and with
+;;  the shops dealt that matters: the Caravan may hold anything.  So with
+;;  shops shuffled it stays open; with shops off it is the game's rule.
+;;
+;;  Out: Z clear if the Caravan is shut.  A clobbered; X, Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+FAIRYFLAG = CHUNK0 * $10000 + game_flags + OBJID_FAIRY
+
+rando_caravan:
+    .a8
+    .i8
+    LDA f:RANDO_SAVEFAR + (RANDO_SHOPS - RANDO_SAVE)
+    BEQ @game                   ; SHOPS_OFF
+    CMP #SHOPS_MODES
+    BCS @game                   ; a mode this build does not know: as off
+    LDA #$00                    ; open
+    RTL
+  @game:
+    LDA f:FAIRYFLAG
+    AND #$01                    ; is the fairy out?
+    RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

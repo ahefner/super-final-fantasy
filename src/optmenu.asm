@@ -1169,7 +1169,7 @@ OPTROW_BLANK = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 61
+OPTROW_COUNT  = 62
 
 ;  A row's label.  The row stores thirty bytes after its two header bytes but
 ;  only OPTROW_LABELW of them are drawn, so padding to thirty proves nothing --
@@ -1394,6 +1394,8 @@ lut_OptRows:
   FFPAD "", 30
   .BYTE $02, $05   ; Trap tiles
   OPTLABEL {"Trap tiles"}
+  .BYTE $02, $06   ; Shops
+  OPTLABEL {"Shops"}
 
 lut_OptRowsEnd:
 
@@ -1525,16 +1527,21 @@ lut_ValTraps:
   FFPAD "   B", 4               ; TRAPS_BSIDE
   FFPAD " A+B", 4               ; TRAPS_BOTH
 
+;  Shops: FFR's Shops flag.  Random Wares would be a third value.
+lut_ValShops:
+  FFPAD " Off", 4               ; SHOPS_OFF
+  FFPAD "Shuf", 4               ; SHOPS_SHUFFLE
+
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
-lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem, <lut_ValTraps
-lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem, >lut_ValTraps
-lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES
+lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem, <lut_ValTraps, <lut_ValShops
+lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem, >lut_ValTraps, >lut_ValShops
+lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
-              .BYTE <OPT_NG_TRAPS
+              .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 
 ;  Generated: the description pane text, pre-wrapped to 28 columns and 5
@@ -1848,6 +1855,14 @@ lut_Desc_48:  ; Trap tiles
   FFPAD {"a fight drawn from every"}, 28
   FFPAD {"A-side, B-side or both."}, 28
 
+lut_Desc_49:  ; Shops
+  FFLINES 5
+  FFPAD {"Shuf deals the weapon, armor"}, 28
+  FFPAD {"and item shops' wares out"}, 28
+  FFPAD {"again, the Caravan's BOTTLE"}, 28
+  FFPAD {"included.  The Caravan stays"}, 28
+  FFPAD {"open after the fairy is out."}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
@@ -1862,7 +1877,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48
+  .BYTE <lut_Desc_48, <lut_Desc_49
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -1878,6 +1893,6 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48
+  .BYTE >lut_Desc_48, >lut_Desc_49
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

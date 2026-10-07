@@ -3528,7 +3528,7 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 61
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 62
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
@@ -3584,7 +3584,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(6):
+    for t in range(7):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         if not (0x8000 <= addr < 0x10000) or not (0 < n < 64):
@@ -3598,7 +3598,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the six tables hold the expected number of entries", seen, 96)
+    check("the seven tables hold the expected number of entries", seen, 98)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -3692,10 +3692,11 @@ def rw(name):
     return K[name] - RW_BASE
 
 
-def setsave(bus, seed, traps):
+def setsave(bus, seed, traps, shops=0):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     bus.sram[K["RANDO_TRAPS"] - 0x6000] = traps
+    bus.sram[K["RANDO_SHOPS"] - 0x6000] = shops
 
 
 def cache_props(bus):
@@ -3833,6 +3834,13 @@ def test_rando_cache():
         check("seed $%08X mode %d: rebuilt" % (seed, mode),
               cache_props(bus), R.build_props(ROMDATA, seed, mode))
 
+    #  ...and every byte of the block counts, the last one too: a tag that
+    #  stopped short of it would keep the old shops.
+    setsave(bus, 0x12345679, 1, 1)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    check("the shops byte alone: rebuilt",
+          shop_cache(bus), R.build_shops(ROMDATA, 0x12345679, 1))
+
     #  A reset in the middle of a rebuild must leave the cache invalid, not
     #  finished: clear the tag first, write it last.
     setsave(bus, 0xCAFEF00D, 4)
@@ -3910,21 +3918,24 @@ def test_rando_newgame():
     save = K["RANDO_SAVE"] - 0x6000
     bus, cpu = machine()
     bus.sram[pool:pool + 4] = (0xDEADBEEF).to_bytes(4, "little")
-    bus.sram[ng] = 3
+    bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 3
+    bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
     cpu.x = 0x42
     call(cpu, "rando_newgame", bank=RANDO_BANK)
     check("new game: the seed is the pool", bytes(bus.sram[save:save + 4]),
           (0xDEADBEEF).to_bytes(4, "little"))
     check("new game: the trap row copied", bus.sram[K["RANDO_TRAPS"] - 0x6000], 3)
+    check("new game: the shops row copied", bus.sram[K["RANDO_SHOPS"] - 0x6000], 1)
     check("new game: X kept", cpu.x, 0x42)
 
     #  ...and the hook is wired: opt_freestuff is what New Game calls.
     bus, cpu = machine()
     bus.sram[pool:pool + 4] = (0x0F1E2D3C).to_bytes(4, "little")
-    bus.sram[ng] = 2
+    bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 2
+    bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
     call(cpu, "opt_freestuff")
-    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 5]),
-          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02")
+    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 6]),
+          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01")
 
 
 def test_rando_stir():
@@ -3971,28 +3982,31 @@ def test_rando_options():
 
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
-    check("lut_ValOff: the five dials, then the trap row",
-          list(ROMDATA[at:at + 6]),
+    check("lut_ValOff: the five dials, then the new-game rows",
+          list(ROMDATA[at:at + 7]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
-           OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK])
+           OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
+           K["OPT_NG_SHOPS"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
-    ROW = 60                             # the last row: Trap tiles
     SEL, TOP = 0x6E, 0x6F
     bus, cpu = machine()
     call(cpu, "opt_init")
-    steps = []
-    for d in (1,) * 6 + (2,) * 6:        # RIGHT x6, then LEFT x6
-        bus.wram[SEL], bus.wram[TOP] = ROW, ROW - 19
-        cpu.a = d
-        call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
-        steps.append(blk(bus, ng))
-    check("the trap row steps and clamps", steps,
-          [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0])
+    for row, byte, presses, want in (
+            (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
+            (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0])):
+        steps = []
+        for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
+            bus.wram[SEL], bus.wram[TOP] = row, row - 19
+            cpu.a = d
+            call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+            steps.append(bus.sram[byte - 0x6000])
+        check("row %d steps and clamps" % row, steps, want)
+    ngat = K["OPT_NG"] - 0x6000
     check("...and leaves the block sealed", blk(bus, OPT_CKSUM),
           (sum(bus.sram[OPTBLOCK - 0x6000:][:OPT_SIZE - 1])
-           + bus.sram[K["OPT_NG"] - 0x6000]) & 0xFF ^ 0xFF)
+           + sum(bus.sram[ngat:ngat + K["OPT_NG_SIZE"]])) & 0xFF ^ 0xFF)
 
 
 def test_savever():
@@ -4066,6 +4080,154 @@ def test_savever():
     check("a corrupted save still fails", bool(cpu.p & C), True)
 
 
+# --- shop shuffle -----------------------------------------------------------
+#  The vanilla shop lists, read here straight from lut_ShopData rather than
+#  through randoref, so the invariants below do not lean on the reference.
+def vanilla_shops():
+    base = (1 + 0x0E) * 0x10000
+    ptr = lambda s: ROMDATA[base + 0x8300 + 2 * s] | ROMDATA[base + 0x8301 + 2 * s] << 8
+    five = {s: bytes(ROMDATA[base + ptr(s):][:5]) for s in range(71)}
+    used = {s for s in range(71) if ptr(s) != ptr(0)}
+    return five, used
+
+
+def shop_cache(bus):
+    at = rw("RW_SHOPS")
+    return bytes(bus.wram[at:at + 71 * 8])
+
+
+def as_list(row):
+    out = []
+    for b in row[:5]:
+        if b == 0:
+            break
+        out.append(b)
+    return out
+
+
+def test_rando_shops():
+    five, used = vanilla_shops()
+    types = {"weapon": range(1, 11), "armor": range(11, 21), "item": range(61, 71)}
+    dealt = {s for t in types.values() for s in t if s in used}
+    check("the cartridge's shops: 6 weapon, 6 armor, 7 item",
+          [len([s for s in t if s in used]) for t in types.values()], [6, 6, 7])
+    check("...the Caravan among the item shops, selling the BOTTLE",
+          (70 in used, as_list(five[70])), (True, [0x0F]))
+
+    for mode in (0, 1, 2, 0xFF):
+        seen = set()
+        for seed in SEEDS:
+            bus, cpu = machine()
+            setsave(bus, seed, 0, mode)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            got = shop_cache(bus)
+            name = "shops mode %d seed $%08X" % (mode, seed)
+            check(name + ": as randoref deals it", got, R.build_shops(ROMDATA, seed, mode))
+            seen.add(got)
+            rows = {s: got[s * 8:s * 8 + 8] for s in range(71)}
+            check(name + ": bytes 5-7 zero",
+                  [s for s in rows if rows[s][5:] != b"\0\0\0"], [])
+            if mode != 1:
+                check(name + ": every row as the game copied it",
+                      [s for s in rows if rows[s][:5] != five[s]], [])
+                continue
+            #  Shuffled: the shops it does not deal are the game's, and the ones
+            #  it does are FFR's rules.
+            check(name + ": magic, inns, clinics untouched",
+                  [s for s in rows if s not in dealt and rows[s][:5] != five[s]], [])
+            for kind, ids in types.items():
+                mine = [s for s in ids if s in used]
+                lists = {s: as_list(rows[s]) for s in mine}
+                check("%s %s: the same entries" % (name, kind),
+                      sorted(x for l in lists.values() for x in l),
+                      sorted(x for s in mine for x in as_list(five[s])))
+                check("%s %s: one to five each" % (name, kind),
+                      [s for s in mine if not 1 <= len(lists[s]) <= 5], [])
+                check("%s %s: none twice in a shop" % (name, kind),
+                      [s for s in mine if len(set(lists[s])) != len(lists[s])], [])
+                check("%s %s: zero past the list" % (name, kind),
+                      [s for s in mine if rows[s][len(lists[s]):5] != bytes(5 - len(lists[s]))], [])
+        check("shops mode %d: %s" % (mode, "every seed its own" if mode == 1 else "one world"),
+              len(seen), len(SEEDS) if mode == 1 else 1)
+
+    #  The restart: an entry that fits no shop starts its type over.  About
+    #  one item deal in 750 does, so the seeds above never reach it; these
+    #  three do, once each, on the item shops.
+    for seed in (1082, 1168, 1734):
+        tries = []
+        want = R.build_shops(ROMDATA, seed, 1, tries)
+        check("seed %d restarts the item deal" % seed, tries, [1, 1, 2])
+        bus, cpu = machine()
+        setsave(bus, seed, 0, 1)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("seed %d: the restarted deal as randoref's" % seed, shop_cache(bus), want)
+
+    #  Each feature draws from its own stream: turning one on must not move
+    #  anything the other made.
+    for seed in SEEDS[:4]:
+        tables = {}
+        for traps, shops in ((3, 0), (3, 1), (0, 1)):
+            bus, cpu = machine()
+            setsave(bus, seed, traps, shops)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            tables[traps, shops] = (cache_props(bus), shop_cache(bus))
+        check("seed $%08X: shops leave the traps alone" % seed,
+              tables[3, 0][0], tables[3, 1][0])
+        check("seed $%08X: traps leave the shops alone" % seed,
+              tables[0, 1][1], tables[3, 1][1])
+
+
+def test_rando_shopload():
+    """LoadShopInventory in place: what reaches item_box."""
+    five, used = vanilla_shops()
+    ib = K["item_box"]
+    for mode, seed in ((0, 0x600DCAFE), (1, 0x600DCAFE), (1, 7)):
+        want = R.build_shops(ROMDATA, seed, mode)
+        bad = []
+        for s in range(1, 71):
+            bus, cpu = machine()
+            setsave(bus, seed, 0, mode)
+            bus.wram[K["shop_id"]] = s
+            bus.wram[K["shop_id"] + 1] = 0xFF        # not ours to read
+            bus.wram[ib:ib + 8] = b"\xEE" * 8
+            cpu.dbr = BANK_0E
+            cpu.run(BANK_0E, SYM["LoadShopInventory"])
+            box = bytes(bus.wram[ib:ib + 6])
+            expect = (five[s] if mode == 0 else want[s * 8:s * 8 + 5]) + b"\0"
+            if box != expect:
+                bad.append("   shop %d: %s, want %s" % (s, box.hex(), expect.hex()))
+            if bus.wram[ib + 6] != 0xEE:
+                bad.append("   shop %d: wrote past the terminator" % s)
+            if cpu.dbr != BANK_0E:
+                bad.append("   shop %d: came back with DBR $%02X" % (s, cpu.dbr))
+        check("mode %d seed $%08X: item_box for all 70 shops" % (mode, seed), len(bad), 0)
+        fails.extend(bad[:4])
+
+
+def test_rando_caravan():
+    """OWCanMove on the Caravan's tile: shut once the fairy is out, unless
+    the save's shops are shuffled (FFR's PermanentCaravan)."""
+    TILE = 0x36
+    for shops, fairy, opened in ((0, 0, True), (0, 1, False),
+                                 (1, 0, True), (1, 1, True), (0xFF, 1, False)):
+        bus, cpu = machine()
+        setsave(bus, 0, 0, shops)
+        bus.wram[K["ow_scroll_x"]] = bus.wram[K["ow_scroll_y"]] = 0
+        bus.sram[K["mapdata"] - 0x6000 + 0x0700 + 8] = TILE   # right of the party
+        bus.wram[K["tileset_data"] + TILE * 2] = K["OWTP_SPEC_CARAVAN"]
+        bus.wram[K["tileset_data"] + TILE * 2 + 1] = 0
+        bus.wram[K["vehicle"]] = 1
+        bus.wram[K["entering_shop"]] = 0
+        bus.sram[K["game_flags"] - 0x6000 + K["OBJID_FAIRY"]] = fairy
+        cpu.a = K["RIGHT"]
+        call(cpu, "OWCanMove")
+        got = (bus.wram[K["entering_shop"]] != 0,
+               bus.wram[K["shop_id"]] if bus.wram[K["entering_shop"]] else None)
+        check("shops %d, fairy %s: Caravan %s" % (shops, "out" if fairy else "in",
+                                                    "open" if opened else "shut"),
+              got, (True, 70) if opened else (False, None))
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4100,7 +4262,8 @@ def main():
              test_equipcursor, test_titlerows,
              test_rando_prng, test_rando_traps, test_rando_cache,
              test_rando_mapload, test_rando_battle, test_rando_newgame,
-             test_rando_stir, test_rando_options, test_savever)
+             test_rando_stir, test_rando_options, test_savever,
+             test_rando_shops, test_rando_shopload, test_rando_caravan)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

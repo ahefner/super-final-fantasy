@@ -1275,11 +1275,13 @@ OPTFM_CRITRATE    = $10
 ;  $60FD-$60FF: in the saved copy those are the checksum and the asserts.
 ;
 ;  Layout v1.  It grows by appending, with a SAVEVER bump if an old save
-;  would mean something different under the new reading.
+;  would mean something different under the new reading.  An appended byte
+;  whose zero means "off" needs no bump: every older save has a zero there.
 RANDO_SAVE      = $60A0
 RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
 RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
-RANDO_SAVE_SIZE = $05
+RANDO_SHOPS     = RANDO_SAVE+$05  ; SHOPS_* below
+RANDO_SAVE_SIZE = $06
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1292,6 +1294,7 @@ RANDO_NGOFF     = RANDO_TRAPS - RANDO_SAVE  ; where the settings start in the sa
 OPT_NG_SIZE     = RANDO_SAVE_SIZE - RANDO_NGOFF
 OPT_NGFAR       = (CHUNK0 * $10000) + OPT_NG
 OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_SHOPS    = OPT_NG + (RANDO_SHOPS - RANDO_SAVE) - RANDO_NGOFF
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
@@ -1309,6 +1312,12 @@ TRAPS_ASIDE     = 2             ; each draws from every A-side formation...
 TRAPS_BSIDE     = 3             ; ...every B-side...
 TRAPS_BOTH      = 4             ; ...or both
 TRAPS_MODES     = 5
+
+;  Shop modes.  FFR's Shops flag; Random Wares, which FFR applies only on top
+;  of it, would be the next value.
+SHOPS_OFF       = 0
+SHOPS_SHUFFLE   = 1             ; weapons, armor and items dealt out again
+SHOPS_MODES     = 2
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1337,7 +1346,29 @@ RW_MASK         = RANDOWRAM+$0018 ; rando_below's rejection mask...
 RW_BOUND        = RANDOWRAM+$0019 ; ...and its bound
 RW_R            = RANDOWRAM+$001A ; 2 bytes: the entry just drawn
 RW_MODE         = RANDOWRAM+$001C ; the trap mode being dealt
-RW_LIST         = RANDOWRAM+$0100 ; the formations being dealt, up to 256
+;  The shop deal's counters are words whose high byte stays zero, so each
+;  loads straight into a sixteen-bit X or Y; they are only ever stored eight
+;  bits wide.  deal_shops zeroes RW_WORDS..RW_WORDSEND before it starts.
+RW_WORDS        = RANDOWRAM+$001E
+RW_I            = RANDOWRAM+$001E ; shops: the Fisher-Yates index
+RW_E            = RANDOWRAM+$0020 ; shops: entries dealt so far
+RW_P            = RANDOWRAM+$0022 ; shops: a position in the type's list
+RW_Q            = RANDOWRAM+$0024 ; shops: the shop put and has_item act on
+RW_FIRST        = RANDOWRAM+$0026 ; shops: the type's first shop_id
+RW_NSHOPS       = RANDOWRAM+$0028 ; shops: how many the type has
+RW_NENT         = RANDOWRAM+$002A ; shops: how many entries between them
+RW_NELIG        = RANDOWRAM+$002C ; shops: how many could take this entry
+RW_T2           = RANDOWRAM+$002E ; shops: scratch
+RW_WORDSEND     = RANDOWRAM+$0030
+RW_ITEM         = RANDOWRAM+$0030 ; shops: the entry being placed
+RW_K            = RANDOWRAM+$0031 ; shops: a count down
+RW_SHOPID       = RANDOWRAM+$0032 ; shops: the type's shop_ids, up to 10
+RW_CNT          = RANDOWRAM+$0040 ; shops: entries in each so far
+RW_ELIG         = RANDOWRAM+$0050 ; shops: positions that could take this entry
+RW_LIST         = RANDOWRAM+$0100 ; what is being dealt, up to 256 entries
+RW_ORIG         = RANDOWRAM+$0200 ; shops: the type's entries as the cart has them
 RW_PROPS        = RANDOWRAM+$0800 ; every tileset's property table, $800 bytes
+RW_SHOPS        = RANDOWRAM+$1000 ; every shop's item_box, 8 bytes per shop_id
+RW_SHOPROWS     = 71              ; shop_id 0..70; 70 is the Caravan
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

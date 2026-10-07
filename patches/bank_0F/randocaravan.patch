@@ -1,0 +1,11 @@
+--- OLD
+    LDA game_flags+OBJID_FAIRY
+    AND #$01             ; check the fairy map object to see if she's visible
+    BNE @Success_2       ; if she is (bottle has been opened already), prevent entering caravan (exit now)
+--- NEW
+.import rando_caravan
+.export OWCanMove                ; for tools/test_options.py
+    ;  The fairy's flag, as the game tested it -- or zero, for open, when the
+    ;  save's shops are shuffled: FFR's PermanentCaravan.  See rando_caravan.
+    JSL rando_caravan + RANDOFAR
+    BNE @Success_2       ; if she is (bottle has been opened already), prevent entering caravan (exit now)
