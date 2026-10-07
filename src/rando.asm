@@ -39,6 +39,7 @@
 .include "variables.inc"
 
 .export rando_newgame, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
+.export rando_chest
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -74,6 +75,9 @@ wCNT     = .LOWORD(RW_CNT)
 wELIG    = .LOWORD(RW_ELIG)
 wORIG    = .LOWORD(RW_ORIG)
 wSHOPS   = .LOWORD(RW_SHOPS)
+wLOCS    = .LOWORD(RW_LOCS)
+wUNUSED  = .LOWORD(RW_UNUSED)
+wCHESTS  = .LOWORD(RW_CHESTS)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -88,9 +92,13 @@ PROPS_SIZE = 8 * 256
 .import lut_ShopData
 ROMSHOPS   = BANK0EFAR + lut_ShopData
 
+;  lut_Treasure: a chest id's contents, in bank $00.
+ROMCHESTS  = BANK00FAR + $B100
+
 ;  Each feature's stream: the seed XORed with this, then warmed up.
-STREAM_TRAPS = $54524150        ; "TRAP"
-STREAM_SHOPS = $53484F50        ; "SHOP"
+STREAM_TRAPS  = $54524150       ; "TRAP"
+STREAM_SHOPS  = $53484F50       ; "SHOP"
+STREAM_CHESTS = $43485354       ; "CHST"
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change
 ;  in the state slowly, and a seed typed in by hand -- 1, 2, 3 -- would
@@ -414,6 +422,16 @@ build:
     .a16
     .i16
 
+    ;  The deals' counters are words read whole into X and Y and only ever
+    ;  stored a byte at a time, so their high bytes are zeroed here, once.
+    LDX #wWORDS
+  @words:
+    STZ a:0, X
+    INX
+    INX
+    CPX #wWORDSEND
+    BCC @words
+
     ;  All eight property tables, with every random-encounter tile's formation
     ;  byte rewritten from $80 to $00.  SMMove_Battle tests that byte with BNE
     ;  where the game used BPL, which is FFR's UpdateTrapTilesCode: zero means
@@ -452,10 +470,18 @@ build:
   @shops:
     JSR copy_shops
     LDA f:RANDO_SAVEFAR + (RANDO_SHOPS - RANDO_SAVE)
-    BEQ @done                   ; SHOPS_OFF
+    BEQ @chests                 ; SHOPS_OFF
     CMP #SHOPS_MODES
-    BCS @done
+    BCS @chests
     JSR deal_shops
+
+  @chests:
+    JSR copy_chests
+    LDA f:RANDO_SAVEFAR + (RANDO_CHESTS - RANDO_SAVE)
+    BEQ @done                   ; CHESTS_OFF
+    CMP #CHESTS_MODES
+    BCS @done
+    JSR deal_chests
   @done:
     PLP
     RTS
@@ -704,13 +730,6 @@ deal_shops:
     .i16
     REP #$20
     .a16
-    LDX #wWORDS                 ; the counters' high bytes, zeroed once
-  @clear:
-    STZ a:0, X
-    INX
-    INX
-    CPX #wWORDSEND
-    BCC @clear
     LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
     EOR #.LOWORD(STREAM_SHOPS)
     STA a:wRNG
@@ -1028,6 +1047,167 @@ rando_caravan:
     LDA f:FAIRYFLAG
     AND #$01                    ; is the fairy out?
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_chests -- every chest's contents, as lut_Treasure has them
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_chests:
+    .a8
+    .i16
+    LDX #$0000
+  @copy:
+    LDA f:ROMCHESTS, X
+    STA a:wCHESTS, X
+    INX
+    CPX #256
+    BCC @copy
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_chests -- FFR's treasure shuffle, without its logic
+;;
+;;  FFR places the key items by logic and then shuffles everything else into
+;;  the chests that are left -- the treasure pool shuffled, zipped onto the
+;;  locations.  Tier 1 has no logic, so the key items stay where the game put
+;;  them, and this is that second step alone: every chest that holds no key
+;;  item trades contents with the rest.  234 of them.
+;;
+;;  Which chests: the 241 that FFR does not mark unused.  Those are exactly
+;;  the chest ids some map places, checked against the maps; the 14 unused
+;;  ones, and id 0, hold items no one can reach -- a Zeus Gauntlet among them
+;;  -- and dealing them in would lose whatever landed there.  A chest whose
+;;  contents are below item_qty_start holds a key item: TNT, CROWN, RUBY,
+;;  FLOATER, TAIL, SLAB and ADAMANT, one each.
+;;
+;;  Gold moves like anything else; a chest of gold is an id like any item.
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ITEM_QTY_START = item_qty_start - items
+
+deal_chests:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_CHESTS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_CHESTS)
+    STA a:wRNG+2
+    JSR rando_warm
+    STZ a:wLEN                  ; both bytes: LDY reads it as a word
+    SEP #$20
+    .a8
+
+    ;  A flag per chest id for the unused ones, so the walk below is a load
+    ;  rather than a search of the list for each of 256 ids.
+    LDX #$0000
+  @clear:
+    STZ a:wUNUSED, X
+    INX
+    CPX #256
+    BCC @clear
+    LDY #$0000
+  @mark:
+    TYX
+    LDA f:RANDOFAR + lut_UnusedChests, X   ; this chunk's: a label's bank is not known
+    STA a:wT2
+    LDX a:wT2
+    LDA #$01
+    STA a:wUNUSED, X
+    INY
+    CPY #UNUSED_CHESTS
+    BCC @mark
+
+    ;  The chests that move, in id order, and what is in them.
+    LDX #$0000
+  @gather:
+    LDA a:wUNUSED, X
+    BNE @next
+    LDA a:wCHESTS, X
+    CMP #ITEM_QTY_START
+    BCC @next                   ; a key item, or nothing at all: stays
+    LDY a:wLEN
+    STA a:wLIST, Y
+    TXA
+    STA a:wLOCS, Y
+    INC a:wLEN
+  @next:
+    INX
+    CPX #256
+    BCC @gather
+
+    ;  Fisher-Yates over the contents, from the top.
+    LDA a:wLEN
+    DEC A
+    STA a:wI
+  @fy:
+    LDA a:wI
+    BEQ @place
+    INC A
+    JSR rando_below
+    STA a:wT2
+    LDX a:wI
+    LDY a:wT2
+    LDA a:wLIST, X
+    PHA
+    LDA a:wLIST, Y
+    STA a:wLIST, X
+    PLA
+    STA a:wLIST, Y
+    DEC a:wI
+    BRA @fy
+
+    ;  ...and back into the chests, in the same id order.
+  @place:
+    LDY #$0000
+  @put:
+    LDA a:wLOCS, Y
+    STA a:wT2
+    LDX a:wT2
+    LDA a:wLIST, Y
+    STA a:wCHESTS, X
+    INY
+    CPY a:wLEN
+    BCC @put
+    RTS
+
+
+;;  FFR's ItemLocations, the ones marked isUnused, and chest 0, which it does
+;;  not list.  No map places any of them.
+lut_UnusedChests:
+    .BYTE $00, $91, $92, $93, $94, $BB, $BC, $BD, $BE, $BF, $C0, $C1, $C2, $C3, $FF
+UNUSED_CHESTS = * - lut_UnusedChests
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_chest -- what is in chest X
+;;
+;;  The read OpenTreasureChest made of lut_Treasure, from the cache instead.
+;;  Its only read: Chest Information and Identify Treasures work from the
+;;  item the dialogue is given, so they follow the shuffle unchanged.
+;;
+;;  In: X = chest id.  Out: A = its contents; X kept.  Y and P clobbered.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_chest:
+    .a8
+    .i8
+    PHB
+    PHX
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLX
+    LDA a:wCHESTS, X
+    JMP leave
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

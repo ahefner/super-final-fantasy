@@ -10,7 +10,7 @@ other, rather than nudging either until they agree.
 Run it to see a world without playing it:
 
     python3 tools/randoref.py SuperFinalFantasy.srm      # the saved game's
-    python3 tools/randoref.py --seed 12345678 --traps b --shops shuffle
+    python3 tools/randoref.py --seed 12345678 --traps b --shops shuffle --chests shuffle
 
 It reads the cartridge's tables from the built ROM, so build first.
 """
@@ -35,6 +35,7 @@ def xs32(x):
 #  Each feature's stream constant, XORed into the seed.
 STREAM_TRAPS = 0x54524150       # "TRAP"
 STREAM_SHOPS = 0x53484F50       # "SHOP"
+STREAM_CHESTS = 0x43485354      # "CHST"
 WARMUP = 8
 
 
@@ -212,6 +213,44 @@ def build_shops(rom, seed, shops, attempts=None):
     return bytes(rows)
 
 
+# --- chests --------------------------------------------------------------------
+#  lut_Treasure: bank $00's $B100, a chest id's contents.  FFR's ItemLocations
+#  marks 14 chests unused, and does not list id 0; no map places any of them.
+#  Key items are the ids below item_qty_start ($16), and stay put.
+CHESTS_OFF, CHESTS_SHUFFLE = range(2)
+CHESTS_MODES = 2
+CHEST_NAMES = {"off": CHESTS_OFF, "shuffle": CHESTS_SHUFFLE}
+TREASURE = 0x10000 + 0xB100
+UNUSED_CHESTS = {0x00, 0x91, 0x92, 0x93, 0x94, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF,
+                 0xC0, 0xC1, 0xC2, 0xC3, 0xFF}
+ITEM_QTY_START = 0x16
+
+
+def rom_chests(rom):
+    return bytes(rom[TREASURE:TREASURE + 256])
+
+
+def moving_chests(table):
+    """The chest ids whose contents are dealt, in id order."""
+    return [c for c in range(256)
+            if c not in UNUSED_CHESTS and table[c] >= ITEM_QTY_START]
+
+
+def build_chests(rom, seed, chests):
+    """Every chest's contents as the cache holds them: 256 bytes by id."""
+    table = bytearray(rom_chests(rom))
+    if 0 < chests < CHESTS_MODES:
+        rng = Stream(seed, STREAM_CHESTS)
+        locs = moving_chests(table)
+        pool = [table[c] for c in locs]
+        for i in range(len(pool) - 1, 0, -1):
+            j = rng.below(i + 1)
+            pool[i], pool[j] = pool[j], pool[i]
+        for c, v in zip(locs, pool):
+            table[c] = v
+    return bytes(table)
+
+
 #  Item names, for printing: lut_ItemNamePtrTbl in bank $0A at $B700.  The
 #  last tile of a weapon or armor name is an icon for its kind.
 ICONS = {0xD4: "Sword", 0xD5: "Hammer", 0xD6: "Knife", 0xD7: "Axe",
@@ -240,13 +279,13 @@ def item_name(rom, item):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 6
+RANDO_SAVE_SIZE = 7
 
 
 def block_from_srm(srm):
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    return int.from_bytes(b[0:4], "little"), b[4], b[5]
+    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6]
 
 
 def main():
@@ -255,16 +294,24 @@ def main():
     ap.add_argument("--seed", help="eight hex digits")
     ap.add_argument("--traps", choices=sorted(TRAP_NAMES), default="off")
     ap.add_argument("--shops", choices=sorted(SHOP_NAMES), default="off")
+    ap.add_argument("--chests", choices=sorted(CHEST_NAMES), default="off")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
-        seed, traps, shops = block_from_srm(open(a.srm, "rb").read())
+        seed, traps, shops, chests = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops = int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops]
+        seed, traps, shops, chests = (int(a.seed, 16), TRAP_NAMES[a.traps],
+                                      SHOP_NAMES[a.shops], CHEST_NAMES[a.chests])
     else:
         ap.error("give a battery file or --seed")
-    print("seed %08X, trap tiles mode %d, shops mode %d" % (seed, traps, shops))
+    print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d"
+          % (seed, traps, shops, chests))
+    vanilla, dealt = rom_chests(rom), build_chests(rom, seed, chests)
+    for c in range(256):
+        if dealt[c] != vanilla[c]:
+            print("  chest $%02X  %-16s (was %s)"
+                  % (c, item_name(rom, dealt[c]), item_name(rom, vanilla[c])))
     rows = build_shops(rom, seed, shops)
     for first, kind in zip(SHOP_TYPES, ("weapon", "armor", "item")):
         for s in range(first, first + 10):

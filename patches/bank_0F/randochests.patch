@@ -1,0 +1,8 @@
+--- OLD
+    LDA lut_Treasure, X      ; use it to get the contents of the chest
+--- NEW
+.import rando_chest
+.export OpenTreasureChest        ; for tools/test_options.py
+    ;  From the randomizer's cache rather than lut_Treasure: the contents as
+    ;  the cartridge has them, or shuffled when the save says so.  X is kept.
+    JSL rando_chest + RANDOFAR

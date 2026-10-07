@@ -3528,7 +3528,7 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 62
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 63
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
@@ -3589,7 +3589,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(7):
+    for t in range(8):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
@@ -3604,7 +3604,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the seven tables hold the expected number of entries", seen, 98)
+    check("the eight tables hold the expected number of entries", seen, 100)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -3698,11 +3698,12 @@ def rw(name):
     return K[name] - RW_BASE
 
 
-def setsave(bus, seed, traps, shops=0):
+def setsave(bus, seed, traps, shops=0, chests=0):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     bus.sram[K["RANDO_TRAPS"] - 0x6000] = traps
     bus.sram[K["RANDO_SHOPS"] - 0x6000] = shops
+    bus.sram[K["RANDO_CHESTS"] - 0x6000] = chests
 
 
 def cache_props(bus):
@@ -3841,11 +3842,31 @@ def test_rando_cache():
               cache_props(bus), R.build_props(ROMDATA, seed, mode))
 
     #  ...and every byte of the block counts, the last one too: a tag that
-    #  stopped short of it would keep the old shops.
+    #  stopped short of one would keep the old world when only it changed.
     setsave(bus, 0x12345679, 1, 1)
     call(cpu, "rando_ensure", bank=RANDO_BANK)
     check("the shops byte alone: rebuilt",
           shop_cache(bus), R.build_shops(ROMDATA, 0x12345679, 1))
+    for i in range(size):
+        bus.sram[save + i] ^= 0x01
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("save byte %d alone: the tag follows it" % i,
+              bytes(bus.wram[blk:blk + size]), bytes(bus.sram[save:save + size]))
+
+    #  The build depends on the save and nothing else: scratch full of junk --
+    #  which WRAM never holds after hal_reset, but a bug elsewhere could leave
+    #  -- must not change the world.  Everything but the tag, from the PRNG's
+    #  state to the end of the chest table.
+    for seed in (0x31415926, 1082):
+        bus2, cpu2 = machine()
+        lo, hi = rw("RW_RNG"), rw("RW_CHESTS") + 256
+        bus2.wram[lo:hi] = b"\xFF" * (hi - lo)
+        setsave(bus2, seed, 4, 1, 1)
+        call(cpu2, "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X over junk: the reference's world" % seed,
+              (cache_props(bus2), shop_cache(bus2), chest_cache(bus2)),
+              (R.build_props(ROMDATA, seed, 4), R.build_shops(ROMDATA, seed, 1),
+               R.build_chests(ROMDATA, seed, 1)))
 
     #  A reset in the middle of a rebuild must leave the cache invalid, not
     #  finished: clear the tag first, write it last.
@@ -3926,12 +3947,14 @@ def test_rando_newgame():
     bus.sram[pool:pool + 4] = (0xDEADBEEF).to_bytes(4, "little")
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 3
     bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
+    bus.sram[K["OPT_NG_CHESTS"] - 0x6000] = 1
     cpu.x = 0x42
     call(cpu, "rando_newgame", bank=RANDO_BANK)
     check("new game: the seed is the pool", bytes(bus.sram[save:save + 4]),
           (0xDEADBEEF).to_bytes(4, "little"))
     check("new game: the trap row copied", bus.sram[K["RANDO_TRAPS"] - 0x6000], 3)
     check("new game: the shops row copied", bus.sram[K["RANDO_SHOPS"] - 0x6000], 1)
+    check("new game: the chests row copied", bus.sram[K["RANDO_CHESTS"] - 0x6000], 1)
     check("new game: X kept", cpu.x, 0x42)
 
     #  ...and the hook is wired: opt_freestuff is what New Game calls.
@@ -3939,9 +3962,10 @@ def test_rando_newgame():
     bus.sram[pool:pool + 4] = (0x0F1E2D3C).to_bytes(4, "little")
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 2
     bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
+    bus.sram[K["OPT_NG_CHESTS"] - 0x6000] = 1
     call(cpu, "opt_freestuff")
-    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 6]),
-          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01")
+    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 7]),
+          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01")
 
 
 def test_rando_stir():
@@ -3989,10 +4013,10 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 7]),
+          list(ROMDATA[at:at + 8]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
-           K["OPT_NG_SHOPS"] - OPTBLOCK])
+           K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4267,6 +4291,8 @@ def test_menudesc():
                  "A-side or B-side"))]
     cases += [(61, K["OPT_NG_SHOPS"], v, phrase) for v, phrase in enumerate((
                  "sells what it always has", "dealt out again"))]
+    cases += [(62, K["OPT_NG_CHESTS"], v, phrase) for v, phrase in enumerate((
+                 "holds what it always has", "trade contents"))]
     seen = {}
     for row, byte, value, phrase in cases:
         bus, cpu = machine()
@@ -4342,6 +4368,97 @@ def test_menudesc():
           len(trap.rstrip()), len(gold.rstrip()))
 
 
+# --- chest shuffle ----------------------------------------------------------
+def chest_cache(bus):
+    at = rw("RW_CHESTS")
+    return bytes(bus.wram[at:at + 256])
+
+
+def test_rando_chests():
+    vanilla = bytes(ROMDATA[0x10000 + 0xB100:0x10000 + 0xB200])
+    #  Which chests may move, worked out here rather than taken from randoref:
+    #  the ids some standard map places, less those holding a key item.  The
+    #  maps are decoded the way worldgraph does it.
+    keys = [c for c in range(256) if 0 < vanilla[c] < 0x16]
+    check("seven chests hold key items", len(keys), 7)
+    moving = [c for c in R.moving_chests(vanilla)]
+    check("234 chests move", len(moving), 234)
+    check("...none of them a key item's",
+          [c for c in moving if c in keys], [])
+
+    for mode in (0, 1, 2, 0xFF):
+        seen = set()
+        for seed in SEEDS:
+            bus, cpu = machine()
+            setsave(bus, seed, 0, 0, mode)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            got = chest_cache(bus)
+            name = "chests mode %d seed $%08X" % (mode, seed)
+            check(name + ": as randoref deals it", got, R.build_chests(ROMDATA, seed, mode))
+            seen.add(got)
+            if mode != 1:
+                check(name + ": as the cartridge has them", got, vanilla)
+                continue
+            check(name + ": the key items where they were",
+                  [got[c] for c in keys], [vanilla[c] for c in keys])
+            check(name + ": the rest of the chests untouched",
+                  [c for c in range(256) if c not in moving and got[c] != vanilla[c]], [])
+            check(name + ": the same contents, moved",
+                  sorted(got[c] for c in moving), sorted(vanilla[c] for c in moving))
+            check(name + ": most of them moved",
+                  sum(got[c] != vanilla[c] for c in moving) > 150, True)
+        check("chests mode %d: %s" % (mode, "every seed its own" if mode == 1 else "one world"),
+              len(seen), len(SEEDS) if mode == 1 else 1)
+
+    #  Independent streams: chests on or off leaves the others alone, and the
+    #  others leave the chests alone.
+    for seed in SEEDS[:3]:
+        a, b = machine(), machine()
+        setsave(a[0], seed, 3, 1, 0)
+        setsave(b[0], seed, 3, 1, 1)
+        call(a[1], "rando_ensure", bank=RANDO_BANK)
+        call(b[1], "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X: chests leave traps and shops alone" % seed,
+              (cache_props(a[0]), shop_cache(a[0])), (cache_props(b[0]), shop_cache(b[0])))
+        c = machine()
+        setsave(c[0], seed, 0, 0, 1)
+        call(c[1], "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X: traps and shops leave the chests alone" % seed,
+              chest_cache(b[0]), chest_cache(c[0]))
+
+
+def test_rando_chestload():
+    """OpenTreasureChest in place: what the chest gives is the cache's."""
+    seed = 0x600DCAFE
+    for mode in (0, 1):
+        want = R.build_chests(ROMDATA, seed, mode)
+        bad = []
+        for c in R.moving_chests(ROMDATA[0x10000 + 0xB100:0x10000 + 0xB200]):
+            bus, cpu = machine()
+            setsave(bus, seed, 0, 0, mode)
+            bus.wram[K["tileprop"] + 1] = c
+            bus.wram[K["dlgsfx"]] = 0
+            call(cpu, "OpenTreasureChest")
+            if bus.wram[K["dlg_itemid"]] != want[c]:
+                bad.append("   chest $%02X gave $%02X, want $%02X"
+                           % (c, bus.wram[K["dlg_itemid"]], want[c]))
+            elif not bus.sram[K["game_flags"] - 0x6000 + c] & K["GMFLG_TCOPEN"]:
+                bad.append("   chest $%02X was not marked open" % c)
+        check("chests mode %d: all 234 give the cache's contents" % mode, len(bad), 0)
+        fails.extend(bad[:4])
+
+    #  An item lands in the inventory: the first shuffled chest holding one.
+    want = R.build_chests(ROMDATA, seed, 1)
+    c = next(c for c in R.moving_chests(ROMDATA[0x10000 + 0xB100:0x10000 + 0xB200])
+             if 0x16 <= want[c] < 0x1C)
+    bus, cpu = machine()
+    setsave(bus, seed, 0, 0, 1)
+    bus.wram[K["tileprop"] + 1] = c
+    call(cpu, "OpenTreasureChest")
+    check("chest $%02X: one more of its item" % c,
+          bus.sram[K["items"] - 0x6000 + want[c]], 1)
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4378,7 +4495,7 @@ def main():
              test_rando_mapload, test_rando_battle, test_rando_newgame,
              test_rando_stir, test_rando_options, test_savever,
              test_rando_shops, test_rando_shopload, test_rando_caravan,
-             test_menudesc)
+             test_menudesc, test_rando_chests, test_rando_chestload)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

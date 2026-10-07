@@ -1282,7 +1282,8 @@ RANDO_SAVE      = $60A0
 RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
 RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
 RANDO_SHOPS     = RANDO_SAVE+$05  ; SHOPS_* below
-RANDO_SAVE_SIZE = $06
+RANDO_CHESTS    = RANDO_SAVE+$06  ; CHESTS_* below
+RANDO_SAVE_SIZE = $07
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1296,6 +1297,7 @@ OPT_NG_SIZE     = RANDO_SAVE_SIZE - RANDO_NGOFF
 OPT_NGFAR       = (CHUNK0 * $10000) + OPT_NG
 OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SHOPS    = OPT_NG + (RANDO_SHOPS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_CHESTS   = OPT_NG + (RANDO_CHESTS - RANDO_SAVE) - RANDO_NGOFF
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
@@ -1319,6 +1321,13 @@ TRAPS_MODES     = 5
 SHOPS_OFF       = 0
 SHOPS_SHUFFLE   = 1             ; weapons, armor and items dealt out again
 SHOPS_MODES     = 2
+
+;  Chest modes.  Tier 1 of randomization-notes.md: every chest's contents but
+;  the seven key items, which stay where they are until there is logic to
+;  move them.
+CHESTS_OFF      = 0
+CHESTS_SHUFFLE  = 1
+CHESTS_MODES    = 2
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1347,11 +1356,11 @@ RW_MASK         = RANDOWRAM+$0018 ; rando_below's rejection mask...
 RW_BOUND        = RANDOWRAM+$0019 ; ...and its bound
 RW_R            = RANDOWRAM+$001A ; 2 bytes: the entry just drawn
 RW_MODE         = RANDOWRAM+$001C ; the trap mode being dealt
-;  The shop deal's counters are words whose high byte stays zero, so each
-;  loads straight into a sixteen-bit X or Y; they are only ever stored eight
-;  bits wide.  deal_shops zeroes RW_WORDS..RW_WORDSEND before it starts.
+;  The deals' counters are words whose high byte stays zero, so each loads
+;  straight into a sixteen-bit X or Y; they are only ever stored eight bits
+;  wide.  build zeroes RW_WORDS..RW_WORDSEND before anything deals.
 RW_WORDS        = RANDOWRAM+$001E
-RW_I            = RANDOWRAM+$001E ; shops: the Fisher-Yates index
+RW_I            = RANDOWRAM+$001E ; a Fisher-Yates index
 RW_E            = RANDOWRAM+$0020 ; shops: entries dealt so far
 RW_P            = RANDOWRAM+$0022 ; shops: a position in the type's list
 RW_Q            = RANDOWRAM+$0024 ; shops: the shop put and has_item act on
@@ -1359,7 +1368,7 @@ RW_FIRST        = RANDOWRAM+$0026 ; shops: the type's first shop_id
 RW_NSHOPS       = RANDOWRAM+$0028 ; shops: how many the type has
 RW_NENT         = RANDOWRAM+$002A ; shops: how many entries between them
 RW_NELIG        = RANDOWRAM+$002C ; shops: how many could take this entry
-RW_T2           = RANDOWRAM+$002E ; shops: scratch
+RW_T2           = RANDOWRAM+$002E ; scratch
 RW_WORDSEND     = RANDOWRAM+$0030
 RW_ITEM         = RANDOWRAM+$0030 ; shops: the entry being placed
 RW_K            = RANDOWRAM+$0031 ; shops: a count down
@@ -1368,8 +1377,11 @@ RW_CNT          = RANDOWRAM+$0040 ; shops: entries in each so far
 RW_ELIG         = RANDOWRAM+$0050 ; shops: positions that could take this entry
 RW_LIST         = RANDOWRAM+$0100 ; what is being dealt, up to 256 entries
 RW_ORIG         = RANDOWRAM+$0200 ; shops: the type's entries as the cart has them
+RW_LOCS         = RANDOWRAM+$0300 ; chests: the chest ids whose contents move
+RW_UNUSED       = RANDOWRAM+$0400 ; chests: nonzero for an id no map places
 RW_PROPS        = RANDOWRAM+$0800 ; every tileset's property table, $800 bytes
 RW_SHOPS        = RANDOWRAM+$1000 ; every shop's item_box, 8 bytes per shop_id
 RW_SHOPROWS     = 71              ; shop_id 0..70; 70 is the Caravan
+RW_CHESTS       = RANDOWRAM+$1400 ; every chest's contents, by chest id
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

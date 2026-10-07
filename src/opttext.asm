@@ -376,6 +376,23 @@ lut_Desc_49_1:  ; Shops: Shuffle
   FFPAD {"BOTTLE included.  The"}, 28
   FFPAD {"Caravan stays open."}, 28
 
+lut_Desc_50:  ; Chests, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_50_0, lut_Desc_50_1
+  .assert * - lut_Desc_50 = 1 + 2 * CHESTS_MODES, error, "one chest description per mode"
+
+lut_Desc_50_0:  ; Chests: Off
+  FFLINES 2
+  FFPAD {"Every chest holds what it"}, 28
+  FFPAD {"always has."}, 28
+
+lut_Desc_50_1:  ; Chests: Shuffle
+  FFLINES 4
+  FFPAD {"The 234 chests that hold no"}, 28
+  FFPAD {"key item trade contents."}, 28
+  FFPAD {"The seven that do hold one"}, 28
+  FFPAD {"keep it."}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
@@ -390,7 +407,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48, <lut_Desc_49
+  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -406,6 +423,6 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48, >lut_Desc_49
+  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

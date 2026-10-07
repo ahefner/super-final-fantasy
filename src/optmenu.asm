@@ -1481,6 +1481,8 @@ lut_OptRows:
   OPTLABEL {"Trap tiles"}
   .BYTE $02, $06   ; Shops
   OPTLABEL {"Shops"}
+  .BYTE $02, $07   ; Chests
+  OPTLABEL {"Chests"}
 
 lut_OptRowsEnd:
 
@@ -1615,21 +1617,24 @@ lut_ValTraps:
   FFPAD "       B", 8           ; TRAPS_BSIDE
   FFPAD "     A+B", 8           ; TRAPS_BOTH
 
-;  Shops: FFR's Shops flag.  Random Wares would be a third value.
-lut_ValShops:
-  FFPAD "     Off", 8           ; SHOPS_OFF
-  FFPAD " Shuffle", 8           ; SHOPS_SHUFFLE
+;  Off or Shuffle: Shops, where Random Wares would be a third value, and
+;  Chests.
+lut_ValShuffle:
+  FFPAD "     Off", 8           ; SHOPS_OFF, CHESTS_OFF
+  FFPAD " Shuffle", 8           ; SHOPS_SHUFFLE, CHESTS_SHUFFLE
 
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
-lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem, <lut_ValTraps, <lut_ValShops
-lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem, >lut_ValTraps, >lut_ValShops
-lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES
+lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
+              .BYTE <lut_ValTraps, <lut_ValShuffle, <lut_ValShuffle
+lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
+              .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle
+lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
-              .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS
+              .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
