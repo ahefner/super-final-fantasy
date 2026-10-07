@@ -3534,12 +3534,18 @@ def test_rowlabels():
     if at is None:
         return
     base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + at
+    #  A value row with a wide readout gives its label fewer columns: the
+    #  field starts 1 << shift - 4 columns early.
+    shift = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValShift"]
     over = []
     for i in range(COUNT):
         row = ROMDATA[base + i * STRIDE: base + (i + 1) * STRIDE]
         if len(row) < STRIDE:
             break
-        spill = row[LBL + W: STRIDE]
+        width = W
+        if row[0] == 2:
+            width = W + 4 - (1 << ROMDATA[shift + row[1]])
+        spill = row[LBL + width: STRIDE]
         if any(b != 0xFF for b in spill):
             drawn = "".join(_decode(b) or "?" for b in row[LBL:LBL + W])
             lost = "".join(_decode(b) or "?" for b in spill)
@@ -3570,7 +3576,6 @@ def test_dialvalues():
     #  two signs.  Everything above that in the page is battle-UI artwork, which
     #  is what a stale sign literal ends up pointing at -- the rule catches it
     #  not because the byte is unknown but because it is not text.
-    STRIDE = 4
     TEXT = (set(range(0x80, 0x8A))              # 0-9
             | set(range(0x8A, 0xA4))            # A-Z
             | set(range(0xA4, 0xBE))            # a-z
@@ -3587,6 +3592,7 @@ def test_dialvalues():
     for t in range(7):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
+        STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
         if not (0x8000 <= addr < 0x10000) or not (0 < n < 64):
             stray.append("   table %d looks wrong: addr $%04X count %d"
                          % (t, addr, n))
@@ -3992,6 +3998,7 @@ def test_rando_options():
     #  it up to the last mode and stops; left steps it down to Off and stops.
     SEL, TOP = 0x6E, 0x6F
     bus, cpu = machine()
+    in_vblank(bus)                       # these rows redraw their description
     call(cpu, "opt_init")
     for row, byte, presses, want in (
             (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
@@ -4228,6 +4235,113 @@ def test_rando_caravan():
               got, (True, 70) if opened else (False, None))
 
 
+# --- descriptions that follow the value -------------------------------------
+#  The NEW GAME rows describe the setting they hold, not every setting they
+#  could hold.  This reads the pane back out of the raw nametable, so it checks
+#  what is drawn rather than which pointer was taken.
+def in_vblank(bus):
+    """Make hal_waitvbl return at once: in vblank (HVBJOY bit 7), its latch
+    unread (RDNMI bit 7), and early enough in it to flush (OPVCT between 224
+    and LATE_FLUSH_LAST).  The harness does not model time, so a routine
+    that waits a frame -- opt_menu_breathe -- needs this to get past it."""
+    bus.io[K["HVBJOY"]] = 0x80
+    bus.io[K["RDNMI"]] = 0x80
+    bus.io[K["OPVCT"]] = 230
+
+
+def pane(bus):
+    at = K["NESNT"] - 0x7E0000 + (21 + 2) * 32 + 2     # OPTDESC_Y + 2, col 2
+    lines = []
+    for r in range(5):
+        row = bus.wram[at + r * 32:at + r * 32 + 28]
+        lines.append("".join(_decode(b) or "?" for b in row).rstrip())
+    return [l for l in lines if l]
+
+
+def test_menudesc():
+    SEL, TOP = 0x6E, 0x6F
+    #  A phrase only that value's text has: A and B share their first line.
+    cases = [(60, K["OPT_NG_TRAPS"], v, phrase) for v, phrase in enumerate((
+                 "fight it always has", "trap tiles trade",
+                 "formation's A-side", "formation's B-side",
+                 "A-side or B-side"))]
+    cases += [(61, K["OPT_NG_SHOPS"], v, phrase) for v, phrase in enumerate((
+                 "sells what it always has", "dealt out again"))]
+    seen = {}
+    for row, byte, value, phrase in cases:
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        bus.sram[byte - 0x6000] = value
+        bus.wram[SEL], bus.wram[TOP] = row, row - 19
+        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        text = pane(bus)
+        seen[row, value] = tuple(text)
+        check("row %d value %d: its own description" % (row, value),
+              phrase in " ".join(text), True)
+        check("row %d value %d: the data bank put back" % (row, value),
+              cpu.dbr, CHUNK_OPT_BANK)
+    check("each trap mode reads differently",
+          len({seen[60, v] for v in range(5)}), 5)
+
+    #  A value out of range takes the first value's text rather than reading
+    #  past the table.
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 9
+    bus.wram[SEL], bus.wram[TOP] = 60, 41
+    call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+    check("an out-of-range trap value reads as Off", tuple(pane(bus)), seen[60, 0])
+
+    #  An ordinary row is unchanged: one record whatever its value.
+    for row, first in ((1, "Adjustments to the game"), (3, None)):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        bus.wram[SEL], bus.wram[TOP] = row, 0
+        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        if first:
+            check("row %d: its one description" % row, pane(bus)[:1], [first])
+        else:
+            gold = pane(bus)
+    for step in (0, 5):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, OPT_GOLDXP, step)
+        bus.wram[SEL], bus.wram[TOP] = 3, 0
+        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        check("Gold and XP at step %d: the same description" % step, pane(bus), gold)
+
+    #  Changing the value redraws the pane, through the menu's own adjuster.
+    bus, cpu = machine()
+    in_vblank(bus)
+    call(cpu, "opt_init")
+    bus.wram[SEL], bus.wram[TOP] = 60, 41
+    call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+    cpu.a = K["RIGHT"]
+    call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+    check("right on Trap tiles: the pane follows", tuple(pane(bus)), seen[60, 1])
+
+    #  ...and the row itself: the label whole, and the eight-wide readout
+    #  ending in the same column as a four-wide dial's.
+    def screen_row(text):
+        nt = K["NESNT"] - 0x7E0000
+        for r in range(30):
+            #  Columns 2-30: the row's own; the rest is background the
+            #  harness never fills.
+            line = "".join(_decode(b) or "?" for b in bus.wram[nt + r * 32 + 2:nt + r * 32 + 31])
+            if text in line:
+                return line
+        return ""
+    trap = screen_row("Trap tiles")
+    check("the Trap tiles row reads label then value",
+          " ".join(trap.split()), "Trap tiles Shuffle")
+    bus.wram[SEL], bus.wram[TOP] = 3, 0
+    cpu.a = K["RIGHT"]
+    call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+    gold = screen_row("Gold and XP")
+    check("the wide readout ends where a dial's does",
+          len(trap.rstrip()), len(gold.rstrip()))
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4263,7 +4377,8 @@ def main():
              test_rando_prng, test_rando_traps, test_rando_cache,
              test_rando_mapload, test_rando_battle, test_rando_newgame,
              test_rando_stir, test_rando_options, test_savever,
-             test_rando_shops, test_rando_shopload, test_rando_caravan)
+             test_rando_shops, test_rando_shopload, test_rando_caravan,
+             test_menudesc)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

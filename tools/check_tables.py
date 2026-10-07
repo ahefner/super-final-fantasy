@@ -77,10 +77,10 @@ def descriptions():
     Both are quiet -- the menu still works, the text is just wrong -- and only
     on the row that has the bad count.
     """
-    src = open(os.path.join(ROOT, "src", "optmenu.asm"), encoding="latin-1").read()
+    src = open(os.path.join(ROOT, "src", "opttext.asm"), encoding="latin-1").read()
     bad = []
     n = 0
-    for m in re.finditer(r"^(lut_Desc_\d+|lut_DescBlank):[^\n]*\n"
+    for m in re.finditer(r"^(lut_Desc\w*):[^\n]*\n"
                          r"  FFLINES (\d+)\n"
                          r"((?:  (?:\.BYTE|FFPAD)[^\n]*\n)*)", src, re.M):
         name, said, body = m.group(1), int(m.group(2)), m.group(3)

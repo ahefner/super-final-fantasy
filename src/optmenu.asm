@@ -19,10 +19,12 @@
 .include "nesio.inc"
 ;  SET0E, the way into bank $0E -- where the menu sound effects live.
 .include "optcall.inc"
+;  The row kinds and the description format, shared with opttext.asm.
+.include "optmenu.inc"
 
 .export opt_settings
 ;  Reached by tools/test_options.py.
-.export opt_sfx_move, opt_sfx_sel, opt_value_adjust
+.export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
 
 ;  Exported for tools/test_options.py, which checks every label against the
 ;  width the menu actually draws.  Nothing in the game reaches it by name.
@@ -32,10 +34,12 @@
 ;  draw is a digit, a space, CHR_PLUS or CHR_PCT.  A sign written as a literal
 ;  here goes on drawing the old tile after the glyph moves, which is how the
 ;  elemental dial came to read "S50".
-.export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff
+.export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift
 .import opt_commit_body
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
+;  The descriptions, in CHUNK_OPTTEXT; see opt_menu_desc.
+.import lut_DescLo, lut_DescHi
 .import WaitForVBlank_L
 .import OptCallFar, PlaySFX_MenuSel, PlaySFX_MenuMove
 
@@ -89,7 +93,9 @@ OPTMENU_SCAN   = $75            ; row index while walking a section
 OPTMENU_ALLSET = $76            ; was every checkbox in the section already on?
 OPTMENU_VALPTR = $77            ; 2 bytes: into a value-readout table
 OPTMENU_DESC   = $7A            ; 2 bytes: into the description text
-OPTMENU_DLINES = $79            ; ...and how many of its lines are left
+OPTMENU_DLINES = $79            ; ...and how many of its lines are left;
+                                ;   outside opt_menu_desc, scratch for
+                                ;   opt_menu_descptr and opt_menu_drawrow
 
 ;  This screen does its own edge detection rather than using joy_a, joy_start
 ;  and joy_ignore.  Those are a counter per button plus a shared mask, updated
@@ -573,23 +579,18 @@ opt_menu_loadchr:
 DESC_COL = 2
 DESC_ROW = OPTDESC_Y + 2
 
-;;  A description record is a line count and then that many lines, rather than
-;;  five lines padded with spaces.  Most of them are two or three, and the
-;;  padding came to 2.8KB in a bank that had none left -- this screen's own
-;;  section would not fit until it went.  opt_menu_desc blanks the rest of the
-;;  pane itself, which is a fill rather than a blit and so slightly cheaper
-;;  than writing the spaces was.
-.macro FFLINES n
-    .byte n
-.endmacro
-
+;;  The text is in its own chunk.  opt_menu_desc and opt_menu_descptr point the
+;;  data bank there while they read it and put this bank back after.  Nothing
+;;  between reads this chunk's own tables, and RAM, SRAM and the HAL look the
+;;  same from either bank.
+OPTTEXT_BANK = CHUNK0 + CHUNK_OPTTEXT
 
 opt_menu_desc:
-    LDX OPTMENU_SEL
-    LDA lut_DescLo, X
-    STA OPTMENU_DESC
-    LDA lut_DescHi, X
-    STA OPTMENU_DESC + 1
+    JSR opt_menu_descptr
+    PHB
+    LDA #OPTTEXT_BANK
+    PHA
+    PLB
 
     LDY #$00
     LDA (OPTMENU_DESC), Y       ; how many lines this one actually has
@@ -641,6 +642,66 @@ opt_menu_desc:
     LDA OPTMENU_ROWNUM
     CMP #DESC_ROW + DESC_LINES
     BCC @line
+    PLB
+    RTS
+
+
+;;  Point OPTMENU_DESC at the selected row's description record.  For a row
+;;  whose description is DESC_BYVALUE, that is the record for the value it is
+;;  set to.
+;;
+;;  Out: C set if the description follows the value, so a change of value has
+;;  to redraw it.  OPTMENU_ROWPTR and OPTMENU_DLINES clobbered.
+opt_menu_descptr:
+    ;  The value first, while the data bank is still this chunk's: lut_ValOff
+    ;  and lut_ValCount are here.  OPTMENU_DLINES is scratch until
+    ;  opt_menu_desc sets it.
+    LDA #$00
+    STA OPTMENU_DLINES
+    JSR opt_menu_rowptr
+    LDY #$00
+    LDA (OPTMENU_ROWPTR), Y
+    CMP #OPTROW_VAL
+    BNE @record
+    INY
+    LDA (OPTMENU_ROWPTR), Y
+    TAX                         ; which scalar
+    LDY lut_ValOff, X
+    LDA OPTBLOCK, Y
+    CMP lut_ValCount, X
+    BCS @record                 ; out of range: the first value's text
+    STA OPTMENU_DLINES
+
+  @record:
+    LDX OPTMENU_SEL
+    PHB
+    LDA #OPTTEXT_BANK
+    PHA
+    PLB
+    LDA lut_DescLo, X
+    STA OPTMENU_DESC
+    LDA lut_DescHi, X
+    STA OPTMENU_DESC + 1
+    LDY #$00
+    LDA (OPTMENU_DESC), Y
+    CMP #DESC_BYVALUE
+    CLC
+    BNE @out                    ; an ordinary record: it is the one
+
+    LDA OPTMENU_DLINES          ; a table: the value's entry in it
+    ASL A
+    TAY
+    INY                         ; past the marker
+    LDA (OPTMENU_DESC), Y
+    PHA
+    INY
+    LDA (OPTMENU_DESC), Y
+    STA OPTMENU_DESC + 1
+    PLA
+    STA OPTMENU_DESC
+    SEC
+  @out:
+    PLB                         ; leaves C alone
     RTS
 
 
@@ -749,8 +810,9 @@ opt_menu_drawall:
 ;;
 ;;  A checkbox toggle changes one tile and a value row changes four, and both
 ;;  used to repaint the whole visible window -- twenty rows through the blit
-;;  path for a single character.  Nothing else on screen depends on a flag's
-;;  value, not even the description, so one row is the whole update.
+;;  path for a single character.  Nothing else in the list depends on a flag's
+;;  value, so one row is the whole update there.  The description depends on
+;;  it only for a DESC_BYVALUE row, and opt_value_adjust redraws that itself.
 opt_menu_drawsel:
     LDA OPTMENU_SEL
     SEC
@@ -957,15 +1019,25 @@ opt_menu_drawrow:
     BRA @blit
   @value:
     PHX                         ; opt_value_ptr shifts through X
-    JSR opt_value_ptr           ; -> OPTMENU_VALPTR at this row's readout
-    PLX
+    JSR opt_value_ptr           ; -> OPTMENU_VALPTR at this row's readout,
+    STA OPTMENU_DLINES          ;   and A = its width
+    PLA
+    ;  A field wider than VALFIELD starts that much further left, over the
+    ;  end of the label's columns -- where a label short enough for such a
+    ;  row has only spaces, one of which becomes the gap.  The row is the same
+    ;  width either way.
+    CLC
+    ADC #VALFIELD
+    SEC
+    SBC OPTMENU_DLINES
+    TAX
     LDY #$00
   @vloop:
     LDA (OPTMENU_VALPTR), Y
     STA f:NTSTAGE, X
     INX
     INY
-    CPY #VALFIELD
+    CPY OPTMENU_DLINES
     BCC @vloop
   @blit:
     JSL hal_ntblit + HALFAR     ; X is already the count
@@ -973,7 +1045,9 @@ opt_menu_drawrow:
 
 
 ;;  Point OPTMENU_VALPTR at the readout for the value row OPTMENU_ROWPTR
-;;  describes -- table base plus the current step times four.
+;;  describes -- table base plus the current step times the readout's width.
+;;
+;;  Out: A = the width, 1 << lut_ValShift.
 opt_value_ptr:
     LDY #$01
     LDA (OPTMENU_ROWPTR), Y     ; which scalar
@@ -984,14 +1058,23 @@ opt_value_ptr:
     STA OPTMENU_VALPTR + 1
     LDY lut_ValOff, X           ; where in the option page it is stored
     LDA OPTBLOCK, Y
-    ASL A                       ; four bytes per readout
-    ASL A
+    LDY lut_ValShift, X
+  @step:
+    ASL A                       ; times the width
+    DEY
+    BNE @step
     CLC
     ADC OPTMENU_VALPTR
     STA OPTMENU_VALPTR
     LDA OPTMENU_VALPTR + 1
     ADC #$00
     STA OPTMENU_VALPTR + 1
+    LDY lut_ValShift, X         ; and the width itself
+    LDA #$01
+  @width:
+    ASL A
+    DEY
+    BNE @width
     RTS
 
 
@@ -1099,7 +1182,16 @@ opt_value_adjust:
 
   @done:
     JSR opt_commit_body
-    JMP opt_menu_drawsel
+    JSR opt_menu_drawsel
+    ;  A row described by its value has a new description now.  A frame
+    ;  between the two: the row and the pane together are more than one
+    ;  vblank's flush is sure to hold.
+    JSR opt_menu_descptr
+    BCC @same
+    JSR opt_menu_breathe
+    JMP opt_menu_desc
+  @same:
+    RTS
 
 
 ;;  Wipe an on-screen row that has no list entry behind it.
@@ -1162,14 +1254,7 @@ opt_menu_rowppu:
 ;  the settings themselves are sentence case, which needs the lowercase run
 ;  at $A4..$BD.  Blank rows exist only to separate the sections, and the
 ;  cursor skips them along with the headings.
-OPTROW_HDR   = 0
-OPTROW_CHK   = 1
-OPTROW_VAL   = 2
-OPTROW_BLANK = 3
-OPTROW_STRIDE = 32
-OPTROW_LABEL  = 2
-OPTROW_LABELW = 22
-OPTROW_COUNT  = 62
+;  The OPTROW_ constants are in optmenu.inc, which opttext.asm shares.
 
 ;  A row's label.  The row stores thirty bytes after its two header bytes but
 ;  only OPTROW_LABELW of them are drawn, so padding to thirty proves nothing --
@@ -1421,7 +1506,9 @@ lut_CheckboxCHR:
   .BYTE $00, $7E, $7E, $7E, $7E, $7E, $7E, $00
   .BYTE $FF, $81, $BD, $BD, $BD, $BD, $81, $FF
 
-;  Generated: the value-row readouts, four characters right-aligned.
+;  Generated: the value-row readouts, four characters right-aligned -- or
+;  eight, for a table whose lut_ValShift says so, which takes four columns
+;  from its row's label.
 VALFIELD = 4
 
 ;  Gold and XP: 0%% to 500%% in 50%% steps
@@ -1519,380 +1606,30 @@ lut_ValElem:
   .BYTE CHR_PLUS, $84, $88, $FF   ; +48
   .BYTE CHR_PLUS, $85, $80, $FF   ; +50
 
-;  Trap tiles: FFR's first five modes.  See deal_traps in rando.asm.
+;  Trap tiles: FFR's first five modes.  See deal_traps in rando.asm.  Eight
+;  wide, for "Shuffle".
 lut_ValTraps:
-  FFPAD " Off", 4               ; TRAPS_OFF
-  FFPAD "Shuf", 4               ; TRAPS_SHUFFLE
-  FFPAD "   A", 4               ; TRAPS_ASIDE
-  FFPAD "   B", 4               ; TRAPS_BSIDE
-  FFPAD " A+B", 4               ; TRAPS_BOTH
+  FFPAD "     Off", 8           ; TRAPS_OFF
+  FFPAD " Shuffle", 8           ; TRAPS_SHUFFLE
+  FFPAD "       A", 8           ; TRAPS_ASIDE
+  FFPAD "       B", 8           ; TRAPS_BSIDE
+  FFPAD "     A+B", 8           ; TRAPS_BOTH
 
 ;  Shops: FFR's Shops flag.  Random Wares would be a third value.
 lut_ValShops:
-  FFPAD " Off", 4               ; SHOPS_OFF
-  FFPAD "Shuf", 4               ; SHOPS_SHUFFLE
+  FFPAD "     Off", 8           ; SHOPS_OFF
+  FFPAD " Shuffle", 8           ; SHOPS_SHUFFLE
 
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem, <lut_ValTraps, <lut_ValShops
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem, >lut_ValTraps, >lut_ValShops
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES
+;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
-
-;  Generated: the description pane text, pre-wrapped to 28 columns and 5
-;  lines.  Wrapping at build time rather than at runtime keeps the draw to
-;  five fixed blits and keeps the wording under review in the source.
-DESC_W = 28
-DESC_LINES = 5
-DESC_SIZE = 140
-
-lut_DescBlank:
-  FFLINES 0
-
-
-lut_Desc_0:  ; QUALITY OF LIFE
-  FFLINES 3
-  .BYTE $8C, $B2, $B1, $B9, $A8, $B1, $AC, $A8, $B1, $A6, $A8, $FF, $A6, $AB, $A4, $B1, $AA, $A8, $B6, $C0, $FF, $97, $B2, $B1, $A8, $FF, $B2, $A9
-  .BYTE $B7, $AB, $A8, $B6, $A8, $FF, $A4, $AF, $B7, $A8, $B5, $FF, $AB, $B2, $BA, $FF, $B7, $AB, $A8, $FF, $AA, $A4, $B0, $A8, $FF, $FF, $FF, $FF
-  .BYTE $B3, $AF, $A4, $BC, $B6, $FF, $B2, $B8, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_1:  ; BUGFIXES
-  FFLINES 2
-  .BYTE $8C, $B2, $B5, $B5, $A8, $A6, $B7, $AC, $B2, $B1, $B6, $FF, $B7, $B2, $FF, $B0, $AC, $B6, $B7, $A4, $AE, $A8, $B6, $FF, $AC, $B1, $FF, $FF
-  .BYTE $B7, $AB, $A8, $FF, $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $AA, $A4, $B0, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_2:  ; VARIATIONS
-  FFLINES 2
-  .BYTE $8C, $AB, $A4, $B1, $AA, $A8, $B6, $FF, $B7, $AB, $A4, $B7, $FF, $A7, $A8, $AF, $AC, $A5, $A8, $B5, $A4, $B7, $A8, $AF, $BC, $FF, $FF, $FF
-  .BYTE $A4, $AF, $B7, $A8, $B5, $FF, $AB, $B2, $BA, $FF, $B7, $AB, $A8, $FF, $AA, $A4, $B0, $A8, $FF, $B3, $AF, $A4, $BC, $B6, $C0, $FF, $FF, $FF
-
-lut_Desc_3:  ; Speed hacks
-  FFLINES 3
-  .BYTE $8A, $B5, $A8, $A4, $FF, $B7, $B5, $A4, $B1, $B6, $AC, $B7, $AC, $B2, $B1, $B6, $BF, $FF, $B0, $A8, $B1, $B8, $B6, $BF, $FF, $FF, $FF, $FF
-  .BYTE $A5, $A4, $B7, $B7, $AF, $A8, $FF, $A5, $B2, $BB, $A8, $B6, $FF, $A4, $B1, $A7, $FF, $A4, $B1, $AC, $B0, $A4, $B7, $AC, $B2, $B1, $B6, $FF
-  .BYTE $A4, $AF, $AF, $FF, $B5, $B8, $B1, $FF, $A9, $A4, $B6, $B7, $A8, $B5, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_4:  ; Faster walking
-  FFLINES 3
-  .BYTE $A0, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $A4, $B1, $A7, $FF, $A6, $A4, $B1, $B2, $A8, $FF, $B6, $B3, $A8, $A8, $A7, $FF, $AC, $B6, $FF, $FF
-  .BYTE $A7, $B2, $B8, $A5, $AF, $A8, $A7, $C0, $FF, $91, $B2, $AF, $A7, $FF, $8B, $FF, $B7, $B2, $FF, $B0, $B2, $B9, $A8, $FF, $A4, $B7, $FF, $FF
-  .BYTE $B7, $AB, $A8, $FF, $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $B3, $A4, $A6, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_5:  ; Faster ship
-  FFLINES 2
-  .BYTE $9D, $AB, $A8, $FF, $B6, $AB, $AC, $B3, $FF, $B6, $A4, $AC, $AF, $B6, $FF, $A4, $B6, $FF, $A9, $A4, $B6, $B7, $FF, $A4, $B6, $FF, $FF, $FF
-  .BYTE $B7, $AB, $A8, $FF, $A4, $AC, $B5, $B6, $AB, $AC, $B3, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_6:  ; No party shuffle
-  FFLINES 2
-  .BYTE $9D, $AB, $A8, $FF, $B3, $A4, $B5, $B7, $BC, $FF, $AC, $B6, $FF, $B1, $B2, $B7, $FF, $B5, $A8, $A4, $B5, $B5, $A4, $B1, $AA, $A8, $A7, $FF
-  .BYTE $BA, $AB, $A8, $B1, $FF, $A4, $FF, $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $FF, $A9, $A4, $AF, $AF, $B6, $C0, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_7:  ; Identify treasures
-  FFLINES 2
-  .BYTE $8A, $FF, $A9, $B8, $AF, $AF, $FF, $AC, $B1, $B9, $A8, $B1, $B7, $B2, $B5, $BC, $FF, $B6, $B7, $AC, $AF, $AF, $FF, $B7, $A8, $AF, $AF, $B6
-  .BYTE $BC, $B2, $B8, $FF, $BA, $AB, $A4, $B7, $FF, $BA, $A4, $B6, $FF, $AC, $B1, $FF, $B7, $AB, $A8, $FF, $A6, $AB, $A8, $B6, $B7, $C0, $FF, $FF
-
-lut_Desc_8:  ; Chests appear opened
-  FFLINES 3
-  .BYTE $8C, $AB, $A8, $B6, $B7, $B6, $FF, $BC, $B2, $B8, $FF, $AB, $A4, $B9, $A8, $FF, $A4, $AF, $B5, $A8, $A4, $A7, $BC, $FF, $FF, $FF, $FF, $FF
-  .BYTE $AF, $B2, $B2, $B7, $A8, $A7, $FF, $AF, $B2, $B2, $AE, $FF, $B2, $B3, $A8, $B1, $C0, $FF, $8A, $B3, $B3, $AF, $AC, $A8, $B6, $FF, $FF, $FF
-  .BYTE $B7, $B2, $FF, $A4, $B1, $FF, $A8, $BB, $AC, $B6, $B7, $AC, $B1, $AA, $FF, $B6, $A4, $B9, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_9:  ; Buy quantity
-  FFLINES 3
-  .BYTE $8C, $AB, $B2, $B2, $B6, $A8, $FF, $AB, $B2, $BA, $FF, $B0, $A4, $B1, $BC, $FF, $B2, $A9, $FF, $A4, $B1, $FF, $AC, $B7, $A8, $B0, $FF, $FF
-  .BYTE $B7, $B2, $FF, $A5, $B8, $BC, $BF, $FF, $AC, $B1, $B6, $B7, $A8, $A4, $A7, $FF, $B2, $A9, $FF, $B2, $B1, $A8, $FF, $A4, $B7, $FF, $FF, $FF
-  .BYTE $A4, $FF, $B7, $AC, $B0, $A8, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_10:  ; Run becomes Wait
-  FFLINES 3
-  .BYTE $A0, $AB, $A8, $B1, $FF, $A4, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF, $A6, $A4, $B1, $B1, $B2, $B7, $FF, $A5, $A8, $FF, $FF, $FF, $FF, $FF
-  .BYTE $A8, $B6, $A6, $A4, $B3, $A8, $A7, $BF, $FF, $9B, $9E, $97, $FF, $B5, $A8, $A4, $A7, $B6, $FF, $A0, $8A, $92, $9D, $FF, $A4, $B1, $A7, $FF
-  .BYTE $B6, $A4, $BC, $B6, $FF, $B6, $B2, $FF, $B3, $AF, $A4, $AC, $B1, $AF, $BC, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_11:  ; Magic menu wraparound
-  FFLINES 2
-  .BYTE $9D, $AB, $A8, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF, $B0, $A4, $AA, $AC, $A6, $FF, $A6, $B8, $B5, $B6, $B2, $B5, $FF, $FF, $FF, $FF, $FF
-  .BYTE $BA, $B5, $A4, $B3, $B6, $FF, $A9, $B5, $B2, $B0, $FF, $A5, $B2, $B7, $B7, $B2, $B0, $FF, $B7, $B2, $FF, $B7, $B2, $B3, $C0, $FF, $FF, $FF
-
-lut_Desc_12:  ; Auto retargeting
-  FFLINES 3
-  .BYTE $8A, $B7, $B7, $A4, $A6, $AE, $B6, $FF, $A4, $B1, $A7, $FF, $B6, $B3, $A8, $AF, $AF, $B6, $FF, $A4, $AC, $B0, $A8, $A7, $FF, $A4, $B7, $FF
-  .BYTE $A4, $FF, $A7, $A8, $A4, $A7, $FF, $A8, $B1, $A8, $B0, $BC, $FF, $B3, $AC, $A6, $AE, $FF, $A4, $FF, $AF, $AC, $B9, $AC, $B1, $AA, $FF, $FF
-  .BYTE $B2, $B1, $A8, $FF, $AC, $B1, $B6, $B7, $A8, $A4, $A7, $FF, $B2, $A9, $FF, $A5, $A8, $AC, $B1, $AA, $FF, $BA, $A4, $B6, $B7, $A8, $A7, $C0
-
-lut_Desc_13:  ; Autosort inventory
-  FFLINES 3
-  .BYTE $91, $8E, $8A, $95, $BF, $FF, $99, $9E, $9B, $8E, $FF, $A4, $B1, $A7, $FF, $9C, $98, $8F, $9D, $FF, $B3, $B2, $B7, $AC, $B2, $B1, $B6, $FF
-  .BYTE $A4, $B5, $A8, $FF, $AE, $A8, $B3, $B7, $FF, $A4, $B7, $FF, $B7, $AB, $A8, $FF, $B7, $B2, $B3, $FF, $B2, $A9, $FF, $B7, $AB, $A8, $FF, $FF
-  .BYTE $AC, $B7, $A8, $B0, $FF, $AF, $AC, $B6, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_14:  ; Repeated potion use
-  FFLINES 2
-  .BYTE $9E, $B6, $A8, $FF, $B6, $A8, $B9, $A8, $B5, $A4, $AF, $FF, $B3, $B2, $B7, $AC, $B2, $B1, $B6, $FF, $AC, $B1, $FF, $A4, $FF, $B5, $B2, $BA
-  .BYTE $BA, $AC, $B7, $AB, $B2, $B8, $B7, $FF, $B5, $A8, $B2, $B3, $A8, $B1, $AC, $B1, $AA, $FF, $B7, $AB, $A8, $FF, $B0, $A8, $B1, $B8, $C0, $FF
-
-lut_Desc_15:  ; Shop information
-  FFLINES 3
-  .BYTE $9C, $AB, $B2, $B3, $B6, $FF, $B6, $AB, $B2, $BA, $FF, $BA, $AB, $A8, $B7, $AB, $A8, $B5, $FF, $A8, $A4, $A6, $AB, $FF, $FF, $FF, $FF, $FF
-  .BYTE $A6, $AB, $A4, $B5, $A4, $A6, $B7, $A8, $B5, $FF, $A6, $A4, $B1, $FF, $A8, $B4, $B8, $AC, $B3, $FF, $A4, $B1, $FF, $AC, $B7, $A8, $B0, $FF
-  .BYTE $A4, $B1, $A7, $FF, $BA, $AB, $A4, $B7, $FF, $AC, $B7, $FF, $BA, $B2, $B8, $AF, $A7, $FF, $A7, $B2, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_16:  ; Chest information
-  FFLINES 2
-  .BYTE $98, $B3, $A8, $B1, $AC, $B1, $AA, $FF, $A4, $FF, $A6, $AB, $A8, $B6, $B7, $FF, $A7, $A8, $B6, $A6, $B5, $AC, $A5, $A8, $B6, $FF, $FF, $FF
-  .BYTE $B7, $AB, $A8, $FF, $BA, $A8, $A4, $B3, $B2, $B1, $FF, $B2, $B5, $FF, $A4, $B5, $B0, $B2, $B8, $B5, $FF, $AC, $B1, $FF, $AC, $B7, $C0, $FF
-
-lut_Desc_17:  ; NPC guillotine
-  FFLINES 2
-  .BYTE $9D, $A4, $AF, $AE, $AC, $B1, $AA, $FF, $B7, $B2, $FF, $A4, $B1, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $97, $99, $8C, $FF, $FF
-  .BYTE $B5, $A8, $B0, $B2, $B9, $A8, $B6, $FF, $AC, $B7, $FF, $A9, $B5, $B2, $B0, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF
-
-lut_Desc_18:  ; House restoration
-  FFLINES 4
-  FFPAD {"HOUSEs restore all HP, not"}, 28
-  FFPAD {"120, and restore MP whether"}, 28
-  FFPAD {"or not you save -- which the"}, 28
-  FFPAD {"save then records."}, 28
-
-lut_Desc_19:  ; Weapon stats
-  FFLINES 5
-  FFPAD {"Fixes critical hit rates,"}, 28
-  FFPAD {"which vanilla reads from a"}, 28
-  FFPAD {"weapon's place in the list,"}, 28
-  FFPAD {"and elemental and creature"}, 28
-  FFPAD {"bonuses that never applied."}, 28
-
-lut_Desc_20:  ; Spell fixes
-  FFLINES 3
-  .BYTE $8C, $B2, $B5, $B5, $A8, $A6, $B7, $B6, $FF, $95, $98, $8C, $94, $BF, $FF, $95, $98, $94, $82, $BF, $FF, $91, $8E, $95, $82, $BF, $FF, $FF
-  .BYTE $9D, $96, $99, $9B, $BF, $FF, $9C, $8A, $8B, $9B, $FF, $A4, $B1, $A7, $FF, $8C, $9E, $9B, $84, $BF, $FF, $BA, $AB, $AC, $A6, $AB, $FF, $FF
-  .BYTE $A7, $AC, $A7, $FF, $B1, $B2, $B7, $FF, $BA, $B2, $B5, $AE, $FF, $A4, $B6, $FF, $A7, $A8, $B6, $A6, $B5, $AC, $A5, $A8, $A7, $C0, $FF, $FF
-
-lut_Desc_21:  ; Enemy status attacks
-  FFLINES 3
-  .BYTE $8F, $AC, $BB, $A8, $B6, $FF, $A8, $B1, $A8, $B0, $AC, $A8, $B6, $FF, $AC, $B1, $A9, $AF, $AC, $A6, $B7, $AC, $B1, $AA, $FF, $A4, $FF, $FF
-  .BYTE $B6, $B7, $A4, $B7, $B8, $B6, $FF, $A4, $AC, $AF, $B0, $A8, $B1, $B7, $FF, $BA, $AC, $B7, $AB, $FF, $A4, $B7, $B7, $A4, $A6, $AE, $B6, $FF
-  .BYTE $B7, $AB, $A4, $B7, $FF, $B6, $AB, $B2, $B8, $AF, $A7, $FF, $B1, $B2, $B7, $FF, $A6, $A4, $B5, $B5, $BC, $FF, $B2, $B1, $A8, $C0, $FF, $FF
-
-lut_Desc_22:  ; Gold and XP
-  FFLINES 3
-  .BYTE $9C, $A6, $A4, $AF, $A8, $B6, $FF, $B7, $AB, $A8, $FF, $AA, $B2, $AF, $A7, $FF, $A4, $B1, $A7, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $A8, $BB, $B3, $A8, $B5, $AC, $A8, $B1, $A6, $A8, $FF, $B7, $AB, $A4, $B7, $FF, $A8, $B9, $A8, $B5, $BC, $FF, $A5, $A4, $B7, $B7, $AF, $A8
-  .BYTE $A4, $BA, $A4, $B5, $A7, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_23:  ; Encounter rate
-  FFLINES 3
-  .BYTE $91, $B2, $BA, $FF, $B2, $A9, $B7, $A8, $B1, $FF, $B5, $A4, $B1, $A7, $B2, $B0, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $B6, $FF, $FF, $FF, $FF
-  .BYTE $AB, $A4, $B3, $B3, $A8, $B1, $BF, $FF, $A4, $B6, $FF, $A4, $FF, $B6, $AB, $A4, $B5, $A8, $FF, $B2, $A9, $FF, $B7, $AB, $A8, $FF, $FF, $FF
-  .BYTE $B2, $B5, $AC, $AA, $AC, $B1, $A4, $AF, $FF, $B2, $B9, $A8, $B5, $BA, $B2, $B5, $AF, $A7, $FF, $B5, $A4, $B7, $A8, $C0, $FF, $FF, $FF, $FF
-
-lut_Desc_24:  ; Enemy stats
-  FFLINES 3
-  .BYTE $9C, $A6, $A4, $AF, $A8, $B6, $FF, $91, $99, $BF, $FF, $A7, $A4, $B0, $A4, $AA, $A8, $BF, $FF, $A7, $A8, $A9, $A8, $B1, $A6, $A8, $FF, $FF
-  .BYTE $A4, $B1, $A7, $FF, $A4, $A6, $A6, $B8, $B5, $A4, $A6, $BC, $FF, $A9, $B2, $B5, $FF, $B2, $B5, $A7, $AC, $B1, $A4, $B5, $BC, $FF, $FF, $FF
-  .BYTE $A8, $B1, $A8, $B0, $AC, $A8, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_25:  ; Boss stats
-  FFLINES 2
-  .BYTE $9D, $AB, $A8, $FF, $B6, $A4, $B0, $A8, $BF, $FF, $A9, $B2, $B5, $FF, $B7, $AB, $A8, $FF, $B7, $AB, $AC, $B5, $B7, $A8, $A8, $B1, $FF, $FF
-  .BYTE $A5, $B2, $B6, $B6, $A8, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_26:  ; Better Thief and Ninja
-  FFLINES 4
-  FFPAD {"The Thief starts with 80"}, 28
-  FFPAD {"agility, not 10, and gains"}, 28
-  FFPAD {"it every level, not one in"}, 28
-  FFPAD {"four. A Ninja keeps both."}, 28
-
-lut_Desc_27:  ; Double weapon crit
-  FFLINES 5
-  FFPAD {"Doubles every weapon's"}, 28
-  FFPAD {"critical hit rate.  Needs"}, 28
-  FFPAD {"Weapon Stats, without which"}, 28
-  FFPAD {"the game never reads that"}, 28
-  FFPAD {"number at all."}, 28
-
-lut_Desc_28:  ; Elemental bonus
-  FFLINES 5
-  FFPAD {"Damage added when an attack"}, 28
-  FFPAD {"matches a weakness. Vanilla"}, 28
-  FFPAD {"is +4. Needs Weapon stats on"}, 28
-  FFPAD {"or only monsters get it -"}, 28
-  FFPAD {"party weapon element is 0."}, 28
-
-lut_Desc_29:  ; Improved Cure spells
-  FFLINES 4
-  .BYTE $8C, $9E, $9B, $8E, $B6, $FF, $B5, $A8, $B6, $B7, $B2, $B5, $A8, $FF, $B7, $BA, $AC, $A6, $A8, $FF, $A4, $B6, $FF, $B0, $B8, $A6, $AB, $FF
-  .BYTE $A4, $B1, $A7, $FF, $91, $8E, $8A, $95, $B6, $FF, $A6, $B2, $B9, $A8, $B5, $FF, $A4, $FF, $BA, $AC, $A7, $A8, $B5, $FF, $FF, $FF, $FF, $FF
-  .BYTE $B5, $A4, $B1, $AA, $A8, $C0, $FF, $FF, $95, $8A, $96, $99, $FF, $A4, $B1, $A7, $FF, $8A, $96, $9E, $9D, $FF, $A4, $AF, $B6, $B2, $FF, $FF
-  .BYTE $A6, $B8, $B5, $A8, $FF, $B3, $A4, $B5, $A4, $AF, $BC, $B6, $AC, $B6, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_30:  ; Improved Fire spells
-  FFLINES 4
-  .BYTE $8F, $92, $9B, $8E, $BF, $FF, $95, $92, $9D, $FF, $A4, $B1, $A7, $FF, $92, $8C, $8E, $FF, $AB, $AC, $B7, $FF, $A4, $B6, $FF, $FF, $FF, $FF
-  .BYTE $AB, $A4, $B5, $A7, $FF, $A4, $B6, $FF, $B7, $AB, $A8, $AC, $B5, $FF, $B7, $AC, $A8, $B5, $C2, $83, $FF, $A9, $B2, $B5, $B0, $B6, $C0, $FF
-  .BYTE $91, $8A, $9B, $96, $FF, $AB, $AC, $B7, $B6, $FF, $AB, $A4, $B5, $A7, $A8, $B5, $FF, $A4, $B1, $A7, $FF, $B6, $B7, $B5, $AC, $AE, $A8, $B6
-  .BYTE $A4, $FF, $B6, $AC, $B1, $AA, $AF, $A8, $FF, $B7, $A4, $B5, $AA, $A8, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_31:  ; Cast Life in battle
-  FFLINES 3
-  .BYTE $95, $92, $8F, $8E, $FF, $A4, $B1, $A7, $FF, $95, $92, $8F, $82, $FF, $A6, $A4, $B1, $FF, $A5, $A8, $FF, $B8, $B6, $A8, $A7, $FF, $FF, $FF
-  .BYTE $A7, $B8, $B5, $AC, $B1, $AA, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $BF, $FF, $B1, $B2, $B7, $FF, $B2, $B1, $AF, $BC, $FF, $B2, $B1, $FF, $FF
-  .BYTE $B7, $AB, $A8, $FF, $B0, $A4, $B3, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-lut_Desc_32:  ; LOK2 accuracy
-  FFLINES 3
-  .BYTE $95, $98, $8C, $94, $FF, $A4, $B1, $A7, $FF, $95, $98, $94, $82, $FF, $AB, $AC, $B7, $FF, $A9, $A4, $B5, $FF, $B0, $B2, $B5, $A8, $FF, $FF
-  .BYTE $B2, $A9, $B7, $A8, $B1, $BF, $FF, $A4, $B6, $FF, $B7, $AB, $A8, $FF, $B0, $A4, $B1, $B8, $A4, $AF, $FF, $A4, $AF, $BA, $A4, $BC, $B6, $FF
-  .BYTE $A6, $AF, $A4, $AC, $B0, $A8, $A7, $FF, $B7, $AB, $A8, $BC, $FF, $A7, $AC, $A7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-
-
-lut_Desc_33:  ; TREASURES
-  FFLINES 3
-  FFPAD {"Changes what a new game"}, 28
-  FFPAD {"starts out with.  Saved"}, 28
-  FFPAD {"games are not affected."}, 28
-
-lut_Desc_46:  ; Thief and Ninja hit%
-  FFLINES 4
-  FFPAD {"Hit rate grows twice as fast"}, 28
-  FFPAD {"for the Thief and the Ninja."}, 28
-  FFPAD {"Separate from the agility"}, 28
-  FFPAD {"buff above."}, 28
-
-lut_Desc_45:  ; SCALE
-  FFLINES 3
-  FFPAD {"Adjustments to the game"}, 28
-  FFPAD {"difficulty. Press left and"}, 28
-  FFPAD {"right to change the value."}, 28
-
-lut_Desc_34:  ; Free SHIP
-  FFLINES 3
-  FFPAD {"The ship is moored beside"}, 28
-  FFPAD {"Coneria from the start,"}, 28
-  FFPAD {"without beating the pirates."}, 28
-
-lut_Desc_35:  ; Free AIRSHIP
-  FFLINES 3
-  FFPAD {"The airship is parked where"}, 28
-  FFPAD {"the party starts, with no"}, 28
-  FFPAD {"need for the FLOATER."}, 28
-
-lut_Desc_36:  ; Free BRIDGE
-  FFLINES 3
-  FFPAD {"The bridge east of Coneria"}, 28
-  FFPAD {"is already built, without"}, 28
-  FFPAD {"rescuing the princess."}, 28
-
-lut_Desc_37:  ; Free CANAL
-  FFLINES 2
-  FFPAD {"The canal is already open,"}, 28
-  FFPAD {"without Nerrick and the TNT."}, 28
-
-lut_Desc_38:  ; Free CANOE
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"CANOE, without the sage at"}, 28
-  FFPAD {"Crescent Lake."}, 28
-
-
-lut_Desc_39:  ; Free KEY
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"mystic KEY, which opens"}, 28
-  FFPAD {"every locked door there is."}, 28
-
-lut_Desc_40:  ; Free CHIME
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"CHIME, which opens the way"}, 28
-  FFPAD {"into the Mirage Tower."}, 28
-
-lut_Desc_41:  ; Free CROWN
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"CROWN, so the Marsh Cave"}, 28
-  FFPAD {"need not be searched for it."}, 28
-
-
-lut_Desc_42:  ; Free LUTE
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"LUTE, without rescuing the"}, 28
-  FFPAD {"princess."}, 28
-
-lut_Desc_43:  ; Free TAIL
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"TAIL, without searching the"}, 28
-  FFPAD {"Ice Cave for it."}, 28
-
-lut_Desc_44:  ; Free ROD
-  FFLINES 3
-  FFPAD {"The party starts with the"}, 28
-  FFPAD {"ROD, which opens the way"}, 28
-  FFPAD {"down through the Earth Cave."}, 28
-
-lut_Desc_47:  ; NEW GAME
-  FFLINES 4
-  FFPAD {"Randomizes the next new"}, 28
-  FFPAD {"game.  A saved game keeps"}, 28
-  FFPAD {"the world it was started"}, 28
-  FFPAD {"with, whatever is set here."}, 28
-
-lut_Desc_48:  ; Trap tiles
-  FFLINES 5
-  FFPAD {"Shuf trades the 34 trap"}, 28
-  FFPAD {"tiles' fights among them."}, 28
-  FFPAD {"A, B and A+B give each trap"}, 28
-  FFPAD {"a fight drawn from every"}, 28
-  FFPAD {"A-side, B-side or both."}, 28
-
-lut_Desc_49:  ; Shops
-  FFLINES 5
-  FFPAD {"Shuf deals the weapon, armor"}, 28
-  FFPAD {"and item shops' wares out"}, 28
-  FFPAD {"again, the Caravan's BOTTLE"}, 28
-  FFPAD {"included.  The Caravan stays"}, 28
-  FFPAD {"open after the fairy is out."}, 28
-
-;  One pointer per list row, so a blank row needs no special case.
-lut_DescLo:
-  .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
-  .BYTE <lut_Desc_24, <lut_Desc_25, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0
-  .BYTE <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6
-  .BYTE <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11
-  .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
-  .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
-  .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2
-  .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
-  .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
-  .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
-  .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
-  .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48, <lut_Desc_49
-lut_DescLoEnd:
-.assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
-lut_DescHi:
-  .BYTE >lut_DescBlank, >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23
-  .BYTE >lut_Desc_24, >lut_Desc_25, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0
-  .BYTE >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6
-  .BYTE >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11
-  .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
-  .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
-  .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2
-  .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
-  .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
-  .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
-  .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
-  .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48, >lut_Desc_49
-lut_DescHiEnd:
-.assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

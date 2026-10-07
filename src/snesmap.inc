@@ -47,6 +47,7 @@ CHUNK_CREDITS   = $12           ; the credits screen, native code and mode 7
 CREDITSFAR      = (CHUNK0 + CHUNK_CREDITS) * $10000
 CHUNK_RANDO     = $13           ; the randomizer: PRNG, generator, its hooks
 RANDOFAR        = (CHUNK0 + CHUNK_RANDO) * $10000
+CHUNK_OPTTEXT   = $14           ; the settings screen's descriptions; data only
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
