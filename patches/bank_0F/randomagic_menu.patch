@@ -1,0 +1,6 @@
+--- OLD
+      CLC             ; add our level+text index to the current spell
+      ADC tmp         ;  previously stored in tmp
+--- NEW
+.import rando_menuspell
+      JSL rando_menuspell + RANDOFAR  ; the item id of the spell in this slot

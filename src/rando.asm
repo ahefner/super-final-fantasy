@@ -40,6 +40,8 @@
 
 .export rando_newgame, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
 .export rando_chest
+.export rando_spell, rando_slot, rando_ibspell, rando_obspell, rando_oobspell
+.export rando_menuspell, rando_shopspell, rando_shopmagic
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -78,6 +80,8 @@ wSHOPS   = .LOWORD(RW_SHOPS)
 wLOCS    = .LOWORD(RW_LOCS)
 wUNUSED  = .LOWORD(RW_UNUSED)
 wCHESTS  = .LOWORD(RW_CHESTS)
+wPERM    = .LOWORD(RW_PERM)
+wINV     = .LOWORD(RW_INV)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -99,6 +103,7 @@ ROMCHESTS  = BANK00FAR + $B100
 STREAM_TRAPS  = $54524150       ; "TRAP"
 STREAM_SHOPS  = $53484F50       ; "SHOP"
 STREAM_CHESTS = $43485354       ; "CHST"
+STREAM_MAGIC  = $4D414743       ; "MAGC"
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change
 ;  in the state slowly, and a seed typed in by hand -- 1, 2, 3 -- would
@@ -478,10 +483,20 @@ build:
   @chests:
     JSR copy_chests
     LDA f:RANDO_SAVEFAR + (RANDO_CHESTS - RANDO_SAVE)
-    BEQ @done                   ; CHESTS_OFF
+    BEQ @magic                  ; CHESTS_OFF
     CMP #CHESTS_MODES
-    BCS @done
+    BCS @magic
     JSR deal_chests
+
+  @magic:
+    JSR copy_magic
+    LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
+    BEQ @inverse                ; MAGIC_OFF
+    CMP #MAGIC_MODES
+    BCS @inverse
+    JSR deal_magic
+  @inverse:
+    JSR make_inverse
   @done:
     PLP
     RTS
@@ -1208,6 +1223,271 @@ rando_chest:
     PLX
     LDA a:wCHESTS, X
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The magic levels
+;;
+;;  FFR's ShuffleMagicLevels permutes the spell tables in ROM and then mends
+;;  everything that names a spell by its old index: enemy AI, the equipment
+;;  cast byte, the out-of-battle table, the confused enemy's FIRE.  Nothing
+;;  here moves.  The cache holds which spell each slot now holds, RW_PERM,
+;;  and its inverse, and the slot is turned into its spell at the few places
+;;  a character's slot becomes one: the conversion to the in-battle spell list
+;;  and back, the out-of-battle dispatch, the magic menu's names, the magic
+;;  shops' names, and the spell descriptions.  Everything downstream sees the
+;;  spell itself, as the game always did -- records, battle messages, enemy
+;;  casts, equipment, and every option that asks which spell it is.
+;;
+;;  What stays with the slot, as in FFR: the MP pool a cast spends (its
+;;  level), the price and the shop, and who may learn it -- FFR's presets all
+;;  leave MagicPermissions off, so a class learns slots, whatever lands in them.
+;;
+;;  Slots and spells are both 0..63, level * 8 + position.  Positions 0-3 of
+;;  a level are white and 4-7 black, and white stays white.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  Every slot holds its own spell.  A8, I16, DBR = $7F.
+copy_magic:
+    .a8
+    .i16
+    LDX #$0000
+  @copy:
+    TXA
+    STA a:wPERM, X
+    INX
+    CPX #64
+    BCC @copy
+    RTS
+
+;;  FFR un-interleaves the white and black spells, shuffles each list, and
+;;  interleaves them again.  The same thing in place: Fisher-Yates over the
+;;  32 white slots in order, then the 32 black ones.  A8, I16, DBR = $7F.
+deal_magic:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_MAGIC)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_MAGIC)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA #$00                    ; white: positions 0-3
+    JSR deal_book
+    LDA #$04                    ; black: positions 4-7
+    ;  fall through
+
+;;  Fisher-Yates over one book's 32 slots.  In: A = 0 for white, 4 for black.
+deal_book:
+    .a8
+    .i16
+    STA a:wK
+    LDA #31
+    STA a:wI
+  @fy:
+    LDA a:wI
+    BEQ @done
+    INC A
+    JSR rando_below             ; j, below i+1
+    JSR book_slot
+    STA a:wT2                   ; ...as a slot
+    LDA a:wI
+    JSR book_slot
+    STA a:wQ                    ; i, as a slot
+    LDX a:wQ
+    LDY a:wT2
+    LDA a:wPERM, X
+    PHA
+    LDA a:wPERM, Y
+    STA a:wPERM, X
+    PLA
+    STA a:wPERM, Y
+    DEC a:wI
+    BRA @fy
+  @done:
+    RTS
+
+;;  The book's k-th slot, 0..31: four to a level, at position wK on.
+book_slot:
+    .a8
+    PHA
+    AND #$1C                    ; the level, times four...
+    ASL A                       ; ...times eight
+    STA a:wP
+    PLA
+    AND #$03
+    ORA a:wP
+    ORA a:wK                    ; bit 2 is free for the book's offset
+    RTS
+
+;;  RW_INV[RW_PERM[s]] = s.  A8, I16, DBR = $7F.
+make_inverse:
+    .a8
+    .i16
+    LDY #$0000
+  @inv:
+    LDA a:wPERM, Y
+    STA a:wT2
+    LDX a:wT2
+    TYA
+    STA a:wINV, X
+    INY
+    CPY #64
+    BCC @inv
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_spell -- the spell in slot A.  rando_slot -- the slot spell A is in.
+;;
+;;  In: A = 0..63.  Out: A = 0..63; X and Y kept.  The cache is ensured, so
+;;  either may be the first thing a loaded game asks.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_spell:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    PHA
+    JSR enter
+    JSR ensure
+    PLA
+    AND #$3F
+    TAX
+    LDA a:wPERM, X
+    PLY
+    PLX
+    JMP leave
+
+rando_slot:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    PHA
+    JSR enter
+    JSR ensure
+    PLA
+    AND #$3F
+    TAX
+    LDA a:wINV, X
+    PLY
+    PLX
+    JMP leave
+
+
+;;  ConvertOBStatsToIB, per spell: the game turned a level's 1-based position
+;;  into a 1-based slot by adding the level's base.  This goes on to the spell
+;;  in that slot, so the battle -- its magic box, the selection, the attack id
+;;  -- deals in spells, as it always did.
+;;
+;;  In: A = the position, 1..8; Y = the index; btl_tmpindex = the level * 8,
+;;  which lives in battle RAM at $68B3.
+;;  Writes (btlptr),Y.  X and Y kept.
+rando_ibspell:
+    .a8
+    .i8
+    CLC
+    ADC a:btl_tmpindex          ; the 1-based slot, as the game had it; the
+                                ;   caller's data bank, which reaches $68B3
+    DEC A
+    JSL rando_spell + RANDOFAR
+    INC A                       ; 1-based again
+    STA (btlptr), Y             ; the caller's data bank: SRAM
+    RTL
+
+;;  ConvertIBStatsToOB, per spell: back from the spell to its slot's position
+;;  in the level.  In: A = the spell, 1-based.  Out: A = the position, 1..8.
+rando_obspell:
+    .a8
+    .i8
+    DEC A
+    JSL rando_slot + RANDOFAR
+    AND #$07
+    INC A
+    RTL
+
+;;  The out-of-battle dispatch.  The game built the spell id with ORA where it
+;;  needed ADC, which made the 8th spell of a level the 1st of the next; no
+;;  castable spell was ever 8th, until EXIT and WARP can land anywhere in the
+;;  black book.  The position is made 0-based first here, so the OR is sound.
+;;  An empty slot, which the game made into the level before's 8th spell,
+;;  comes back 0: no spell, so "can't cast that here".
+;;
+;;  In: X = the index into ch_spells, A the same.  Out: A = MG_START + the
+;;  spell, or 0.  X kept.
+rando_oobspell:
+    .a8
+    .i8
+    LDA ch_spells, X            ; the caller's data bank: SRAM
+    BEQ @empty
+    DEC A
+    STA f:RW_T
+    TXA
+    ASL A
+    AND #$38                    ; the level's first slot
+    ORA f:RW_T
+    JSL rando_spell + RANDOFAR
+    CLC
+    ADC #MG_START
+    RTL
+  @empty:
+    LDA #$00
+    RTL
+
+;;  The magic menu's list.  In: A = the position, 1..8; tmp = $AF + the
+;;  level * 8, which the game added to make the item id.  Out: A = the item id
+;;  of the spell in that slot.  X kept.
+rando_menuspell:
+    .a8
+    .i8
+    CLC
+    ADC z:tmp
+    SEC
+    SBC #MG_START
+    JSL rando_spell + RANDOFAR
+    CLC
+    ADC #MG_START
+    RTL
+
+;;  A magic shop's list.  ShopSelectBuyMagic writes each entry's item id
+;;  twice: at $11 for its name and at $16 for its price.  A magic shop sells
+;;  slots -- the price, the purchase and the learning all go by the slot -- so
+;;  $16 keeps the slot's id and $11 gets its spell's.
+;;
+;;  In: A = the entry's item id, Y = its string index.  X and Y kept.
+rando_shopmagic:
+    .a8
+    .i8
+    STA a:str_buf + $16, Y      ; the caller's data bank: low WRAM
+    JSL rando_shopspell + RANDOFAR
+    STA a:str_buf + $11, Y
+    RTL
+
+;;  An item id, with a slot's turned into its spell's.  In: A = an item id.
+;;  Out: A = the item id whose name to draw.  X kept.
+rando_shopspell:
+    .a8
+    .i8
+    CMP #MG_START
+    BCC @out
+    CMP #MG_START + 64
+    BCS @out
+    SEC
+    SBC #MG_START
+    JSL rando_spell + RANDOFAR
+    CLC
+    ADC #MG_START
+  @out:
+    RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

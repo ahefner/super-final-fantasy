@@ -1,0 +1,12 @@
+--- OLD
+    STA str_buf+$11, Y ; store item ID at $11
+    STA str_buf+$16, Y ; and $16
+--- NEW
+.import rando_shopmagic
+.export ShopSelectBuyMagic       ; for tools/test_options.py
+    ;  $16, for the price, stays the slot's item id -- prices, and what is
+    ;  bought and learned, go by slot.  $11, for the name, becomes the item id
+    ;  of the spell the magic shuffle put in the slot.  rando_shopmagic writes
+    ;  both.
+    JSL rando_shopmagic + RANDOFAR
+    .res 2, $EA

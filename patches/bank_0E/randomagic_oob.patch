@@ -1,0 +1,14 @@
+--- OLD
+    ASL A                  ; double A and mask out the level bits
+    AND #$38               ;  this effectively makes A the spell level * 8
+
+    ORA ch_spells, X       ; then ORA with the selected spell on this level
+    CLC                    ; and add the spell start constant - 1 (-1 because 0 is not a spell)
+    ADC #MG_START-1        ;  A is now the ID number of the selected spell (supposedly.. but that's wrong)
+--- NEW
+.import rando_oobspell
+    ;  The spell in the slot, through the magic shuffle, as MG_START + spell --
+    ;  or 0 for an empty slot.  The far routine also mends the ORA below, which
+    ;  the shuffle would otherwise make live; see rando_oobspell.
+    JSL rando_oobspell + RANDOFAR
+    .res 5, $EA

@@ -1283,7 +1283,8 @@ RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
 RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
 RANDO_SHOPS     = RANDO_SAVE+$05  ; SHOPS_* below
 RANDO_CHESTS    = RANDO_SAVE+$06  ; CHESTS_* below
-RANDO_SAVE_SIZE = $07
+RANDO_MAGIC     = RANDO_SAVE+$07  ; MAGIC_* below
+RANDO_SAVE_SIZE = $08
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1298,6 +1299,7 @@ OPT_NGFAR       = (CHUNK0 * $10000) + OPT_NG
 OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SHOPS    = OPT_NG + (RANDO_SHOPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_CHESTS   = OPT_NG + (RANDO_CHESTS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_MAGIC    = OPT_NG + (RANDO_MAGIC - RANDO_SAVE) - RANDO_NGOFF
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
@@ -1328,6 +1330,14 @@ SHOPS_MODES     = 2
 CHESTS_OFF      = 0
 CHESTS_SHUFFLE  = 1
 CHESTS_MODES    = 2
+
+;  Magic level modes.  FFR's MagicLevels as its presets use it: white spells
+;  among white slots, black among black, and a class's permissions staying
+;  with the slot.  Tiered, mixed spellbooks and permissions that follow the
+;  spell are FFR flags of their own, off in every FFR preset.
+MAGIC_OFF       = 0
+MAGIC_SHUFFLE   = 1
+MAGIC_MODES     = 2
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1383,5 +1393,7 @@ RW_PROPS        = RANDOWRAM+$0800 ; every tileset's property table, $800 bytes
 RW_SHOPS        = RANDOWRAM+$1000 ; every shop's item_box, 8 bytes per shop_id
 RW_SHOPROWS     = 71              ; shop_id 0..70; 70 is the Caravan
 RW_CHESTS       = RANDOWRAM+$1400 ; every chest's contents, by chest id
+RW_PERM         = RANDOWRAM+$1500 ; magic: the spell in each slot, 64 bytes
+RW_INV          = RANDOWRAM+$1540 ; magic: the slot each spell is in
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

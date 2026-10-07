@@ -11,6 +11,7 @@ Run it to see a world without playing it:
 
     python3 tools/randoref.py SuperFinalFantasy.srm      # the saved game's
     python3 tools/randoref.py --seed 12345678 --traps b --shops shuffle --chests shuffle
+    python3 tools/randoref.py SuperFinalFantasy.srm --find "heal staff"
 
 It reads the cartridge's tables from the built ROM, so build first.
 """
@@ -36,6 +37,7 @@ def xs32(x):
 STREAM_TRAPS = 0x54524150       # "TRAP"
 STREAM_SHOPS = 0x53484F50       # "SHOP"
 STREAM_CHESTS = 0x43485354      # "CHST"
+STREAM_MAGIC = 0x4D414743       # "MAGC"
 WARMUP = 8
 
 
@@ -251,12 +253,111 @@ def build_chests(rom, seed, chests):
     return bytes(table)
 
 
+# --- where things are ---------------------------------------------------------------
+#  The 61 standard maps, decoded the way DecompressMap does it, so a chest can
+#  be named by the floor it is on.  The names are FFR's MapIndex (Enums.cs),
+#  which follows the ROM's order.
+MAP_NAMES = [
+    "Coneria", "Pravoka", "Elfland", "Melmond", "Crescent Lake", "Gaia",
+    "Onrac", "Lefein", "Coneria Castle 1F", "Elfland Castle",
+    "Northwest Castle", "Castle of Ordeals 1F", "Temple of Fiends",
+    "Earth Cave B1", "Gurgu Volcano B1", "Ice Cave B1", "Cardia",
+    "Bahamut's Cave B1", "Waterfall", "Dwarf Cave", "Matoya's Cave",
+    "Sarda's Cave", "Marsh Cave B1", "Mirage Tower 1F", "Coneria Castle 2F",
+    "Castle of Ordeals 2F", "Castle of Ordeals 3F", "Marsh Cave B2",
+    "Marsh Cave B3", "Earth Cave B2", "Earth Cave B3", "Earth Cave B4",
+    "Earth Cave B5", "Gurgu Volcano B2", "Gurgu Volcano B3",
+    "Gurgu Volcano B4", "Gurgu Volcano B5", "Ice Cave B2", "Ice Cave B3",
+    "Bahamut's Cave B2", "Mirage Tower 2F", "Mirage Tower 3F",
+    "Sea Shrine B5", "Sea Shrine B4", "Sea Shrine B3", "Sea Shrine B2",
+    "Sea Shrine B1", "Sky Palace 1F", "Sky Palace 2F", "Sky Palace 3F",
+    "Sky Palace 4F", "Sky Palace 5F", "Temple of Fiends (past) 1F",
+    "Temple of Fiends (past) 2F", "Temple of Fiends (past) 3F",
+    "Temple of Fiends (past) Earth", "Temple of Fiends (past) Fire",
+    "Temple of Fiends (past) Water", "Temple of Fiends (past) Air",
+    "Temple of Fiends (past) Chaos", "Titan's Tunnel",
+]
+TILESETS = 0x10000 + 0xACC0              # lut_Tilesets: one per map
+TP_SPEC_MASK, TP_SPEC_TREASURE = 0x1E, 0x08
+
+
+def nesbank(rom, n):
+    o = (n + 1) * 0x10000 + 0x8000
+    return rom[o:o + 0x4000]
+
+
+def decode_rle(src, off, count):
+    """DecompressMap: $00-$7F one tile, $80-$FE a tile and a run length (0 is
+    256), $FF the end."""
+    out = []
+    while src[off] != 0xFF and len(out) < count:
+        b = src[off]
+        if b < 0x80:
+            out.append(b)
+            off += 1
+        else:
+            out += [b & 0x7F] * (src[off + 1] or 256)
+            off += 2
+    return out[:count]
+
+
+def chest_floors(rom):
+    """chest id -> the names of the maps that place it.  The pointer table is
+    at the start of bank $04 and the maps run on through $07; a pointer is a
+    plain offset into the four banks together."""
+    banks = b"".join(nesbank(rom, n) for n in (4, 5, 6, 7))
+    props = rom_props(rom)
+    where = {}
+    for m, name in enumerate(MAP_NAMES):
+        p = banks[m * 2] | banks[m * 2 + 1] << 8
+        ts = rom[TILESETS + m]
+        for t in set(decode_rle(banks, p, 4096)):
+            o = ts * 256 + (t & 0x7F) * 2
+            if props[o] & TP_SPEC_MASK == TP_SPEC_TREASURE:
+                where.setdefault(props[o + 1], []).append(name)
+    return where
+
+
+# --- magic levels ----------------------------------------------------------------
+#  Slots and spells are both level * 8 + position, 0..63; positions 0-3 are
+#  white and 4-7 black.  FFR un-interleaves the books, shuffles each, and
+#  interleaves them again: the k-th white slot gets the k-th white spell of
+#  the shuffled list.
+MAGIC_OFF, MAGIC_SHUFFLE = range(2)
+MAGIC_MODES = 2
+MAGIC_NAMES = {"off": MAGIC_OFF, "shuffle": MAGIC_SHUFFLE}
+
+
+def book_slot(k, black):
+    return 8 * (k >> 2) + (k & 3) + (4 if black else 0)
+
+
+def build_magic(seed, magic):
+    """perm (the spell in each slot) and its inverse, 64 bytes each."""
+    perm = list(range(64))
+    if 0 < magic < MAGIC_MODES:
+        rng = Stream(seed, STREAM_MAGIC)
+        for black in (False, True):
+            book = [book_slot(k, black) for k in range(32)]
+            for i in range(31, 0, -1):
+                j = rng.below(i + 1)
+                a, b = book[i], book[j]
+                perm[a], perm[b] = perm[b], perm[a]
+    inv = [0] * 64
+    for s, sp in enumerate(perm):
+        inv[sp] = s
+    return bytes(perm), bytes(inv)
+
+
 #  Item names, for printing: lut_ItemNamePtrTbl in bank $0A at $B700.  The
 #  last tile of a weapon or armor name is an icon for its kind.
 ICONS = {0xD4: "Sword", 0xD5: "Hammer", 0xD6: "Knife", 0xD7: "Axe",
          0xD8: "Staff", 0xD9: "Nunchuck", 0xDA: "Armor", 0xDB: "Shield",
          0xDC: "Helmet", 0xDD: "Gauntlet", 0xDE: "Bracelet", 0xDF: "Shirt",
          0xE1: "Potion"}
+
+
+PUNCT = {0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC4: "!", 0xC5: "?"}
 
 
 def item_name(rom, item):
@@ -270,6 +371,7 @@ def item_name(rom, item):
         elif 0x8A <= b <= 0xA3: out += chr(ord("A") + b - 0x8A)
         elif 0xA4 <= b <= 0xBD: out += chr(ord("a") + b - 0xA4)
         elif b == 0xFF: out += " "
+        elif b in PUNCT: out += PUNCT[b]
         elif b in ICONS: out += " " + ICONS[b]
         else: out += "?"
         at += 1
@@ -279,13 +381,13 @@ def item_name(rom, item):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 7
+RANDO_SAVE_SIZE = 8
 
 
 def block_from_srm(srm):
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6]
+    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6], b[7]
 
 
 def main():
@@ -295,23 +397,54 @@ def main():
     ap.add_argument("--traps", choices=sorted(TRAP_NAMES), default="off")
     ap.add_argument("--shops", choices=sorted(SHOP_NAMES), default="off")
     ap.add_argument("--chests", choices=sorted(CHEST_NAMES), default="off")
+    ap.add_argument("--magic", choices=sorted(MAGIC_NAMES), default="off")
+    ap.add_argument("--find", metavar="NAME",
+                    help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
-        seed, traps, shops, chests = block_from_srm(open(a.srm, "rb").read())
+        seed, traps, shops, chests, magic = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops, chests = (int(a.seed, 16), TRAP_NAMES[a.traps],
-                                      SHOP_NAMES[a.shops], CHEST_NAMES[a.chests])
+        seed, traps, shops, chests, magic = (
+            int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
+            CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic])
     else:
         ap.error("give a battery file or --seed")
-    print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d"
-          % (seed, traps, shops, chests))
+    print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d"
+          % (seed, traps, shops, chests, magic))
+    perm, _ = build_magic(seed, magic)
+    if magic:
+        for level in range(8):
+            names = [item_name(rom, 0xB0 + perm[level * 8 + p]) for p in range(8)]
+            print("  L%d  white %-23s black %s" % (level + 1, " ".join(names[:4]),
+                                                  " ".join(names[4:])))
     vanilla, dealt = rom_chests(rom), build_chests(rom, seed, chests)
+    floors = chest_floors(rom)
+    if a.find:
+        want = a.find.lower()
+        hits = 0
+        for c in range(256):
+            if c in floors and want in item_name(rom, dealt[c]).lower():
+                print("  %-16s chest $%02X  %s" % (item_name(rom, dealt[c]), c,
+                                                    " / ".join(floors[c])))
+                hits += 1
+        rows = build_shops(rom, seed, shops)
+        for first, kind in zip(SHOP_TYPES, ("weapon", "armor", "item")):
+            for s in range(first, first + 10):
+                for i in row_list(rows[s * 8:s * 8 + 8]):
+                    if shop_ptr(rom, s) != shop_ptr(rom, 0) and want in item_name(rom, i).lower():
+                        print("  %-16s %s %s shop" % (item_name(rom, i),
+                                                      TOWNS[s - 10 if 11 <= s <= 20 else s], kind))
+                        hits += 1
+        if not hits:
+            print("  nothing called %r in any chest or shop" % a.find)
+        return
     for c in range(256):
         if dealt[c] != vanilla[c]:
-            print("  chest $%02X  %-16s (was %s)"
-                  % (c, item_name(rom, dealt[c]), item_name(rom, vanilla[c])))
+            print("  chest $%02X  %-16s (was %-16s)  %s"
+                  % (c, item_name(rom, dealt[c]), item_name(rom, vanilla[c]),
+                     " / ".join(floors.get(c, ["?"]))))
     rows = build_shops(rom, seed, shops)
     for first, kind in zip(SHOP_TYPES, ("weapon", "armor", "item")):
         for s in range(first, first + 10):

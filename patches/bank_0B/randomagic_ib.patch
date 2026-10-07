@@ -1,0 +1,11 @@
+--- OLD
+          CLC
+          ADC btl_tmpindex        ; add the current spell level to it to make it true 1-based
+          STA (btlptr), Y
+--- NEW
+.import rando_ibspell
+.export ConvertOBStatsToIB, ConvertIBStatsToOB   ; for tools/test_options.py
+          ;  Through the magic shuffle: the slot's spell, 1-based, which is
+          ;  what the battle deals in from here on.  rando_ibspell writes it.
+          JSL rando_ibspell + RANDOFAR
+          .res 2, $EA

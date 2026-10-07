@@ -1,0 +1,12 @@
+--- OLD
+      SEC                       ; otherwise...
+      SBC #$01                  ; -1 to make it 0 based
+      AND #$07                  ; chop off high bits to eliminate spell level
+      CLC
+      ADC #$01                  ; +1 to make it 1-based again
+--- NEW
+.import rando_obspell
+      ;  From the spell back to its slot, then its 1-based position in the
+      ;  level, as the game stores it out of battle.
+      JSL rando_obspell + RANDOFAR
+      .res 4, $EA

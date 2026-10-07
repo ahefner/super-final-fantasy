@@ -3528,7 +3528,7 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 63
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 64
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
@@ -3589,7 +3589,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(8):
+    for t in range(9):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
@@ -3604,7 +3604,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the eight tables hold the expected number of entries", seen, 100)
+    check("the nine tables hold the expected number of entries", seen, 102)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -3698,12 +3698,13 @@ def rw(name):
     return K[name] - RW_BASE
 
 
-def setsave(bus, seed, traps, shops=0, chests=0):
+def setsave(bus, seed, traps, shops=0, chests=0, magic=0):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     bus.sram[K["RANDO_TRAPS"] - 0x6000] = traps
     bus.sram[K["RANDO_SHOPS"] - 0x6000] = shops
     bus.sram[K["RANDO_CHESTS"] - 0x6000] = chests
+    bus.sram[K["RANDO_MAGIC"] - 0x6000] = magic
 
 
 def cache_props(bus):
@@ -3859,14 +3860,14 @@ def test_rando_cache():
     #  state to the end of the chest table.
     for seed in (0x31415926, 1082):
         bus2, cpu2 = machine()
-        lo, hi = rw("RW_RNG"), rw("RW_CHESTS") + 256
+        lo, hi = rw("RW_RNG"), rw("RW_INV") + 64
         bus2.wram[lo:hi] = b"\xFF" * (hi - lo)
-        setsave(bus2, seed, 4, 1, 1)
+        setsave(bus2, seed, 4, 1, 1, 1)
         call(cpu2, "rando_ensure", bank=RANDO_BANK)
         check("seed $%08X over junk: the reference's world" % seed,
-              (cache_props(bus2), shop_cache(bus2), chest_cache(bus2)),
+              (cache_props(bus2), shop_cache(bus2), chest_cache(bus2), magic_cache(bus2)),
               (R.build_props(ROMDATA, seed, 4), R.build_shops(ROMDATA, seed, 1),
-               R.build_chests(ROMDATA, seed, 1)))
+               R.build_chests(ROMDATA, seed, 1), R.build_magic(seed, 1)))
 
     #  A reset in the middle of a rebuild must leave the cache invalid, not
     #  finished: clear the tag first, write it last.
@@ -3948,6 +3949,7 @@ def test_rando_newgame():
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 3
     bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
     bus.sram[K["OPT_NG_CHESTS"] - 0x6000] = 1
+    bus.sram[K["OPT_NG_MAGIC"] - 0x6000] = 1
     cpu.x = 0x42
     call(cpu, "rando_newgame", bank=RANDO_BANK)
     check("new game: the seed is the pool", bytes(bus.sram[save:save + 4]),
@@ -3955,6 +3957,7 @@ def test_rando_newgame():
     check("new game: the trap row copied", bus.sram[K["RANDO_TRAPS"] - 0x6000], 3)
     check("new game: the shops row copied", bus.sram[K["RANDO_SHOPS"] - 0x6000], 1)
     check("new game: the chests row copied", bus.sram[K["RANDO_CHESTS"] - 0x6000], 1)
+    check("new game: the magic row copied", bus.sram[K["RANDO_MAGIC"] - 0x6000], 1)
     check("new game: X kept", cpu.x, 0x42)
 
     #  ...and the hook is wired: opt_freestuff is what New Game calls.
@@ -3963,9 +3966,10 @@ def test_rando_newgame():
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 2
     bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
     bus.sram[K["OPT_NG_CHESTS"] - 0x6000] = 1
+    bus.sram[K["OPT_NG_MAGIC"] - 0x6000] = 1
     call(cpu, "opt_freestuff")
-    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 7]),
-          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01")
+    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 8]),
+          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01\x01")
 
 
 def test_rando_stir():
@@ -4013,10 +4017,11 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 8]),
+          list(ROMDATA[at:at + 9]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
-           K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK])
+           K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
+           K["OPT_NG_MAGIC"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4293,6 +4298,8 @@ def test_menudesc():
                  "sells what it always has", "dealt out again"))]
     cases += [(62, K["OPT_NG_CHESTS"], v, phrase) for v, phrase in enumerate((
                  "holds what it always has", "trade contents"))]
+    cases += [(63, K["OPT_NG_MAGIC"], v, phrase) for v, phrase in enumerate((
+                 "level it always is", "trade levels"))]
     seen = {}
     for row, byte, value, phrase in cases:
         bus, cpu = machine()
@@ -4459,6 +4466,197 @@ def test_rando_chestload():
           bus.sram[K["items"] - 0x6000 + want[c]], 1)
 
 
+# --- magic levels -----------------------------------------------------------
+def magic_cache(bus):
+    p, i = rw("RW_PERM"), rw("RW_INV")
+    return bytes(bus.wram[p:p + 64]), bytes(bus.wram[i:i + 64])
+
+
+def jsl_count(image_bank, name):
+    """How many times the image's 16KB at $8000 (or $C000) holds a JSL to name
+    in the randomizer's chunk -- the wiring of a patch, found by its bytes."""
+    a = SYM[name]
+    op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
+    lo = image_bank * 0x10000 + 0x8000
+    return ROMDATA[lo:lo + 0x8000].count(op)
+
+
+def test_rando_magic():
+    white = lambda s: (s & 7) < 4
+    for mode in (0, 1, 2, 0xFF):
+        seen = set()
+        for seed in SEEDS:
+            bus, cpu = machine()
+            setsave(bus, seed, 0, 0, 0, mode)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            perm, inv = magic_cache(bus)
+            name = "magic mode %d seed $%08X" % (mode, seed)
+            check(name + ": as randoref deals it", (perm, inv), R.build_magic(seed, mode))
+            check(name + ": a permutation", sorted(perm), list(range(64)))
+            check(name + ": the inverse", [inv[perm[s]] for s in range(64)], list(range(64)))
+            check(name + ": white stays white",
+                  [s for s in range(64) if white(s) != white(perm[s])], [])
+            if mode != 1:
+                check(name + ": every spell in its own slot", list(perm), list(range(64)))
+            seen.add(perm)
+        check("magic mode %d: %s" % (mode, "every seed its own" if mode == 1 else "one world"),
+              len(seen), len(SEEDS) if mode == 1 else 1)
+
+    #  Its own stream: magic on or off leaves the other three alone, and they
+    #  leave it alone.
+    for seed in SEEDS[:3]:
+        a, b, c = machine(), machine(), machine()
+        setsave(a[0], seed, 3, 1, 1, 0)
+        setsave(b[0], seed, 3, 1, 1, 1)
+        setsave(c[0], seed, 0, 0, 0, 1)
+        for m in (a, b, c):
+            call(m[1], "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X: magic leaves the others alone" % seed,
+              (cache_props(a[0]), shop_cache(a[0]), chest_cache(a[0])),
+              (cache_props(b[0]), shop_cache(b[0]), chest_cache(b[0])))
+        check("seed $%08X: the others leave magic alone" % seed,
+              magic_cache(b[0]), magic_cache(c[0]))
+
+
+def test_rando_spellconv():
+    """The battle's spell list, in place: ConvertOBStatsToIB turns each slot
+    into its spell, and ConvertIBStatsToOB turns it back."""
+    import random
+    rnd = random.Random(9)
+    sp = K["ch_magicdata"] - 0x6000
+    for seed, mode in ((0x600DCAFE, 1), (0x600DCAFE, 0), (77, 1)):
+        perm, _ = R.build_magic(seed, mode)
+        bus, cpu = machine()
+        setsave(bus, seed, 0, 0, 0, mode)
+        ob = bytearray(4 * 0x40)
+        for c in range(4):
+            for level in range(8):
+                for k in range(3):                 # the 4th byte of a level is padding
+                    ob[c * 0x40 + level * 4 + k] = rnd.choice([0, 1, 2, 3, 4, 5, 6, 7, 8, 8])
+        bus.sram[sp:sp + 0x100] = ob
+        before = bytes(bus.sram[0x100:0x400])
+        cpu.dbr = 0xA1 + 0x0B
+        cpu.run(0xA1 + 0x0B, SYM["ConvertOBStatsToIB"])
+        want, got = [], []
+        for c in range(4):
+            for level in range(8):
+                for k in range(4):
+                    v = ob[c * 0x40 + level * 4 + k]
+                    want.append(perm[level * 8 + v - 1] + 1 if v else 0)
+                    got.append(bus.sram[sp + c * 0x40 + level * 4 + k])
+        name = "seed $%08X mode %d" % (seed, mode)
+        check(name + ": in battle, each slot is its spell", got, want)
+        cpu.dbr = 0xA1 + 0x0B
+        cpu.run(0xA1 + 0x0B, SYM["ConvertIBStatsToOB"])
+        check(name + ": and back again, exactly", bytes(bus.sram[0x100:0x400]), before)
+
+
+def test_rando_oobspell():
+    """The out-of-battle dispatch: the slot's spell, an 8th spell where the
+    game's ORA went wrong, and nothing for an empty slot."""
+    sp = K["ch_magicdata"] - 0x6000
+    MG = 0xB0
+    for seed, mode in ((0x600DCAFE, 1), (0x600DCAFE, 0)):
+        perm, _ = R.build_magic(seed, mode)
+        bad = []
+        for char in range(4):
+            for level in range(8):
+                for k in range(3):
+                    for v in (0, 1, 8):
+                        bus, cpu = machine()
+                        setsave(bus, seed, 0, 0, 0, mode)
+                        x = char * 0x40 + level * 4 + k
+                        bus.sram[sp + x] = v
+                        cpu.x = x
+                        cpu.a = x
+                        call(cpu, "rando_oobspell", bank=RANDO_BANK)
+                        want = MG + perm[level * 8 + v - 1] if v else 0
+                        if cpu.a & 0xFF != want or cpu.x != x:
+                            bad.append("   char %d L%d slot %d pos %d: $%02X, want $%02X"
+                                       % (char, level + 1, k, v, cpu.a & 0xFF, want))
+        check("mode %d: every slot dispatches its spell" % mode, len(bad), 0)
+        fails.extend(bad[:4])
+    check("the dispatch calls it, once", jsl_count(1 + 0x0E, "rando_oobspell"), 1)
+
+
+def test_rando_spellnames():
+    """The names a slot is drawn under: the magic menu's list, the magic
+    shops' list, and the spell descriptions."""
+    for seed, mode in ((0x600DCAFE, 1), (0x600DCAFE, 0)):
+        perm, _ = R.build_magic(seed, mode)
+        bad = []
+        for s in range(64):
+            level, v = s >> 3, (s & 7) + 1
+            bus, cpu = machine()
+            setsave(bus, seed, 0, 0, 0, mode)
+            bus.wram[K["tmp"]] = 0xAF + level * 8
+            cpu.a = v
+            call(cpu, "rando_menuspell", bank=RANDO_BANK)
+            if cpu.a & 0xFF != 0xB0 + perm[s]:
+                bad.append("   menu slot %d: $%02X" % (s, cpu.a & 0xFF))
+            cpu.a = 0xB0 + s
+            call(cpu, "rando_shopspell", bank=RANDO_BANK)
+            if cpu.a & 0xFF != 0xB0 + perm[s]:
+                bad.append("   shop slot %d: $%02X" % (s, cpu.a & 0xFF))
+            setblk(bus, 0, 0)
+            cpu.a = 0xB0 + s
+            call(cpu, "opt_descgear", dbr=CHUNK_OPT_BANK)
+            if bus.sram[K["OPTGEARI"] - 0x6000] != perm[s]:
+                bad.append("   description of slot %d: spell %d"
+                           % (s, bus.sram[K["OPTGEARI"] - 0x6000]))
+        check("mode %d: all 64 slots named and described as their spell" % mode, len(bad), 0)
+        fails.extend(bad[:4])
+        #  Anything not a spell goes through the shop list untouched.
+        for item in (0x01, 0x1C, 0x6B, 0xAF, 0xF0, 0xFF):
+            bus, cpu = machine()
+            setsave(bus, seed, 0, 0, 0, mode)
+            cpu.a = item
+            call(cpu, "rando_shopspell", bank=RANDO_BANK)
+            check("mode %d: item $%02X is not a spell" % (mode, item), cpu.a & 0xFF, item)
+    fixed = 0xA7 & 0x1F
+    check("the magic menu's list calls it, once", jsl_count(fixed, "rando_menuspell"), 1)
+    check("battle start calls it, once", jsl_count(1 + 0x0B, "rando_ibspell"), 1)
+    check("battle end calls it, once", jsl_count(1 + 0x0B, "rando_obspell"), 1)
+
+
+def test_rando_magicshop():
+    """A magic shop's list, drawn by the game's own ShopSelectBuyMagic and read
+    back off the nametable: each slot under its spell's name, at the slot's
+    level, and the slot's item id kept for the price and the purchase."""
+    base = (1 + 0x0E) * 0x10000
+    ptr = lambda s: ROMDATA[base + 0x8300 + 2 * s] | ROMDATA[base + 0x8301 + 2 * s] << 8
+    sb, ib = K["str_buf"], K["item_box"]
+    nt = K["NESNT"] - 0x7E0000
+    for seed, mode in ((0x0BADF00D, 1), (77, 1), (0x0BADF00D, 0)):
+        perm, _ = R.build_magic(seed, mode)
+        for shop in (21, 31, 26, 37):            # white and black, low and high
+            wares = as_list(ROMDATA[base + ptr(shop):][:5])
+            bus, cpu = machine()
+            in_vblank(bus)
+            call(cpu, "opt_init")
+            setsave(bus, seed, 0, 0, 0, mode)
+            bus.wram[ib:ib + 6] = bytes(wares + [0] * (6 - len(wares)))
+            cpu.dbr = BANK_0E
+            try:
+                cpu.run(BANK_0E, SYM["ShopSelectBuyMagic"], limit=400000)
+            except RuntimeError:
+                pass                             # waiting for the player: drawn
+            name = "seed $%08X mode %d shop %d" % (seed, mode, shop)
+            slots = [w - 0xB0 for w in wares]
+            check(name + ": the price and purchase keep the slot",
+                  [bus.wram[sb + 0x16 + 8 * i] for i in range(len(wares))], wares)
+            rows = []
+            for r in range(30):
+                line = "".join(_decode(b) or " " for b in bus.wram[nt + r * 32:nt + r * 32 + 32]).strip()
+                if line:
+                    rows.append(line)
+            names = [r for r in rows if not r[0].isdigit()]
+            levels = [int(r[0]) for r in rows if r[0].isdigit()]
+            check(name + ": each slot named for its spell", names,
+                  [R.item_name(ROMDATA, 0xB0 + perm[s]) for s in slots])
+            check(name + ": at the slot's level", levels, [(s >> 3) + 1 for s in slots])
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4495,7 +4693,9 @@ def main():
              test_rando_mapload, test_rando_battle, test_rando_newgame,
              test_rando_stir, test_rando_options, test_savever,
              test_rando_shops, test_rando_shopload, test_rando_caravan,
-             test_menudesc, test_rando_chests, test_rando_chestload)
+             test_menudesc, test_rando_chests, test_rando_chestload,
+             test_rando_magic, test_rando_spellconv, test_rando_oobspell,
+             test_rando_spellnames, test_rando_magicshop)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

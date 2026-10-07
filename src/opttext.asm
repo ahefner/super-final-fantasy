@@ -386,6 +386,24 @@ lut_Desc_50_0:  ; Chests: Off
   FFPAD {"Every chest holds what it"}, 28
   FFPAD {"always has."}, 28
 
+lut_Desc_51:  ; Magic levels, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_51_0, lut_Desc_51_1
+  .assert * - lut_Desc_51 = 1 + 2 * MAGIC_MODES, error, "one magic description per mode"
+
+lut_Desc_51_0:  ; Magic levels: Off
+  FFLINES 2
+  FFPAD {"Every spell is the level it"}, 28
+  FFPAD {"always is."}, 28
+
+lut_Desc_51_1:  ; Magic levels: Shuffle
+  FFLINES 5
+  FFPAD {"White spells trade levels"}, 28
+  FFPAD {"with white ones, and black"}, 28
+  FFPAD {"with black.  A spell costs,"}, 28
+  FFPAD {"sells and is learned at the"}, 28
+  FFPAD {"level it lands on."}, 28
+
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 4
   FFPAD {"The 234 chests that hold no"}, 28
@@ -407,7 +425,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
+  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -423,6 +441,6 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
+  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

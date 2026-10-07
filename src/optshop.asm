@@ -52,6 +52,7 @@
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
 .import lut_SpellNames
+.import rando_spell
 .import DrawDialogueString_PtrLoaded
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
 .import OptShopFrameFar, OptCallFar
@@ -778,6 +779,9 @@ opt_descgear:
     SBC #MG_START
     CMP #64
     BCS @none
+    ;  Every spell this is asked about is a slot -- a magic shop's wares or a
+    ;  character's list -- so describe the spell the magic shuffle put there.
+    JSL rando_spell + RANDOFAR
     STA OPTGEARI
     JMP opt_descspell
   @gear:

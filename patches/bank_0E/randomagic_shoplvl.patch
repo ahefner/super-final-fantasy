@@ -1,0 +1,6 @@
+--- OLD
+    LDA str_buf+$11, Y ; get the item ID
+--- NEW
+    LDA str_buf+$16, Y ; get the item ID -- the slot's, from the price's copy,
+                       ;  since the name's is the spell's: the level shown is
+                       ;  the slot's, which is what the spell costs and sells as
