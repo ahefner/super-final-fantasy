@@ -22,7 +22,7 @@
 
 .export opt_settings
 ;  Reached by tools/test_options.py.
-.export opt_sfx_move, opt_sfx_sel
+.export opt_sfx_move, opt_sfx_sel, opt_value_adjust
 
 ;  Exported for tools/test_options.py, which checks every label against the
 ;  width the menu actually draws.  Nothing in the game reaches it by name.
@@ -32,7 +32,7 @@
 ;  draw is a digit, a space, CHR_PLUS or CHR_PCT.  A sign written as a literal
 ;  here goes on drawing the old tile after the glyph moves, which is how the
 ;  elemental dial came to read "S50".
-.export lut_ValTabLo, lut_ValTabHi, lut_ValCount
+.export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff
 .import opt_commit_body
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
@@ -976,13 +976,14 @@ opt_menu_drawrow:
 ;;  describes -- table base plus the current step times four.
 opt_value_ptr:
     LDY #$01
-    LDA (OPTMENU_ROWPTR), Y     ; which scalar, 0..3
+    LDA (OPTMENU_ROWPTR), Y     ; which scalar
     TAX
     LDA lut_ValTabLo, X
     STA OPTMENU_VALPTR
     LDA lut_ValTabHi, X
     STA OPTMENU_VALPTR + 1
-    LDA OPT_GOLDXP, X           ; the block's four scalars are consecutive
+    LDY lut_ValOff, X           ; where in the option page it is stored
+    LDA OPTBLOCK, Y
     ASL A                       ; four bytes per readout
     ASL A
     CLC
@@ -1074,23 +1075,26 @@ opt_value_adjust:
 :   LDY #$01
     LDA (OPTMENU_ROWPTR), Y
     TAX                         ; X = which scalar
+    LDY lut_ValOff, X           ; Y = where it is stored
     PLA
     CMP #RIGHT
     BNE @left
 
-    LDA OPT_GOLDXP, X
+    LDA OPTBLOCK, Y
     CLC
     ADC #$01
     CMP lut_ValCount, X         ; the top step is count-1
     BCS @done                   ; clamped: the readout does not move, so
-    STA OPT_GOLDXP, X           ;   neither does the sound
+    STA OPTBLOCK, Y             ;   neither does the sound
     JSR opt_sfx_move
     JMP @done
 
   @left:
-    LDA OPT_GOLDXP, X
+    LDA OPTBLOCK, Y
     BEQ @done                   ; at the bottom already
-    DEC OPT_GOLDXP, X
+    SEC
+    SBC #$01
+    STA OPTBLOCK, Y
     JSR opt_sfx_move
 
   @done:
@@ -1165,7 +1169,7 @@ OPTROW_BLANK = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 57
+OPTROW_COUNT  = 61
 
 ;  A row's label.  The row stores thirty bytes after its two header bytes but
 ;  only OPTROW_LABELW of them are drawn, so padding to thirty proves nothing --
@@ -1382,6 +1386,14 @@ lut_OptRows:
   FFPAD "Free TAIL", 30
   .BYTE $01, $24   ; Free ROD
   FFPAD "Free ROD", 30
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $00, $00   ; NEW GAME
+  FFPAD "NEW GAME", 30
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $02, $05   ; Trap tiles
+  OPTLABEL {"Trap tiles"}
 
 lut_OptRowsEnd:
 
@@ -1464,9 +1476,6 @@ lut_ValStat:
   .BYTE $84, $87, $85, CHR_PCT   ; 475%
   .BYTE $85, $80, $80, CHR_PCT   ; 500%
 
-;  Per-scalar: where its readouts are and how many there are.  The block
-;  fields are consecutive, so the option byte itself is OPT_GOLDXP indexed by
-;  the same number.
 ;  Elemental and type damage bonus: +0 to +50 in twos.  The game's own
 ;  value is +4, and every other dial on this screen can go below its
 ;  vanilla setting too, so this one starts at nothing rather than at
@@ -1508,9 +1517,25 @@ lut_ValElem:
   .BYTE CHR_PLUS, $84, $88, $FF   ; +48
   .BYTE CHR_PLUS, $85, $80, $FF   ; +50
 
-lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
-lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
-lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS
+;  Trap tiles: FFR's first five modes.  See deal_traps in rando.asm.
+lut_ValTraps:
+  FFPAD " Off", 4               ; TRAPS_OFF
+  FFPAD "Shuf", 4               ; TRAPS_SHUFFLE
+  FFPAD "   A", 4               ; TRAPS_ASIDE
+  FFPAD "   B", 4               ; TRAPS_BSIDE
+  FFPAD " A+B", 4               ; TRAPS_BOTH
+
+;  Per-scalar: where its readouts are, how many there are, and where its
+;  byte is.
+lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem, <lut_ValTraps
+lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem, >lut_ValTraps
+lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES
+;  Where each scalar lives, as an offset into the option page.  The five
+;  dials are consecutive in the checksummed block; the new-game rows are
+;  higher up, beside the settings they are copied into the save with.
+lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
+              .BYTE <OPT_NG_TRAPS
+.assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 
 ;  Generated: the description pane text, pre-wrapped to 28 columns and 5
 ;  lines.  Wrapping at build time rather than at runtime keeps the draw to
@@ -1808,6 +1833,21 @@ lut_Desc_44:  ; Free ROD
   FFPAD {"ROD, which opens the way"}, 28
   FFPAD {"down through the Earth Cave."}, 28
 
+lut_Desc_47:  ; NEW GAME
+  FFLINES 4
+  FFPAD {"Randomizes the next new"}, 28
+  FFPAD {"game.  A saved game keeps"}, 28
+  FFPAD {"the world it was started"}, 28
+  FFPAD {"with, whatever is set here."}, 28
+
+lut_Desc_48:  ; Trap tiles
+  FFLINES 5
+  FFPAD {"Shuf trades the 34 trap"}, 28
+  FFPAD {"tiles' fights among them."}, 28
+  FFPAD {"A, B and A+B give each trap"}, 28
+  FFPAD {"a fight drawn from every"}, 28
+  FFPAD {"A-side, B-side or both."}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
@@ -1821,7 +1861,8 @@ lut_DescLo:
   .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
-  .BYTE <lut_Desc_43, <lut_Desc_44
+  .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
+  .BYTE <lut_Desc_48
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -1836,6 +1877,7 @@ lut_DescHi:
   .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
-  .BYTE >lut_Desc_43, >lut_Desc_44
+  .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
+  .BYTE >lut_Desc_48
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

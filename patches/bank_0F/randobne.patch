@@ -1,0 +1,10 @@
+--- OLD
+    BPL @Spiked            ; if high bit is clear, this is a spiked tile (forced battle)
+--- NEW
+.export SMMove_Battle            ; for tools/test_options.py
+    ;  BNE, where the game had BPL: FFR's UpdateTrapTilesCode.  Zero is now
+    ;  the random encounter and anything else is a whole formation number, so
+    ;  a trap tile can hold a B-side ($80 up).  The other half is in
+    ;  rando_tileprop, which rewrites every random-encounter tile's $80 to $00
+    ;  as the properties are copied in -- with the randomizer off too.
+    BNE @Spiked            ; if nonzero, this is a spiked tile (forced battle)

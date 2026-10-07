@@ -1,0 +1,8 @@
+--- OLD
+    CMP #$FF         ; if result does not equal $FF, the checksum has failed
+--- NEW
+.export VerifyChecksum           ; for tools/test_options.py
+    ;  SAVEK rather than $FF: the save checksum's version, which SaveGame
+    ;  seeds its sum with.  A save made under another version fails here and
+    ;  Continue falls through to New Game.  See SAVEVER in snesmap.inc.
+    CMP #SAVEK       ; if result does not equal SAVEK, the checksum has failed

@@ -38,7 +38,7 @@ OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
 OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 11, 12, 13
 OPT_RESPOND, OPT_CKSUM = 14, 15
 OPT_SIZE = 16
-OPT_FORMAT = 4          # bumped when the elemental bonus became a fifth dial
+OPT_FORMAT = 5          # bumped when the checksum took in the new-game rows
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -3528,7 +3528,7 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 57
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 61
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
@@ -3584,7 +3584,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(5):
+    for t in range(6):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         if not (0x8000 <= addr < 0x10000) or not (0 < n < 64):
@@ -3598,7 +3598,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the five tables hold the expected number of entries", seen, 91)
+    check("the six tables hold the expected number of entries", seen, 96)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -3645,6 +3645,427 @@ def test_itemnamewidth():
         check("the shop's list box is nine columns wide", ROMDATA[at + 2], 0x09)
 
 
+# --- the randomizer ---------------------------------------------------------
+#  src/rando.asm against tools/randoref.py, which is the same generator in
+#  Python.  Byte-identical output from both is the contract: it is what lets
+#  the Python print a world from a battery file and be believed.  Every check
+#  below that compares against the reference is paired with one that does not,
+#  so the two cannot agree on a mistake unnoticed -- the trap lists are checked
+#  against FFR's definitions, the PRNG against Marsaglia's published value,
+#  the cache against the cartridge's own tables.
+import randoref as R
+
+def source_consts():
+    """name -> value for every plain equate in the sources this port reads.
+
+    Parsed rather than copied, so a layout change cannot leave the tests
+    checking the old addresses.  Lines this cannot evaluate -- ca65's byte
+    operators, strings, macros -- are skipped, not guessed at."""
+    env = {}
+    files = [os.path.join(ROOT, "game", "Constants.inc"),
+             os.path.join(ROOT, "game", "variables.inc"),
+             os.path.join(ROOT, "src", "snesmap.inc")]
+    for f in files:
+        for line in open(f, encoding="latin-1"):
+            m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)", line)
+            if not m:
+                continue
+            expr = m.group(2).strip()
+            expr = re.sub(r"\$([0-9A-Fa-f]+)", r"0x\1", expr)
+            expr = re.sub(r"%([01]+)", r"0b\1", expr)
+            expr = expr.replace(".MOD", "%")
+            if re.search(r"[.<>^'\"]", expr.replace("<<", "").replace(">>", "")):
+                continue
+            try:
+                env[m.group(1)] = eval(expr, {"__builtins__": {}}, dict(env))
+            except Exception:
+                pass
+    return env
+
+
+K = source_consts()
+RANDO_BANK = 0xA1 + K["CHUNK_RANDO"]
+RW_BASE = 0x7E0000                       # bus.wram index 0 is $7E:0000
+
+
+def rw(name):
+    return K[name] - RW_BASE
+
+
+def setsave(bus, seed, traps):
+    at = K["RANDO_SAVE"] - 0x6000
+    bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    bus.sram[K["RANDO_TRAPS"] - 0x6000] = traps
+
+
+def cache_props(bus):
+    at = rw("RW_PROPS")
+    return bytes(bus.wram[at:at + R.PROPS_SIZE])
+
+
+#  FFR's lists, from FF1Lib/Formations.cs, written out here independently of
+#  randoref.py: A-side is Range(1, 0x72) less WarMECH (86), B-side is
+#  Range(128, 0x73) plus IronGol (0xFF).
+FFR_ASIDE = set(range(1, 1 + 0x72)) - {86}
+FFR_BSIDE = set(range(128, 128 + 0x73)) | {0xFF}
+SEEDS = (0, 1, 2, 0x12345678, 0xDEADBEEF, R.STREAM_TRAPS, 0xFFFFFFFF)
+
+
+def test_rando_prng():
+    #  The reference itself, against the value Marsaglia's paper gives.
+    check("xorshift32 from 1 is 270369", R.xs32(1), 270369)
+    import random
+    rnd = random.Random(1)
+    states = [1, 0x80000000, 0xFFFFFFFF, 0x0000FFFF, 0xFFFF0000, 0x00010000,
+              0x00008000, 0x00000007, 0x0001FFFF]
+    states += [rnd.getrandbits(32) or 1 for _ in range(300)]
+    bus, cpu = machine()
+    at = rw("RW_RNG")
+    bad = []
+    for x in states:
+        bus.wram[at:at + 4] = x.to_bytes(4, "little")
+        call(cpu, "rando_xs", bank=RANDO_BANK)
+        got = int.from_bytes(bus.wram[at:at + 4], "little")
+        if got != R.xs32(x):
+            bad.append("   $%08X stepped to $%08X, want $%08X" % (x, got, R.xs32(x)))
+    check("rando_xs is xorshift32 on %d states" % len(states), len(bad), 0)
+    fails.extend(bad[:4])
+    check("rando_xs comes back in emulation mode", cpu.e, True)
+
+
+def test_rando_traps():
+    vanilla = R.rom_props(ROMDATA)
+    traps = R.trap_offsets(vanilla)
+    randoms = [i for i in range(0, R.PROPS_SIZE, 2)
+               if vanilla[i] == 0x0A and vanilla[i + 1] & 0x80]
+    check("the cartridge has FFR's 34 trap tiles", len(traps), 34)
+    check("...and 15 random-encounter tiles", len(randoms), 15)
+
+    off = None
+    for mode in (0, 1, 2, 3, 4, 5, 0xFF):
+        seen = set()
+        for seed in SEEDS:
+            bus, cpu = machine()
+            setsave(bus, seed, mode)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            got = cache_props(bus)
+            want = R.build_props(ROMDATA, seed, mode)
+            name = "traps mode %d seed $%08X" % (mode, seed)
+            if got != want:
+                diff = [i for i in range(R.PROPS_SIZE) if got[i] != want[i]]
+                fails.append("%-46s differs from randoref at %d bytes, first $%03X"
+                             % (name, len(diff), diff[0]))
+            if mode == 0 and seed == 0:
+                off = got
+            seen.add(got)
+
+            #  Independent of the reference: what may differ, and what from.
+            moved = [i for i in range(R.PROPS_SIZE) if got[i] != vanilla[i]]
+            allowed = set(i + 1 for i in traps) | set(i + 1 for i in randoms)
+            check(name + ": only formation bytes change",
+                  [i for i in moved if i not in allowed], [])
+            check(name + ": random tiles read zero",
+                  [got[i + 1] for i in randoms], [0] * len(randoms))
+            dealt = [got[i + 1] for i in traps]
+            if mode in (0, 5, 0xFF):
+                check(name + ": traps as the cartridge has them",
+                      dealt, [vanilla[i + 1] for i in traps])
+            elif mode == 1:
+                check(name + ": the same 34 formations",
+                      sorted(dealt), sorted(vanilla[i + 1] for i in traps))
+            else:
+                pool = {2: FFR_ASIDE, 3: FFR_BSIDE, 4: FFR_ASIDE | FFR_BSIDE}[mode]
+                check(name + ": every formation from the list",
+                      [f for f in dealt if f not in pool], [])
+                check(name + ": none dealt twice", len(set(dealt)), len(dealt))
+        if mode in (1, 2, 3, 4):
+            check("traps mode %d: every seed a different world" % mode,
+                  len(seen), len(SEEDS))
+        else:
+            check("traps mode %d: one world whatever the seed" % mode, len(seen), 1)
+
+    #  Over many seeds, B-sides do turn up in mode 3 (all of them) and both
+    #  halves in mode 4; and Shuffle does move things.
+    bus, cpu = machine()
+    setsave(bus, 0x0BADF00D, 4)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    dealt = [cache_props(bus)[i + 1] for i in traps]
+    check("A+B deals some of each side",
+          (any(f < 0x80 for f in dealt), any(f >= 0x80 for f in dealt)), (True, True))
+    setsave(bus, 0x0BADF00D, 1)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    dealt = [cache_props(bus)[i + 1] for i in traps]
+    check("Shuffle moves most traps",
+          sum(d != vanilla[i + 1] for d, i in zip(dealt, traps)) > 17, True)
+
+
+def test_rando_cache():
+    tag, blk = rw("RW_TAG"), rw("RW_TAGBLK")
+    props = rw("RW_PROPS")
+    size = K["RANDO_SAVE_SIZE"]
+    save = K["RANDO_SAVE"] - 0x6000
+
+    #  Power-on: WRAM all zero, and a save made before the randomizer existed
+    #  is all zero too.  The tag's marker byte is what stops those two zeros
+    #  matching -- without it the cache would be taken as built and every map
+    #  would load a table of zeros.
+    bus, cpu = machine()
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    check("power-on: tag set", bus.wram[tag], K["RW_TAG_VAL"])
+    check("power-on: built, not taken from zeroed WRAM",
+          cache_props(bus), R.build_props(ROMDATA, 0, 0))
+
+    #  A matching tag is trusted: nothing is rebuilt, which is what makes the
+    #  per-map check cheap.  A poke in the cache survives to prove it.
+    setsave(bus, 0x12345678, 3)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    bus.wram[props + 0x101] ^= 0xFF
+    poked = cache_props(bus)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    check("matching tag: not rebuilt", cache_props(bus), poked)
+    check("the tag holds the save block",
+          bytes(bus.wram[blk:blk + size]), bytes(bus.sram[save:save + size]))
+
+    #  A different seed, then a different mode: each one a rebuild.
+    for seed, mode in ((0x12345679, 3), (0x12345679, 1)):
+        setsave(bus, seed, mode)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X mode %d: rebuilt" % (seed, mode),
+              cache_props(bus), R.build_props(ROMDATA, seed, mode))
+
+    #  A reset in the middle of a rebuild must leave the cache invalid, not
+    #  finished: clear the tag first, write it last.
+    setsave(bus, 0xCAFEF00D, 4)
+    cpu2 = CPU(bus)
+    cpu2.dbr = 0xA7
+    try:
+        cpu2.run(RANDO_BANK, SYM["rando_ensure"], limit=3000)
+        check("the build is long enough to interrupt", "finished", "interrupted")
+    except RuntimeError:
+        pass
+    check("interrupted build: tag reads invalid",
+          bus.wram[tag] == K["RW_TAG_VAL"], False)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    check("...and the next ensure finishes it",
+          cache_props(bus), R.build_props(ROMDATA, 0xCAFEF00D, 4))
+
+
+def test_rando_mapload():
+    """The hook in place: LoadSMTilesetData, start to finish.
+
+    rando_tileprop has to leave tmp and tmp+2 zero and tmp+3 one page past
+    tileset_data, or the TSA copies after it land in the wrong place.  Running
+    the routine whole checks that against the code that relies on it, rather
+    than against a list of post-conditions written down here."""
+    bank0 = 0x10000                      # NES bank $00's image, at $8000
+    TSA, ATTR = 0x9000, 0x8400
+    for t in range(8):
+        bus, cpu = machine()
+        setsave(bus, 0x600DCAFE, 3)
+        bus.wram[K["cur_tileset"]] = t
+        bus.wram[K["cur_tileset"] + 1] = 0xFF        # not ours to read
+        bus.wram[K["cur_map"]] = 0
+        bus.wram[K["tmp"]:K["tmp"] + 4] = b"\xAA\xBB\xCC\xDD"
+        call(cpu, "LoadSMTilesetData")
+        ts = K["tileset_data"]
+        want = R.build_props(ROMDATA, 0x600DCAFE, 3)[t * 256:(t + 1) * 256]
+        check("tileset %d: properties from the cache" % t,
+              bytes(bus.wram[ts:ts + 256]), want)
+        tsa = ROMDATA[bank0 + TSA + t * 0x200 - 0x8000:][:0x200]
+        check("tileset %d: TSA where Copy256 puts it" % t,
+              bytes(bus.wram[ts + 0x100:ts + 0x300]), tsa)
+        attr = ROMDATA[bank0 + ATTR + t * 0x80 - 0x8000:][:0x80]
+        check("tileset %d: attributes" % t,
+              bytes(bus.wram[ts + 0x300:ts + 0x380]), attr)
+
+
+def test_rando_battle():
+    """SMMove_Battle tests the formation byte with BNE now: zero is random,
+    and anything else, $80 up included, is a fixed fight."""
+    TP_BATTLEMARKER = K["TP_BATTLEMARKER"]
+    for f in (0x01, 0x46, 0x80, 0x85, 0xFF):
+        bus, cpu = machine()
+        bus.wram[K["tileprop"]] = K["TP_SPEC_BATTLE"]
+        bus.wram[K["tileprop"] + 1] = f
+        call(cpu, "SMMove_Battle")
+        check("formation $%02X: fought" % f, bus.wram[K["btlformation"]], f)
+        check("formation $%02X: battle marked" % f,
+              bus.wram[K["tileprop"]], TP_BATTLEMARKER)
+        check("formation $%02X: may move" % f, cpu.p & C, 0)
+    #  Zero: a random encounter, so at rate zero nothing happens.
+    bus, cpu = machine()
+    bus.wram[K["tileprop"]] = K["TP_SPEC_BATTLE"]
+    bus.wram[K["tileprop"] + 1] = 0
+    bus.wram[K["battlerate"]] = 0
+    bus.wram[K["btlformation"]] = 0x77
+    call(cpu, "SMMove_Battle")
+    check("formation 0 at rate 0: no fight", bus.wram[K["btlformation"]], 0x77)
+    check("formation 0 at rate 0: no marker",
+          bus.wram[K["tileprop"]], K["TP_SPEC_BATTLE"])
+
+
+def test_rando_newgame():
+    pool = K["RANDO_POOL"] - 0x6000
+    ng = K["OPT_NG"] - 0x6000
+    save = K["RANDO_SAVE"] - 0x6000
+    bus, cpu = machine()
+    bus.sram[pool:pool + 4] = (0xDEADBEEF).to_bytes(4, "little")
+    bus.sram[ng] = 3
+    cpu.x = 0x42
+    call(cpu, "rando_newgame", bank=RANDO_BANK)
+    check("new game: the seed is the pool", bytes(bus.sram[save:save + 4]),
+          (0xDEADBEEF).to_bytes(4, "little"))
+    check("new game: the trap row copied", bus.sram[K["RANDO_TRAPS"] - 0x6000], 3)
+    check("new game: X kept", cpu.x, 0x42)
+
+    #  ...and the hook is wired: opt_freestuff is what New Game calls.
+    bus, cpu = machine()
+    bus.sram[pool:pool + 4] = (0x0F1E2D3C).to_bytes(4, "little")
+    bus.sram[ng] = 2
+    call(cpu, "opt_freestuff")
+    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 5]),
+          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02")
+
+
+def test_rando_stir():
+    pool = K["RANDO_POOL"] - 0x6000
+    bus, cpu = machine()
+    bus.sram[pool:pool + 4] = (0x13579BDF).to_bytes(4, "little")
+    bus.io[0x4218], bus.io[0x4219] = 0x80, 0x01
+    cpu.a, cpu.x, cpu.y, cpu.dbr = 0xBEEF, 0x12, 0x34, 0xA7
+    p = cpu.p
+    call(cpu, "rando_stir", bank=RANDO_BANK)
+    got = int.from_bytes(bus.sram[pool:pool + 4], "little")
+    check("stir: pool steps with the pad folded in",
+          got, R.xs32(0x13579BDF ^ 0x0180))
+    check("stir: registers kept", (cpu.a, cpu.x, cpu.y, cpu.dbr, cpu.p, cpu.e),
+          (0xBEEF, 0x12, 0x34, 0xA7, p, True))
+
+    #  Wired into the per-frame hook.
+    bus.sram[pool:pool + 4] = (0x2468ACE0).to_bytes(4, "little")
+    bus.io[0x4218] = bus.io[0x4219] = 0
+    call(cpu, "opt_padreset")
+    got = int.from_bytes(bus.sram[pool:pool + 4], "little")
+    check("opt_padreset stirs once a frame", got, R.xs32(0x2468ACE0))
+
+
+def test_rando_options():
+    ng = K["OPT_NG"] - OPTBLOCK
+    #  Presets randomize nothing.
+    bus, cpu = machine()
+    setblk(bus, ng, 4)
+    call(cpu, "opt_init")
+    check("a fresh cart has the trap row off", blk(bus, ng), 0)
+
+    #  The checksum covers the new-game rows.
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    setblk(bus, OPT_PRESET, 3)
+    setblk(bus, ng, 2)
+    call(cpu, "opt_commit")
+    call(cpu, "opt_init")
+    check("a sealed trap setting survives boot", blk(bus, ng), 2)
+    setblk(bus, ng, 1)
+    call(cpu, "opt_init")
+    check("an unsealed one does not", blk(bus, ng), 0)
+
+    #  The value rows find their bytes through lut_ValOff.
+    at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
+    check("lut_ValOff: the five dials, then the trap row",
+          list(ROMDATA[at:at + 6]),
+          [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
+           OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK])
+
+    #  Driving the row itself, through the menu's own adjuster: right steps
+    #  it up to the last mode and stops; left steps it down to Off and stops.
+    ROW = 60                             # the last row: Trap tiles
+    SEL, TOP = 0x6E, 0x6F
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    steps = []
+    for d in (1,) * 6 + (2,) * 6:        # RIGHT x6, then LEFT x6
+        bus.wram[SEL], bus.wram[TOP] = ROW, ROW - 19
+        cpu.a = d
+        call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+        steps.append(blk(bus, ng))
+    check("the trap row steps and clamps", steps,
+          [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0])
+    check("...and leaves the block sealed", blk(bus, OPT_CKSUM),
+          (sum(bus.sram[OPTBLOCK - 0x6000:][:OPT_SIZE - 1])
+           + bus.sram[K["OPT_NG"] - 0x6000]) & 0xFF ^ 0xFF)
+
+
+def test_savever():
+    """SaveGame seeds its checksum with SAVEVER and VerifyChecksum expects
+    SAVEK.  Run the game's own two loops, with the operands patched to each
+    version in turn: a save verifies under its own version and no other.
+
+    The save's last byte is kept zero, because the game's checksum only works
+    when it is -- see randomization-notes.md section 1.5."""
+    import random
+    rnd = random.Random(5)
+    sv, vc = SYM["SaveGame"], SYM["VerifyChecksum"]
+    b0e = 1 + 0x0E
+    fixed = 0xA7 & 0x1F
+    rom = bytearray(ROMDATA)
+    #  The operands, found by instruction rather than by offset.
+    chk = K["sram_checksum"]
+    i = bytes(rom[b0e * 0x10000 + sv:][:64]).find(bytes([0xA9, K["SAVEVER"], 0x8D, chk & 0xFF, chk >> 8]))
+    j = bytes(rom[fixed * 0x10000 + vc:][:32]).find(bytes([0xC9, K["SAVEK"]]))
+    check("SaveGame's version operand is SAVEVER", i >= 0, True)
+    check("VerifyChecksum's operand is SAVEK", j >= 0, True)
+    if i < 0 or j < 0:
+        return
+    vop = b0e * 0x10000 + sv + i + 1
+    kop = fixed * 0x10000 + vc + j + 1
+
+    def savek(v):
+        return 0xFF - (2 * v) % 255
+
+    def run(v_save, v_verify, image):
+        rom[vop], rom[kop] = v_save, savek(v_verify)
+        bus = Bus(bytes(rom))
+        cpu = CPU(bus)
+        bus.sram[0:0x400] = image
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, sv)
+        cpu.dbr = 0xA7
+        cpu.run(0xA7, vc)
+        return not (cpu.p & C), bus
+
+    for v in (0, 1, 2, 3, 0x10, 0x7F, 0x80, 0xAA, 0xFE):
+        for n in range(3):
+            image = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+            image[0x3FF] = 0
+            ok, bus = run(v, v, image)
+            check("version $%02X save %d: verifies" % (v, n), ok, True)
+            other = (v + 1) % 0xFF
+            check("version $%02X save %d: fails as $%02X" % (v, n, other),
+                  run(v, other, image)[0], False)
+    #  snesmap.inc's SAVEK has only ever been evaluated at the SAVEVER it is
+    #  built with, where any formula gives $FF.  Evaluate its text at every
+    #  version, against the constant the loops above just accepted.
+    text = None
+    for line in open(os.path.join(ROOT, "src", "snesmap.inc")):
+        m = re.match(r"^SAVEK\s*=\s*([^;]+)", line)
+        if m:
+            text = m.group(1).strip().replace("$", "0x").replace(".MOD", "%")
+    check("snesmap.inc defines SAVEK", text is not None, True)
+    if text:
+        wrong = [v for v in range(1, 0xFF)
+                 if eval(text, {"__builtins__": {}}, {"SAVEVER": v}) != savek(v)]
+        check("SAVEK in snesmap.inc is right at every version", wrong, [])
+
+    image = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+    image[0x3FF] = 0
+    ok, bus = run(K["SAVEVER"], K["SAVEVER"], image)
+    bus.sram[0x400 + 0x123] ^= 0x10
+    cpu = CPU(bus)
+    cpu.dbr = 0xA7
+    cpu.run(0xA7, vc)
+    check("a corrupted save still fails", bool(cpu.p & C), True)
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -3676,7 +4097,10 @@ def main():
               test_youfound, test_castline,
               test_descwidth, test_descsynth, test_rowlabels,
              test_dialvalues, test_itemnamewidth,
-             test_equipcursor, test_titlerows)
+             test_equipcursor, test_titlerows,
+             test_rando_prng, test_rando_traps, test_rando_cache,
+             test_rando_mapload, test_rando_battle, test_rando_newgame,
+             test_rando_stir, test_rando_options, test_savever)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

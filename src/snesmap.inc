@@ -45,6 +45,8 @@ CHUNK_OPT       = $11           ; the options bank: menu, presets, option block
 OPTFAR          = (CHUNK0 + CHUNK_OPT) * $10000
 CHUNK_CREDITS   = $12           ; the credits screen, native code and mode 7
 CREDITSFAR      = (CHUNK0 + CHUNK_CREDITS) * $10000
+CHUNK_RANDO     = $13           ; the randomizer: PRNG, generator, its hooks
+RANDOFAR        = (CHUNK0 + CHUNK_RANDO) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -118,7 +120,11 @@ OPT_SIZE        = $10
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $04           ; bumped from $03: the elemental bonus
+OPT_FORMAT      = $05           ; bumped from $04: the checksum now covers
+                                ; the new-game rows at OPT_NG, so a block
+                                ; written before them would fail anyway --
+                                ; the bump says why.
+                                ; Bumped from $03: the elemental bonus
                                 ; became a dial and needed a fifth scalar.
                                 ; Bumped from $02 before that: the flag word grew a
                                 ; fifth byte, so every field after it moved.
@@ -1246,3 +1252,92 @@ OPTFB_WEAPONSTATS = OPT_FLAGS+2 ; bit 16
 OPTFM_WEAPONSTATS = $01
 OPTFB_CRITRATE    = OPT_FLAGS+2 ; bit 20
 OPTFM_CRITRATE    = $10
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The randomizer
+;;
+;;  A randomized world belongs to a save, not to the cartridge.  Its inputs --
+;;  the seed and the new-game settings it was started with -- live in the save
+;;  itself, in page 0 of unsram, so SaveGame, Continue and VerifyChecksum carry
+;;  them with no code of their own.  The settings screen only describes the
+;;  *next* new game: rando_newgame copies them into the save when that game
+;;  starts, and nothing reads them from the option block after that.
+;;
+;;  Everything generated from those inputs is a cache in WRAM bank $7F, rebuilt
+;;  whenever its tag does not match the save.  See src/rando.asm.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The save block.  $603C-$60FC is named by nothing in variables.inc and
+;  addressed by no instruction in any bank, and $60A0 up is filled with zero
+;  from lut_InitUnsramFirstPage on every boot -- so every save made before
+;  this block existed reads as seed 0 with every setting off, which is the
+;  vanilla world.  That is why introducing it needed no SAVEVER bump.  Never
+;  $60FD-$60FF: in the saved copy those are the checksum and the asserts.
+;
+;  Layout v1.  It grows by appending, with a SAVEVER bump if an old save
+;  would mean something different under the new reading.
+RANDO_SAVE      = $60A0
+RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
+RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
+RANDO_SAVE_SIZE = $05
+.assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
+RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
+
+;  The settings screen's copy: one byte per setting, in the same order as the
+;  save block's from RANDO_TRAPS on, so starting a game is a straight copy.
+;  Above the scratch the screens use, below nothing; opt_sum covers it, which
+;  is what took OPT_FORMAT to 5.
+OPT_NG          = OPTBLOCK+$C8
+RANDO_NGOFF     = RANDO_TRAPS - RANDO_SAVE  ; where the settings start in the save
+OPT_NG_SIZE     = RANDO_SAVE_SIZE - RANDO_NGOFF
+OPT_NGFAR       = (CHUNK0 * $10000) + OPT_NG
+OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
+.assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
+
+;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
+;  steps it, so the value at New Game depends on every button press since the
+;  cartridge was first switched on.  Battery-backed and outside any checksum:
+;  a fresh cartridge's noise is welcome here.
+RANDO_POOL      = OPTBLOCK+$C4  ; 4 bytes
+RANDO_POOLFAR   = (CHUNK0 * $10000) + RANDO_POOL
+
+;  Trap tile modes, FFR's TrapTileMode in its own order, minus the five this
+;  port does not carry (Local, Remove, Undead, Curated, Overpowered).
+TRAPS_OFF       = 0
+TRAPS_SHUFFLE   = 1             ; the 34 trap tiles trade their formations
+TRAPS_ASIDE     = 2             ; each draws from every A-side formation...
+TRAPS_BSIDE     = 3             ; ...every B-side...
+TRAPS_BOTH      = 4             ; ...or both
+TRAPS_MODES     = 5
+
+;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
+;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
+;  expected $FF.  The sum is an add-with-carry chain, which is ones'-complement
+;  arithmetic, and that is why the constant moves by 2*V mod 255 rather than by
+;  V.  A save made under one version fails under every other, so Continue falls
+;  through to New Game exactly as it does for a corrupt file.
+;
+;  Bump it when a change would give an existing save a different world.  0 is
+;  the game's own scheme, and $FF would alias it; stay within 1..$FE.
+;  randomization-notes.md section 1.5 has the derivation.
+SAVEVER         = 0
+SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
+
+;  The cache, at the top half of bank $7F: clear of CREDITSRAM at the bottom
+;  and THEENDBUF at $6800, both of which can be live with a save loaded.
+;  hal_reset zeroes it on power-on with the rest of WRAM; L+X and L+Y do not
+;  touch it, which is what keeps those resets instant.
+RANDOWRAM       = $7F8000
+RW_TAG          = RANDOWRAM+$0000 ; RW_TAG_VAL once the cache below is whole
+RW_TAGBLK       = RANDOWRAM+$0001 ; the save block the cache was built from
+RW_RNG          = RANDOWRAM+$0010 ; 4 bytes: the stream being drawn from
+RW_T            = RANDOWRAM+$0014 ; 2 bytes of scratch for the PRNG
+RW_LEN          = RANDOWRAM+$0016 ; 2 bytes: entries left in RW_LIST
+RW_MASK         = RANDOWRAM+$0018 ; rando_below's rejection mask...
+RW_BOUND        = RANDOWRAM+$0019 ; ...and its bound
+RW_R            = RANDOWRAM+$001A ; 2 bytes: the entry just drawn
+RW_MODE         = RANDOWRAM+$001C ; the trap mode being dealt
+RW_LIST         = RANDOWRAM+$0100 ; the formations being dealt, up to 256
+RW_PROPS        = RANDOWRAM+$0800 ; every tileset's property table, $800 bytes
+RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
+.assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

@@ -62,6 +62,13 @@ case "$FFDEBUG" in
   *deluxe*)   CA65EXTRA="$CA65EXTRA -DOPT_FORCE=2" ;;
 esac
 
+#  FFSEED=xxxxxxxx (eight hex digits) gives every new game that seed, so a
+#  world can be reproduced on a console without a battery file.  The settings
+#  still come from the settings screen.
+if [ -n "$FFSEED" ]; then
+  CA65EXTRA="$CA65EXTRA -DFORCE_SEED=\$$FFSEED"
+fi
+
 CA65="ca65 --cpu 65816 $CA65EXTRA"
 
 #  The disassembly writes negative immediates (LDA #-1, AND #-33), which ca65
@@ -87,6 +94,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 -I ../gen optdata.asm -o ../out/bank_OPTDATA.o
            $CA65 -I ../gen optshop.asm -o ../out/bank_OPTSHOP.o
            $CA65 -I ../gen credits.asm -o ../out/bank_CREDITS.o
+           $CA65 -I ../gen rando.asm -o ../out/bank_RANDO.o
            $CA65 hal.asm    -o ../out/hal.o
            $CA65 header.asm -o ../out/header.o )
 
@@ -94,7 +102,7 @@ ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/hal.o out/header.o \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
-    out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_CREDITS.o
+    out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_CREDITS.o out/bank_RANDO.o
 
 #  HAL_VARS is hand-allocated, so two names can land on one byte and assemble
 #  without complaint.  Two branches each taking the same free offset is the

@@ -1,0 +1,27 @@
+--- OLD
+    LDA #0
+    STA tmp                   ; zero low bytes of source pointer
+    STA tmp+2                 ; and dest pointer
+
+ ; load tileset properties
+
+    LDA cur_tileset           ; set src pointer to point to lut_SMTilesetProp+(tileset*256)
+    CLC                       ; 256 bytes of tile properties per tileset 
+    ADC #>lut_SMTilesetProp
+    STA tmp+1
+
+    LDA #>tileset_data        ; set high byte of dest pointer to point to tileset_data
+    STA tmp+3
+
+    JSR Copy256               ; load 256 byte of tile properties (incs dest pointer)
+--- NEW
+.import rando_tileprop
+.export LoadSMTilesetData        ; for tools/test_options.py
+
+    ;  The property copy moves to the randomizer's chunk, which copies from its
+    ;  cache in WRAM: the cartridge's table with every random-encounter tile's
+    ;  $80 rewritten to $00 (see randobne.patch), and the trap tiles dealt new
+    ;  formations when the save asks for it.  It leaves tmp/tmp+2/tmp+3 as
+    ;  Copy256 would have, for the TSA copies below.  The bank swap above stays,
+    ;  because those copies read bank $00 through (tmp),Y.
+    JSL rando_tileprop + RANDOFAR

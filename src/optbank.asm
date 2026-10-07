@@ -62,6 +62,7 @@
 .export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
+.import rando_stir, rando_newgame
 .import DrawItemTargetMenu
 ;  The game's own reset entry, for Controller Reset.
 .import OnReset
@@ -237,6 +238,15 @@ opt_loadpreset:
     CPY #PRESET_FIELDS
     BCC @copy
 
+    ;  No preset randomizes anything, as none gives away a key item: the
+    ;  new-game rows are off in all of them.
+    LDA #$00
+    LDX #OPT_NG_SIZE - 1
+  @ng:
+    STA OPT_NG, X
+    DEX
+    BPL @ng
+
     LDA #OPT_MAGIC0_VAL
     STA OPT_MAGIC0
     LDA #OPT_MAGIC1_VAL
@@ -337,9 +347,10 @@ opt_derive:
     RTS
 
 
-;;  Sum every byte of the block except the checksum itself.  Plain 8-bit
-;;  addition with the carry dropped -- the game's own save checksum lets carry
-;;  run between bytes, which is harder to reason about and buys nothing here.
+;;  Sum every byte of the block except the checksum itself, and the new-game
+;;  rows, which sit apart from it higher up the page.  Plain 8-bit addition
+;;  with the carry dropped -- the game's own save checksum lets carry run
+;;  between bytes, which is harder to reason about and buys nothing here.
 opt_sum:
     LDA #$00
     LDX #$00
@@ -349,6 +360,13 @@ opt_sum:
     INX
     CPX #OPT_SIZE - 1           ; stop before OPT_CKSUM
     BCC @loop
+    LDX #$00
+  @ng:
+    CLC
+    ADC OPT_NG, X
+    INX
+    CPX #OPT_NG_SIZE
+    BCC @ng
     RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2755,6 +2773,9 @@ opt_thiefgrowth:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_padreset:
+    ;  The seed's entropy, a frame at a time.  First, so that a frame which
+    ;  resets still counts; it preserves everything.
+    JSL rando_stir + RANDOFAR
     PHP
     PHX
     PHA                         ; WaitForVBlank's caller may want A
@@ -2828,6 +2849,8 @@ opt_housemp:
 
 
 opt_freestuff:
+    ;  The world: the seed and the new-game rows, into the save.
+    JSL rando_newgame + RANDOFAR
     LDA OPTFB_FREESHIP
     AND #OPTFM_FREESHIP
     BEQ @airship

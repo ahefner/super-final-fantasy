@@ -1,0 +1,10 @@
+--- OLD
+    LDA #$00
+    STA sram_checksum         ; clear the checksum byte so that it will not interfere with checksum calculations
+--- NEW
+.export SaveGame                 ; for tools/test_options.py
+    ;  SAVEVER rather than 0, and it starts the sum as well as filling the
+    ;  checksum byte: VerifyChecksum then lands on SAVEK instead of $FF.  Zero
+    ;  is the game's own scheme.  See SAVEVER in snesmap.inc.
+    LDA #SAVEVER
+    STA sram_checksum         ; clear the checksum byte so that it will not interfere with checksum calculations

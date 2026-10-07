@@ -128,6 +128,13 @@ class CPU:
         mask = 0x80 if eight else 0x8000
         self.p = (self.p & ~(Z | N)) | (Z if v == 0 else 0) | (N if v & mask else 0)
 
+    def narrow_index(self):
+        """Setting X (by SEP or PLP) zeroes the high bytes of X and Y.  Code
+        that drops to 8-bit indexes after using 16-bit ones relies on it."""
+        if self.x8():
+            self.x &= 0xFF
+            self.y &= 0xFF
+
     # --- addressing -------------------------------------------------------
     def a_imm(self, eight):
         if eight:
@@ -478,7 +485,9 @@ class CPU:
         elif op == 0xAB: self.dbr = self.pull(); self.setzn(self.dbr, True)
         elif op == 0x4B: self.push(self.pbr)
         elif op == 0x08: self.push(self.p)
-        elif op == 0x28: self.p = self.pull()
+        elif op == 0x28:
+            self.p = self.pull()
+            self.narrow_index()
         elif op == 0x0B: self.push((self.d >> 8) & 0xFF); self.push(self.d & 0xFF)
         elif op == 0x2B: self.d = self.pull() | (self.pull() << 8)
         # flags and mode
@@ -490,7 +499,9 @@ class CPU:
         elif op == 0xD8: self.p &= ~D
         elif op == 0xF8: self.p |= D
         elif op == 0xC2: self.p &= ~self.fetch()
-        elif op == 0xE2: self.p |= self.fetch()
+        elif op == 0xE2:
+            self.p |= self.fetch()
+            self.narrow_index()
         elif op == 0xFB:
             c = bool(self.p & C); self.p = (self.p & ~C) | (C if self.e else 0)
             self.e = c
@@ -498,6 +509,27 @@ class CPU:
                 self.p |= M | X; self.x &= 0xFF; self.y &= 0xFF
                 self.s = 0x0100 | (self.s & 0xFF)
         elif op == 0xEA: pass
+        elif op == 0xEB:
+            #  XBA: swap the accumulator's two halves, whatever M says.  The
+            #  flags follow the new low byte.
+            self.a = ((self.a & 0xFF) << 8) | ((self.a >> 8) & 0xFF)
+            self.setzn(self.a & 0xFF, True)
+        elif op in (0x54, 0x44):
+            #  MVN / MVP: copy C+1 bytes from srcbank:X to dstbank:Y, stepping
+            #  both up (MVN) or down (MVP).  The hardware runs one byte per
+            #  pass and re-executes itself; the state it leaves is the same,
+            #  so this does the whole run at once.  DBR ends as the
+            #  destination bank, which callers have to put back.
+            dst = self.fetch(); src = self.fetch()
+            step = 1 if op == 0x54 else -1
+            while True:
+                self.wr(dst, self.y, self.rd(src, self.x))
+                self.x = (self.x + step) & xm
+                self.y = (self.y + step) & xm
+                self.a = (self.a - 1) & 0xFFFF
+                if self.a == 0xFFFF:
+                    break
+            self.dbr = dst
         else:
             raise NotImplementedError(
                 "opcode $%02X at $%02X:%04X" % (op, self.pbr, (self.pc - 1) & 0xFFFF))

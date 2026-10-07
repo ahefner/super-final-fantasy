@@ -41,7 +41,8 @@ FIXED = os.path.join(ROOT, "game", "bank_0F.asm")
 OPT = [(os.path.join(ROOT, "src", "optbank.asm"), "CHUNK_OPT"),
        (os.path.join(ROOT, "src", "optmenu.asm"), "CHUNK_OPT"),
        (os.path.join(ROOT, "src", "optshop.asm"), "CHUNK_OPT"),
-       (os.path.join(ROOT, "src", "credits.asm"), "CHUNK_CREDITS")]
+       (os.path.join(ROOT, "src", "credits.asm"), "CHUNK_CREDITS"),
+       (os.path.join(ROOT, "src", "rando.asm"), "CHUNK_RANDO")]
 
 SWAPPERS = ("SwapPRG", "CallMusicPlay", "MusicPlay_L")
 
