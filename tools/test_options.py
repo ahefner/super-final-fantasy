@@ -14,8 +14,9 @@ only found by playing far enough to notice.
 
     ./build.sh && python3 tools/test_options.py
 
-To check the tests still bite, corrupt a table in the loaded image and confirm
-a failure appears.  Search the *upper* half of a chunk when you do: mkrom
+To check the tests still bite, break the source and confirm a failure appears:
+tools/mutate.py does that for a list of mutations at once, each in its own
+copy of the tree.  Or corrupt a table in the loaded image.  Search the *upper* half of a chunk when you do: mkrom
 mirrors $8000-$FFFF into the low half of every chunk, and that copy is never
 addressed, so mutating it proves nothing.  Changing lut_EncDungeonN's vanilla
 numerator from 16 to 15 should fail four of the five live base rates.
@@ -77,6 +78,30 @@ def labels():
 
 SYM = labels()
 ROMDATA = open(ROM, "rb").read()
+
+#  Processes to spread work over: the suite's tests, and within a test, a sweep
+#  handed to pmap.  -j N on the command line overrides it; -j 1 is the old
+#  one-process run, every test in this interpreter in turn.
+JOBS = os.cpu_count() or 1
+
+
+def pmap(fn, jobs):
+    """map(fn, jobs), spread over JOBS processes.
+
+    For sweeps of thousands of emulator runs, which is where the suite's time
+    goes: test_descsynth was two hundred seconds on one core.  fn must be a
+    module-level function, since it is pickled by name, and it must not append
+    to fails -- a worker's list dies with the worker.  It returns what it found
+    and the caller judges it, which keeps every check in the test itself.
+    """
+    jobs = list(jobs)
+    if JOBS <= 1 or len(jobs) < 64:
+        return [fn(j) for j in jobs]
+    from concurrent.futures import ProcessPoolExecutor
+    #  Small chunks, so a core that finishes early takes more rather than the
+    #  sweep waiting on whichever worker was dealt the slow cases.
+    with ProcessPoolExecutor(JOBS) as ex:
+        return list(ex.map(fn, jobs, chunksize=max(1, len(jobs) // (JOBS * 16))))
 
 
 def chr_plus():
@@ -1893,6 +1918,41 @@ def test_descwidth():
 
 
 # --- the description fits the box for records the cartridge never had --------
+_descrom = None                 # each process's own copy of the image to patch
+
+
+def _descgear(job):
+    """opt_descgear's buffer for one synthetic record, or None if it declines.
+
+    test_descsynth's unit of work, at module level so pmap can send it to
+    another process.  The record arrives as bytes and is put back afterwards,
+    so one copy of the image per process serves every job that process gets.
+    """
+    global _descrom
+    at, rec, item, ctx = job
+    if _descrom is None:
+        _descrom = bytearray(ROMDATA)
+    was = bytes(_descrom[at:at + len(rec)])
+    _descrom[at:at + len(rec)] = rec
+    try:
+        bus, cpu = machine()
+        bus.rom = _descrom
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, 0xFF)
+        bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50] = bytes(0x50)
+        bus.sram[0x6EC1 - 0x6000] = ctx
+        bus.wram[0x61] = item
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        if not (cpu.p & 0x01):
+            return None
+        buf = bytes(bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50])
+        end = buf.find(0)
+        return buf[:end] if end >= 0 else buf
+    finally:
+        _descrom[at:at + len(rec)] = was
+
+
 #  test_descwidth above sweeps the fifty-two items the cartridge ships, which
 #  is a regression test and nothing more: Phase 3 randomises these records, so
 #  passing it says nothing about what a generator can produce.
@@ -1922,7 +1982,6 @@ def test_descsynth():
         if ROMDATA[off:off + len(blob)] != blob:
             fails.append("   the %s offset is wrong -- sweeping nothing" % name)
             return
-    rom = bytearray(ROMDATA)        # one buffer, patched in place
 
     WEP0, ARM0 = 28, 68             # the first weapon's and armour's item ids
 
@@ -1938,13 +1997,13 @@ def test_descsynth():
     ARM = ((0, "evade", 99, BYTE), (1, "absorb", 99, BYTE),
            (2, "resist", 0x0F, BYTE), (3, "spell", 33, SPELLS))
 
-    def put(base, stride, fields, slot=0):
-        rec = base + slot * stride
-        rom[rec:rec + stride] = bytes(stride)
+    def record(stride, fields):
+        rec = bytearray(stride)
         for off, val in fields:
-            rom[rec + off] = val
+            rec[off] = val
+        return bytes(rec)
 
-    def desc(item, ctx):
+    def desc(raw):
         """The lines as the screen will show them, and the bytes they cost.
 
         These are two different numbers and both matter.  Control code $02 is
@@ -1953,20 +2012,8 @@ def test_descsynth():
         text overstates it.  Spell names are exactly four glyphs -- genspellnames
         fails the build otherwise -- so the placeholder below is the true width.
         """
-        bus, cpu = machine()
-        bus.rom = rom
-        for i in range(5):
-            setblk(bus, OPT_FLAGS + i, 0xFF)
-        bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50] = bytes(0x50)
-        bus.sram[0x6EC1 - 0x6000] = ctx
-        bus.wram[0x61] = item
-        cpu.a = item
-        call(cpu, "opt_descgear")
-        if not (cpu.p & 0x01):
+        if raw is None:
             return None
-        buf = bytes(bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50])
-        end = buf.find(0)
-        raw = buf[:end] if end >= 0 else buf
         out, i = [[]], 0
         while i < len(raw):
             b = raw[i]
@@ -1984,9 +2031,9 @@ def test_descsynth():
     worst_line, worst_total, worst_rows = (0, None, None), (0, None), (0, None)
     over, nover = [], [0]           # a few examples, and how many there were
 
-    def measure(item, ctx, cols, rows, label):
+    def measure(raw, cols, rows, label):
         nonlocal worst_line, worst_total, worst_rows
-        got = desc(item, ctx)
+        got = desc(raw)
         if got is None:
             return
         ls, total = got
@@ -2011,20 +2058,27 @@ def test_descsynth():
     boxes = ((0, NARROW, ROWS, "narrow"), (3, CHEST, ROWS_CHEST, "chest"))
 
     #  Every value of every byte, with the rest of the record at its worst.
+    #  The cases are dealt out first and run by pmap, then judged in order.
+    cases = []
     for base, stride, spec, item0, kind in ((WEP_OFF, 8, WEP, WEP0, "weapon"),
                                             (ARM_OFF, 4, ARM, ARM0, "armour")):
         for off, name, _w, domain in spec:
             for val in domain:
-                put(base, stride, [(o, val if o == off else w)
-                                   for o, _n, w, _d in spec])
+                rec = record(stride, [(o, val if o == off else w)
+                                      for o, _n, w, _d in spec])
                 for ctx, cols, rows, box in boxes:
-                    measure(item0, ctx, cols, rows,
-                            "%s %s=$%02X %s" % (kind, name, val, box))
+                    cases.append(((base, rec, item0, ctx), cols, rows,
+                                  "%s %s=$%02X %s" % (kind, name, val, box)))
 
         #  and every axis at its worst at the same time, for the buffer
-        put(base, stride, [(o, w) for o, _n, w, _d in spec])
+        rec = record(stride, [(o, w) for o, _n, w, _d in spec])
         for ctx, cols, rows, box in boxes:
-            measure(item0, ctx, cols, rows, "%s worst-case %s" % (kind, box))
+            cases.append(((base, rec, item0, ctx), cols, rows,
+                          "%s worst-case %s" % (kind, box)))
+
+    for raw, (_job, cols, rows, label) in zip(pmap(_descgear, [c[0] for c in cases]),
+                                              cases):
+        measure(raw, cols, rows, label)
 
     #  The claim the sweep above rests on: the three narrow contexts agree.
     #  Checked across the records that exercise every branch of the thing that
@@ -2034,8 +2088,8 @@ def test_descsynth():
             (((0, 99), (1, 99), (2, 0x0F), (3, 33)), ARM_OFF, 4, ARM0),
             (((0, 99), (1, 99), (2, 0x0F), (3, 0)), ARM_OFF, 4, ARM0),
             (((4, 0xFF), (5, 0xFF), (3, 33)), WEP_OFF, 8, WEP0)):
-        put(base, stride, fields)
-        got = [desc(item0, c) for c in (0, 1, 2)]
+        rec = record(stride, fields)
+        got = [desc(_descgear((base, rec, item0, c))) for c in (0, 1, 2)]
         if got[0] != got[1] or got[1] != got[2]:
             same = False
     check("the shop, equip and magic contexts generate the same text", same, True)
@@ -4962,13 +5016,63 @@ def test_enemyelement():
           ghoul is not None and ghoul[0x0E] == 0x01, True)
 
 
+#  The tests that take longest, longest first, measured on one core.  Only a
+#  scheduling hint for run_apart: started first, they are not left running
+#  alone at the end.  A stale entry costs wall time, never a result.
+SLOW = ("test_descsynth", "test_rando_chestload", "test_shopinfo",
+        "test_chestinfo", "test_descwidth", "test_rando_gearnames",
+        "test_rando_oobspell", "test_rando_shopload", "test_rando_gearstats",
+        "test_weaponstats", "test_spellinfo", "test_rando_magicshop",
+        "test_rando_spellnames")
+
+
+def run_apart(names):
+    """Run each named test in a process of its own, JOBS at a time.
+
+    A process per test rather than a pool of them, so the tests stay as
+    isolated from each other as they are when run one by one -- which is how
+    a mutation run calls them -- and a test with a sweep can still start a
+    pool of its own.  The answer is each failing test's lines, in suite order;
+    the skips land in skipped, as if the tests had run here.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    order = sorted(names, key=lambda n: SLOW.index(n) if n in SLOW else len(SLOW))
+
+    def one(name):
+        return name, subprocess.run(
+            [sys.executable, os.path.abspath(__file__), "-j", str(JOBS), name],
+            capture_output=True, text=True)
+
+    with ThreadPoolExecutor(JOBS) as ex:
+        done = dict(ex.map(one, order))
+    failed = []
+    for name in names:
+        r = done[name]
+        lines = r.stdout.splitlines()
+        if r.returncode == 0:
+            skipped.extend(l.strip()[len("skipped: "):] for l in lines
+                           if l.strip().startswith("skipped: "))
+        elif r.returncode == 1 and lines and lines[0].startswith("FAIL ("):
+            failed.append((name, [l[3:] for l in lines[1:]]))
+        else:
+            #  Not the test failing but the process: an import error, a stale
+            #  label file.  Say so rather than count it as a pass.
+            tail = (r.stdout + r.stderr).strip().splitlines()
+            failed.append((name, ["exited %d: %s" % (r.returncode,
+                                  tail[-1] if tail else "no output")]))
+    return failed
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
-    The whole suite is eighty seconds, most of it test_chestinfo and
-    test_descsynth driving the 65816 over thousands of cases.  A single test is
-    a tenth of a second, and a build is two, so checking that one assertion
-    bites is a two-second job:
+    The suite is nearly eight minutes of one core's time, most of it a dozen
+    tests driving the 65816 over thousands of cases.  More than one test runs
+    as a process per test, JOBS at a time, slowest first; -j 1 runs them here
+    in turn as it always did.  A single test runs here, and a sweep inside it
+    still spreads over the cores through pmap.  Most single tests are a tenth
+    of a second, and a build is two, so checking that one assertion bites is a
+    two-second job:
 
         ./build.sh && python3 tools/test_options.py test_housemp
 
@@ -5004,22 +5108,43 @@ def main():
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
              test_enemyelement)
 
+    global JOBS
+    args, want = sys.argv[1:], []
+    while args:
+        a = args.pop(0)
+        if a == "-j" and args:
+            JOBS = max(1, int(args.pop(0)))
+        elif a.startswith("-j") and a[2:].isdigit():
+            JOBS = max(1, int(a[2:]))
+        else:
+            want.append(a)
+
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.
-    want = sys.argv[1:]
     known = {t.__name__ for t in tests}
     unknown = [a for a in want if a not in known]
     if unknown:
         print("no such test: %s" % ", ".join(unknown))
         return 2
 
-    for t in tests:
-        if want and t.__name__ not in want:
-            continue
-        try:
-            t()
-        except Exception as e:
-            fails.append("%s raised %s: %s" % (t.__name__, type(e).__name__, e))
+    run = [t.__name__ for t in tests if not want or t.__name__ in want]
+    if JOBS > 1 and len(run) > 1:
+        failed = run_apart(run)
+        if failed:
+            print("FAIL (%d)" % sum(len(f) for _n, f in failed))
+            for name, fs in failed:
+                print("   %s:" % name)
+                for f in fs:
+                    print("      " + f)
+            return 1
+    else:
+        for t in tests:
+            if t.__name__ not in run:
+                continue
+            try:
+                t()
+            except Exception as e:
+                fails.append("%s raised %s: %s" % (t.__name__, type(e).__name__, e))
     if fails:
         print("FAIL (%d)" % len(fails))
         for f in fails:
