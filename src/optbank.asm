@@ -1779,7 +1779,28 @@ opt_scaleenemies:
 
 ;  The three the battle reads straight out of ROM each time an enemy attacks,
 ;  scaled after they are loaded.  $84 still points at that enemy's RAM stats.
+;
+;  First, Weapon Stats' enemy half: FFR's FixWeaponStats write at $325B0, the
+;  one the port first left out.  The caller has just loaded the attacker's
+;  category from ROM byte $10 and its element from $12 -- its WEAKNESS, which
+;  Disch marks "BUGGED ?", and which is why frost wolves bite with fire.  FFR
+;  makes the category 0 and takes the element from $0E, the element of the
+;  enemy's touch: poison for a poisoner, status for a stunner.  Against a
+;  player the element does one thing, decide whether armour that resists it
+;  stops the touch's ailment, so this is what makes an Aegis Shield stop a
+;  scorpion and an Ice Shield stop nothing a ghoul does.  ($86) points at
+;  the enemy's ROM record in bank $0C, which is the data bank we were called
+;  with.  Y is the caller's to reload, and it does.
 opt_scaleatk:
+    LDA OPTFB_WEAPONSTATS
+    AND #OPTFM_WEAPONSTATS
+    BEQ @scale
+    LDA #$00
+    STA btl_attacker_category
+    LDY #ENROMSTAT_TOUCHELEM
+    LDA ($86), Y
+    STA btl_attacker_element
+  @scale:
     JSR opt_statoff
     BCS @out
     LDY #en_enemyid

@@ -4922,6 +4922,46 @@ def test_rando_gearnames():
     check("battle asks rando_battlesubsrc", jsl_count(fixed, "rando_battlesubsrc"), 1)
 
 
+# --- Weapon Stats: the enemy's attack element --------------------------------
+#  FFR's FixWeaponStats write at $325B0: with the flag on, an enemy's physical
+#  attack has category 0 and the element of its touch (ROM byte $0E), not its
+#  weakness ($12).  Driven through OptScaleEnemyAttack, the trampoline bank $0C
+#  calls, with the two fields preloaded as the caller loads them -- so a flag
+#  that did nothing would leave the weakness standing and fail.
+def test_enemyelement():
+    b0c = (1 + 0x0C) * 0x10000
+    cat, elem = K["btl_attacker_category"] - 0x6000, K["btl_attacker_element"] - 0x6000
+    bad = []
+    for flagbits in (0, F_WEAPONSTATS):
+        for i in range(128):
+            rec = ROMDATA[b0c + 0x8520 + i * 20:][:20]
+            bus, cpu = machine()
+            for k in range(4):
+                setblk(bus, OPT_FLAGS + k, (flagbits >> (8 * k)) & 0xFF)
+            addr = 0x8520 + i * 20
+            bus.wram[0x86], bus.wram[0x87] = addr & 0xFF, addr >> 8
+            bus.sram[cat], bus.sram[elem] = rec[0x10], rec[0x12]   # as loaded
+            cpu.a = rec[0x0D]                                      # the crit rate
+            call(cpu, "OptScaleEnemyAttack", dbr=0xA1 + 0x0C)
+            want = (0, rec[0x0E]) if flagbits else (rec[0x10], rec[0x12])
+            if (bus.sram[cat], bus.sram[elem]) != want:
+                bad.append("enemy %d flags %06X: category/element %s, want %s"
+                           % (i, flagbits, (bus.sram[cat], bus.sram[elem]), want))
+    check("an enemy attacks with its touch's element under Weapon Stats only", bad[:4], [])
+
+    #  The difference it makes, in the data: a stunning undead is weak to fire,
+    #  so its touch used to count as fire and an Ice Shield (which resists
+    #  fire) stopped it; now its touch is status, which only the Ribbon resists.
+    ghoul = None
+    for i in range(128):
+        rec = ROMDATA[b0c + 0x8520 + i * 20:][:20]
+        if rec[0x0F] == 0x10 and rec[0x12] == 0x10:      # stun, weak to fire
+            ghoul = rec
+            break
+    check("a stunner weak to fire exists, with a status touch",
+          ghoul is not None and ghoul[0x0E] == 0x01, True)
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4961,7 +5001,8 @@ def main():
              test_menudesc, test_rando_chests, test_rando_chestload,
              test_rando_magic, test_rando_spellconv, test_rando_oobspell,
              test_rando_spellnames, test_rando_magicshop,
-             test_rando_gear, test_rando_gearstats, test_rando_gearnames)
+             test_rando_gear, test_rando_gearstats, test_rando_gearnames,
+             test_enemyelement)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

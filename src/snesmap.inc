@@ -1251,6 +1251,10 @@ BTLCMD_MAGPAL     = $68B4       ; ...and its palette
 BTLCMD_SPELLSEL   = $6B7D       ; the selected spell, zero based by this point
 OPTFB_WEAPONSTATS = OPT_FLAGS+2 ; bit 16
 OPTFM_WEAPONSTATS = $01
+;  Enemy ROM record byte $0E, which Constants.inc calls ENROMSTAT_UNKNOWN_E:
+;  the element of the enemy's touch, as FFR reads it.  It pairs with $0F, the
+;  touch's ailment -- every poisoner's is poison, every stunner's status.
+ENROMSTAT_TOUCHELEM = $0E
 OPTFB_CRITRATE    = OPT_FLAGS+2 ; bit 20
 OPTFM_CRITRATE    = $10
 
