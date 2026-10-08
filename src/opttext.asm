@@ -404,6 +404,22 @@ lut_Desc_51_1:  ; Magic levels: Shuffle
   FFPAD {"sells and is learned at the"}, 28
   FFPAD {"level it lands on."}, 28
 
+lut_Desc_52:  ; Max gear blessing
+  FFLINES 5
+  FFPAD {"Every weapon and armor rolls"}, 28
+  FFPAD {"a bonus between the curse"}, 28
+  FFPAD {"below and this, shown in its"}, 28
+  FFPAD {"name.  On a weapon, each +1"}, 28
+  FFPAD {"is 3 hit, 2 damage, 3 crit."}, 28
+
+lut_Desc_53:  ; Min gear curse
+  FFLINES 5
+  FFPAD {"The worst a piece of gear"}, 28
+  FFPAD {"may roll.  On armor, each +1"}, 28
+  FFPAD {"is 1 absorb and 1 less"}, 28
+  FFPAD {"weight, twice that on body"}, 28
+  FFPAD {"armor.  Each -1 takes away."}, 28
+
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 4
   FFPAD {"The 234 chests that hold no"}, 28
@@ -425,7 +441,8 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51
+  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
+  .BYTE <lut_Desc_53
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -441,6 +458,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51
+  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
+  .BYTE >lut_Desc_53
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

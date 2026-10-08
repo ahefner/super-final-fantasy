@@ -115,7 +115,14 @@ def call(cpu, name, bank=None, dbr=None):
         bank = CHUNK_OPT_BANK if addr < 0xC000 else 0xA7
     if dbr is not None:
         cpu.dbr = dbr
+    #  A routine that ends in RTS leaves the bank byte of the return address
+    #  behind, so a run of calls on one CPU walks the stack down a byte each.
+    #  In emulation mode it wraps within page 1 harmlessly; once code switches
+    #  to native mode it does not, and four hundred calls in, it fell off the
+    #  bottom of the page.  The game's own stack never gets near there.
+    s = cpu.s
     cpu.run(bank, addr)
+    cpu.s = s
 
 
 def check(what, got, want):
@@ -3528,7 +3535,7 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 64
+    STRIDE, LBL, W, COUNT = 32, 2, 22, 66
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
@@ -3589,7 +3596,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(9):
+    for t in range(11):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
@@ -3604,7 +3611,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the nine tables hold the expected number of entries", seen, 102)
+    check("the eleven tables hold the expected number of entries", seen, 114)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -3860,14 +3867,18 @@ def test_rando_cache():
     #  state to the end of the chest table.
     for seed in (0x31415926, 1082):
         bus2, cpu2 = machine()
-        lo, hi = rw("RW_RNG"), rw("RW_INV") + 64
+        lo, hi = rw("RW_RNG"), rw("RW_BONUS") + 80
         bus2.wram[lo:hi] = b"\xFF" * (hi - lo)
         setsave(bus2, seed, 4, 1, 1, 1)
+        bus2.sram[K["RANDO_BLESS"] - 0x6000] = 5
+        bus2.sram[K["RANDO_CURSE"] - 0x6000] = 5
         call(cpu2, "rando_ensure", bank=RANDO_BANK)
         check("seed $%08X over junk: the reference's world" % seed,
-              (cache_props(bus2), shop_cache(bus2), chest_cache(bus2), magic_cache(bus2)),
+              (cache_props(bus2), shop_cache(bus2), chest_cache(bus2), magic_cache(bus2),
+               gear_cache(bus2)),
               (R.build_props(ROMDATA, seed, 4), R.build_shops(ROMDATA, seed, 1),
-               R.build_chests(ROMDATA, seed, 1), R.build_magic(seed, 1)))
+               R.build_chests(ROMDATA, seed, 1), R.build_magic(seed, 1),
+               R.build_gear(ROMDATA, seed, 5, 5)))
 
     #  A reset in the middle of a rebuild must leave the cache invalid, not
     #  finished: clear the tag first, write it last.
@@ -3967,9 +3978,11 @@ def test_rando_newgame():
     bus.sram[K["OPT_NG_SHOPS"] - 0x6000] = 1
     bus.sram[K["OPT_NG_CHESTS"] - 0x6000] = 1
     bus.sram[K["OPT_NG_MAGIC"] - 0x6000] = 1
+    bus.sram[K["OPT_NG_BLESS"] - 0x6000] = 4
+    bus.sram[K["OPT_NG_CURSE"] - 0x6000] = 3
     call(cpu, "opt_freestuff")
-    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 8]),
-          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01\x01")
+    check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 10]),
+          (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01\x01\x04\x03")
 
 
 def test_rando_stir():
@@ -4017,11 +4030,12 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 9]),
+          list(ROMDATA[at:at + 11]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
-           K["OPT_NG_MAGIC"] - OPTBLOCK])
+           K["OPT_NG_MAGIC"] - OPTBLOCK, K["OPT_NG_BLESS"] - OPTBLOCK,
+           K["OPT_NG_CURSE"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4657,6 +4671,257 @@ def test_rando_magicshop():
             check(name + ": at the slot's level", levels, [(s >> 3) + 1 for s in slots])
 
 
+# --- blursings ----------------------------------------------------------------
+def gear_cache(bus):
+    t, b = rw("RW_WEAPONS"), rw("RW_BONUS")
+    return bytes(bus.wram[t:t + 480]), [x - 256 if x > 127 else x for x in bus.wram[b:b + 80]]
+
+
+def setgear(bus, seed, bless, curse):
+    setsave(bus, seed, 0)
+    bus.sram[K["RANDO_BLESS"] - 0x6000] = bless
+    bus.sram[K["RANDO_CURSE"] - 0x6000] = curse
+
+
+GEAR_ROM = (1 + 0x0C) * 0x10000 + 0x8000
+
+
+def test_rando_gear():
+    rom = bytes(ROMDATA[GEAR_ROM:GEAR_ROM + 480])
+    for bless, curse in ((0, 0), (5, 5), (3, 0), (0, 2), (1, 1), (6, 0), (0, 9)):
+        seen = set()
+        for seed in SEEDS:
+            bus, cpu = machine()
+            setgear(bus, seed, bless, curse)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            table, bonus = gear_cache(bus)
+            name = "+%d/-%d seed $%08X" % (bless, curse, seed)
+            check(name + ": as randoref blurses", (table, bonus),
+                  R.build_gear(ROMDATA, seed, bless, curse))
+            live = 0 <= bless < 6 and 0 <= curse < 6 and (bless or curse)
+            if not live:
+                check(name + ": the cartridge's tables", (table, bonus), (rom, [0] * 80))
+                seen.add(table)
+                continue
+            check(name + ": every bonus in range",
+                  [b for b in bonus if not -curse <= b <= bless], [])
+            #  Only the fields FFR touches move, and each the way it should.
+            bad = []
+            for i in range(40):
+                w, v, b = rom[i * 8:i * 8 + 8], table[i * 8:i * 8 + 8], bonus[i]
+                if w[3:] != v[3:]:
+                    bad.append("weapon %d: spell, element, type or look" % i)
+                if b and not (v[0] == min(50, max(0, w[0] + 3 * b)) and
+                              v[1] == max(1, w[1] + 2 * b) and v[2] == max(1, w[2] + 3 * b)):
+                    bad.append("weapon %d: %s from %s at %+d" % (i, list(v[:3]), list(w[:3]), b))
+                if not b and w != v:
+                    bad.append("weapon %d moved with no bonus" % i)
+            for j in range(40):
+                a, v, b = rom[320 + j * 4:324 + j * 4], table[320 + j * 4:324 + j * 4], bonus[40 + j]
+                k = 2 if j < 16 else 1
+                if a[2:] != v[2:]:
+                    bad.append("armor %d: resistance or spell" % j)
+                if b and not (v[0] == max(0, a[0] - k * b) and v[1] == max(1, a[1] + k * b)):
+                    bad.append("armor %d: %s from %s at %+d" % (j, list(v[:2]), list(a[:2]), b))
+                if not b and a != v:
+                    bad.append("armor %d moved with no bonus" % j)
+            check(name + ": FFR's rules, field by field", bad, [])
+            seen.add(table)
+        if 0 <= bless < 6 and 0 <= curse < 6 and (bless or curse):
+            check("+%d/-%d: every seed its own" % (bless, curse), len(seen), len(SEEDS))
+
+    #  Over a wide roll, plain gear still happens: zero is always in range.
+    bus, cpu = machine()
+    setgear(bus, 0x31337, 5, 5)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    _, bonus = gear_cache(bus)
+    check("+5/-5: some gear plain, some blessed, some cursed",
+          (0 in bonus, max(bonus) > 0, min(bonus) < 0), (True, True, True))
+
+    #  The options chunk's readers see the same tables.
+    bus, cpu = machine()
+    setgear(bus, 0x600DCAFE, 4, 2)
+    want, _ = R.build_gear(ROMDATA, 0x600DCAFE, 4, 2)
+    bad = []
+    for i in range(40):
+        for y in range(8):
+            cpu.x, cpu.y = i, y
+            call(cpu, "opt_weapbyte", dbr=CHUNK_OPT_BANK)
+            if (cpu.a & 0xFF, cpu.x, cpu.y) != (want[i * 8 + y], i, y):
+                bad.append("weapon %d byte %d" % (i, y))
+        for y in range(4):
+            cpu.x, cpu.y = i, y
+            call(cpu, "opt_armbyte", dbr=CHUNK_OPT_BANK)
+            if (cpu.a & 0xFF, cpu.x, cpu.y) != (want[320 + i * 4 + y], i, y):
+                bad.append("armor %d byte %d" % (i, y))
+    check("opt_weapbyte and opt_armbyte read the blursed tables", bad[:4], [])
+
+    #  Its own stream: blursings leave the others alone, and they it.
+    for seed in SEEDS[:3]:
+        a, b, c = machine(), machine(), machine()
+        for m, on, g in ((a, 1, 0), (b, 1, 3), (c, 0, 3)):
+            setsave(m[0], seed, 3 if on else 0, on, on, on)
+            m[0].sram[K["RANDO_BLESS"] - 0x6000] = g
+            m[0].sram[K["RANDO_CURSE"] - 0x6000] = g
+            call(m[1], "rando_ensure", bank=RANDO_BANK)
+        check("seed $%08X: blursings leave the others alone" % seed,
+              (cache_props(a[0]), shop_cache(a[0]), chest_cache(a[0]), magic_cache(a[0])),
+              (cache_props(b[0]), shop_cache(b[0]), chest_cache(b[0]), magic_cache(b[0])))
+        check("seed $%08X: the others leave blursings alone" % seed,
+              gear_cache(b[0]), gear_cache(c[0]))
+
+
+def test_rando_gearstats():
+    """ReadjustEquipStats and UnadjustEquipStats in place: what a blursed piece
+    adds to a character is what the blursed table says, against the same run
+    with blursings off."""
+    seed = 0x600DCAFE
+    table, bonus = R.build_gear(ROMDATA, seed, 5, 5)
+    rom = bytes(ROMDATA[GEAR_ROM:GEAR_ROM + 480])
+    st = lambda f: K[f] - 0x6000
+    def run(bless, curse, slot, item, routine):
+        bus, cpu = machine()
+        setgear(bus, seed, bless, curse)
+        bus.sram[st("ch_class")] = 0                        # a Fighter
+        for f, v in (("ch_dmg", 20), ("ch_hitrate", 20), ("ch_absorb", 20), ("ch_evade", 60)):
+            bus.sram[st(f)] = v
+        bus.sram[st(slot)] = 0x80 | (item + 1)
+        bus.wram[K["equipoffset"]] = K[slot] - K["ch_stats"]
+        call(cpu, routine)
+        return [bus.sram[st(f)] for f in ("ch_dmg", "ch_hitrate", "ch_absorb", "ch_evade")]
+    bad = []
+    for i in range(40):
+        on, off = run(5, 5, "ch_weapons", i, "ReadjustEquipStats"), run(0, 0, "ch_weapons", i, "ReadjustEquipStats")
+        want = [table[i * 8 + 1] - rom[i * 8 + 1], table[i * 8] - rom[i * 8], 0, 0]
+        if [a - b for a, b in zip(on, off)] != want:
+            bad.append("weapon %d (%+d): %s" % (i, bonus[i], [a - b for a, b in zip(on, off)]))
+        on, off = run(5, 5, "ch_armor", i, "ReadjustEquipStats"), run(0, 0, "ch_armor", i, "ReadjustEquipStats")
+        a = 320 + i * 4
+        want = [0, 0, table[a + 1] - rom[a + 1], -(table[a] - rom[a])]
+        if [x - y for x, y in zip(on, off)] != want:
+            bad.append("armor %d (%+d): %s" % (i, bonus[40 + i], [x - y for x, y in zip(on, off)]))
+        #  ...and taking it off gives back exactly what putting it on gave.
+        bus, cpu = machine()
+        setgear(bus, seed, 5, 5)
+        bus.sram[st("ch_weapons")] = 0x80 | (i + 1)
+        bus.wram[K["equipoffset"]] = K["ch_weapons"] - K["ch_stats"]
+        before = bytes(bus.sram[st("ch_dmg"):st("ch_dmg") + 2])
+        call(cpu, "ReadjustEquipStats")
+        call(cpu, "UnadjustEquipStats")
+        if bytes(bus.sram[st("ch_dmg"):st("ch_dmg") + 2]) != before:
+            bad.append("weapon %d: off again is not where it started" % i)
+    check("all 80 pieces adjust a character by their blursed stats", bad[:6], [])
+    fixed = 0xA7 & 0x1F
+    check("both adjusters read weapons through it", jsl_count(fixed, "rando_weaprec"), 2)
+    check("...and armor", jsl_count(fixed, "rando_armrec"), 2)
+
+
+def test_rando_gearnames():
+    """The names, three ways the game reaches them: a weapon shop's list drawn
+    by ShopSelectBuyItem, battle's BattleDrawLoadSubSrcPtr, and rando_nameptr
+    itself for all 80 under several rolls."""
+    nt = K["NESNT"] - 0x7E0000
+    for seed, bless, curse in ((0x0BADF00D, 5, 5), (0x0BADF00D, 0, 0), (77, 3, 0)):
+        _, bonus = R.build_gear(ROMDATA, seed, bless, curse)
+        name = "seed $%08X +%d/-%d" % (seed, bless, curse)
+        #  rando_nameptr, every piece: the bytes it points at.
+        bad = []
+        for i in range(80):
+            bus, cpu = machine()
+            setgear(bus, seed, bless, curse)
+            cpu.a = 0x1C + i
+            cpu.y = 0x5A
+            call(cpu, "rando_nameptr", bank=RANDO_BANK)
+            p = (cpu.a & 0xFF) | cpu.x << 8
+            got = bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(7))
+            if got != R.blursed_name_bytes(ROMDATA, 0x1C + i, bonus[i]) or cpu.y != 0x5A:
+                bad.append("item $%02X: %s" % (0x1C + i, got.hex()))
+        check(name + ": all 80 names", bad[:4], [])
+        #  Not gear: the ROM's own pointer, untouched.
+        for item in (0x00, 0x19, 0x1B, 0x6C, 0xB0):
+            bus, cpu = machine()
+            setgear(bus, seed, bless, curse)
+            cpu.a = item
+            call(cpu, "rando_nameptr", bank=RANDO_BANK)
+            at = (1 + 0x0A) * 0x10000 + 0xB700 + item * 2
+            check(name + ": item $%02X keeps the ROM's name" % item,
+                  (cpu.a & 0xFF) | cpu.x << 8, ROMDATA[at] | ROMDATA[at + 1] << 8)
+        #  A weapon shop's list, as drawn.
+        base = (1 + 0x0E) * 0x10000
+        ptr = ROMDATA[base + 0x8300 + 2 * 2] | ROMDATA[base + 0x8301 + 2 * 2] << 8
+        wares = as_list(ROMDATA[base + ptr:][:5])          # Pravoka's weapons
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setgear(bus, seed, bless, curse)
+        bus.wram[K["item_box"]:K["item_box"] + 6] = bytes(wares + [0] * (6 - len(wares)))
+        cpu.dbr = BANK_0E
+        try:
+            cpu.run(BANK_0E, SYM["ShopSelectBuyItem"], limit=400000)
+        except RuntimeError:
+            pass
+        drawn = []
+        for r in range(30):
+            row = bytes(bus.wram[nt + r * 32:nt + r * 32 + 32])
+            for item in wares:
+                if R.blursed_name_bytes(ROMDATA, item, bonus[item - 0x1C]) in row:
+                    drawn.append(item)
+        check(name + ": Pravoka's weapons drawn by their blursed names", sorted(drawn), sorted(wares))
+        #  Battle: the item-name table through BattleDrawLoadSubSrcPtr, with the
+        #  items bank mapped -- and the same address from another bank, untouched.
+        for i in (0, 7, 25, 39, 40, 55, 79):
+            for dbr, blursed in ((0xA1 + 0x0A, True), (0xA1 + 0x0B, False)):
+                bus, cpu = machine()
+                setgear(bus, seed, bless, curse)
+                bus.wram[0x0500:0x0502] = bytes([0, 0x1C + i])
+                bus.wram[0x90], bus.wram[0x91] = 0x00, 0x05
+                cpu.a, cpu.x, cpu.y, cpu.dbr = 0xB7, 0x00, 0, dbr
+                call(cpu, "BattleDrawLoadSubSrcPtr")
+                p = bus.wram[K["btldraw_subsrc"]] | bus.wram[K["btldraw_subsrc"] + 1] << 8
+                if blursed:
+                    got = bytes(bus.read(dbr, p + k) for k in range(7))
+                    check(name + ": battle names piece %d" % i, got,
+                          R.blursed_name_bytes(ROMDATA, 0x1C + i, bonus[i]))
+                else:
+                    at = (dbr & 0x1F) * 0x10000 + 0xB700 + (0x1C + i) * 2
+                    check(name + ": another bank's table at $B7xx is left alone",
+                          p, ROMDATA[at] | ROMDATA[at + 1] << 8)
+        #  The equip menu, as DrawEquipMenuStrings draws it from item_box.
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setgear(bus, seed, bless, curse)
+        for slot in ("ch_weapons", "ch_armor"):
+            first = 0x1C if slot == "ch_weapons" else 0x44
+            ids = list(range(1, 17))                       # 16 of them, 4 a character
+            bus.wram[K["item_box"]:K["item_box"] + 16] = bytes(ids)
+            bus.wram[K["equipoffset"]] = K[slot] - K["ch_stats"]
+            bus.wram[nt:nt + 0x800] = bytes(0x800)
+            call(cpu, "DrawEquipMenuStrings")
+            screen = bytes(bus.wram[nt:nt + 0x800])
+            missing = [first + i - 1 for i in ids
+                       if R.blursed_name_bytes(ROMDATA, first + i - 1, bonus[first + i - 1 - 0x1C]) not in screen]
+            check(name + ": the equip menu's %s, as blursed" % slot[3:], missing, [])
+        #  A chest's message, drawn by DrawDialogueBox.
+        for item in (0x1C + 3, 0x44 + 1, 0x1C + 39):
+            bus, cpu = machine()
+            in_vblank(bus)
+            call(cpu, "opt_init")
+            setgear(bus, seed, bless, curse)
+            bus.wram[K["dlg_itemid"]] = item
+            cpu.a = 0xF0                                   # DLGID_TCGET
+            try:
+                cpu.run(0xA7, SYM["DrawDialogueBox"], limit=600000)
+            except RuntimeError:
+                pass
+            screen = bytes(bus.wram[nt:nt + 0x800])
+            check(name + ": a chest of item $%02X names it as blursed" % item,
+                  R.blursed_name_bytes(ROMDATA, item, bonus[item - 0x1C]) in screen, True)
+    fixed = 0xA7 & 0x1F
+    check("three menu readers ask rando_nameptr", jsl_count(fixed, "rando_nameptr"), 3)
+    check("battle asks rando_battlesubsrc", jsl_count(fixed, "rando_battlesubsrc"), 1)
+
+
 def main():
     """Every test, or just the ones named on the command line.
 
@@ -4695,7 +4960,8 @@ def main():
              test_rando_shops, test_rando_shopload, test_rando_caravan,
              test_menudesc, test_rando_chests, test_rando_chestload,
              test_rando_magic, test_rando_spellconv, test_rando_oobspell,
-             test_rando_spellnames, test_rando_magicshop)
+             test_rando_spellnames, test_rando_magicshop,
+             test_rando_gear, test_rando_gearstats, test_rando_gearnames)
 
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.

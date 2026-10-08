@@ -1,0 +1,5 @@
+--- OLD
+ShopSelectBuyItem:
+--- NEW
+.export ShopSelectBuyItem        ; for tools/test_options.py
+ShopSelectBuyItem:

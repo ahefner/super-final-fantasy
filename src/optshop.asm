@@ -46,13 +46,13 @@
 .export opt_spellbyte, opt_spelloverride, opt_num16
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
-.export opt_descgear, opt_weapcrit, opt_gearlive
+.export opt_descgear, opt_weapcrit, opt_gearlive, opt_weapbyte, opt_armbyte
 .export opt_setposes, opt_canuseit
 
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
 .import DrawBox, EraseBox, DrawComplexString
 .import lut_SpellNames
-.import rando_spell
+.import rando_spell, rando_weapbyte, rando_armbyte
 .import DrawDialogueString_PtrLoaded
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
 .import OptShopFrameFar, OptCallFar
@@ -563,50 +563,37 @@ opt_slotfree:
 ;  wrong is quiet: weapon 38 read weapon 6's numbers and looked plausible.
 ;
 ;  In: X = 0-based index, Y = which byte.  Out: A, Z set from it.  X, Y kept.
+;
+;  Both tables now come from the randomizer's cache, which holds them as the
+;  save's blursings left them -- the cartridge's own when there are none --
+;  and does its own sixteen-bit indexing.
+;
+;  The randomizer works sixteen bits wide and leaves the high byte of the
+;  accumulator changed.  No 8-bit caller can see that byte, but these two
+;  used to leave it alone, and opt_weaponstats promises its caller A as it
+;  came, so they keep it.
 opt_weapbyte:
-    PHX
-    TXA
-    CMP #32                     ; 32 * 8 is exactly 256
-    BCS @high
-    JSR @offset
-    LDA f:lut_WeaponData + BANK0CFAR, X
-    BRA @out
-  @high:
-    SEC
-    SBC #32
-    JSR @offset
-    LDA f:lut_WeaponData + 256 + BANK0CFAR, X
-  @out:
-    PLX
-    CMP #$00                    ; PLX left the flags describing X, and the
-    RTS                         ;   callers branch on the byte
-
-  @offset:
-    ASL A                       ; eight bytes per weapon, plus the field
-    ASL A
-    ASL A
-    STA OPTGEARX
-    TYA
-    CLC
-    ADC OPTGEARX
-    TAX
+    XBA
+    PHA                         ; the caller's high byte
+    XBA
+    JSL rando_weapbyte + RANDOFAR
+    XBA
+    PLA
+    XBA                         ; the byte, with the high byte put back
+    CMP #$00                    ; the callers branch on the byte
     RTS
 
 ;  The same for armour.  Four bytes each, and no flag reaches any of them:
 ;  evade, absorb and resistance are all accumulated out of battle by
 ;  AdjustEquipStats, so all three are live whatever the settings say.
 opt_armbyte:
-    PHX
-    TXA
-    ASL A
-    ASL A
-    STA OPTGEARX
-    TYA
-    CLC
-    ADC OPTGEARX
-    TAX
-    LDA f:lut_ArmorData + BANK0CFAR, X
-    PLX
+    XBA
+    PHA
+    XBA
+    JSL rando_armbyte + RANDOFAR
+    XBA
+    PLA
+    XBA
     CMP #$00
     RTS
 

@@ -1,0 +1,12 @@
+--- OLD
+      ASL A               ; multiply by another 2  (A= weapon_id*8) -- there are 8 bytes of stats per weapon
+      STA tmp             ; this is the low byte of our source pointer
+      LDA #0
+      ADC #>lut_Weapons   ; include carry into high byte of source pointer
+      STA tmp+1           ; (tmp) is now a pointer to stats for this weapon
+--- NEW
+.import rando_weaprec
+.export UnadjustEquipStats, ReadjustEquipStats   ; for tools/test_options.py
+      ;  (tmp) -> this weapon's record, as blursed: a copy in SRAM, since the
+      ;  randomizer's tables are in WRAM where this bank cannot see them.
+      JSL rando_weaprec + RANDOFAR

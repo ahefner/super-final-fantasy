@@ -1,0 +1,8 @@
+--- OLD
+    ASL A                  ; multiply by another 2 (A now = weapon_id * 8)
+    STA tmp                ; put in tmp as low byte of our pointer
+    LDA #0
+    ADC #>lut_Weapons      ; add high byte of our pointer (including any appropriate carry)
+    STA tmp+1              ; fill tmp+1 to complete our pointer
+--- NEW
+    JSL rando_weaprec + RANDOFAR  ; (tmp) -> this weapon's record, as blursed

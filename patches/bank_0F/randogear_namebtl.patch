@@ -1,0 +1,16 @@
+--- OLD
+    LDY #$00            ; get the pointer, store in btldraw_subsrc
+    LDA ($96), Y
+    STA btldraw_subsrc
+    INY
+    LDA ($96), Y
+    STA btldraw_subsrc+1
+    
+    RTS
+--- NEW
+.import rando_battlesubsrc
+.export BattleDrawLoadSubSrcPtr  ; for tools/test_options.py
+    ;  The pointer, read as before -- and, when it is an item's name, as the
+    ;  randomizer answers for it: a blursed piece of gear shows its bonus.
+    JSL rando_battlesubsrc + RANDOFAR
+    RTS

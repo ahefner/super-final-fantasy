@@ -1,0 +1,10 @@
+--- OLD
+      CLC                 ; (A= armor_id*8)
+      ADC #<lut_Armor     ; add A to desired pointer
+      STA tmp             ;  and store pointer to (tmp)
+      LDA #0
+      ADC #>lut_Armor
+      STA tmp+1           ; (tmp) is now a pointer to stats for this armor
+--- NEW
+.import rando_armrec
+      JSL rando_armrec + RANDOFAR  ; (tmp) -> this armor's record, as blursed

@@ -1,0 +1,25 @@
+--- OLD
+      LDA dlg_itemid       ; get the item ID whose name we're to print
+      ASL A                ; double it (2 bytes per pointer)
+      TAX                  ; and put in X for indexing
+      BCS @ItemHiTbl       ; if the item ID was >= $80, use second half of pointer table
+
+      @ItemLoTbl:
+        LDA lut_ItemNamePtrTbl, X    ; load pointer from first half if ID <= $7F
+        STA text_ptr
+        LDA lut_ItemNamePtrTbl+1, X
+        JMP @ItemPtrLoaded
+
+      @ItemHiTbl:
+        LDA lut_ItemNamePtrTbl+$100, X   ; or from 2nd half if ID >= $80
+        STA text_ptr
+        LDA lut_ItemNamePtrTbl+$101, X
+
+      @ItemPtrLoaded:
+      STA text_ptr+1
+--- NEW
+.export DrawDialogueBox          ; for tools/test_options.py
+      LDA dlg_itemid       ; get the item ID whose name we're to print
+      JSL rando_nameptr + RANDOFAR  ; its name, as blursed -- see @DrawItem
+      STA text_ptr
+      STX text_ptr+1

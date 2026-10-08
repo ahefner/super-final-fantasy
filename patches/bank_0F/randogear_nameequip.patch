@@ -1,0 +1,11 @@
+--- OLD
+    ASL A                        ; double it
+    TAX                          ; and stuff it in X to load up the pointer
+    LDA lut_ItemNamePtrTbl, X    ; fetch the pointer and store it to (tmp)
+    STA tmp
+    LDA lut_ItemNamePtrTbl+1, X
+    STA tmp+1
+--- NEW
+    JSL rando_nameptr + RANDOFAR ; its name, as blursed -- see @DrawItem
+    STA tmp
+    STX tmp+1

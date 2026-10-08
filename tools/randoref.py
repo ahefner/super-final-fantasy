@@ -38,6 +38,7 @@ STREAM_TRAPS = 0x54524150       # "TRAP"
 STREAM_SHOPS = 0x53484F50       # "SHOP"
 STREAM_CHESTS = 0x43485354      # "CHST"
 STREAM_MAGIC = 0x4D414743       # "MAGC"
+STREAM_GEAR = 0x424C5253        # "BLRS"
 WARMUP = 8
 
 
@@ -253,6 +254,56 @@ def build_chests(rom, seed, chests):
     return bytes(table)
 
 
+# --- blursings ---------------------------------------------------------------------
+#  FFR's RandomWeaponBonus and RandomArmorBonus, one range for both: every
+#  piece rolls a bonus from -curse to +bless, weapons first.  The tables are
+#  bank $0C's $8000: 40 weapons of 8 bytes, then 40 armour of 4.
+GEAR_AT = (1 + 0x0C) * 0x10000 + 0x8000
+BLURSE_STEPS = 6
+
+
+def build_gear(rom, seed, bless, curse):
+    """(the tables as blursed, 480 bytes; the 80 bonuses, signed)."""
+    t = bytearray(rom[GEAR_AT:GEAR_AT + 480])
+    bonus = [0] * 80
+    if not (0 <= bless < BLURSE_STEPS and 0 <= curse < BLURSE_STEPS) or not (bless or curse):
+        return bytes(t), bonus
+    rng = Stream(seed, STREAM_GEAR)
+    clamp = lambda v, lo, hi: max(lo, min(hi, v))
+    for i in range(80):
+        b = rng.below(bless + curse + 1) - curse
+        bonus[i] = b
+        if not b:
+            continue
+        if i < 40:
+            w = i * 8
+            t[w + 0] = clamp(t[w + 0] + 3 * b, 0, 50)    # hit
+            t[w + 1] = clamp(t[w + 1] + 2 * b, 1, 255)   # damage
+            t[w + 2] = clamp(t[w + 2] + 3 * b, 1, 255)   # crit
+        else:
+            j = i - 40
+            k = 2 if j < 16 else 1                         # body armour
+            a = 320 + j * 4
+            t[a + 0] = clamp(t[a + 0] - k * b, 0, 255)   # weight
+            t[a + 1] = clamp(t[a + 1] + k * b, 1, 255)   # absorb
+    return bytes(t), bonus
+
+
+def blursed_name_bytes(rom, item, b):
+    """The name's bytes as drawn: the last two before an icon made the sign
+    and the digit, FFR's rule for the icon being a seventh byte above 200
+    that is not a space."""
+    bank = (1 + 0x0A) * 0x10000
+    p = bank + 0xB700 + item * 2
+    at = bank + (rom[p] | rom[p + 1] << 8)
+    name = bytearray(rom[at:at + 7])
+    if b:
+        i = 5 if (name[6] > 200 and name[6] != 0xFF) else 6
+        name[i] = 0x80 + abs(b)
+        name[i - 1] = 0xC1 if b > 0 else 0xC2
+    return bytes(name)
+
+
 # --- where things are ---------------------------------------------------------------
 #  The 61 standard maps, decoded the way DecompressMap does it, so a chest can
 #  be named by the floor it is on.  The names are FFR's MapIndex (Enums.cs),
@@ -360,34 +411,41 @@ ICONS = {0xD4: "Sword", 0xD5: "Hammer", 0xD6: "Knife", 0xD7: "Axe",
 PUNCT = {0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC4: "!", 0xC5: "?"}
 
 
+GEAR_BONUS = {}       # item id -> bonus, for item_name; set by main()
+
+
 def item_name(rom, item):
     bank = (1 + 0x0A) * 0x10000
     p = bank + 0xB700 + item * 2
     at = bank + (rom[p] | rom[p + 1] << 8)
+    text = bytearray(rom[at:at + 12])
+    if 0x1C <= item < 0x6C and GEAR_BONUS.get(item):
+        text[:7] = blursed_name_bytes(rom, item, GEAR_BONUS[item])
     out = ""
-    while rom[at] and len(out) < 12:
-        b = rom[at]
+    for b in text:
+        if not b:
+            break
         if 0x80 <= b <= 0x89: out += chr(ord("0") + b - 0x80)
         elif 0x8A <= b <= 0xA3: out += chr(ord("A") + b - 0x8A)
         elif 0xA4 <= b <= 0xBD: out += chr(ord("a") + b - 0xA4)
         elif b == 0xFF: out += " "
         elif b in PUNCT: out += PUNCT[b]
         elif b in ICONS: out += " " + ICONS[b]
+        elif b == 0xC1: out += "+"
         else: out += "?"
-        at += 1
     return " ".join(out.split())
 
 
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 8
+RANDO_SAVE_SIZE = 10
 
 
 def block_from_srm(srm):
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6], b[7]
+    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6], b[7], b[8], b[9]
 
 
 def main():
@@ -398,21 +456,28 @@ def main():
     ap.add_argument("--shops", choices=sorted(SHOP_NAMES), default="off")
     ap.add_argument("--chests", choices=sorted(CHEST_NAMES), default="off")
     ap.add_argument("--magic", choices=sorted(MAGIC_NAMES), default="off")
+    ap.add_argument("--bless", type=int, default=0, help="max gear blessing, 0..5")
+    ap.add_argument("--curse", type=int, default=0, help="min gear curse, 0..5")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
-        seed, traps, shops, chests, magic = block_from_srm(open(a.srm, "rb").read())
+        seed, traps, shops, chests, magic, bless, curse = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops, chests, magic = (
+        seed, traps, shops, chests, magic, bless, curse = (
             int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
-            CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic])
+            CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse)
     else:
         ap.error("give a battery file or --seed")
-    print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d"
-          % (seed, traps, shops, chests, magic))
+    print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
+          " blessing +%d, curse -%d" % (seed, traps, shops, chests, magic, bless, curse))
+    _, bonus = build_gear(rom, seed, bless, curse)
+    GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
+    if any(bonus) and not a.find:
+        print("  blursed: " + ", ".join(item_name(rom, 0x1C + i)
+                                         for i, b in enumerate(bonus) if b))
     perm, _ = build_magic(seed, magic)
     if magic:
         for level in range(8):

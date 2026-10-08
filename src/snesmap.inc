@@ -1284,7 +1284,9 @@ RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
 RANDO_SHOPS     = RANDO_SAVE+$05  ; SHOPS_* below
 RANDO_CHESTS    = RANDO_SAVE+$06  ; CHESTS_* below
 RANDO_MAGIC     = RANDO_SAVE+$07  ; MAGIC_* below
-RANDO_SAVE_SIZE = $08
+RANDO_BLESS     = RANDO_SAVE+$08  ; the best a piece of gear may roll, 0..5
+RANDO_CURSE     = RANDO_SAVE+$09  ; the worst, as a magnitude, 0..5
+RANDO_SAVE_SIZE = $0A
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1300,6 +1302,14 @@ OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SHOPS    = OPT_NG + (RANDO_SHOPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_CHESTS   = OPT_NG + (RANDO_CHESTS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_MAGIC    = OPT_NG + (RANDO_MAGIC - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_BLESS    = OPT_NG + (RANDO_BLESS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_CURSE    = OPT_NG + (RANDO_CURSE - RANDO_SAVE) - RANDO_NGOFF
+
+;  Two buffers the randomizer hands to game code, in SRAM because every chunk
+;  sees it and none sees WRAM above $2000.  Written before every read.
+OPTGEARSHADOW   = OPTBLOCK+$F0  ; 8 bytes: a blursed weapon or armour record
+OPTNAMEBUF      = OPTBLOCK+$F8  ; 8 bytes: a blursed name and its terminator
+.assert OPT_NG + OPT_NG_SIZE <= OPTGEARSHADOW, error, "new-game settings run into the gear buffers"
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
@@ -1338,6 +1348,11 @@ CHESTS_MODES    = 2
 MAGIC_OFF       = 0
 MAGIC_SHUFFLE   = 1
 MAGIC_MODES     = 2
+
+;  Blursings: FFR's RandomWeaponBonus and RandomArmorBonus, one range for both.
+;  Each piece of gear rolls a bonus from -curse to +blessing, so a plain piece
+;  is always possible, which FFR's sliders need not allow.
+BLURSE_STEPS    = 6             ; 0..5 for each of the two rows
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1395,5 +1410,17 @@ RW_SHOPROWS     = 71              ; shop_id 0..70; 70 is the Caravan
 RW_CHESTS       = RANDOWRAM+$1400 ; every chest's contents, by chest id
 RW_PERM         = RANDOWRAM+$1500 ; magic: the spell in each slot, 64 bytes
 RW_INV          = RANDOWRAM+$1540 ; magic: the slot each spell is in
+RW_WEAPONS      = RANDOWRAM+$1600 ; gear: 40 weapons x 8, as blursed...
+RW_ARMOR        = RANDOWRAM+$1740 ; ...then 40 armour x 4, contiguous as in ROM
+RW_BONUS        = RANDOWRAM+$17E0 ; gear: each piece's bonus, signed, 80 bytes
+RW_NAMEID       = RANDOWRAM+$0060 ; a name lookup: the item id...
+RW_NAMEPTR      = RANDOWRAM+$0062 ; ...its name's ROM pointer, 2 bytes...
+RW_NAMEB        = RANDOWRAM+$0064 ; ...and its bonus
+RW_GI           = RANDOWRAM+$0065 ; gear: which of the 80 is being blursed
+RW_GN           = RANDOWRAM+$0066 ; gear: how many values the roll has
+RW_D2           = RANDOWRAM+$0068 ; gear: the bonus times two, a word
+RW_D3           = RANDOWRAM+$006A ; ...and times three
+RW_FLOOR        = RANDOWRAM+$006C ; gear: the clamp's floor, a word...
+RW_CEIL         = RANDOWRAM+$006E ; ...and its ceiling
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

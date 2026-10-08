@@ -42,6 +42,8 @@
 .export rando_chest
 .export rando_spell, rando_slot, rando_ibspell, rando_obspell, rando_oobspell
 .export rando_menuspell, rando_shopspell, rando_shopmagic
+.export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
+.export rando_nameptr, rando_battlesubsrc
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -82,6 +84,18 @@ wUNUSED  = .LOWORD(RW_UNUSED)
 wCHESTS  = .LOWORD(RW_CHESTS)
 wPERM    = .LOWORD(RW_PERM)
 wINV     = .LOWORD(RW_INV)
+wWEAPONS = .LOWORD(RW_WEAPONS)
+wARMOR   = .LOWORD(RW_ARMOR)
+wBONUS   = .LOWORD(RW_BONUS)
+wNAMEID  = .LOWORD(RW_NAMEID)
+wNAMEPTR = .LOWORD(RW_NAMEPTR)
+wNAMEB   = .LOWORD(RW_NAMEB)
+wGI      = .LOWORD(RW_GI)
+wGN      = .LOWORD(RW_GN)
+wD2      = .LOWORD(RW_D2)
+wD3      = .LOWORD(RW_D3)
+wFLOOR   = .LOWORD(RW_FLOOR)
+wCEIL    = .LOWORD(RW_CEIL)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -104,6 +118,17 @@ STREAM_TRAPS  = $54524150       ; "TRAP"
 STREAM_SHOPS  = $53484F50       ; "SHOP"
 STREAM_CHESTS = $43485354       ; "CHST"
 STREAM_MAGIC  = $4D414743       ; "MAGC"
+STREAM_GEAR   = $424C5253       ; "BLRS"
+
+;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
+.import lut_WeaponData, lut_ArmorData
+ROMGEAR    = BANK0CFAR + lut_WeaponData
+.assert lut_ArmorData = lut_WeaponData + 40 * 8, lderror, "armour no longer follows the weapons"
+
+;  Item names: lut_ItemNamePtrTbl in bank $0A, a pointer per item id into the
+;  same bank.  Gear is item ids $1C up, weapons then armour.
+BANK0AFAR  = (CHUNK0 + BANK_ITEMS) * $10000
+SRAMFAR    = CHUNK0 * $10000    ; SRAM, from a bank that decodes it
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change
 ;  in the state slowly, and a seed typed in by hand -- 1, 2, 3 -- would
@@ -497,6 +522,18 @@ build:
     JSR deal_magic
   @inverse:
     JSR make_inverse
+
+  @gear:
+    JSR copy_gear
+    LDA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
+    CMP #BLURSE_STEPS
+    BCS @done                   ; out of range: as none
+    LDA f:RANDO_SAVEFAR + (RANDO_CURSE - RANDO_SAVE)
+    CMP #BLURSE_STEPS
+    BCS @done
+    ORA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
+    BEQ @done                   ; both nothing: off
+    JSR deal_gear
   @done:
     PLP
     RTS
@@ -1487,6 +1524,486 @@ rando_shopspell:
     CLC
     ADC #MG_START
   @out:
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Blursings -- FFR's RandomWeaponBonus and RandomArmorBonus
+;;
+;;  Every weapon and every piece of armour rolls a bonus from -curse to
+;;  +blessing, one stream, weapons first.  A nonzero bonus changes the record
+;;  as FFR does:
+;;
+;;    weapon   hit + 3b (0..50), damage + 2b (at least 1), crit + 3b (at least 1)
+;;    armour   absorb + kb (at least 1), weight - kb (at least 0), where k is
+;;             2 for body armour, the first 16, and 1 for the rest
+;;
+;;  and the name's last two letters before its icon become the sign and the
+;;  digit.  Prices stay as they are, as in FFR.  FFR casts each result to a
+;;  byte; nothing here gets near 255, so the ceiling is written as a clamp.
+;;
+;;  Where it is read: the out-of-battle stat adjusters through rando_weaprec
+;;  and rando_armrec, which is where a character's damage, hit, evade and
+;;  absorb come from, battle included; the options chunk's opt_weapbyte and
+;;  opt_armbyte, for crit and the descriptions; and the names, through
+;;  rando_nameptr and rando_battlesubsrc.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;  Both tables as the cartridge has them, and no bonuses.  A8, I16, DBR $7F.
+copy_gear:
+    .a8
+    .i16
+    LDX #$0000
+  @copy:
+    LDA f:ROMGEAR, X
+    STA a:wWEAPONS, X
+    INX
+    CPX #40 * 8 + 40 * 4
+    BCC @copy
+    LDX #$0000
+  @zero:
+    STZ a:wBONUS, X
+    INX
+    CPX #80
+    BCC @zero
+    RTS
+
+;;  A8, I16, DBR $7F.
+deal_gear:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_GEAR)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_GEAR)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
+    CLC
+    ADC f:RANDO_SAVEFAR + (RANDO_CURSE - RANDO_SAVE)
+    INC A
+    STA a:wGN                   ; how many values: -curse..+bless
+    STZ a:wGI
+  @each:
+    LDA a:wGN
+    JSR rando_below
+    SEC
+    SBC f:RANDO_SAVEFAR + (RANDO_CURSE - RANDO_SAVE)
+    PHA                         ; the bonus
+    LDA a:wGI
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    PLA
+    STA a:wBONUS, X
+    BEQ @next
+    JSR blurse_one
+  @next:
+    INC a:wGI
+    LDA a:wGI
+    CMP #80
+    BCC @each
+    RTS
+
+;;  Apply bonus A (nonzero) to piece X, 0..79.  A8, I16, DBR $7F.
+blurse_one:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    AND #$00FF
+    CMP #$0080
+    BCC :+
+    ORA #$FF00                  ; signed
+:   STA a:wT                    ; b
+    ASL A
+    STA a:wD2                   ; 2b
+    CLC
+    ADC a:wT
+    STA a:wD3                   ; 3b
+    TXA
+    CMP #40
+    BCS @armor
+
+    ASL A
+    ASL A
+    ASL A
+    TAX                         ; the weapon's record
+    LDA #50
+    STA a:wCEIL
+    LDY #$0000
+    LDA a:wWEAPONS + 0, X       ; hit + 3b, 0..50
+    AND #$00FF
+    CLC
+    ADC a:wD3
+    JSR clamp
+    SEP #$20
+    .a8
+    STA a:wWEAPONS + 0, X
+    REP #$20
+    .a16
+    LDA #$00FF
+    STA a:wCEIL
+    LDY #$0001
+    LDA a:wWEAPONS + 1, X       ; damage + 2b, at least 1
+    AND #$00FF
+    CLC
+    ADC a:wD2
+    JSR clamp
+    SEP #$20
+    .a8
+    STA a:wWEAPONS + 1, X
+    REP #$20
+    .a16
+    LDA a:wWEAPONS + 2, X       ; crit + 3b, at least 1
+    AND #$00FF
+    CLC
+    ADC a:wD3
+    JSR clamp
+    SEP #$20
+    .a8
+    STA a:wWEAPONS + 2, X
+    RTS
+
+  @armor:
+    .a16
+    SEC
+    SBC #40
+    CMP #16                     ; body armour: twice the step
+    BCS :+
+    PHA
+    LDA a:wD2
+    STA a:wT
+    PLA
+:   ASL A
+    ASL A
+    TAX                         ; the armour's record
+    LDA #$00FF
+    STA a:wCEIL
+    LDY #$0000
+    LDA a:wARMOR + 0, X         ; weight - kb, at least 0
+    AND #$00FF
+    SEC
+    SBC a:wT
+    JSR clamp
+    SEP #$20
+    .a8
+    STA a:wARMOR + 0, X
+    REP #$20
+    .a16
+    LDY #$0001
+    LDA a:wARMOR + 1, X         ; absorb + kb, at least 1
+    AND #$00FF
+    CLC
+    ADC a:wT
+    JSR clamp
+    SEP #$20
+    .a8
+    STA a:wARMOR + 1, X
+    RTS
+
+;;  A16 = a value, signed; Y16 = its floor; RW_CEIL = its ceiling.
+;;  Out: A16 within them.  X kept.
+clamp:
+    .a16
+    .i16
+    STY a:wFLOOR
+    CMP #$0000
+    BMI @floor
+    CMP a:wFLOOR
+    BCC @floor
+    CMP a:wCEIL
+    BCC @ok
+    BEQ @ok
+    LDA a:wCEIL
+  @ok:
+    RTS
+  @floor:
+    LDA a:wFLOOR
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_weaprec, rando_armrec -- the stat adjusters' record pointer
+;;
+;;  UnadjustEquipStats and ReadjustEquipStats pointed (tmp) into lut_Weapons
+;;  or lut_Armor in bank $0C and read the record through it.  These copy the
+;;  record as blursed into OPTGEARSHADOW, in SRAM, which every bank sees, and
+;;  point (tmp) there instead.
+;;
+;;  In: A = (equipment id - 1) * 4, as the adjuster had it.  Out: tmp,
+;;  tmp+1.  A, X, Y clobbered; the adjuster reloads X and Y after.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+GEARSHADOWFAR = SRAMFAR + OPTGEARSHADOW
+NAMEBUFFAR    = SRAMFAR + OPTNAMEBUF
+
+rando_weaprec:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    JSR ensure
+    PLA
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF
+    ASL A                       ; eight bytes a weapon
+    TAX
+    LDA a:wWEAPONS + 0, X
+    STA f:GEARSHADOWFAR + 0
+    LDA a:wWEAPONS + 2, X
+    STA f:GEARSHADOWFAR + 2
+    LDA a:wWEAPONS + 4, X
+    STA f:GEARSHADOWFAR + 4
+    LDA a:wWEAPONS + 6, X
+    STA f:GEARSHADOWFAR + 6
+    BRA gearpoint
+
+rando_armrec:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    JSR ensure
+    PLA
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF                  ; four bytes an armour: already the offset
+    TAX
+    LDA a:wARMOR + 0, X
+    STA f:GEARSHADOWFAR + 0
+    LDA a:wARMOR + 2, X
+    STA f:GEARSHADOWFAR + 2
+gearpoint:
+    .a16
+    SEP #$20
+    .a8
+    LDA #<OPTGEARSHADOW
+    STA z:tmp
+    LDA #>OPTGEARSHADOW
+    STA z:tmp+1
+    JMP leave
+
+
+;;  opt_weapbyte and opt_armbyte, for the options chunk: byte Y of weapon or
+;;  armour X, as blursed.  Out: A; X and Y kept.
+rando_weapbyte:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    JSR enter
+    JSR ensure
+    PLY
+    PLX
+    PHX
+    PHY
+    REP #$30
+    .a16
+    .i16
+    TXA
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    BRA gearbyte
+
+rando_armbyte:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    JSR enter
+    JSR ensure
+    PLY
+    PLX
+    PHX
+    PHY
+    REP #$30
+    .a16
+    .i16
+    TXA
+    AND #$00FF
+    ASL A
+    ASL A
+    CLC
+    ADC #wARMOR - wWEAPONS
+gearbyte:
+    .a16
+    .i16
+    STA a:wT
+    TYA
+    AND #$00FF
+    CLC
+    ADC a:wT
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wWEAPONS, X
+    SEP #$10
+    .i8
+    PLY
+    PLX
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_nameptr -- where to draw item A's name from
+;;
+;;  The ROM's pointer, unless A is a piece of gear with a bonus: then its seven
+;;  letters, with the last two before the icon made the sign and the digit,
+;;  in OPTNAMEBUF.  FFR's rule for the icon: a seventh byte above 200 that is
+;;  not a space.  The name readers draw from wherever this points with the
+;;  items bank mapped, and SRAM is visible from it.
+;;
+;;  In: A = item id.  Out: A = the pointer's low byte, X its high.  Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_nameptr:
+    .a8
+    .i8
+    PHB
+    PHY
+    PHA
+    JSR enter
+    JSR ensure
+    PLA
+    STA a:wNAMEID
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:BANK0AFAR + lut_ItemNamePtrTbl, X
+    STA a:wNAMEPTR
+    SEP #$20
+    .a8
+    LDA a:wNAMEID
+    SEC
+    SBC #TCITYPE_WEPSTART
+    BCC @rom
+    CMP #80
+    BCS @rom
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wBONUS, X
+    BEQ @rom
+    STA a:wNAMEB
+
+    LDX a:wNAMEPTR
+    LDY #$0000
+  @copy:
+    LDA f:BANK0AFAR, X
+    PHX
+    TYX
+    STA f:NAMEBUFFAR, X
+    PLX
+    INX
+    INY
+    CPY #7
+    BCC @copy
+    LDA #$00
+    STA f:NAMEBUFFAR + 7        ; the terminator
+
+    LDX #$0006                  ; the last letter, or the one before an icon
+    LDA f:NAMEBUFFAR + 6
+    CMP #$FF
+    BEQ @place
+    CMP #201
+    BCC @place
+    DEX
+  @place:
+    LDA a:wNAMEB
+    BMI @minus
+    CLC
+    ADC #$80                    ; the digit
+    STA f:NAMEBUFFAR, X
+    LDA #CHR_PLUS
+    BRA @sign
+  @minus:
+    EOR #$FF
+    INC A
+    CLC
+    ADC #$80
+    STA f:NAMEBUFFAR, X
+    LDA #$C2                    ; "-"
+  @sign:
+    DEX
+    STA f:NAMEBUFFAR, X
+    LDA #<OPTNAMEBUF
+    STA a:wNAMEPTR
+    LDA #>OPTNAMEBUF
+    STA a:wNAMEPTR + 1
+
+  @rom:
+    .a8
+    SEP #$30
+    .i8
+    LDA a:wNAMEPTR
+    LDX a:wNAMEPTR + 1
+    PLY
+    JMP leave
+
+
+;;  The tail of BattleDrawLoadSubSrcPtr, which every battle substring goes
+;;  through: names, attacks, messages.  It read the pointer at ($96); this
+;;  reads it the same way, then, if the table was the item names -- the items
+;;  bank mapped and ($96) inside lut_ItemNamePtrTbl -- asks rando_nameptr.
+;;  Battle messages and enemy names come from bank $0B, and the enemy attack
+;;  names end below $B700.
+;;
+;;  Out: btldraw_subsrc.  Y = 1, as the game left it; X kept.
+rando_battlesubsrc:
+    .a8
+    .i8
+    LDY #$00
+    LDA ($96), Y                ; the caller's data bank
+    STA z:btldraw_subsrc
+    INY
+    LDA ($96), Y
+    STA z:btldraw_subsrc+1
+    PHB
+    PLA
+    CMP #CHUNK0 + BANK_ITEMS
+    BNE @out
+    LDA z:$97
+    CMP #>lut_ItemNamePtrTbl
+    BCC @out
+    CMP #>lut_ItemNamePtrTbl + 2
+    BCS @out
+    SEC
+    SBC #>lut_ItemNamePtrTbl    ; 0 or 1: bit 8 of the offset
+    LSR A
+    LDA z:$96
+    ROR A                       ; the item id
+    PHX
+    JSL rando_nameptr + RANDOFAR
+    STA z:btldraw_subsrc
+    TXA
+    STA z:btldraw_subsrc+1
+    PLX
+  @out:
+    LDY #$01
     RTL
 
 

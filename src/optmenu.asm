@@ -1485,6 +1485,10 @@ lut_OptRows:
   OPTLABEL {"Chests"}
   .BYTE $02, $08   ; Magic levels
   OPTLABEL {"Magic levels"}
+  .BYTE $02, $09   ; Max gear blessing
+  OPTLABEL {"Max gear blessing"}
+  .BYTE $02, $0A   ; Min gear curse
+  OPTLABEL {"Min gear curse"}
 
 lut_OptRowsEnd:
 
@@ -1619,6 +1623,22 @@ lut_ValTraps:
   FFPAD "       B", 8           ; TRAPS_BSIDE
   FFPAD "     A+B", 8           ; TRAPS_BOTH
 
+;  Blursings: the best and the worst a piece of gear may roll.
+lut_ValBless:
+  FFPAD "   0", 4
+  FFPAD "  +1", 4
+  FFPAD "  +2", 4
+  FFPAD "  +3", 4
+  FFPAD "  +4", 4
+  FFPAD "  +5", 4
+lut_ValCurse:
+  FFPAD "   0", 4
+  FFPAD "  -1", 4
+  FFPAD "  -2", 4
+  FFPAD "  -3", 4
+  FFPAD "  -4", 4
+  FFPAD "  -5", 4
+
 ;  Off or Shuffle: Shops, where Random Wares would be a third value, Chests
 ;  and Magic levels.
 lut_ValShuffle:
@@ -1629,15 +1649,18 @@ lut_ValShuffle:
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
               .BYTE <lut_ValTraps, <lut_ValShuffle, <lut_ValShuffle, <lut_ValShuffle
+              .BYTE <lut_ValBless, <lut_ValCurse
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
+              .BYTE >lut_ValBless, >lut_ValCurse
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
-              .BYTE MAGIC_MODES
+              .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
+              .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

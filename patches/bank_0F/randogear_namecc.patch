@@ -1,0 +1,26 @@
+--- OLD
+    TXA                   ; get item ID
+    ASL A                 ; double it (for pointer table lookup)
+    TAX                   ; put low byte in X for indexing
+
+    BCS @itemHigh                 ; if doubling A caused a carry (item ID >= $80)... jump ahead
+      LDA lut_ItemNamePtrTbl, X   ;  if item ID was < $80... read pointer from first half of pointer table
+      STA text_ptr                ;  low byte of pointer
+      LDA lut_ItemNamePtrTbl+1, X ;  high byte of pointer (will be written after jump)
+      JMP @itemGo
+
+  @itemHigh:                         ; item high -- if item ID was >= $80
+      LDA lut_ItemNamePtrTbl+$100, X ;  load pointer from second half of pointer table
+      STA text_ptr                   ;  write low byte of pointer
+      LDA lut_ItemNamePtrTbl+$101, X ;  high byte (written next inst)
+
+  @itemGo:
+    STA text_ptr+1        ; finally write high byte of pointer
+--- NEW
+.import rando_nameptr
+    TXA                   ; get item ID
+    ;  The pointer from the randomizer, which answers with the ROM's -- or,
+    ;  for gear with a blessing or a curse, a copy in SRAM ending "+3" or "-2".
+    JSL rando_nameptr + RANDOFAR
+    STA text_ptr
+    STX text_ptr+1

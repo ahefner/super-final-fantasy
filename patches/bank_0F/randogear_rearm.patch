@@ -1,0 +1,9 @@
+--- OLD
+    CLC
+    ADC #<lut_Armor        ; add low byte of pointer to our A
+    STA tmp                ; and store it in tmp
+    LDA #0
+    ADC #>lut_Armor        ; then get high byte of pointer (ADC to catch appropriate carry)
+    STA tmp+1              ; (tmp) is now a pointer to this armor's stats
+--- NEW
+    JSL rando_armrec + RANDOFAR   ; (tmp) -> this armor's record, as blursed
