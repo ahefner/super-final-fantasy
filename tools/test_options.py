@@ -3768,6 +3768,50 @@ def setsave(bus, seed, traps, shops=0, chests=0, magic=0):
     bus.sram[K["RANDO_MAGIC"] - 0x6000] = magic
 
 
+_warm = {}          # machine state -> the last case left cold, or the state built
+
+
+def warm(bus):
+    """Make this machine as if the cartridge had already built the world its
+    save names -- as on a console, where the first map load builds it and
+    everything after only reads it.
+
+    The consumer tests ask hundreds of times of a handful of worlds, and a
+    build from cold is a hundred milliseconds of emulation where a read of a
+    built cache is half of one: test_rando_chestload was thirty-seven seconds,
+    all but a fraction of it the same build 469 times.
+
+    Call it once the save is set and before anything that differs from case to
+    case, so the cases of one world share a key.  Each world's cases run cold
+    until one of them has built the cache through the consumer's own call to
+    ensure, so a consumer that forgot the call still fails.  "The first case"
+    would not do: test_rando_oobspell's first is an empty slot, which returns
+    before it asks, and with it warm a missing ensure went unnoticed.  After
+    that, the machine gets the memory rando_ensure leaves when run on a copy of
+    it.  The key is the whole machine, so a case that differs in any byte is
+    never handed another's world; it only runs cold.
+    """
+    if bus.rom is not ROMDATA:
+        return
+    import hashlib
+    key = hashlib.blake2b(bytes(bus.wram) + bytes(bus.sram)
+                          + repr((sorted(bus.io.items()), bus.mul_a, bus.mul_b)).encode()).digest()
+    was = _warm.get(key)
+    if not isinstance(was, tuple):
+        if was is None or was.wram[rw("RW_TAG")] != K["RW_TAG_VAL"]:
+            _warm[key] = bus                    # this case runs cold, and is watched
+            return
+        b = Bus(ROMDATA)
+        b.wram[:], b.sram[:], b.io = bus.wram, bus.sram, dict(bus.io)
+        b.mul_a, b.mul_b = bus.mul_a, bus.mul_b
+        c = CPU(b)
+        c.dbr = 0xA7
+        call(c, "rando_ensure", bank=RANDO_BANK)
+        was = _warm[key] = (bytes(b.wram), bytes(b.sram), dict(b.io), b.mul_a, b.mul_b)
+    bus.wram[:], bus.sram[:], bus.io = was[0], was[1], dict(was[2])
+    bus.mul_a, bus.mul_b = was[3], was[4]
+
+
 def cache_props(bus):
     at = rw("RW_PROPS")
     return bytes(bus.wram[at:at + R.PROPS_SIZE])
@@ -4291,6 +4335,7 @@ def test_rando_shopload():
         for s in range(1, 71):
             bus, cpu = machine()
             setsave(bus, seed, 0, mode)
+            warm(bus)
             bus.wram[K["shop_id"]] = s
             bus.wram[K["shop_id"] + 1] = 0xFF        # not ours to read
             bus.wram[ib:ib + 8] = b"\xEE" * 8
@@ -4511,6 +4556,7 @@ def test_rando_chestload():
         for c in R.moving_chests(ROMDATA[0x10000 + 0xB100:0x10000 + 0xB200]):
             bus, cpu = machine()
             setsave(bus, seed, 0, 0, mode)
+            warm(bus)
             bus.wram[K["tileprop"] + 1] = c
             bus.wram[K["dlgsfx"]] = 0
             call(cpu, "OpenTreasureChest")
@@ -4528,6 +4574,7 @@ def test_rando_chestload():
              if 0x16 <= want[c] < 0x1C)
     bus, cpu = machine()
     setsave(bus, seed, 0, 0, 1)
+    warm(bus)
     bus.wram[K["tileprop"] + 1] = c
     call(cpu, "OpenTreasureChest")
     check("chest $%02X: one more of its item" % c,
@@ -4633,6 +4680,7 @@ def test_rando_oobspell():
                     for v in (0, 1, 8):
                         bus, cpu = machine()
                         setsave(bus, seed, 0, 0, 0, mode)
+                        warm(bus)
                         x = char * 0x40 + level * 4 + k
                         bus.sram[sp + x] = v
                         cpu.x = x
@@ -4657,6 +4705,7 @@ def test_rando_spellnames():
             level, v = s >> 3, (s & 7) + 1
             bus, cpu = machine()
             setsave(bus, seed, 0, 0, 0, mode)
+            warm(bus)
             bus.wram[K["tmp"]] = 0xAF + level * 8
             cpu.a = v
             call(cpu, "rando_menuspell", bank=RANDO_BANK)
@@ -4678,6 +4727,7 @@ def test_rando_spellnames():
         for item in (0x01, 0x1C, 0x6B, 0xAF, 0xF0, 0xFF):
             bus, cpu = machine()
             setsave(bus, seed, 0, 0, 0, mode)
+            warm(bus)
             cpu.a = item
             call(cpu, "rando_shopspell", bank=RANDO_BANK)
             check("mode %d: item $%02X is not a spell" % (mode, item), cpu.a & 0xFF, item)
@@ -4703,13 +4753,14 @@ def test_rando_magicshop():
             in_vblank(bus)
             call(cpu, "opt_init")
             setsave(bus, seed, 0, 0, 0, mode)
+            warm(bus)
             bus.wram[ib:ib + 6] = bytes(wares + [0] * (6 - len(wares)))
             cpu.dbr = BANK_0E
-            try:
-                cpu.run(BANK_0E, SYM["ShopSelectBuyMagic"], limit=400000)
-            except RuntimeError:
-                pass                             # waiting for the player: drawn
+            #  Drawn by the time it first asks for input.  Run on, it would
+            #  spin there until the step limit, six times as long as the draw.
+            waited = cpu.run(BANK_0E, SYM["ShopSelectBuyMagic"], stop=SYM["UpdateJoy"])
             name = "seed $%08X mode %d shop %d" % (seed, mode, shop)
+            check(name + ": the shop draws and waits for the player", waited, True)
             slots = [w - 0xB0 for w in wares]
             check(name + ": the price and purchase keep the slot",
                   [bus.wram[sb + 0x16 + 8 * i] for i in range(len(wares))], wares)
@@ -4836,6 +4887,7 @@ def test_rando_gearstats():
     def run(bless, curse, slot, item, routine):
         bus, cpu = machine()
         setgear(bus, seed, bless, curse)
+        warm(bus)
         bus.sram[st("ch_class")] = 0                        # a Fighter
         for f, v in (("ch_dmg", 20), ("ch_hitrate", 20), ("ch_absorb", 20), ("ch_evade", 60)):
             bus.sram[st(f)] = v
@@ -4857,6 +4909,7 @@ def test_rando_gearstats():
         #  ...and taking it off gives back exactly what putting it on gave.
         bus, cpu = machine()
         setgear(bus, seed, 5, 5)
+        warm(bus)
         bus.sram[st("ch_weapons")] = 0x80 | (i + 1)
         bus.wram[K["equipoffset"]] = K["ch_weapons"] - K["ch_stats"]
         before = bytes(bus.sram[st("ch_dmg"):st("ch_dmg") + 2])
@@ -4883,6 +4936,7 @@ def test_rando_gearnames():
         for i in range(80):
             bus, cpu = machine()
             setgear(bus, seed, bless, curse)
+            warm(bus)
             cpu.a = 0x1C + i
             cpu.y = 0x5A
             call(cpu, "rando_nameptr", bank=RANDO_BANK)
@@ -4895,6 +4949,7 @@ def test_rando_gearnames():
         for item in (0x00, 0x19, 0x1B, 0x6C, 0xB0):
             bus, cpu = machine()
             setgear(bus, seed, bless, curse)
+            warm(bus)
             cpu.a = item
             call(cpu, "rando_nameptr", bank=RANDO_BANK)
             at = (1 + 0x0A) * 0x10000 + 0xB700 + item * 2
@@ -4908,12 +4963,11 @@ def test_rando_gearnames():
         in_vblank(bus)
         call(cpu, "opt_init")
         setgear(bus, seed, bless, curse)
+        warm(bus)
         bus.wram[K["item_box"]:K["item_box"] + 6] = bytes(wares + [0] * (6 - len(wares)))
         cpu.dbr = BANK_0E
-        try:
-            cpu.run(BANK_0E, SYM["ShopSelectBuyItem"], limit=400000)
-        except RuntimeError:
-            pass
+        waited = cpu.run(BANK_0E, SYM["ShopSelectBuyItem"], stop=SYM["UpdateJoy"])
+        check(name + ": Pravoka's weapon shop draws and waits for the player", waited, True)
         drawn = []
         for r in range(30):
             row = bytes(bus.wram[nt + r * 32:nt + r * 32 + 32])
@@ -4927,6 +4981,7 @@ def test_rando_gearnames():
             for dbr, blursed in ((0xA1 + 0x0A, True), (0xA1 + 0x0B, False)):
                 bus, cpu = machine()
                 setgear(bus, seed, bless, curse)
+                warm(bus)
                 bus.wram[0x0500:0x0502] = bytes([0, 0x1C + i])
                 bus.wram[0x90], bus.wram[0x91] = 0x00, 0x05
                 cpu.a, cpu.x, cpu.y, cpu.dbr = 0xB7, 0x00, 0, dbr
@@ -4945,6 +5000,7 @@ def test_rando_gearnames():
         in_vblank(bus)
         call(cpu, "opt_init")
         setgear(bus, seed, bless, curse)
+        warm(bus)
         for slot in ("ch_weapons", "ch_armor"):
             first = 0x1C if slot == "ch_weapons" else 0x44
             ids = list(range(1, 17))                       # 16 of them, 4 a character
@@ -4962,6 +5018,7 @@ def test_rando_gearnames():
             in_vblank(bus)
             call(cpu, "opt_init")
             setgear(bus, seed, bless, curse)
+            warm(bus)
             bus.wram[K["dlg_itemid"]] = item
             cpu.a = 0xF0                                   # DLGID_TCGET
             try:
@@ -5019,11 +5076,10 @@ def test_enemyelement():
 #  The tests that take longest, longest first, measured on one core.  Only a
 #  scheduling hint for run_apart: started first, they are not left running
 #  alone at the end.  A stale entry costs wall time, never a result.
-SLOW = ("test_descsynth", "test_rando_chestload", "test_shopinfo",
-        "test_chestinfo", "test_descwidth", "test_rando_gearnames",
-        "test_rando_oobspell", "test_rando_shopload", "test_rando_gearstats",
-        "test_weaponstats", "test_spellinfo", "test_rando_magicshop",
-        "test_rando_spellnames")
+SLOW = ("test_descsynth", "test_shopinfo", "test_chestinfo", "test_descwidth",
+        "test_weaponstats", "test_spellinfo", "test_rando_gear",
+        "test_rando_gearnames", "test_rando_shops", "test_rando_traps",
+        "test_rando_chests", "test_rando_magic", "test_rando_cache")
 
 
 def run_apart(names):
@@ -5066,13 +5122,15 @@ def run_apart(names):
 def main():
     """Every test, or just the ones named on the command line.
 
-    The suite is nearly eight minutes of one core's time, most of it a dozen
-    tests driving the 65816 over thousands of cases.  More than one test runs
-    as a process per test, JOBS at a time, slowest first; -j 1 runs them here
-    in turn as it always did.  A single test runs here, and a sweep inside it
-    still spreads over the cores through pmap.  Most single tests are a tenth
-    of a second, and a build is two, so checking that one assertion bites is a
-    two-second job:
+    The suite is five and a half minutes of one core's time under CPython,
+    most of it the description sweeps driving the 65816 over thousands of
+    cases, and about twenty seconds under PyPy, whose JIT suits an interpreter
+    loop like cpu65816's.  More than one test runs as a process per test, JOBS
+    at a time, slowest first: about seventy seconds on eight cores, or fifteen
+    with pypy3.  -j 1 runs them here in turn as it always did.  A single test
+    runs here, and a sweep inside it still spreads over the cores through
+    pmap.  Most single tests are a tenth of a second, and a build is two, so
+    checking that one assertion bites is a two-second job:
 
         ./build.sh && python3 tools/test_options.py test_housemp
 
@@ -5141,6 +5199,7 @@ def main():
         for t in tests:
             if t.__name__ not in run:
                 continue
+            _warm.clear()               # each test's worlds start cold
             try:
                 t()
             except Exception as e:

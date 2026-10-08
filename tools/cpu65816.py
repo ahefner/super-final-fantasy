@@ -244,8 +244,14 @@ class CPU:
         self.adc(v ^ mask, eight)
 
     # --- the interpreter --------------------------------------------------
-    def run(self, bank, addr, limit=2_000_000):
-        """Call a routine as JSL would, and return when its RTL comes back."""
+    def run(self, bank, addr, limit=2_000_000, stop=None):
+        """Call a routine as JSL would, and return when its RTL comes back.
+
+        stop is an address to halt at instead, in whatever bank: a routine
+        that ends by waiting for the player never returns, and the moment it
+        first calls UpdateJoy is when it has finished drawing and asks.  The
+        answer is True if it halted there, None if the routine returned.
+        """
         self.pbr, self.pc = bank, addr
         #  A return address no real code occupies.  The bank byte is pushed
         #  too, so this works whether the routine ends in RTL or in RTS --
@@ -261,6 +267,8 @@ class CPU:
                 raise RuntimeError("ran away at $%02X:%04X" % (self.pbr, self.pc))
             if self.pc == 0xFFFE:
                 return
+            if self.pc == stop:
+                return True
             self.step()
 
     def step(self):
