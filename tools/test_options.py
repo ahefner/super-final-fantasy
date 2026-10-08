@@ -21,7 +21,20 @@ mirrors $8000-$FFFF into the low half of every chunk, and that copy is never
 addressed, so mutating it proves nothing.  Changing lut_EncDungeonN's vanilla
 numerator from 16 to 15 should fail four of the five live base rates.
 """
-import os, re, subprocess, sys
+import os, re, shutil, subprocess, sys
+
+#  Under PyPy the suite takes fifteen seconds where CPython takes seventy: its
+#  JIT runs cpu65816's interpreter loop fifteen to twenty-five times faster.
+#  So run as a script, this hands itself to pypy3 when it is installed, before
+#  loading anything; a light test starts a few tenths of a second slower
+#  there.  FFNOPYPY=1 keeps the interpreter it was started with.  pmap's
+#  workers import this file under another name and never come through here;
+#  they, and run_apart's processes, use whatever this one ended up running on.
+if (__name__ == "__main__" and sys.implementation.name != "pypy"
+        and not os.environ.get("FFNOPYPY")):
+    _pypy = shutil.which("pypy3")
+    if _pypy:
+        os.execv(_pypy, [_pypy, os.path.abspath(__file__)] + sys.argv[1:])
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -5124,10 +5137,11 @@ def main():
 
     The suite is five and a half minutes of one core's time under CPython,
     most of it the description sweeps driving the 65816 over thousands of
-    cases, and about twenty seconds under PyPy, whose JIT suits an interpreter
-    loop like cpu65816's.  More than one test runs as a process per test, JOBS
-    at a time, slowest first: about seventy seconds on eight cores, or fifteen
-    with pypy3.  -j 1 runs them here in turn as it always did.  A single test
+    cases, and about twenty seconds under PyPy, which this runs itself on when
+    it is installed (see the top of the file).  More than one test runs as a
+    process per test, JOBS at a time, slowest first: about fifteen seconds on
+    eight cores, or seventy under CPython.  -j 1 runs them here in turn as it
+    always did.  A single test
     runs here, and a sweep inside it still spreads over the cores through
     pmap.  Most single tests are a tenth of a second, and a build is two, so
     checking that one assertion bites is a two-second job:
