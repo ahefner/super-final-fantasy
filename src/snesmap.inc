@@ -1290,7 +1290,9 @@ RANDO_CHESTS    = RANDO_SAVE+$06  ; CHESTS_* below
 RANDO_MAGIC     = RANDO_SAVE+$07  ; MAGIC_* below
 RANDO_BLESS     = RANDO_SAVE+$08  ; the best a piece of gear may roll, 0..5
 RANDO_CURSE     = RANDO_SAVE+$09  ; the worst, as a magnitude, 0..5
-RANDO_SAVE_SIZE = $0A
+RANDO_FORMS     = RANDO_SAVE+$0A  ; FORMS_* below: formation rarity
+RANDO_ZONES     = RANDO_SAVE+$0B  ; ZONES_* below: formations across zones
+RANDO_SAVE_SIZE = $0C
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1308,6 +1310,8 @@ OPT_NG_CHESTS   = OPT_NG + (RANDO_CHESTS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_MAGIC    = OPT_NG + (RANDO_MAGIC - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_BLESS    = OPT_NG + (RANDO_BLESS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_CURSE    = OPT_NG + (RANDO_CURSE - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_FORMS    = OPT_NG + (RANDO_FORMS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_ZONES    = OPT_NG + (RANDO_ZONES - RANDO_SAVE) - RANDO_NGOFF
 
 ;  Two buffers the randomizer hands to game code, in SRAM because every chunk
 ;  sees it and none sees WRAM above $2000.  Written before every read.
@@ -1357,6 +1361,22 @@ MAGIC_MODES     = 2
 ;  Each piece of gear rolls a bonus from -curse to +blessing, so a plain piece
 ;  is always possible, which FFR's sliders need not allow.
 BLURSE_STEPS    = 6             ; 0..5 for each of the two rows
+
+;  Formations: two passes over lut_Domains's 128 zones of 8 slots, where FFR
+;  has one mode.  Rarity moves formations between the slots of a zone, so how
+;  often each is met changes; zones moves them between zones, each keeping its
+;  slot's rarity.  Both on is FFR's tooltip, "any encounter can appear
+;  anywhere regardless of zone or rarity".  FFR's own Shuffle Across Zones
+;  permutes whole zones since a 2024 cleanup, and pooled single slots before
+;  it, which moves rarity too; enemy-shuffle-notes.md has the history.
+FORMS_OFF       = 0
+FORMS_SHUFFLE   = 1             ; FFR's Shuffle Rarity: slots 0-3, then 2-7
+FORMS_TIERED    = 2             ; FFR's Tiered: a weighted deal by original slot
+FORMS_MODES     = 3
+ZONES_OFF       = 0
+ZONES_SHUFFLE   = 1             ; each rarity class pooled across zones and dealt
+ZONES_RANDOM    = 2             ; FFR's Totally Random: any formation but a boss
+ZONES_MODES     = 3
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1426,5 +1446,18 @@ RW_D2           = RANDOWRAM+$0068 ; gear: the bonus times two, a word
 RW_D3           = RANDOWRAM+$006A ; ...and times three
 RW_FLOOR        = RANDOWRAM+$006C ; gear: the clamp's floor, a word...
 RW_CEIL         = RANDOWRAM+$006E ; ...and its ceiling
+RW_FN           = RANDOWRAM+$0070 ; formations: entries in the pool, a word
+RW_FK           = RANDOWRAM+$0072 ; formations: a position in it, a word
+RW_FD           = RANDOWRAM+$0074 ; formations: the zone's offset, a word
+RW_FS           = RANDOWRAM+$0076 ; formations: the class's first slot...
+RW_FC           = RANDOWRAM+$0077 ; ...and how many slots it has
+RW_FW           = RANDOWRAM+$0078 ; tiered: the weights still in the deal, 8
+RW_FV           = RANDOWRAM+$0080 ; tiered: their formations, 8
+RW_FT           = RANDOWRAM+$0088 ; tiered: the weights' total
+RW_B16          = RANDOWRAM+$008A ; rando_below16's bound, a word...
+RW_M16          = RANDOWRAM+$008C ; ...and its rejection mask
+RW_ZONEOK       = RANDOWRAM+$0500 ; zones: nonzero for a zone the pass may touch
+RW_DOMAINS      = RANDOWRAM+$1C00 ; every zone's 8 formations, as lut_Domains
+RW_POS          = RANDOWRAM+$2000 ; zones: one rarity class's slots, words, 512 max
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

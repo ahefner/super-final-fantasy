@@ -3772,13 +3772,15 @@ def rw(name):
     return K[name] - RW_BASE
 
 
-def setsave(bus, seed, traps, shops=0, chests=0, magic=0):
+def setsave(bus, seed, traps, shops=0, chests=0, magic=0, forms=0, zones=0):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     bus.sram[K["RANDO_TRAPS"] - 0x6000] = traps
     bus.sram[K["RANDO_SHOPS"] - 0x6000] = shops
     bus.sram[K["RANDO_CHESTS"] - 0x6000] = chests
     bus.sram[K["RANDO_MAGIC"] - 0x6000] = magic
+    bus.sram[K["RANDO_FORMS"] - 0x6000] = forms
+    bus.sram[K["RANDO_ZONES"] - 0x6000] = zones
 
 
 _warm = {}          # machine state -> the last case left cold, or the state built
@@ -4141,12 +4143,13 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 11]),
+          list(ROMDATA[at:at + 13]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
            K["OPT_NG_MAGIC"] - OPTBLOCK, K["OPT_NG_BLESS"] - OPTBLOCK,
-           K["OPT_NG_CURSE"] - OPTBLOCK])
+           K["OPT_NG_CURSE"] - OPTBLOCK, K["OPT_NG_FORMS"] - OPTBLOCK,
+           K["OPT_NG_ZONES"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4156,7 +4159,9 @@ def test_rando_options():
     call(cpu, "opt_init")
     for row, byte, presses, want in (
             (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
-            (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0])):
+            (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0]),
+            (66, K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
+            (67, K["OPT_NG_ZONES"], 4, [1, 2, 2, 2, 1, 0, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -5046,6 +5051,119 @@ def test_rando_gearnames():
     check("battle asks rando_battlesubsrc", jsl_count(fixed, "rando_battlesubsrc"), 1)
 
 
+# --- formations ----------------------------------------------------------------
+#  lut_Domains read here straight from the image, and the facts the passes
+#  must keep stated without randoref, so the reference and the cartridge
+#  cannot agree on a mistake unnoticed.
+DOMAINS_ROM = (1 + 0x0B) * 0x10000 + 0x8000
+START_ZONES = (0x1B, 0x1C, 0x24, 0x2C)
+NOT_BOSS = set(range(256)) - set(range(0x73, 0x80)) - set(range(0xF3, 0xFE))
+CLASSES = ((0, 4), (4, 2), (6, 1), (7, 1))      # lut_FormationWeight's rarities
+
+
+def form_cache(bus):
+    at = rw("RW_DOMAINS")
+    return bytes(bus.wram[at:at + 1024])
+
+
+def test_rando_formations():
+    vanilla = bytes(ROMDATA[DOMAINS_ROM:DOMAINS_ROM + 1024])
+    zone = lambda t, z: t[z * 8:z * 8 + 8]
+    zero = [z for z in range(128) if not any(zone(vanilla, z))]
+    live = [z for z in range(128) if z not in START_ZONES and z not in zero]
+    check("the cartridge has 31 all-zero zones", len(zero), 31)
+    check("...one of them $2C, by Coneria", [z for z in START_ZONES if z in zero], [0x2C])
+    check("...so the zones pass moves 94", len(live), 94)
+    weight = bytes(ROMDATA[(0xA7 & 0x1F) * 0x10000 + SYM["lut_FormationWeight"]:][:64])
+    check("lut_FormationWeight's classes are 12, 12, 12, 12, 6, 6, 3, 1",
+          [weight.count(k) for k in range(8)], [12, 12, 12, 12, 6, 6, 3, 1])
+
+    seeds = (0x600DCAFE, 7, 0x0BADF00D, 0xFFFFFFFF)
+    seen = {}
+    for rarity in range(4):                     # 3 is no mode: as off
+        for zones in range(4):
+            for seed in seeds:
+                bus, cpu = machine()
+                setsave(bus, seed, 0, forms=rarity, zones=zones)
+                call(cpu, "rando_ensure", bank=RANDO_BANK)
+                got = form_cache(bus)
+                r, zn = rarity % 3, zones % 3
+                name = "rarity %d zones %d seed $%08X" % (rarity, zones, seed)
+                check(name + ": the reference's world", got,
+                      R.build_domains(ROMDATA, seed, r, zn))
+                seen.setdefault((r, zn), set()).add(got)
+                if r == 0 and zn == 0:
+                    check(name + ": the cartridge's own table", got, vanilla)
+                if zn == 0 and r:
+                    check(name + ": every zone keeps its own fights",
+                          [z for z in range(128) if sorted(zone(got, z)) != sorted(zone(vanilla, z))], [])
+                if zn == 0 and r == 1:
+                    #  Slots 0-3 shuffled, then 2-7: the commonest two were common.
+                    check(name + ": slots 0 and 1 hold what slots 0-3 held",
+                          [z for z in range(128) for k in (0, 1)
+                           if got[z * 8 + k] not in zone(vanilla, z)[:4]], [])
+                if zn == 1 and r == 0:
+                    check(name + ": the zones around Coneria and the empty ones stay",
+                          [z for z in range(128) if z not in live and zone(got, z) != zone(vanilla, z)], [])
+                    for first, count in CLASSES:
+                        pick = lambda t: sorted(t[z * 8 + k] for z in live
+                                                for k in range(first, first + count))
+                        check(name + ": slots %d-%d keep their formations between them"
+                              % (first, first + count - 1), pick(got), pick(vanilla))
+                if zn == 2:
+                    check(name + ": no zone draws a boss",
+                          [z for z in range(128) if z not in START_ZONES
+                           and not set(zone(got, z)) <= NOT_BOSS], [])
+                    if r == 0:
+                        check(name + ": the zones around Coneria stay",
+                              [zone(got, z) for z in START_ZONES],
+                              [zone(vanilla, z) for z in START_ZONES])
+    for (r, zn), worlds in sorted(seen.items()):
+        check("rarity %d zones %d: four seeds, %s worlds" % (r, zn, "one" if r == zn == 0 else "four"),
+              len(worlds), 1 if r == zn == 0 else 4)
+
+
+def test_rando_formload():
+    """GetBattleFormation in place: the slot lut_FormationWeight picks, out of
+    the cache's zone, for every zone and every slot, with btlformation holding
+    the cartridge's answer as a decoy wherever the world differs.  One machine
+    per world, called over and over as the game calls it, so the first call
+    builds the cache through the hook's own ensure."""
+    fixed = (0xA7 & 0x1F) * 0x10000
+    weight = ROMDATA[fixed + SYM["lut_FormationWeight"]:][:64]
+    rng = ROMDATA[fixed + SYM["lut_RNG"]:][:256]
+    vanilla = bytes(ROMDATA[DOMAINS_ROM:DOMAINS_ROM + 1024])
+    #  A battle counter for each slot: the one whose next lut_RNG byte picks it.
+    counter = {}
+    for bc in range(256):
+        counter.setdefault(weight[rng[(bc + 1) & 0xFF] & 0x3F], bc)
+    check("every slot is reachable from some battle counter", sorted(counter), list(range(8)))
+    for rarity, zones, seed in ((0, 0, 0x600DCAFE), (1, 1, 0x600DCAFE), (2, 2, 77)):
+        want = R.build_domains(ROMDATA, seed, rarity, zones)
+        bad, odd = [], []
+        bus, cpu = machine()
+        setsave(bus, seed, 0, forms=rarity, zones=zones)
+        for z in range(128):
+            for slot, bc in sorted(counter.items()):
+                bus.wram[K["battlecounter"]] = bc
+                decoy = vanilla[z * 8 + slot]
+                bus.wram[K["btlformation"]] = decoy if decoy != want[z * 8 + slot] else 0xEE
+                cpu.a = z
+                call(cpu, "GetBattleFormation")
+                if bus.wram[K["btlformation"]] != want[z * 8 + slot]:
+                    bad.append("zone $%02X slot %d: $%02X, want $%02X"
+                               % (z, slot, bus.wram[K["btlformation"]], want[z * 8 + slot]))
+                #  SwapPRG maps a bank by DBR here; cur_bank is the caller's.
+                if (bus.wram[K["battlecounter"]] != (bc + 1) & 0xFF or cpu.p & 0x01
+                        or cpu.dbr != 0xA1 + K["BANK_DOMAINS"]):
+                    odd.append("zone $%02X slot %d" % (z, slot))
+        name = "rarity %d zones %d" % (rarity, zones)
+        check(name + ": every zone's every slot fights its formation", bad[:3], [])
+        check(name + ": the counter steps, carry clears, BANK_DOMAINS is mapped", odd[:3], [])
+    fixedimg = 0xA7 & 0x1F
+    check("GetBattleFormation asks rando_formation", jsl_count(fixedimg, "rando_formation"), 1)
+
+
 # --- Weapon Stats: the enemy's attack element --------------------------------
 #  FFR's FixWeaponStats write at $325B0: with the flag on, an enemy's physical
 #  attack has category 0 and the element of its touch (ROM byte $0E), not its
@@ -5178,7 +5296,7 @@ def main():
              test_rando_magic, test_rando_spellconv, test_rando_oobspell,
              test_rando_spellnames, test_rando_magicshop,
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
-             test_enemyelement)
+             test_enemyelement, test_rando_formations, test_rando_formload)
 
     global JOBS
     args, want = sys.argv[1:], []

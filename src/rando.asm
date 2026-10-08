@@ -44,6 +44,7 @@
 .export rando_menuspell, rando_shopspell, rando_shopmagic
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
+.export rando_formation
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -96,6 +97,19 @@ wD2      = .LOWORD(RW_D2)
 wD3      = .LOWORD(RW_D3)
 wFLOOR   = .LOWORD(RW_FLOOR)
 wCEIL    = .LOWORD(RW_CEIL)
+wFN      = .LOWORD(RW_FN)
+wFK      = .LOWORD(RW_FK)
+wFD      = .LOWORD(RW_FD)
+wFS      = .LOWORD(RW_FS)
+wFC      = .LOWORD(RW_FC)
+wFW      = .LOWORD(RW_FW)
+wFV      = .LOWORD(RW_FV)
+wFT      = .LOWORD(RW_FT)
+wB16     = .LOWORD(RW_B16)
+wM16     = .LOWORD(RW_M16)
+wZONEOK  = .LOWORD(RW_ZONEOK)
+wDOMAINS = .LOWORD(RW_DOMAINS)
+wPOS     = .LOWORD(RW_POS)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -119,6 +133,16 @@ STREAM_SHOPS  = $53484F50       ; "SHOP"
 STREAM_CHESTS = $43485354       ; "CHST"
 STREAM_MAGIC  = $4D414743       ; "MAGC"
 STREAM_GEAR   = $424C5253       ; "BLRS"
+STREAM_ZONES  = $5A4F4E45       ; "ZONE"
+STREAM_RARITY = $52415245       ; "RARE": its own, so zones cannot reshuffle it
+
+;  lut_Domains: 128 zones of 8 formation ids, bank $0B.  Zones 0-63 are the
+;  overworld's 8x8 grid, 64 up the standard maps by cur_map.  A battle picks a
+;  slot by lut_FormationWeight from the fixed bank, indexed by the battle
+;  counter's byte of lut_RNG.
+ROMDOMAINS   = BANK0BFAR + lut_Domains
+DOMAINS_SIZE = 128 * 8
+.import lut_RNG, lut_FormationWeight
 
 ;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
 .import lut_WeaponData, lut_ArmorData
@@ -292,6 +316,41 @@ rando_below:
     .a8
     AND a:wMASK                 ; from the low byte of the new state
     CMP a:wBOUND
+    BCS @draw
+    RTS
+
+
+;;  rando_below for bounds past 255: the same mask-and-reject, sixteen bits
+;;  wide, from the low half of the new state.
+;;
+;;  In: A16 = the bound, 1..$FFFF; DBR = $7F.  Out: A16 = the number.  X and
+;;  Y are not touched.
+rando_below16:
+    .a16
+    STA a:wB16
+    DEC A
+    STA a:wM16
+    LSR A
+    ORA a:wM16
+    STA a:wM16
+    LSR A
+    LSR A
+    ORA a:wM16
+    STA a:wM16
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    ORA a:wM16
+    STA a:wM16
+    XBA                         ; and the high byte smeared into the low
+    AND #$00FF
+    ORA a:wM16
+    STA a:wM16
+  @draw:
+    JSR xs_step
+    AND a:wM16
+    CMP a:wB16
     BCS @draw
     RTS
 
@@ -527,13 +586,28 @@ build:
     JSR copy_gear
     LDA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
     CMP #BLURSE_STEPS
-    BCS @done                   ; out of range: as none
+    BCS @forms                  ; out of range: as none
     LDA f:RANDO_SAVEFAR + (RANDO_CURSE - RANDO_SAVE)
     CMP #BLURSE_STEPS
-    BCS @done
+    BCS @forms
     ORA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
-    BEQ @done                   ; both nothing: off
+    BEQ @forms                  ; both nothing: off
     JSR deal_gear
+
+    ;  Formations: zones first, then rarity, each its own pass and stream.
+  @forms:
+    JSR copy_domains
+    LDA f:RANDO_SAVEFAR + (RANDO_ZONES - RANDO_SAVE)
+    BEQ @rarity                 ; ZONES_OFF
+    CMP #ZONES_MODES
+    BCS @rarity
+    JSR deal_zones
+  @rarity:
+    LDA f:RANDO_SAVEFAR + (RANDO_FORMS - RANDO_SAVE)
+    BEQ @done                   ; FORMS_OFF
+    CMP #FORMS_MODES
+    BCS @done
+    JSR deal_rarity
   @done:
     PLP
     RTS
@@ -2044,4 +2118,503 @@ rando_tileprop:
     STZ z:tmp+2
     LDA #>tileset_prop + 1
     STA z:tmp+3
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_domains -- lut_Domains into the cache, as the cartridge has it
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_domains:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDX #$0000
+  @copy:
+    LDA f:ROMDOMAINS, X
+    STA a:wDOMAINS, X
+    INX
+    INX
+    CPX #DOMAINS_SIZE
+    BCC @copy
+    SEP #$20
+    .a8
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_zones -- move formations between zones
+;;
+;;  Shuffle: lut_FormationWeight gives slots 0-3 12/64 each, 4-5 6/64, 6 3/64
+;;  and 7 1/64, so those four classes are the rarities.  Each class is pooled
+;;  across the zones the pass may touch, in zone order, shuffled and dealt
+;;  back in the same order: a formation lands in another zone as often met as
+;;  it was.  The zones left alone are FFR's -- the four around Coneria and
+;;  every zone that is all zero (towns, and overworld squares that never
+;;  fight) -- settled before anything moves.  FFR's Shuffle Across Zones has
+;;  done this a different way in each of its versions; see snesmap.inc.
+;;
+;;  Random: FFR's Totally Random.  Every slot of every zone but the four
+;;  around Coneria is drawn from the 232 formations that are not a boss's:
+;;  $00-$72, $80-$F2, $FE and $FF.  The all-zero zones too, as FFR does; they
+;;  never fight.
+;;
+;;  In: A8 = the mode, 1..ZONES_MODES-1; I16; DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_zones:
+    .a8
+    .i16
+    STA a:wMODE
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_ZONES)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_ZONES)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+
+    ;  Which zones the pass may touch: not the four around Coneria, and for
+    ;  Shuffle not one that is all zero.
+    LDX #$0000                  ; the zone's first slot, zone * 8
+    LDY #$0000                  ; the zone
+  @which:
+    CPY #$001B
+    BEQ @no
+    CPY #$001C
+    BEQ @no
+    CPY #$0024
+    BEQ @no
+    CPY #$002C
+    BEQ @no
+    LDA a:wMODE
+    CMP #ZONES_RANDOM
+    BEQ @yes
+    REP #$20
+    .a16
+    LDA a:wDOMAINS, X
+    ORA a:wDOMAINS+2, X
+    ORA a:wDOMAINS+4, X
+    ORA a:wDOMAINS+6, X
+    SEP #$20                    ; leaves Z as the sixteen-bit ORs set it
+    .a8
+    BEQ @no
+  @yes:
+    LDA #$01
+    BRA @put
+  @no:
+    LDA #$00
+  @put:
+    STA a:wZONEOK, Y
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #8
+    TAX
+    SEP #$20
+    .a8
+    INY
+    CPY #128
+    BCC @which
+
+    LDA a:wMODE
+    CMP #ZONES_RANDOM
+    BEQ @random
+
+    ;  The four rarity classes, each a first slot and a count.
+    LDA #0
+    LDY #4
+    JSR deal_class
+    LDA #4
+    LDY #2
+    JSR deal_class
+    LDA #6
+    LDY #1
+    JSR deal_class
+    LDA #7
+    LDY #1
+    JMP deal_class
+
+  @random:
+    LDX #$0000                  ; the slot
+    LDY #$0000                  ; the zone
+  @zone:
+    LDA a:wZONEOK, Y
+    BNE @draw8
+    REP #$20                    ; left alone: past its eight slots
+    .a16
+    TXA
+    CLC
+    ADC #8
+    TAX
+    SEP #$20
+    .a8
+    BRA @next
+  @draw8:
+    LDA #8
+    STA a:wFC
+  @slot:
+    LDA #232
+    JSR rando_below
+    CMP #$73
+    BCC @store                  ; $00-$72 as drawn
+    CMP #$73 + $73
+    BCS @top
+    ADC #$80 - $73              ; C clear: $80-$F2
+    BRA @store
+  @top:
+    ADC #$FE - ($73 + $73) - 1  ; C set: $FE, $FF
+  @store:
+    STA a:wDOMAINS, X
+    INX
+    DEC a:wFC
+    BNE @slot
+  @next:
+    INY
+    CPY #128
+    BCC @zone
+    RTS
+
+
+;;  One rarity class across the zones: list its slots in every zone the pass
+;;  may touch, then Fisher-Yates over the list from the top, exchanging the
+;;  formations the slots hold.  That is the same as pooling the formations,
+;;  shuffling the pool and dealing it back in order, without the pool.
+;;
+;;  In: A8 = the class's first slot, Y = how many slots it has; A8, I16.
+deal_class:
+    .a8
+    .i16
+    STA a:wFS
+    TYA
+    STA a:wFC
+    LDX #$0000                  ; two bytes per slot listed
+    LDY #$0000                  ; the zone
+  @zone:
+    LDA a:wZONEOK, Y
+    BEQ @next
+    REP #$20
+    .a16
+    TYA
+    ASL A
+    ASL A
+    ASL A
+    STA a:wFD
+    LDA a:wFS
+    AND #$00FF
+    CLC
+    ADC a:wFD
+    STA a:wFK                   ; the class's first slot in this zone
+    SEP #$20
+    .a8
+    LDA a:wFC
+    STA a:wT2                   ; a count down
+  @slot:
+    REP #$20
+    .a16
+    LDA a:wFK
+    STA a:wPOS, X
+    INC a:wFK
+    SEP #$20
+    .a8
+    INX
+    INX
+    DEC a:wT2
+    BNE @slot
+  @next:
+    INY
+    CPY #128
+    BCC @zone
+
+    REP #$20
+    .a16
+    TXA
+    LSR A
+    STA a:wFK                   ; i + 1, from the list's length down
+  @shuffle:
+    LDA a:wFK
+    CMP #2
+    BCC @done                   ; down to i = 0: nothing left to exchange
+    JSR rando_below16           ; j, 0..i
+    ASL A
+    TAX
+    LDA a:wFK
+    DEC A
+    ASL A
+    TAY
+    LDA a:wPOS, X               ; slot j...
+    TAX
+    LDA a:wPOS, Y               ; ...and slot i
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wDOMAINS, X
+    PHA
+    LDA a:wDOMAINS, Y
+    STA a:wDOMAINS, X
+    PLA
+    STA a:wDOMAINS, Y
+    REP #$20
+    .a16
+    DEC a:wFK
+    BRA @shuffle
+  @done:
+    SEP #$20
+    .a8
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_rarity -- move formations between the slots of each zone
+;;
+;;  Every zone, the four around Coneria and the all-zero ones included, as
+;;  FFR does:
+;;
+;;    Shuffle  FFR's Shuffle Rarity: shuffle slots 0-3, then slots 2-7.  The
+;;             two commonest slots keep a formation that was common.
+;;    Tiered   FFR's Shuffle Rarity Tiered: deal the eight slots in order, each
+;;             drawn from those left with weights 48, 48, 48, 48, 24, 24, 8, 8
+;;             by the slot it came from -- 6, 6, 6, 6, 3, 3, 1, 1 here, the
+;;             same odds, so the total fits a byte.  Weights are walked from
+;;             the lightest, as FFR's SpliceRandomItemWeighted orders them.
+;;
+;;  In: A8 = the mode, 1..FORMS_MODES-1; I16; DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_rarity:
+    .a8
+    .i16
+    STA a:wMODE
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_RARITY)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_RARITY)
+    STA a:wRNG+2
+    JSR rando_warm
+    STZ a:wFD                   ; the zone's first slot
+  @zone:
+    SEP #$20
+    .a8
+    LDA a:wMODE
+    CMP #FORMS_TIERED
+    BEQ @tiered
+    REP #$20
+    .a16
+    LDA a:wFD
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA #4
+    JSR shuffle_run             ; slots 0-3
+    REP #$20
+    .a16
+    LDA a:wFD
+    CLC
+    ADC #2
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA #6
+    JSR shuffle_run             ; then 2-7
+    BRA @next
+  @tiered:
+    JSR tiered_zone
+  @next:
+    REP #$20
+    .a16
+    LDA a:wFD
+    CLC
+    ADC #8
+    STA a:wFD
+    CMP #DOMAINS_SIZE
+    BCC @zone
+    SEP #$20
+    .a8
+    RTS
+
+
+;;  Fisher-Yates over A slots from wFK, from the top.  A8 = the count, 1..255;
+;;  wFK the first slot, a word; A8, I16.
+shuffle_run:
+    .a8
+    .i16
+    STA a:wFC                   ; i + 1
+  @loop:
+    LDA a:wFC
+    CMP #2
+    BCC @done
+    JSR rando_below             ; j, 0..i
+    REP #$20
+    .a16
+    AND #$00FF
+    CLC
+    ADC a:wFK
+    TAX
+    LDA a:wFC
+    AND #$00FF
+    DEC A
+    CLC
+    ADC a:wFK
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wDOMAINS, X
+    PHA
+    LDA a:wDOMAINS, Y
+    STA a:wDOMAINS, X
+    PLA
+    STA a:wDOMAINS, Y
+    DEC a:wFC
+    BRA @loop
+  @done:
+    RTS
+
+
+;;  The tiered deal of one zone, wFD's.  The slots in the order the weights
+;;  are walked, lightest first, and each one's weight.
+lut_TierSlot:   .BYTE 6, 7, 4, 5, 0, 1, 2, 3
+lut_TierWeight: .BYTE 1, 1, 3, 3, 6, 6, 6, 6
+TIER_TOTAL = 6 * 4 + 3 * 2 + 1 * 2
+
+tiered_zone:
+    .a8
+    .i16
+    LDY #$0000
+  @load:
+    TYX
+    LDA f:RANDOFAR + lut_TierSlot, X
+    REP #$20
+    .a16
+    AND #$00FF
+    CLC
+    ADC a:wFD
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wDOMAINS, X
+    STA a:wFV, Y
+    TYX
+    LDA f:RANDOFAR + lut_TierWeight, X
+    STA a:wFW, Y
+    INY
+    CPY #8
+    BCC @load
+    LDA #TIER_TOTAL
+    STA a:wFT
+    LDA #8
+    STA a:wFC                   ; entries left
+    REP #$20
+    .a16
+    LDA a:wFD
+    STA a:wFK                   ; the slot being dealt
+    SEP #$20
+    .a8
+  @deal:
+    LDA a:wFT
+    JSR rando_below             ; r, 0..total-1
+    LDY #$0000
+  @walk:
+    SEC
+    SBC a:wFW, Y
+    BCC @pick                   ; r fell inside this entry's weight
+    INY
+    BRA @walk
+  @pick:
+    LDA a:wFT
+    SEC
+    SBC a:wFW, Y
+    STA a:wFT
+    LDX a:wFK                   ; I16: wFK is a word
+    LDA a:wFV, Y
+    STA a:wDOMAINS, X
+  @close:                       ; close the gap: entries past it move down
+    INY
+    CPY #8
+    BCS @closed
+    LDA a:wFW, Y
+    STA a:wFW-1, Y
+    LDA a:wFV, Y
+    STA a:wFV-1, Y
+    BRA @close
+  @closed:
+    REP #$20
+    .a16
+    INC a:wFK
+    SEP #$20
+    .a8
+    DEC a:wFC
+    BNE @deal
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_formation -- the body of GetBattleFormation, from the cache
+;;
+;;  The fixed bank's GetBattleFormation stepped the battle counter, took its
+;;  byte of lut_RNG, picked a slot by lut_FormationWeight and read the zone's
+;;  formation out of lut_Domains.  This is the same, reading the cache's copy:
+;;  with formations off, the cartridge's own table.  The fixed bank keeps the
+;;  swap to BANK_DOMAINS, so the bank mapped on the way out is what it was.
+;;
+;;  In: A = the zone, 0..127.  Out: btlformation set, battlecounter stepped;
+;;  A, X and Y not kept -- GetBattleFormation's callers return straight away.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_formation:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLA
+    AND #$7F                    ; past 127 would read the cache beyond the table
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    STA a:wFD                   ; the zone's first slot
+    SEP #$20
+    .a8
+    INC z:battlecounter
+    LDA z:battlecounter
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RANDOFAR + lut_RNG, X
+    AND #$3F
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RANDOFAR + lut_FormationWeight, X
+    REP #$20
+    .a16
+    AND #$00FF
+    CLC
+    ADC a:wFD
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wDOMAINS, X
+    STA z:btlformation
     JMP leave

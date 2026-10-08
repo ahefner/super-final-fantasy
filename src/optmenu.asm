@@ -1489,6 +1489,10 @@ lut_OptRows:
   OPTLABEL {"Max gear blessing"}
   .BYTE $02, $0A   ; Min gear curse
   OPTLABEL {"Min gear curse"}
+  .BYTE $02, $0B   ; Formation rarity
+  OPTLABEL {"Formation rarity"}
+  .BYTE $02, $0C   ; Formation zones
+  OPTLABEL {"Formation zones"}
 
 lut_OptRowsEnd:
 
@@ -1645,22 +1649,32 @@ lut_ValShuffle:
   FFPAD "     Off", 8           ; SHOPS_OFF, CHESTS_OFF
   FFPAD " Shuffle", 8           ; SHOPS_SHUFFLE, CHESTS_SHUFFLE
 
+;  Formations: the rarity pass and the zones pass.
+lut_ValRarity:
+  FFPAD "     Off", 8           ; FORMS_OFF
+  FFPAD " Shuffle", 8           ; FORMS_SHUFFLE
+  FFPAD "  Tiered", 8           ; FORMS_TIERED
+lut_ValZones:
+  FFPAD "     Off", 8           ; ZONES_OFF
+  FFPAD " Shuffle", 8           ; ZONES_SHUFFLE
+  FFPAD "  Random", 8           ; ZONES_RANDOM
+
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
               .BYTE <lut_ValTraps, <lut_ValShuffle, <lut_ValShuffle, <lut_ValShuffle
-              .BYTE <lut_ValBless, <lut_ValCurse
+              .BYTE <lut_ValBless, <lut_ValCurse, <lut_ValRarity, <lut_ValZones
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
-              .BYTE >lut_ValBless, >lut_ValCurse
+              .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
-              .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS
+              .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
-              .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE
+              .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

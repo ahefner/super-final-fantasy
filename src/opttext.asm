@@ -420,6 +420,58 @@ lut_Desc_53:  ; Min gear curse
   FFPAD {"weight, twice that on body"}, 28
   FFPAD {"armor.  Each -1 takes away."}, 28
 
+lut_Desc_54:  ; Formation rarity, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_54_0, lut_Desc_54_1, lut_Desc_54_2
+  .assert * - lut_Desc_54 = 1 + 2 * FORMS_MODES, error, "one rarity description per mode"
+
+lut_Desc_54_0:  ; Formation rarity: Off
+  FFLINES 2
+  FFPAD {"Each zone's fights are as"}, 28
+  FFPAD {"common as they always are."}, 28
+
+lut_Desc_54_1:  ; Formation rarity: Shuffle
+  FFLINES 5
+  FFPAD {"Each zone's fights trade"}, 28
+  FFPAD {"places, so a common fight"}, 28
+  FFPAD {"can turn rare and a rare one"}, 28
+  FFPAD {"common.  Every zone keeps"}, 28
+  FFPAD {"the fights it had."}, 28
+
+lut_Desc_54_2:  ; Formation rarity: Tiered
+  FFLINES 5
+  FFPAD {"Each zone's fights trade"}, 28
+  FFPAD {"places, mostly with fights"}, 28
+  FFPAD {"about as common.  A common"}, 28
+  FFPAD {"one seldom turns rare, or a"}, 28
+  FFPAD {"rare one common."}, 28
+
+lut_Desc_55:  ; Formation zones, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_55_0, lut_Desc_55_1, lut_Desc_55_2
+  .assert * - lut_Desc_55 = 1 + 2 * ZONES_MODES, error, "one zones description per mode"
+
+lut_Desc_55_0:  ; Formation zones: Off
+  FFLINES 2
+  FFPAD {"Every zone has the fights it"}, 28
+  FFPAD {"always has."}, 28
+
+lut_Desc_55_1:  ; Formation zones: Shuffle
+  FFLINES 5
+  FFPAD {"Fights move between zones,"}, 28
+  FFPAD {"dungeon floors and overworld"}, 28
+  FFPAD {"alike, each as common as it"}, 28
+  FFPAD {"was.  The land around"}, 28
+  FFPAD {"Coneria keeps its own."}, 28
+
+lut_Desc_55_2:  ; Formation zones: Random
+  FFLINES 5
+  FFPAD {"Every zone's fights are"}, 28
+  FFPAD {"drawn at random from all but"}, 28
+  FFPAD {"the bosses', B-sides the"}, 28
+  FFPAD {"game never uses included."}, 28
+  FFPAD {"The land by Coneria stays."}, 28
+
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 4
   FFPAD {"The 234 chests that hold no"}, 28
@@ -442,7 +494,7 @@ lut_DescLo:
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
   .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
-  .BYTE <lut_Desc_53
+  .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -459,6 +511,6 @@ lut_DescHi:
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
   .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
-  .BYTE >lut_Desc_53
+  .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

@@ -17,7 +17,7 @@ OPTROW_BLANK  = 3
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 66
+OPTROW_COUNT  = 68
 
 ;  The description pane: five lines of 28 columns.
 DESC_W     = 28

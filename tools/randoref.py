@@ -12,6 +12,7 @@ Run it to see a world without playing it:
     python3 tools/randoref.py SuperFinalFantasy.srm      # the saved game's
     python3 tools/randoref.py --seed 12345678 --traps b --shops shuffle --chests shuffle
     python3 tools/randoref.py SuperFinalFantasy.srm --find "heal staff"
+    python3 tools/randoref.py --seed 12345678 --zones shuffle --rarity tiered
 
 It reads the cartridge's tables from the built ROM, so build first.
 """
@@ -39,6 +40,8 @@ STREAM_SHOPS = 0x53484F50       # "SHOP"
 STREAM_CHESTS = 0x43485354      # "CHST"
 STREAM_MAGIC = 0x4D414743       # "MAGC"
 STREAM_GEAR = 0x424C5253        # "BLRS"
+STREAM_ZONES = 0x5A4F4E45       # "ZONE"
+STREAM_RARITY = 0x52415245      # "RARE"
 WARMUP = 8
 
 
@@ -63,6 +66,20 @@ class Stream:
         while True:
             self.s = xs32(self.s)
             r = self.s & 0xFF & m
+            if r < n:
+                return r
+
+    def below16(self, n):
+        """The same for n in 1..$FFFF, from the low sixteen bits."""
+        assert 1 <= n <= 0xFFFF
+        m = n - 1
+        m |= m >> 1
+        m |= m >> 2
+        m |= m >> 4
+        m |= m >> 8
+        while True:
+            self.s = xs32(self.s)
+            r = self.s & 0xFFFF & m
             if r < n:
                 return r
 
@@ -329,6 +346,107 @@ MAP_NAMES = [
     "Temple of Fiends (past) Chaos", "Titan's Tunnel",
 ]
 TILESETS = 0x10000 + 0xACC0              # lut_Tilesets: one per map
+
+
+# --- formations ---------------------------------------------------------------
+#  lut_Domains, bank $0B $8000: 128 zones of 8 formation ids.  Zones 0-63 are
+#  the overworld's 8x8 grid; 64 up are the standard maps by cur_map, except
+#  that the river's halves and the sea use the first three towns' zones.  A
+#  battle picks slot 0-3 12/64 of the time each, 4-5 6/64, 6 3/64, 7 1/64.
+DOMAINS_AT = (1 + 0x0B) * 0x10000 + 0x8000
+FORMS_OFF, FORMS_SHUFFLE, FORMS_TIERED = 0, 1, 2
+FORMS_MODES = 3
+FORMS_NAMES = {"off": FORMS_OFF, "shuffle": FORMS_SHUFFLE, "tiered": FORMS_TIERED}
+ZONES_OFF, ZONES_SHUFFLE, ZONES_RANDOM = 0, 1, 2
+ZONES_MODES = 3
+ZONES_NAMES = {"off": ZONES_OFF, "shuffle": ZONES_SHUFFLE, "random": ZONES_RANDOM}
+STARTING_ZONES = (0x1B, 0x1C, 0x24, 0x2C)       # the land around Coneria
+RARITY_CLASSES = ((0, 4), (4, 2), (6, 1), (7, 1))   # first slot, how many
+NOT_BOSS = list(range(0x00, 0x73)) + list(range(0x80, 0xF3)) + [0xFE, 0xFF]
+TIER_SLOT = (6, 7, 4, 5, 0, 1, 2, 3)            # lightest first, as FFR walks them
+TIER_WEIGHT = (1, 1, 3, 3, 6, 6, 6, 6)          # FFR's 8, 24, 48 over 8
+
+
+def rom_domains(rom):
+    return bytes(rom[DOMAINS_AT:DOMAINS_AT + 128 * 8])
+
+
+#  lut_BattleFormations, bank $0B $8400: 16 bytes a formation.  Enemy ids in
+#  bytes 2-5 and their counts in 6-9, minimum in the high nibble and maximum in
+#  the low.  A B-side (bit 7 of the formation id) fights only the first two,
+#  with the counts in bytes 14-15.  data_EnemyNames, bank $0B $94E0: a pointer
+#  per enemy into the same bank.
+BANK0B = (1 + 0x0B) * 0x10000
+FORMATIONS_AT = BANK0B + 0x8400
+ENEMY_NAMES_AT = BANK0B + 0x94E0
+SLOT_ODDS = ("12/64", "12/64", "12/64", "12/64", "6/64", "6/64", "3/64", "1/64")
+
+
+def enemy_name(rom, e):
+    p = ENEMY_NAMES_AT + e * 2
+    return decode_text(rom[BANK0B + (rom[p] | rom[p + 1] << 8):][:9])
+
+
+def formation_text(rom, f):
+    """Who a formation fights: "2-5 IMP, 0-2 GrIMP"."""
+    rec = rom[FORMATIONS_AT + (f & 0x7F) * 16:][:16]
+    groups = ([(rec[2], rec[14]), (rec[3], rec[15])] if f & 0x80
+              else [(rec[2 + i], rec[6 + i]) for i in range(4)])
+    out = []
+    for e, q in groups:
+        lo, hi = q >> 4, q & 0x0F
+        if hi:
+            out.append("%s %s" % (lo if lo == hi else "%d-%d" % (lo, hi), enemy_name(rom, e)))
+    return ", ".join(out) or "nobody"
+
+
+def zone_name(z):
+    if z < 64:
+        return "overworld %d,%d" % (z % 8, z // 8)
+    if z - 64 >= len(MAP_NAMES):
+        return "no map"
+    return {64: "river, north", 65: "river, south", 66: "sea"}.get(z, MAP_NAMES[z - 64])
+
+
+def build_domains(rom, seed, rarity, zones):
+    """Every zone's eight formations as the cache holds them: zones, then
+    rarity, each pass from its own stream."""
+    d = bytearray(rom_domains(rom))
+    if 0 < zones < ZONES_MODES:
+        rng = Stream(seed, STREAM_ZONES)
+        ok = [z not in STARTING_ZONES and (zones == ZONES_RANDOM or any(d[z * 8:z * 8 + 8]))
+              for z in range(128)]
+        if zones == ZONES_SHUFFLE:
+            #  Each rarity class pooled across the zones, shuffled, dealt back.
+            for first, count in RARITY_CLASSES:
+                pos = [z * 8 + k for z in range(128) if ok[z] for k in range(first, first + count)]
+                for i in range(len(pos) - 1, 0, -1):
+                    j = rng.below16(i + 1)
+                    d[pos[i]], d[pos[j]] = d[pos[j]], d[pos[i]]
+        else:
+            for z in range(128):
+                if ok[z]:
+                    for k in range(8):
+                        d[z * 8 + k] = NOT_BOSS[rng.below(len(NOT_BOSS))]
+    if 0 < rarity < FORMS_MODES:
+        rng = Stream(seed, STREAM_RARITY)
+        for z in range(128):
+            b = z * 8
+            if rarity == FORMS_SHUFFLE:
+                for base, n in ((b, 4), (b + 2, 6)):        # slots 0-3, then 2-7
+                    for i in range(n - 1, 0, -1):
+                        j = rng.below(i + 1)
+                        d[base + i], d[base + j] = d[base + j], d[base + i]
+            else:
+                v, w = [d[b + t] for t in TIER_SLOT], list(TIER_WEIGHT)
+                for k in range(8):
+                    r, m = rng.below(sum(w)), 0
+                    while r >= w[m]:
+                        r -= w[m]
+                        m += 1
+                    d[b + k] = v.pop(m)
+                    w.pop(m)
+    return bytes(d)
 TP_SPEC_MASK, TP_SPEC_TREASURE = 0x1E, 0x08
 
 
@@ -421,6 +539,11 @@ def item_name(rom, item):
     text = bytearray(rom[at:at + 12])
     if 0x1C <= item < 0x6C and GEAR_BONUS.get(item):
         text[:7] = blursed_name_bytes(rom, item, GEAR_BONUS[item])
+    return decode_text(text)
+
+
+def decode_text(text):
+    """The menu font's codes as text, up to the terminator."""
     out = ""
     for b in text:
         if not b:
@@ -439,13 +562,13 @@ def item_name(rom, item):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 10
+RANDO_SAVE_SIZE = 12
 
 
 def block_from_srm(srm):
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    return int.from_bytes(b[0:4], "little"), b[4], b[5], b[6], b[7], b[8], b[9]
+    return (int.from_bytes(b[0:4], "little"),) + tuple(b[4:RANDO_SAVE_SIZE])
 
 
 def main():
@@ -458,21 +581,26 @@ def main():
     ap.add_argument("--magic", choices=sorted(MAGIC_NAMES), default="off")
     ap.add_argument("--bless", type=int, default=0, help="max gear blessing, 0..5")
     ap.add_argument("--curse", type=int, default=0, help="min gear curse, 0..5")
+    ap.add_argument("--rarity", choices=sorted(FORMS_NAMES), default="off")
+    ap.add_argument("--zones", choices=sorted(ZONES_NAMES), default="off")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
-        seed, traps, shops, chests, magic, bless, curse = block_from_srm(open(a.srm, "rb").read())
+        (seed, traps, shops, chests, magic, bless, curse,
+         rarity, zones) = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops, chests, magic, bless, curse = (
+        seed, traps, shops, chests, magic, bless, curse, rarity, zones = (
             int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
-            CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse)
+            CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse,
+            FORMS_NAMES[a.rarity], ZONES_NAMES[a.zones])
     else:
         ap.error("give a battery file or --seed")
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
-          " blessing +%d, curse -%d" % (seed, traps, shops, chests, magic, bless, curse))
+          " blessing +%d, curse -%d, formation rarity %d, zones %d"
+          % (seed, traps, shops, chests, magic, bless, curse, rarity, zones))
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:
@@ -518,6 +646,16 @@ def main():
             names = [item_name(rom, i) for i in row_list(rows[s * 8:s * 8 + 8])]
             town = TOWNS[s - 10 if 11 <= s <= 20 else s]   # armor: as weapons
             print("  %-13s %-6s  %s" % (town, kind, ", ".join(names)))
+    was, now = rom_domains(rom), build_domains(rom, seed, rarity, zones)
+    for z in range(128):
+        if was[z * 8:z * 8 + 8] != now[z * 8:z * 8 + 8]:
+            print("  zone $%02X  %s" % (z, zone_name(z)))
+            for k in range(8):
+                f, v = now[z * 8 + k], was[z * 8 + k]
+                line = "    %-5s  $%02X %-34s%s" % (SLOT_ODDS[k], f, formation_text(rom, f),
+                                                    "" if f == v else "  was $%02X %s"
+                                                    % (v, formation_text(rom, v)))
+                print(line.rstrip())
     src = rom_props(rom)
     out = build_props(rom, seed, traps)
     for i in trap_offsets(src):

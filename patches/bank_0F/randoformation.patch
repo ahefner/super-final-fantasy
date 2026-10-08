@@ -1,0 +1,47 @@
+--- OLD
+GetBattleFormation:
+    LDY #(>lut_Domains) >> 3 ; set high byte of pointer (right shifted by 3)
+    STY tmp+1                ;   because we'll be rotating in 3 bits
+
+    ASL A                ; multiply domain by 8 (8 formations per domain)
+    ROL tmp+1            ;   rotating carry into the high byte of our pointer
+    ASL A
+    ROL tmp+1
+    ASL A
+    ROL tmp+1
+    STA tmp              ; write low byte of pointer
+                         ; (tmp) now points to lut_Domains+(domain*8)
+
+    LDA #BANK_DOMAINS
+    JSR SwapPRG_L        ; swap to bank containing domain information
+
+    INC battlecounter    ; increment the battle counter
+    LDX battlecounter    ; and put it in X
+    LDA lut_RNG, X       ; use it as seed to get a random number
+
+    AND #$3F                    ; drop the 2 high bits of the random number
+    TAX                         ; and put in X
+    LDY lut_FormationWeight, X  ; use that to index the formation weight LUT to know which formation to use
+
+    LDA (tmp), Y         ; get the desired formation from the given domain
+    STA btlformation     ; record as our battle formation
+
+    CLC                  ; CLC (to indicate success for OWCanMove -- since it JMPs here)
+    RTS                  ; and exit
+--- NEW
+.import rando_formation
+.export GetBattleFormation       ; for tools/test_options.py
+.export lut_RNG, lut_FormationWeight   ; rando_formation reads them
+GetBattleFormation:
+    ;  The pick is made in the randomizer's chunk, from its cache's copy of
+    ;  lut_Domains: the cartridge's own with formations off, shuffled with
+    ;  them on.  The swap stays here so that bank is mapped on the way out,
+    ;  as it always was.  26 bytes back to the fixed bank.
+    PHA                  ; the domain
+    LDA #BANK_DOMAINS
+    JSR SwapPRG_L
+    PLA
+    JSL rando_formation + RANDOFAR
+
+    CLC                  ; CLC (to indicate success for OWCanMove -- since it JMPs here)
+    RTS                  ; and exit
