@@ -1374,9 +1374,10 @@ FORMS_SHUFFLE   = 1             ; FFR's Shuffle Rarity: slots 0-3, then 2-7
 FORMS_TIERED    = 2             ; FFR's Tiered: a weighted deal by original slot
 FORMS_MODES     = 3
 ZONES_OFF       = 0
-ZONES_SHUFFLE   = 1             ; each rarity class pooled across zones and dealt
-ZONES_RANDOM    = 2             ; FFR's Totally Random: any formation but a boss
-ZONES_MODES     = 3
+ZONES_LIGHT     = 1             ; slots 0, 3, 5 and 6, each pooled across zones
+ZONES_SHUFFLE   = 2             ; each rarity class pooled across zones and dealt
+ZONES_RANDOM    = 3             ; FFR's Totally Random: any formation but a boss
+ZONES_MODES     = 4
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game

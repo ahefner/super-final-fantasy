@@ -4161,7 +4161,7 @@ def test_rando_options():
             (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
             (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0]),
             (66, K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
-            (67, K["OPT_NG_ZONES"], 4, [1, 2, 2, 2, 1, 0, 0, 0])):
+            (67, K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -5059,6 +5059,8 @@ DOMAINS_ROM = (1 + 0x0B) * 0x10000 + 0x8000
 START_ZONES = (0x1B, 0x1C, 0x24, 0x2C)
 NOT_BOSS = set(range(256)) - set(range(0x73, 0x80)) - set(range(0xF3, 0xFE))
 CLASSES = ((0, 4), (4, 2), (6, 1), (7, 1))      # lut_FormationWeight's rarities
+LIGHT = ((0, 1), (3, 1), (5, 1), (6, 1))        # two common, an uncommon, a rare
+WARMECH_FORM = 0x56
 
 
 def form_cache(bus):
@@ -5078,16 +5080,19 @@ def test_rando_formations():
     check("lut_FormationWeight's classes are 12, 12, 12, 12, 6, 6, 3, 1",
           [weight.count(k) for k in range(8)], [12, 12, 12, 12, 6, 6, 3, 1])
 
+    mech = [i for i in range(1024) if vanilla[i] == WARMECH_FORM]
+    check("WarMECH is in one slot, Sky Palace 5F's 6", mech, [(64 + 51) * 8 + 6])
+    ZL, ZS, ZR = K["ZONES_LIGHT"], K["ZONES_SHUFFLE"], K["ZONES_RANDOM"]
     seeds = (0x600DCAFE, 7, 0x0BADF00D, 0xFFFFFFFF)
     seen = {}
     for rarity in range(4):                     # 3 is no mode: as off
-        for zones in range(4):
+        for zones in range(5):                  # and 4
             for seed in seeds:
                 bus, cpu = machine()
                 setsave(bus, seed, 0, forms=rarity, zones=zones)
                 call(cpu, "rando_ensure", bank=RANDO_BANK)
                 got = form_cache(bus)
-                r, zn = rarity % 3, zones % 3
+                r, zn = rarity % 3, zones % 4
                 name = "rarity %d zones %d seed $%08X" % (rarity, zones, seed)
                 check(name + ": the reference's world", got,
                       R.build_domains(ROMDATA, seed, r, zn))
@@ -5102,15 +5107,26 @@ def test_rando_formations():
                     check(name + ": slots 0 and 1 hold what slots 0-3 held",
                           [z for z in range(128) for k in (0, 1)
                            if got[z * 8 + k] not in zone(vanilla, z)[:4]], [])
-                if zn == 1 and r == 0:
+                if zn in (ZL, ZS) and r == 0:
                     check(name + ": the zones around Coneria and the empty ones stay",
                           [z for z in range(128) if z not in live and zone(got, z) != zone(vanilla, z)], [])
-                    for first, count in CLASSES:
+                    for first, count in (LIGHT if zn == ZL else CLASSES):
                         pick = lambda t: sorted(t[z * 8 + k] for z in live
                                                 for k in range(first, first + count))
                         check(name + ": slots %d-%d keep their formations between them"
                               % (first, first + count - 1), pick(got), pick(vanilla))
-                if zn == 2:
+                    if zn == ZL:
+                        check(name + ": slots 1, 2, 4 and 7 stay",
+                              [i for i in range(1024) if i % 8 in (1, 2, 4, 7) and got[i] != vanilla[i]], [])
+                #  Only Random moves WarMECH out of Sky Palace 5F.  Rarity may
+                #  move it within the floor, as FFR's does.
+                if zn != ZR and r == 0:
+                    check(name + ": WarMECH stays", [got[i] for i in mech], [WARMECH_FORM])
+                elif zn != ZR:
+                    check(name + ": WarMECH stays on Sky Palace 5F",
+                          [f for f in got if f == WARMECH_FORM], [WARMECH_FORM])
+                    check(name + ": ...in some slot of it", WARMECH_FORM in zone(got, mech[0] // 8), True)
+                if zn == ZR:
                     check(name + ": no zone draws a boss",
                           [z for z in range(128) if z not in START_ZONES
                            and not set(zone(got, z)) <= NOT_BOSS], [])
@@ -5118,6 +5134,7 @@ def test_rando_formations():
                         check(name + ": the zones around Coneria stay",
                               [zone(got, z) for z in START_ZONES],
                               [zone(vanilla, z) for z in START_ZONES])
+    check("every mode pair was seen", len(seen), 12)
     for (r, zn), worlds in sorted(seen.items()):
         check("rarity %d zones %d: four seeds, %s worlds" % (r, zn, "one" if r == zn == 0 else "four"),
               len(worlds), 1 if r == zn == 0 else 4)
@@ -5138,7 +5155,8 @@ def test_rando_formload():
     for bc in range(256):
         counter.setdefault(weight[rng[(bc + 1) & 0xFF] & 0x3F], bc)
     check("every slot is reachable from some battle counter", sorted(counter), list(range(8)))
-    for rarity, zones, seed in ((0, 0, 0x600DCAFE), (1, 1, 0x600DCAFE), (2, 2, 77)):
+    for rarity, zones, seed in ((0, 0, 0x600DCAFE), (1, K["ZONES_SHUFFLE"], 0x600DCAFE),
+                                (2, K["ZONES_RANDOM"], 77), (0, K["ZONES_LIGHT"], 9)):
         want = R.build_domains(ROMDATA, seed, rarity, zones)
         bad, odd = [], []
         bus, cpu = machine()

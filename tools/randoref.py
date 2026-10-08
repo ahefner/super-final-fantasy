@@ -357,11 +357,14 @@ DOMAINS_AT = (1 + 0x0B) * 0x10000 + 0x8000
 FORMS_OFF, FORMS_SHUFFLE, FORMS_TIERED = 0, 1, 2
 FORMS_MODES = 3
 FORMS_NAMES = {"off": FORMS_OFF, "shuffle": FORMS_SHUFFLE, "tiered": FORMS_TIERED}
-ZONES_OFF, ZONES_SHUFFLE, ZONES_RANDOM = 0, 1, 2
-ZONES_MODES = 3
-ZONES_NAMES = {"off": ZONES_OFF, "shuffle": ZONES_SHUFFLE, "random": ZONES_RANDOM}
+ZONES_OFF, ZONES_LIGHT, ZONES_SHUFFLE, ZONES_RANDOM = 0, 1, 2, 3
+ZONES_MODES = 4
+ZONES_NAMES = {"off": ZONES_OFF, "light": ZONES_LIGHT, "shuffle": ZONES_SHUFFLE,
+               "random": ZONES_RANDOM}
 STARTING_ZONES = (0x1B, 0x1C, 0x24, 0x2C)       # the land around Coneria
 RARITY_CLASSES = ((0, 4), (4, 2), (6, 1), (7, 1))   # first slot, how many
+LIGHT_CLASSES = ((0, 1), (3, 1), (5, 1), (6, 1))    # two common, an uncommon, a rare
+WARMECH = 0x56                                  # never moved by Light or Shuffle
 NOT_BOSS = list(range(0x00, 0x73)) + list(range(0x80, 0xF3)) + [0xFE, 0xFF]
 TIER_SLOT = (6, 7, 4, 5, 0, 1, 2, 3)            # lightest first, as FFR walks them
 TIER_WEIGHT = (1, 1, 3, 3, 6, 6, 6, 6)          # FFR's 8, 24, 48 over 8
@@ -416,10 +419,12 @@ def build_domains(rom, seed, rarity, zones):
         rng = Stream(seed, STREAM_ZONES)
         ok = [z not in STARTING_ZONES and (zones == ZONES_RANDOM or any(d[z * 8:z * 8 + 8]))
               for z in range(128)]
-        if zones == ZONES_SHUFFLE:
-            #  Each rarity class pooled across the zones, shuffled, dealt back.
-            for first, count in RARITY_CLASSES:
-                pos = [z * 8 + k for z in range(128) if ok[z] for k in range(first, first + count)]
+        if zones in (ZONES_LIGHT, ZONES_SHUFFLE):
+            #  Each class pooled across the zones, shuffled, dealt back --
+            #  every slot of it but WarMECH's.
+            for first, count in LIGHT_CLASSES if zones == ZONES_LIGHT else RARITY_CLASSES:
+                pos = [z * 8 + k for z in range(128) if ok[z] for k in range(first, first + count)
+                       if d[z * 8 + k] != WARMECH]
                 for i in range(len(pos) - 1, 0, -1):
                     j = rng.below16(i + 1)
                     d[pos[i]], d[pos[j]] = d[pos[j]], d[pos[i]]

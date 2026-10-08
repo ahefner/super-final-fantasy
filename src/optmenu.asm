@@ -1656,6 +1656,7 @@ lut_ValRarity:
   FFPAD "  Tiered", 8           ; FORMS_TIERED
 lut_ValZones:
   FFPAD "     Off", 8           ; ZONES_OFF
+  FFPAD "   Light", 8           ; ZONES_LIGHT
   FFPAD " Shuffle", 8           ; ZONES_SHUFFLE
   FFPAD "  Random", 8           ; ZONES_RANDOM
 

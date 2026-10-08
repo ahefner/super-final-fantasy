@@ -142,6 +142,7 @@ STREAM_RARITY = $52415245       ; "RARE": its own, so zones cannot reshuffle it
 ;  counter's byte of lut_RNG.
 ROMDOMAINS   = BANK0BFAR + lut_Domains
 DOMAINS_SIZE = 128 * 8
+WARMECH_FORM = $56              ; Sky Palace 5F's slot 6; Light and Shuffle pin it
 .import lut_RNG, lut_FormationWeight
 
 ;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
@@ -2157,6 +2158,14 @@ copy_domains:
 ;;  fight) -- settled before anything moves.  FFR's Shuffle Across Zones has
 ;;  done this a different way in each of its versions; see snesmap.inc.
 ;;
+;;  Light: the same, for slots 0, 3, 5 and 6 only, each pooled on its own --
+;;  two common fights, an uncommon and a rare in every zone come from
+;;  elsewhere, and the other four stay, so a zone is still recognisably
+;;  itself.
+;;
+;;  In both, WarMECH stays where it is: a slot holding its formation is left
+;;  out of the pool, so it neither moves nor takes anything in.
+;;
 ;;  Random: FFR's Totally Random.  Every slot of every zone but the four
 ;;  around Coneria is drawn from the 232 formations that are not a boss's:
 ;;  $00-$72, $80-$F2, $FE and $FF.  The all-zero zones too, as FFR does; they
@@ -2228,6 +2237,8 @@ deal_zones:
     LDA a:wMODE
     CMP #ZONES_RANDOM
     BEQ @random
+    CMP #ZONES_LIGHT
+    BEQ @light
 
     ;  The four rarity classes, each a first slot and a count.
     LDA #0
@@ -2240,6 +2251,21 @@ deal_zones:
     LDY #1
     JSR deal_class
     LDA #7
+    LDY #1
+    JMP deal_class
+
+    ;  Two common slots, one uncommon and one rare, each a class of its own.
+  @light:
+    LDA #0
+    LDY #1
+    JSR deal_class
+    LDA #3
+    LDY #1
+    JSR deal_class
+    LDA #5
+    LDY #1
+    JSR deal_class
+    LDA #6
     LDY #1
     JMP deal_class
 
@@ -2285,9 +2311,10 @@ deal_zones:
 
 
 ;;  One rarity class across the zones: list its slots in every zone the pass
-;;  may touch, then Fisher-Yates over the list from the top, exchanging the
-;;  formations the slots hold.  That is the same as pooling the formations,
-;;  shuffling the pool and dealing it back in order, without the pool.
+;;  may touch, but not one holding WarMECH, then Fisher-Yates over the list
+;;  from the top, exchanging the formations the slots hold.  That is the same
+;;  as pooling the formations, shuffling the pool and dealing it back in
+;;  order, without the pool.
 ;;
 ;;  In: A8 = the class's first slot, Y = how many slots it has; A8, I16.
 deal_class:
@@ -2318,15 +2345,26 @@ deal_class:
     LDA a:wFC
     STA a:wT2                   ; a count down
   @slot:
+    PHY
+    LDY a:wFK                   ; I16: the whole word
+    LDA a:wDOMAINS, Y
+    PLY
+    CMP #WARMECH_FORM
+    BEQ @pinned
     REP #$20
     .a16
     LDA a:wFK
     STA a:wPOS, X
-    INC a:wFK
     SEP #$20
     .a8
     INX
     INX
+  @pinned:
+    REP #$20
+    .a16
+    INC a:wFK
+    SEP #$20
+    .a8
     DEC a:wT2
     BNE @slot
   @next:

@@ -448,7 +448,7 @@ lut_Desc_54_2:  ; Formation rarity: Tiered
 
 lut_Desc_55:  ; Formation zones, by value
   .BYTE DESC_BYVALUE
-  .WORD lut_Desc_55_0, lut_Desc_55_1, lut_Desc_55_2
+  .WORD lut_Desc_55_0, lut_Desc_55_1, lut_Desc_55_2, lut_Desc_55_3
   .assert * - lut_Desc_55 = 1 + 2 * ZONES_MODES, error, "one zones description per mode"
 
 lut_Desc_55_0:  ; Formation zones: Off
@@ -456,15 +456,23 @@ lut_Desc_55_0:  ; Formation zones: Off
   FFPAD {"Every zone has the fights it"}, 28
   FFPAD {"always has."}, 28
 
-lut_Desc_55_1:  ; Formation zones: Shuffle
+lut_Desc_55_1:  ; Formation zones: Light
+  FFLINES 5
+  FFPAD {"Four slots in each zone"}, 28
+  FFPAD {"trade with other zones, so"}, 28
+  FFPAD {"zones stay recognizable with"}, 28
+  FFPAD {"a few strangers.  Coneria's"}, 28
+  FFPAD {"land and WarMECH stay put."}, 28
+
+lut_Desc_55_2:  ; Formation zones: Shuffle
   FFLINES 5
   FFPAD {"Fights move between zones,"}, 28
   FFPAD {"dungeon floors and overworld"}, 28
   FFPAD {"alike, each as common as it"}, 28
-  FFPAD {"was.  The land around"}, 28
-  FFPAD {"Coneria keeps its own."}, 28
+  FFPAD {"was.  Coneria's land and"}, 28
+  FFPAD {"WarMECH stay where they are."}, 28
 
-lut_Desc_55_2:  ; Formation zones: Random
+lut_Desc_55_3:  ; Formation zones: Random
   FFLINES 5
   FFPAD {"Every zone's fights are"}, 28
   FFPAD {"drawn at random from all but"}, 28
