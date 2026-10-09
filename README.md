@@ -56,6 +56,7 @@ the game depends on it and nothing else writes $2000.
     patches/              routines that cannot be translated locally
     patches/debug/        gated behind FFDEBUG; never in a normal build
     tools/drive.py        scripted input for testing
+    docs/                 design notes; options-design.md is the live one
 
 `game/` is the 6502 source the port is built from.  It used to be read from a
 sibling checkout, which made the build depend on a path outside the repository
