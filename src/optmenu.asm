@@ -1497,6 +1497,14 @@ lut_OptRows:
   OPTLABEL {"Unrunnable fights"}
   .BYTE $02, $0E   ; Surprise rates
   OPTLABEL {"Surprise rates"}
+  .BYTE $02, $0F   ; Status attacks
+  OPTLABEL {"Status attacks"}
+  .BYTE $02, $10   ; Enemy scripts
+  OPTLABEL {"Enemy scripts"}
+  .BYTE $02, $11   ; Enemy skills
+  OPTLABEL {"Enemy skills"}
+  .BYTE $02, $12   ; RNG tables
+  OPTLABEL {"RNG tables"}
 
 lut_OptRowsEnd:
 
@@ -1664,21 +1672,31 @@ lut_ValZones:
   FFPAD " Shuffle", 8           ; ZONES_SHUFFLE
   FFPAD "  Random", 8           ; ZONES_RANDOM
 
+;  Enemy scripts and Enemy skills: which enemies' lists are dealt.
+lut_ValAI:
+  FFPAD "     Off", 8           ; AI_OFF
+  FFPAD " Enemies", 8           ; AI_ENEMIES
+  FFPAD "  Bosses", 8           ; AI_BOSSES
+  FFPAD "    Both", 8           ; AI_BOTH
+
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
               .BYTE <lut_ValTraps, <lut_ValShuffle, <lut_ValShuffle, <lut_ValShuffle
               .BYTE <lut_ValBless, <lut_ValCurse, <lut_ValRarity, <lut_ValZones
               .BYTE <lut_ValShuffle, <lut_ValShuffle
+              .BYTE <lut_ValShuffle, <lut_ValAI, <lut_ValAI, <lut_ValShuffle
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
               .BYTE >lut_ValShuffle, >lut_ValShuffle
+              .BYTE >lut_ValShuffle, >lut_ValAI, >lut_ValAI, >lut_ValShuffle
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
+              .BYTE STATUS_MODES, AI_MODES, AI_MODES, RNG_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
@@ -1686,4 +1704,5 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
               .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
               .BYTE <OPT_NG_NORUN, <OPT_NG_SURPRISE
+              .BYTE <OPT_NG_STATUS, <OPT_NG_SCRIPTS, <OPT_NG_SKILLS, <OPT_NG_RNG
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

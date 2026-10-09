@@ -516,6 +516,108 @@ lut_Desc_57_1:  ; Surprise rates: Shuffle
   FFPAD {"fights.  One you cannot run"}, 28
   FFPAD {"from never ambushes."}, 28
 
+lut_Desc_58:  ; Status attacks, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_58_0, lut_Desc_58_1
+  .assert * - lut_Desc_58 = 1 + 2 * STATUS_MODES, error, "one status description per mode"
+
+lut_Desc_58_0:  ; Status attacks: Off
+  FFLINES 2
+  FFPAD {"Each enemy's touch does what"}, 28
+  FFPAD {"it always does."}, 28
+
+lut_Desc_58_1:  ; Status attacks: Shuffle
+  FFLINES 4
+  FFPAD {"Enemies trade touches, the"}, 28
+  FFPAD {"ailment and its element"}, 28
+  FFPAD {"together, bosses included."}, 28
+  FFPAD {"The pirates keep theirs."}, 28
+
+lut_Desc_59:  ; Enemy scripts, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_59_0, lut_Desc_59_1, lut_Desc_59_2, lut_Desc_59_3
+  .assert * - lut_Desc_59 = 1 + 2 * AI_MODES, error, "one scripts description per mode"
+
+lut_Desc_59_0:  ; Enemy scripts: Off
+  FFLINES 2
+  FFPAD {"Every enemy fights the way"}, 28
+  FFPAD {"it always does."}, 28
+
+lut_Desc_59_1:  ; Enemy scripts: Enemies
+  FFLINES 5
+  FFPAD {"Normal enemies trade their"}, 28
+  FFPAD {"spell and skill lists, so"}, 28
+  FFPAD {"one that never cast may,"}, 28
+  FFPAD {"and a caster may not.  The"}, 28
+  FFPAD {"pirates keep theirs."}, 28
+
+lut_Desc_59_2:  ; Enemy scripts: Bosses
+  FFLINES 4
+  FFPAD {"The four fiends trade lists,"}, 28
+  FFPAD {"and so do WarMECH, the"}, 28
+  FFPAD {"Temple's fiends and Chaos"}, 28
+  FFPAD {"among themselves."}, 28
+
+lut_Desc_59_3:  ; Enemy scripts: Both
+  FFLINES 5
+  FFPAD {"Normal enemies trade spell"}, 28
+  FFPAD {"and skill lists, the four"}, 28
+  FFPAD {"fiends trade theirs, and"}, 28
+  FFPAD {"WarMECH, the Temple's fiends"}, 28
+  FFPAD {"and Chaos trade theirs."}, 28
+
+lut_Desc_60:  ; Enemy skills, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_60_0, lut_Desc_60_1, lut_Desc_60_2, lut_Desc_60_3
+  .assert * - lut_Desc_60 = 1 + 2 * AI_MODES, error, "one skills description per mode"
+
+lut_Desc_60_0:  ; Enemy skills: Off
+  FFLINES 2
+  FFPAD {"Every list holds the spells"}, 28
+  FFPAD {"and skills it always does."}, 28
+
+lut_Desc_60_1:  ; Enemy skills: Enemies
+  FFLINES 5
+  FFPAD {"The spells and skills in"}, 28
+  FFPAD {"normal enemies' lists are"}, 28
+  FFPAD {"dealt out again, and how"}, 28
+  FFPAD {"often each casts.  Never"}, 28
+  FFPAD {"two NUKEs in a row."}, 28
+
+lut_Desc_60_2:  ; Enemy skills: Bosses
+  FFLINES 5
+  FFPAD {"The same among the fiends'"}, 28
+  FFPAD {"lists, and among WarMECH's,"}, 28
+  FFPAD {"the Temple fiends' and"}, 28
+  FFPAD {"Chaos's.  Never two NUKEs"}, 28
+  FFPAD {"or NUCLEARs in a row."}, 28
+
+lut_Desc_60_3:  ; Enemy skills: Both
+  FFLINES 5
+  FFPAD {"Spells and skills dealt out"}, 28
+  FFPAD {"again among normal enemies,"}, 28
+  FFPAD {"among the fiends, and among"}, 28
+  FFPAD {"the last bosses.  Never two"}, 28
+  FFPAD {"NUKEs or NUCLEARs in a row."}, 28
+
+lut_Desc_61:  ; RNG tables, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_61_0, lut_Desc_61_1
+  .assert * - lut_Desc_61 = 1 + 2 * RNG_MODES, error, "one RNG description per mode"
+
+lut_Desc_61_0:  ; RNG tables: Off
+  FFLINES 2
+  FFPAD {"Fights and battle rolls come"}, 28
+  FFPAD {"in the order they always do."}, 28
+
+lut_Desc_61_1:  ; RNG tables: Shuffle
+  FFLINES 5
+  FFPAD {"The tables that decide when"}, 28
+  FFPAD {"fights come, and which, and"}, 28
+  FFPAD {"how battle rolls go, are"}, 28
+  FFPAD {"shuffled.  The odds stay the"}, 28
+  FFPAD {"same, the order does not."}, 28
+
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 4
   FFPAD {"The 234 chests that hold no"}, 28
@@ -539,6 +641,7 @@ lut_DescLo:
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
   .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
   .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56, <lut_Desc_57
+  .BYTE <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -556,5 +659,6 @@ lut_DescHi:
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
   .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
   .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56, >lut_Desc_57
+  .BYTE >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

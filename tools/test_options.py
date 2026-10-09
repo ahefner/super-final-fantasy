@@ -1095,10 +1095,14 @@ def test_fardata():
 
     #  BattleRNG is the whole path: it does nothing but the long read.  All
     #  256 entries, because a wrong table is not something anyone would notice
-    #  playing -- bad luck looks like bad luck.
+    #  playing -- bad luck looks like bad luck.  It reads the randomizer's copy
+    #  now, which copy_rng takes from this table and every battle has built
+    #  before its first roll (rando_formdata ensures it); with RNG tables off
+    #  that copy is these bytes.
     wrong = []
     for state in range(256):
         bus, cpu = machine()
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
         bus.sram[BTL_RNGSTATE - 0x6000] = state
         call(cpu, "BattleRNG_L", bank=BANK_0C, dbr=BANK_0C)
         if (cpu.a & 0xFF) != blob[state]:
@@ -1118,7 +1122,8 @@ def test_fardata():
     #  bytes.  FFR has a "Fix Missing Battle RNG Entry" flag for it; porting
     #  that is a decision already taken and declined, so these two assertions
     #  exist to stop anyone (including me) quietly "fixing" it later.
-    bus, _ = machine()
+    bus, cpu = machine()
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
     seen = []
     for state in range(256):
         cpu = CPU(bus); cpu.dbr = BANK_0C
@@ -3747,7 +3752,9 @@ def source_consts():
              os.path.join(ROOT, "src", "snesmap.inc")]
     for f in files:
         for line in open(f, encoding="latin-1"):
-            m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)", line)
+            #  Indented too: variables.inc indents the record offsets (en_*,
+            #  btlform_*), and no name is defined two ways across the three.
+            m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)", line)
             if not m:
                 continue
             expr = m.group(2).strip()
@@ -4143,14 +4150,16 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 15]),
+          list(ROMDATA[at:at + 19]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
            K["OPT_NG_MAGIC"] - OPTBLOCK, K["OPT_NG_BLESS"] - OPTBLOCK,
            K["OPT_NG_CURSE"] - OPTBLOCK, K["OPT_NG_FORMS"] - OPTBLOCK,
            K["OPT_NG_ZONES"] - OPTBLOCK, K["OPT_NG_NORUN"] - OPTBLOCK,
-           K["OPT_NG_SURPRISE"] - OPTBLOCK])
+           K["OPT_NG_SURPRISE"] - OPTBLOCK, K["OPT_NG_STATUS"] - OPTBLOCK,
+           K["OPT_NG_SCRIPTS"] - OPTBLOCK, K["OPT_NG_SKILLS"] - OPTBLOCK,
+           K["OPT_NG_RNG"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4164,7 +4173,10 @@ def test_rando_options():
             (66, K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
             (67, K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
             (68, K["OPT_NG_NORUN"], 3, [1, 1, 1, 0, 0, 0]),
-            (69, K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0])):
+            (69, K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0]),
+            (70, K["OPT_NG_STATUS"], 3, [1, 1, 1, 0, 0, 0]),
+            (72, K["OPT_NG_SKILLS"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
+            (73, K["OPT_NG_RNG"], 3, [1, 1, 1, 0, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -5267,6 +5279,365 @@ def test_rando_formdata():
     check("EnterBattle asks rando_formdata", jsl_count(0xA7 & 0x1F, "rando_formdata"), 1)
 
 
+# --- enemies: touches, scripts, skills & spells -------------------------------------
+ENEMIES_ROM = (1 + 0x0C) * 0x10000 + 0x8520     # data_EnemyStats, 20 bytes each
+ENEMYAI_ROM = (1 + 0x0C) * 0x10000 + 0x9020     # lut_EnemyAi, 16 bytes each
+
+
+def enram(bus, e, slot=0):
+    """($84) and ($9A) at an enemy's RAM stats in btl_enemystats, holding
+    its id, as the battle points them."""
+    at = K["btl_enemystats"] + slot * 0x14
+    bus.sram[at - 0x6000 + K["en_enemyid"]] = e
+    for zp in (0x84, 0x9A):
+        bus.wram[zp], bus.wram[zp + 1] = at & 0xFF, at >> 8
+
+
+def setai(bus, seed, status=0, scripts=0, skills=0):
+    setsave(bus, seed, 0)
+    bus.sram[K["RANDO_STATUS"] - 0x6000] = status
+    bus.sram[K["RANDO_SCRIPTS"] - 0x6000] = scripts
+    bus.sram[K["RANDO_SKILLS"] - 0x6000] = skills
+
+
+def ai_cache(bus):
+    t, e, s_ = rw("RW_TOUCH"), rw("RW_ESCRIPT"), rw("RW_SCRIPTS")
+    return bytes(bus.wram[t:t + 256]), bytes(bus.wram[e:e + 128]), bytes(bus.wram[s_:s_ + 704])
+
+
+def test_rando_touch():
+    touch = lambda e: bytes(ROMDATA[ENEMIES_ROM + e * 20 + 0x0E:][:2])
+    vanilla = b"".join(touch(e) for e in range(128))
+    check("16 enemies poison, 16 stun", (sum(1 for e in range(128) if touch(e)[1] == 0x04),
+                                        sum(1 for e in range(128) if touch(e)[1] == 0x10)), (16, 16))
+    seen = set()
+    for status in range(3):                     # 2 is no mode: as off
+        for seed in (0x600DCAFE, 7, 0x0BADF00D):
+            bus, cpu = machine()
+            setai(bus, seed, status)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            got = ai_cache(bus)[0]
+            st = status % 2
+            name = "status %d seed $%08X" % (status, seed)
+            check(name + ": the reference's touches", got, R.build_touch(ROMDATA, seed, st))
+            if not st:
+                check(name + ": the cartridge's", got, vanilla)
+            else:
+                pairs = lambda t: sorted(t[2 * e:2 * e + 2] for e in range(128) if e != 15)
+                check(name + ": the touches, ailment and element together, among themselves",
+                      pairs(got), pairs(vanilla))
+                check(name + ": the pirates keep theirs", got[30:32], vanilla[30:32])
+                seen.add(got)
+    check("three seeds, three shuffles", len(seen), 3)
+
+
+def test_rando_touchload():
+    """OptScaleEnemyAttack as bank $0C calls it, for all 128 enemies: the
+    ailment always, and the element under Weapon Stats, are the cache's, with
+    the cartridge's in the fields first as a decoy.  And bank $0C's load of
+    the ailment from ROM is gone, or it would overwrite the cache's."""
+    ail, elem = K["btl_attacker_attackailment"] - 0x6000, K["btl_attacker_element"] - 0x6000
+    for status, flagbits, seed in ((0, F_WEAPONSTATS, 1), (1, F_WEAPONSTATS, 0x600DCAFE), (1, 0, 9)):
+        want = R.build_touch(ROMDATA, seed, status)
+        bus, cpu = machine()
+        setai(bus, seed, status)
+        for k in range(4):
+            setblk(bus, OPT_FLAGS + k, (flagbits >> (8 * k)) & 0xFF)
+        bad = []
+        for e in range(128):
+            rec = ROMDATA[ENEMIES_ROM + e * 20:][:20]
+            addr = 0x8520 + e * 20
+            bus.wram[0x86], bus.wram[0x87] = addr & 0xFF, addr >> 8
+            enram(bus, e)
+            bus.sram[ail] = rec[0x0F] if rec[0x0F] != want[2 * e + 1] else 0xEE
+            bus.sram[elem] = rec[0x12]
+            cpu.a = rec[0x0D]
+            call(cpu, "OptScaleEnemyAttack", dbr=0xA1 + 0x0C)
+            got = (bus.sram[ail], bus.sram[elem])
+            if got != (want[2 * e + 1], want[2 * e] if flagbits else rec[0x12]):
+                bad.append("enemy %d: %s" % (e, got))
+        check("status %d flags %06X: every enemy's touch" % (status, flagbits), bad[:3], [])
+    check("opt_scaleatk asks rando_touch", jsl_count(CHUNK_OPT_BANK & 0x1F, "rando_touch"), 1)
+    b0c = (1 + 0x0C) * 0x10000
+    check("bank $0C no longer loads the ailment from ROM",
+          bytes([0xA0, 0x0F, 0xB1, 0x86]) in ROMDATA[b0c + 0x8000:b0c + 0x10000], False)
+
+
+def test_rando_ai():
+    eai0 = bytes(ROMDATA[ENEMIES_ROM + e * 20 + 7] for e in range(128))
+    tab0 = bytes(ROMDATA[ENEMYAI_ROM:ENEMYAI_ROM + 704])
+    rec = lambda t, i: t[i * 16:i * 16 + 16]
+    normal = list(range(32)) + [33, 43]
+    fiends, big = [34, 36, 38, 40], [32, 35, 37, 39, 41, 42]
+    check("36 normal enemies have a script", sum(1 for e in range(118) if eai0[e] != 0xFF), 36)
+    check("the bosses' scripts", list(eai0[118:]), [32, 34, 35, 36, 37, 38, 39, 40, 41, 42])
+    #  FFR's nukes, found the way FFR finds them, from the cartridge's magic.
+    md = (0xA1 + 0x0C & 0x1F) * 0x10000 + SYM["lut_MagicData"]
+    nukes = [s_ for s_ in range(64) if ROMDATA[md + s_ * 8 + 4] == 1 and ROMDATA[md + s_ * 8 + 3] == 1
+             and ROMDATA[md + s_ * 8 + 2] == 0 and ROMDATA[md + s_ * 8 + 1] >= 80]
+    check("FFR's nukes are FADE and NUKE", nukes, [57, 60])
+    pool = lambda t, grp, lo, n: sorted(x for g in grp for x in rec(t, g)[lo:lo + n] if x != 0xFF)
+    chances = lambda t, grp, k: sorted(rec(t, g)[k] for g in grp)
+    seen = {}
+    for scripts in range(5):                    # 4 is no mode: as off
+        for skills in range(5):
+            for seed in (0x600DCAFE, 0x0BADF00D):
+                bus, cpu = machine()
+                setai(bus, seed, 0, scripts, skills)
+                call(cpu, "rando_ensure", bank=RANDO_BANK)
+                _, eai, tab = ai_cache(bus)
+                sc, sk = scripts % 4, skills % 4
+                name = "scripts %d skills %d seed $%08X" % (scripts, skills, seed)
+                check(name + ": the reference's", (eai, tab), R.build_ai(ROMDATA, seed, sc, sk))
+                seen.setdefault((sc, sk), set()).add((eai, tab))
+                #  Who has which script.
+                check(name + ": normal enemies' ids among themselves, pirates none",
+                      (sorted(eai[:118]), eai[15]), (sorted(eai0[:118]), 0xFF))
+                if not sc & 1:
+                    check(name + ": normal enemies keep theirs", eai[:118], eai0[:118])
+                if sc & 2:
+                    check(name + ": fiends' among fiends, the rest among the rest",
+                          (sorted(eai[e] for e in (119, 121, 123, 125)),
+                           sorted(eai[e] for e in (118, 120, 122, 124, 126, 127))),
+                          ([34, 36, 38, 40], [32, 35, 37, 39, 41, 42]))
+                else:
+                    check(name + ": the bosses keep theirs", eai[118:], eai0[118:])
+                #  What the scripts hold.
+                van = bytearray(tab0)
+                if sk & 1:
+                    for c in (7, 27):
+                        van[c * 16 + 13] = van[c * 16 + 14] = 0xFF
+                for grp, bit in ((normal, 1), (fiends, 2), (big, 2)):
+                    if not sk & bit:
+                        check(name + ": an undealt group is the cartridge's",
+                              [rec(tab, g) for g in grp], [rec(tab0, g) for g in grp])
+                        continue
+                    check(name + ": a group keeps its spells, skills and chances",
+                          (pool(tab, grp, 2, 8), pool(tab, grp, 11, 4), chances(tab, grp, 0), chances(tab, grp, 1)),
+                          (pool(van, grp, 2, 8), pool(van, grp, 11, 4), chances(van, grp, 0), chances(van, grp, 1)))
+                    for g in grp:
+                        r = rec(tab, g)
+                        sp, kl = r[2:10], r[11:15]
+                        bad = ((r[0] == 0) != (sp[0] == 0xFF) or (r[1] == 0) != (kl[0] == 0xFF)
+                               or any(a in nukes and b in nukes for a, b in zip(sp, sp[1:]))
+                               or any(a == 0x14 and b == 0x14 for a, b in zip(kl, kl[1:]))
+                               or (sp[0] in nukes and kl[0] == 0x14)
+                               or r[10] != 0xFF or r[15] != 0xFF)
+                        if bad:
+                            check(name + ": script %d breaks a rule" % g, r.hex(), "")
+    check("every mode pair was seen", len(seen), 16)
+    for (sc, sk), worlds in sorted(seen.items()):
+        check("scripts %d skills %d: two seeds, %s" % (sc, sk, "one world" if sc == sk == 0 else "two"),
+              len(worlds), 1 if sc == sk == 0 else 2)
+
+
+def test_rando_enemyai():
+    """Enemy_DoAi's lookup, through rando_enemyai, for every enemy: carry set
+    for one without a script, and otherwise the cache's script in the shadow
+    and @aiptr at it -- with the shadow full of junk and @aiptr at the ROM
+    script first, as decoys."""
+    shadow = K["OPTAISHADOW"]
+    for scripts, skills, seed in ((0, 0, 1), (3, 3, 0x600DCAFE), (1, 2, 9)):
+        eai, tab = R.build_ai(ROMDATA, seed, scripts, skills)
+        bus, cpu = machine()
+        setai(bus, seed, 0, scripts, skills)
+        bad = []
+        for e in range(128):
+            enram(bus, e, e % 9)
+            bus.sram[shadow - 0x6000:shadow - 0x6000 + 16] = bytes(range(0xA0, 0xB0))
+            bus.wram[0x9E], bus.wram[0x9F] = 0x20, 0x90
+            call(cpu, "rando_enemyai", bank=RANDO_BANK, dbr=0xA1 + 0x0C)
+            if eai[e] == 0xFF:
+                ok = cpu.p & 0x01 == 1
+            else:
+                ok = (cpu.p & 0x01 == 0
+                      and bus.sram[shadow - 0x6000:shadow - 0x6000 + 16] == tab[eai[e] * 16:eai[e] * 16 + 16]
+                      and bus.wram[0x9E] | bus.wram[0x9F] << 8 == shadow)
+            if not ok:
+                bad.append(e)
+        check("scripts %d skills %d: every enemy's script" % (scripts, skills), bad[:4], [])
+    check("Enemy_DoAi asks rando_enemyai", jsl_count((0xA1 + 0x0C) & 0x1F, "rando_enemyai"), 1)
+
+
+def test_rando_aisynth():
+    """The deal's rules on scripts made to trip them.  The cartridge's own
+    never would: no enemy casts FADE, no script opens with NUKE and NUCLEAR
+    both, and every pad byte is already $FF -- so a dropped rule is invisible
+    to test_rando_ai.  Here lut_EnemyAi is doctored: NUKEs and FADEs among the
+    normal and boss spells, NUCLEARs among the skills, a script that opens
+    with both, and pads that are not $FF.  The cartridge's deal must match
+    the reference's over it, and no dealt list may break a rule."""
+    rom = bytearray(ROMDATA)
+    tab = lambda i, k: ENEMYAI_ROM + i * 16 + k
+    for i in range(44):
+        rom[tab(i, 10)] = rom[tab(i, 15)] = 0x00
+    #  Nukes into casting scripts, NUCLEARs into skill users, by position, so
+    #  the counts stay within what the buckets hold.
+    casters = [i for i in range(44) if rom[tab(i, 0)] and rom[tab(i, 2)] != 0xFF]
+    users = [i for i in range(44) if rom[tab(i, 1)] and rom[tab(i, 11)] != 0xFF]
+    for n, i in enumerate(casters[::2]):        # half: enough to collide, not to
+        rom[tab(i, 2)] = 60 if n % 2 else 57    # reroll for ever
+    for i in users[::3]:
+        rom[tab(i, 11)] = 0x14
+    rom = bytes(rom)
+    check("the doctored table has nukes in every group, and NUCLEARs",
+          (len(casters[::2]) > 6, len(users[::3]) > 6), (True, True))
+    nukes = (57, 60)
+    seen = 0
+    for skills in (1, 2, 3):
+        for seed in (0x600DCAFE, 7, 0x0BADF00D, 0x31415926):
+            bus, cpu = machine()
+            bus.rom = rom
+            setai(bus, seed, 0, 0, skills)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            _, eai, got = ai_cache(bus)
+            name = "doctored, skills %d seed $%08X" % (skills, seed)
+            check(name + ": the reference's", got, R.build_ai(rom, seed, 0, skills)[1])
+            for i in range(44):
+                r = got[i * 16:i * 16 + 16]
+                if r == rom[ENEMYAI_ROM + i * 16:][:16]:
+                    continue                    # a group not dealt
+                seen += 1
+                sp, kl = r[2:10], r[11:15]
+                bad = (any(a in nukes and b in nukes for a, b in zip(sp, sp[1:]))
+                       or any(a == 0x14 and b == 0x14 for a, b in zip(kl, kl[1:]))
+                       or (sp[0] in nukes and kl[0] == 0x14) or r[10] != 0xFF or r[15] != 0xFF)
+                if bad:
+                    check(name + ": script %d breaks a rule" % i, r.hex(), "")
+    check("the doctored deals were checked", seen > 100, True)
+
+    #  The opening rule bites rarely, so find a seed where it changes the deal
+    #  -- the reference with the rule dropped disagrees with itself -- and hold
+    #  the cartridge to the reference there.
+    seed = next((x for x in range(400) if R.build_ai(rom, x, 0, 3)
+                 != R.build_ai(rom, x, 0, 3, opening=False)), None)
+    check("some seed's deal turns on the NUKE-and-NUCLEAR opening", seed is not None, True)
+    if seed is not None:
+        bus, cpu = machine()
+        bus.rom = rom
+        setai(bus, seed, 0, 0, 3)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("doctored seed %d: the opening rule as the reference has it" % seed,
+              ai_cache(bus)[2], R.build_ai(rom, seed, 0, 3)[1])
+
+
+# --- RNG tables ----------------------------------------------------------------------
+def rng_cache(bus):
+    e, b = rw("RW_ENCRNG"), rw("RW_BATRNG")
+    return bytes(bus.wram[e:e + 256]), bytes(bus.wram[b:b + 256])
+
+
+def setrng(bus, seed, mode):
+    setsave(bus, seed, 0)
+    bus.sram[K["RANDO_RNG"] - 0x6000] = mode
+
+
+def test_rando_rng():
+    enc0 = bytes(ROMDATA[(0xA7 & 0x1F) * 0x10000 + SYM["lut_RNG"]:][:256])
+    bat0 = bytes(ROMDATA[(CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_BattleScramble"]:][:256])
+    check("the image's encounter table is the cartridge's file", enc0, open(R.ENCRNG_BIN, "rb").read())
+    check("the image's battle table is the cartridge's file", bat0, open(R.BATRNG_BIN, "rb").read())
+    check("the battle table's famous gap: two $00s, no $95", (bat0.count(0), 0x95 in bat0), (2, False))
+    seen = set()
+    for mode in range(3):                       # 2 is no mode: as off
+        for seed in (0x600DCAFE, 7, 0x0BADF00D):
+            bus, cpu = machine()
+            setrng(bus, seed, mode)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            got = rng_cache(bus)
+            name = "RNG %d seed $%08X" % (mode, seed)
+            check(name + ": the reference's tables", got, R.build_rng(seed, mode % 2))
+            if mode % 2 == 0:
+                check(name + ": the cartridge's", got, (enc0, bat0))
+            else:
+                check(name + ": each table's bytes, among themselves",
+                      (sorted(got[0]), sorted(got[1])), (sorted(enc0), sorted(bat0)))
+                check(name + ": both moved", (got[0] != enc0, got[1] != bat0), (True, True))
+                seen.add(got)
+    check("three seeds, three shuffles", len(seen), 3)
+
+
+def test_rando_rngload():
+    """The three readers, in place, with the tables shuffled: BattleStepRNG
+    for every battlestep both ways, against the cartridge's own stepping;
+    BattleRNG for every state; GetBattleFormation's slot by the cache's
+    encounter table.  The first call of all is cold, so BattleStepRNG's
+    ensure is what builds the cache."""
+    seed = 0x600DCAFE
+    enc, bat = R.build_rng(seed, 1)
+    bus, cpu = machine()
+    setrng(bus, seed, 1)
+    step, sign = K["battlestep"], K["battlestep_sign"]
+    bad = []
+    for sg in (0x00, 0x80, 0x20, 0xE0):
+        for bs in range(256):
+            bus.wram[step], bus.wram[sign] = bs, sg
+            cpu.x = 0x5A
+            call(cpu, "BattleStepRNG")
+            #  The cartridge's stepping, written out: down if the sign's top
+            #  bit is set, up if not, and $A0 onto the sign at zero.
+            n = (bs - 1) & 0xFF if sg & 0x80 else (bs + 1) & 0xFF
+            s2 = (sg + 0xA0) & 0xFF if n == 0 else sg
+            got = (bus.wram[step], bus.wram[sign], cpu.a & 0xFF, cpu.x & 0xFF, bool(cpu.p & 0x02))
+            if got != (n, s2, enc[n], n, enc[n] == 0):
+                bad.append("step %d sign $%02X: %s" % (bs, sg, got))
+    check("BattleStepRNG walks the cache's encounter table", bad[:3], [])
+    state = K["btl_rngstate"] - 0x6000
+    bad = []
+    for k in range(256):
+        bus.sram[state] = k
+        call(cpu, "BattleRNG_L")
+        if (cpu.a & 0xFF, bus.sram[state]) != (bat[k], (k + 1) & 0xFF):
+            bad.append(k)
+    check("BattleRNG reads the cache's battle table", bad[:4], [])
+    fixed = (0xA7 & 0x1F) * 0x10000
+    weight = ROMDATA[fixed + SYM["lut_FormationWeight"]:][:64]
+    dom = R.build_domains(ROMDATA, seed, 0, 0)
+    bad = []
+    for bc in range(256):
+        bus.wram[K["battlecounter"]] = bc
+        cpu.a = 0x24
+        call(cpu, "GetBattleFormation")
+        if bus.wram[K["btlformation"]] != dom[0x24 * 8 + weight[enc[(bc + 1) & 0xFF] & 0x3F]]:
+            bad.append(bc)
+    check("GetBattleFormation picks its slot by the cache's table", bad[:4], [])
+    check("BattleStepRNG asks rando_steprng", jsl_count(0xA7 & 0x1F, "rando_steprng"), 1)
+
+
+def test_rando_begin():
+    """GameStart's @Begin builds the world before any game code runs -- for
+    New Game and Continue alike, which meet there -- and on a second pass,
+    as after a soft reset with WRAM intact, only compares the tag.  The JSL
+    is found by its bytes and run alone, from where it sits."""
+    fixed = (0xA7 & 0x1F) * 0x10000
+    a = SYM["rando_ensure"]
+    op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
+    img = ROMDATA[fixed + 0xC000:fixed + 0x10000]
+    at = [i for i in range(len(img) - 3) if img[i:i + 4] == op]
+    check("the fixed bank asks rando_ensure once", len(at), 1)
+    if len(at) != 1:
+        return
+    pc = 0xC000 + at[0]
+    scroll = K["unsram_ow_scroll_x"]
+    check("...at @Begin: before the overworld scroll is fetched",
+          bytes(img[at[0] + 4:at[0] + 7]), bytes([0xAD, scroll & 0xFF, scroll >> 8]))
+
+    bus, cpu = machine()
+    seed = 0x600DCAFE
+    setsave(bus, seed, 4, 1, 1, 1, 2, 2)
+    for k, v in (("RANDO_BLESS", 5), ("RANDO_CURSE", 5), ("RANDO_NORUN", 1), ("RANDO_SURPRISE", 1),
+                 ("RANDO_STATUS", 1), ("RANDO_SCRIPTS", 3), ("RANDO_SKILLS", 3), ("RANDO_RNG", 1)):
+        bus.sram[K[k] - 0x6000] = v
+    check("@Begin runs on to the next instruction", cpu.run(0xA7, pc, stop=pc + 4), True)
+    check("...having built the save's world",
+          (bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"], form_cache(bus), rng_cache(bus), ai_cache(bus)[1:]),
+          (True, R.build_domains(ROMDATA, seed, 2, 2), R.build_rng(seed, 1), R.build_ai(ROMDATA, seed, 3, 3)))
+    #  A soft reset keeps WRAM: the next Continue must cost next to nothing.
+    s0 = cpu.steps
+    cpu.run(0xA7, pc, stop=pc + 4)
+    check("a second pass only compares the tag (under 300 instructions)", cpu.steps - s0 < 300, True)
+
+
 # --- Weapon Stats: the enemy's attack element --------------------------------
 #  FFR's FixWeaponStats write at $325B0: with the flag on, an enemy's physical
 #  attack has category 0 and the element of its touch (ROM byte $0E), not its
@@ -5285,6 +5656,7 @@ def test_enemyelement():
                 setblk(bus, OPT_FLAGS + k, (flagbits >> (8 * k)) & 0xFF)
             addr = 0x8520 + i * 20
             bus.wram[0x86], bus.wram[0x87] = addr & 0xFF, addr >> 8
+            enram(bus, i)
             bus.sram[cat], bus.sram[elem] = rec[0x10], rec[0x12]   # as loaded
             cpu.a = rec[0x0D]                                      # the crit rate
             call(cpu, "OptScaleEnemyAttack", dbr=0xA1 + 0x0C)
@@ -5400,7 +5772,10 @@ def main():
              test_rando_spellnames, test_rando_magicshop,
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
              test_enemyelement, test_rando_formations, test_rando_formload,
-             test_rando_runs, test_rando_formdata)
+             test_rando_runs, test_rando_formdata, test_rando_touch,
+             test_rando_touchload, test_rando_ai, test_rando_enemyai,
+             test_rando_aisynth, test_rando_rng, test_rando_rngload,
+             test_rando_begin)
 
     global JOBS
     args, want = sys.argv[1:], []

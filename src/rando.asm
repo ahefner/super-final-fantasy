@@ -9,11 +9,13 @@
 ;      writes them, and nothing reads the settings screen's copy afterwards.
 ;
 ;    - Everything generated from them is a cache in WRAM bank $7F, rebuilt
-;      whenever its tag disagrees with the save.  Every consumer calls ensure
-;      first, so there is no "load" step to forget: New Game, Continue, a
-;      Continue of a different file, and power-on all come out right because
-;      the tag cannot match a world it was not built from.  L+X and L+Y leave
-;      WRAM alone, so the instant resets stay instant.
+;      whenever its tag disagrees with the save.  GameStart's @Begin, where
+;      New Game and Continue meet, builds it before any game code runs, so
+;      the build's pause falls in the transition into the game.  Every
+;      consumer still calls ensure first, as a safety net: a Continue of a
+;      different file or power-on would come out right even without @Begin,
+;      because the tag cannot match a world it was not built from.  L+X and
+;      L+Y leave WRAM alone, so the instant resets only compare the tag.
 ;
 ;    - The PRNG is xorshift32 (13, 17, 5), and each feature draws from its
 ;      own stream, the seed XORed with a constant of its own.  Turning one
@@ -44,7 +46,8 @@
 .export rando_menuspell, rando_shopspell, rando_shopmagic
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
-.export rando_formation, rando_formdata
+.export rando_formation, rando_formdata, rando_touch, rando_enemyai
+.export rando_steprng
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -112,6 +115,36 @@ wDOMAINS = .LOWORD(RW_DOMAINS)
 wPOS     = .LOWORD(RW_POS)
 wNORUN   = .LOWORD(RW_NORUN)
 wSURPRISE = .LOWORD(RW_SURPRISE)
+wTOUCH   = .LOWORD(RW_TOUCH)
+wESCRIPT = .LOWORD(RW_ESCRIPT)
+wSCRIPTS = .LOWORD(RW_SCRIPTS)
+wSPL     = .LOWORD(RW_SPL)
+wSPLB    = .LOWORD(RW_SPLB)
+wSKL     = .LOWORD(RW_SKL)
+wSKLB    = .LOWORD(RW_SKLB)
+wSCH     = .LOWORD(RW_SCH)
+wKCH     = .LOWORD(RW_KCH)
+wBCNT    = .LOWORD(RW_BCNT)
+wGRP     = .LOWORD(RW_GRP)
+wAGN     = .LOWORD(RW_AGN)
+wANSP    = .LOWORD(RW_ANSP)
+wANSK    = .LOWORD(RW_ANSK)
+wASB     = .LOWORD(RW_ASB)
+wAKB     = .LOWORD(RW_AKB)
+wAREROLL = .LOWORD(RW_AREROLL)
+wASI     = .LOWORD(RW_ASI)
+wAKI     = .LOWORD(RW_AKI)
+wAGI     = .LOWORD(RW_AGI)
+wAPREV   = .LOWORD(RW_APREV)
+wASTART  = .LOWORD(RW_ASTART)
+wAJ      = .LOWORD(RW_AJ)
+wAREC    = .LOWORD(RW_AREC)
+wAK      = .LOWORD(RW_AK)
+wACAP    = .LOWORD(RW_ACAP)
+wAN      = .LOWORD(RW_AN)
+wABK     = .LOWORD(RW_ABK)
+wENCRNG  = .LOWORD(RW_ENCRNG)
+wBATRNG  = .LOWORD(RW_BATRNG)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -157,6 +190,34 @@ NORMAL_FORMS = 115
 CHAOS_FORM   = 123
 STREAM_RUNS     = $52554E53     ; "RUNS"
 STREAM_SURPRISE = $53555250     ; "SURP"
+
+;  data_EnemyStats, bank $0C: 128 records of 20 bytes.  Byte 7 is the script
+;  id ($FF for none), $0E the touch's element and $0F its ailment.  Enemies
+;  0-117 are normal, 15 the pirates; 118 WarMECH, 119-126 the four fiends and
+;  their refights alternately, 127 Chaos.  lut_EnemyAi, bank $0C: 44 scripts
+;  of 16 bytes -- spell chance, skill chance, 8 spells, $FF, 4 skills, $FF.
+.import data_EnemyStats, lut_EnemyAi
+ROMENEMIES   = BANK0CFAR + data_EnemyStats
+ROMENEMYAI   = BANK0CFAR + lut_EnemyAi
+SCRIPTS_SIZE = 44 * 16
+PIRATES      = 15
+FADE_SPELL   = 57               ; FFR's nukes: all-enemy, non-elemental, 80 up
+NUKE_SPELL   = 60
+NUCLEAR      = $14              ; the skill
+CRACK_SCRIPT = 7                ; FFR takes two CRACKs and two TOXICs out
+TOXIC_SCRIPT = 27
+STREAM_TOUCH    = $54554348     ; "TUCH"
+STREAM_SCRIPTS  = $53435250     ; "SCRP"
+STREAM_BSCRIPTS = $42534352     ; "BSCR"
+STREAM_SKILLS   = $534B494C     ; "SKIL"
+STREAM_BSKILLS  = $42534B4C     ; "BSKL"
+STREAM_RNG      = $524E4754     ; "RNGT"
+
+;  The battle table moved to the options chunk; the encounter table is in the
+;  fixed bank, and so in this chunk too.
+.import lut_BattleScramble
+ROMBATRNG    = OPTFAR + lut_BattleScramble
+ROMENCRNG    = RANDOFAR + lut_RNG
 
 ;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
 .import lut_WeaponData, lut_ArmorData
@@ -425,8 +486,9 @@ rando_stir:
 ;;  Called from opt_freestuff, at the top of NewGamePartyGeneration, after
 ;;  page 0 of unsram has been filled from lut_InitUnsramFirstPage.  Takes the
 ;;  seed from the pool (or from FFSEED, in a debug build) and copies the
-;;  settings screen's new-game rows in beside it.  The cache is left to the
-;;  first consumer: its tag no longer matches the save, so it will rebuild.
+;;  settings screen's new-game rows in beside it.  The cache is rebuilt at
+;;  GameStart's @Begin, which follows party creation: its tag no longer
+;;  matches the save.
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -632,10 +694,53 @@ build:
     JSR deal_runs
   @surprise:
     LDA f:RANDO_SAVEFAR + (RANDO_SURPRISE - RANDO_SAVE)
-    BEQ @done                   ; SURPRISE_OFF
+    BEQ @touch                  ; SURPRISE_OFF
     CMP #SURPRISE_MODES
-    BCS @done
+    BCS @touch
     JSR deal_surprise
+
+  @touch:
+    JSR copy_touch
+    LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
+    BEQ @ai                     ; STATUS_OFF
+    CMP #STATUS_MODES
+    BCS @ai
+    JSR deal_touch
+
+    ;  Scripts, then what is in them; each half of each row its own stream.
+  @ai:
+    JSR copy_ai
+    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
+    CMP #AI_MODES
+    BCS @skills                 ; no mode: as off
+    AND #AI_ENEMIES
+    BEQ @bscripts
+    JSR deal_escripts
+  @bscripts:
+    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
+    AND #AI_BOSSES
+    BEQ @skills
+    JSR deal_bscripts
+  @skills:
+    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
+    CMP #AI_MODES
+    BCS @done
+    AND #AI_ENEMIES
+    BEQ @bskills
+    JSR deal_eskills
+  @bskills:
+    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
+    AND #AI_BOSSES
+    BEQ @rng
+    JSR deal_bskills
+
+  @rng:
+    JSR copy_rng
+    LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
+    BEQ @done                   ; RNG_OFF
+    CMP #RNG_MODES
+    BCS @done
+    JSR deal_rng
   @done:
     PLP
     RTS
@@ -2663,7 +2768,7 @@ rando_formation:
     TAX
     SEP #$20
     .a8
-    LDA f:RANDOFAR + lut_RNG, X
+    LDA a:wENCRNG, X            ; the cache's: RNG tables may have shuffled it
     AND #$3F
     REP #$20
     .a16
@@ -2927,3 +3032,983 @@ rando_formdata:
     LDA f:RW_SURPRISE, X
     STA a:btl_formdata + $0C
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_touch -- every enemy's touch, element then ailment, as the cartridge
+;;  has them.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_touch:
+    .a8
+    .i16
+    LDX #$0000                  ; the record
+    LDY #$0000                  ; the touch
+  @copy:
+    LDA f:ROMENEMIES + $0E, X
+    STA a:wTOUCH, Y
+    LDA f:ROMENEMIES + $0F, X
+    STA a:wTOUCH + 1, Y
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #20
+    TAX
+    SEP #$20
+    .a8
+    INY
+    INY
+    CPY #256
+    BCC @copy
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_touch -- FFR's ShuffleEnemyStatusAttacks, made a permutation
+;;
+;;  The touches of every enemy but the pirates, bosses included, Fisher-Yates
+;;  from the top, element and ailment moving together.  FFR shuffles all 128
+;;  and then skips the pirates' slot as it writes back, which can hand the
+;;  pirates' touch to a second enemy and drop another's; this is the
+;;  permutation that was meant.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_touch:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_TOUCH)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_TOUCH)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA #128
+    JSR list_but_pirates        ; wLIST = 0..127 but 15, A = 127
+    STA a:wFC                   ; i + 1
+  @loop:
+    LDA a:wFC
+    CMP #2
+    BCC @done
+    JSR rando_below             ; j, 0..i
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    LDA a:wFC
+    AND #$00FF
+    DEC A
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wLIST, X              ; enemy j, and its touch
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wLIST, Y              ; enemy i, and its
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAY
+    LDA a:wTOUCH, X             ; the two bytes together
+    PHA
+    LDA a:wTOUCH, Y
+    STA a:wTOUCH, X
+    PLA
+    STA a:wTOUCH, Y
+    SEP #$20
+    .a8
+    DEC a:wFC
+    BRA @loop
+  @done:
+    RTS
+
+
+;;  wLIST = 0..A-1 without the pirates, and A = how many that is.  A8, I16.
+list_but_pirates:
+    .a8
+    .i16
+    STA a:wT2
+    LDX #$0000                  ; the enemy
+    LDY #$0000                  ; entries
+  @fill:
+    CPX #PIRATES
+    BEQ @skip
+    TXA
+    STA a:wLIST, Y
+    INY
+  @skip:
+    INX
+    TXA
+    CMP a:wT2
+    BCC @fill
+    TYA
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_ai -- every enemy's script id and the 44 scripts, as the cartridge
+;;  has them.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_ai:
+    .a8
+    .i16
+    LDX #$0000                  ; the record
+    LDY #$0000                  ; the enemy
+  @ids:
+    LDA f:ROMENEMIES + 7, X
+    STA a:wESCRIPT, Y
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #20
+    TAX
+    SEP #$20
+    .a8
+    INY
+    CPY #128
+    BCC @ids
+    REP #$20
+    .a16
+    LDX #$0000
+  @scripts:
+    LDA f:ROMENEMYAI, X
+    STA a:wSCRIPTS, X
+    INX
+    INX
+    CPX #SCRIPTS_SIZE
+    BCC @scripts
+    SEP #$20
+    .a8
+    RTS
+
+
+;;  Fisher-Yates over the script ids of the A8 enemies listed in wLIST, from
+;;  the top: FFR's shuffle of a list of enemies, written back by position.
+;;  A8, I16.
+shuffle_ids:
+    .a8
+    .i16
+    STA a:wFC                   ; i + 1
+  @loop:
+    LDA a:wFC
+    CMP #2
+    BCC @done
+    JSR rando_below             ; j, 0..i
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    LDA a:wFC
+    AND #$00FF
+    DEC A
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wLIST, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX                         ; enemy j
+    SEP #$20
+    .a8
+    LDA a:wLIST, Y
+    REP #$20
+    .a16
+    AND #$00FF
+    TAY                         ; enemy i
+    SEP #$20
+    .a8
+    LDA a:wESCRIPT, X
+    PHA
+    LDA a:wESCRIPT, Y
+    STA a:wESCRIPT, X
+    PLA
+    STA a:wESCRIPT, Y
+    DEC a:wFC
+    BRA @loop
+  @done:
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_escripts -- FFR's Shuffle Scripts for the normal enemies
+;;
+;;  The 118 normal enemies but the pirates trade script ids, so the 36 that
+;;  have one still number 36, and the pirates keep theirs (none).  FFR's
+;;  Everything has a Script at Vanilla, and its safe pirates.
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_escripts:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_SCRIPTS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_SCRIPTS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA #118
+    JSR list_but_pirates
+    JMP shuffle_ids
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_bscripts -- FFR's Shuffle Scripts for the bosses
+;;
+;;  The four overworld fiends trade among themselves, then WarMECH, the four
+;;  refights and Chaos among themselves.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_Fiends:    .BYTE 119, 121, 123, 125
+lut_BigBosses: .BYTE 118, 120, 122, 124, 126, 127
+
+deal_bscripts:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_BSCRIPTS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_BSCRIPTS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDX #$0000
+  @fiends:
+    LDA f:RANDOFAR + lut_Fiends, X
+    STA a:wLIST, X
+    INX
+    CPX #4
+    BCC @fiends
+    LDA #4
+    JSR shuffle_ids
+    LDX #$0000
+  @big:
+    LDA f:RANDOFAR + lut_BigBosses, X
+    STA a:wLIST, X
+    INX
+    CPX #6
+    BCC @big
+    LDA #6
+    JMP shuffle_ids
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_eskills, deal_bskills -- FFR's Shuffle Skills & Spells
+;;
+;;  Three groups of scripts, each dealt on its own by deal_group: the normal
+;;  enemies' 34, the fiends' four, and the six of WarMECH, the refights and
+;;  Chaos.  Before the normal group, two CRACKs and two TOXICs come out, as in
+;;  FFR -- which takes them out whichever groups are dealt; here only when
+;;  theirs is, since it is the pool they would otherwise spread through.
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_NormalScripts:
+  .BYTE 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+  .BYTE 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31
+  .BYTE 33, 43
+lut_NormalScriptsEnd:
+lut_FiendScripts: .BYTE 34, 36, 38, 40
+lut_BigScripts:   .BYTE 32, 35, 37, 39, 41, 42
+
+deal_eskills:
+    .a8
+    .i16
+    LDA #$FF
+    STA a:wSCRIPTS + CRACK_SCRIPT * 16 + 13
+    STA a:wSCRIPTS + CRACK_SCRIPT * 16 + 14
+    STA a:wSCRIPTS + TOXIC_SCRIPT * 16 + 13
+    STA a:wSCRIPTS + TOXIC_SCRIPT * 16 + 14
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_SKILLS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_SKILLS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDX #$0000
+  @grp:
+    LDA f:RANDOFAR + lut_NormalScripts, X
+    STA a:wGRP, X
+    INX
+    CPX #lut_NormalScriptsEnd - lut_NormalScripts
+    BCC @grp
+    TXA
+    STA a:wAGN
+    JMP deal_group
+
+deal_bskills:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_BSKILLS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_BSKILLS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDX #$0000
+  @fiends:
+    LDA f:RANDOFAR + lut_FiendScripts, X
+    STA a:wGRP, X
+    INX
+    CPX #4
+    BCC @fiends
+    LDA #4
+    STA a:wAGN
+    JSR deal_group
+    LDX #$0000
+  @big:
+    LDA f:RANDOFAR + lut_BigScripts, X
+    STA a:wGRP, X
+    INX
+    CPX #6
+    BCC @big
+    LDA #6
+    STA a:wAGN
+    JMP deal_group
+
+
+;;  X = the offset in wSCRIPTS of the group's script wAGI, kept in wAREC, and
+;;  Y = wAGI.  A8, I16.
+rec_of_gi:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA a:wAGI
+    AND #$00FF
+    TAY
+    LDA a:wGRP, Y
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    STA a:wAREC
+    TAX
+    SEP #$20
+    .a8
+    RTS
+
+
+;;  Fisher-Yates over A8 bytes from wFK, an address in bank $7F, from the
+;;  top.  A8, I16.
+fy_bytes:
+    .a8
+    .i16
+    STA a:wFC                   ; i + 1
+  @loop:
+    LDA a:wFC
+    CMP #2
+    BCC @done
+    JSR rando_below             ; j, 0..i
+    REP #$20
+    .a16
+    AND #$00FF
+    CLC
+    ADC a:wFK
+    TAX
+    LDA a:wFC
+    AND #$00FF
+    DEC A
+    CLC
+    ADC a:wFK
+    TAY
+    SEP #$20
+    .a8
+    LDA a:$0000, X
+    PHA
+    LDA a:$0000, Y
+    STA a:$0000, X
+    PLA
+    STA a:$0000, Y
+    DEC a:wFC
+    BRA @loop
+  @done:
+    RTS
+
+
+;;  FFR's Bucketize without its min2: the wAN entries of a pool get bucket
+;;  numbers at wFD (an address in bank $7F) -- entry k < wABK bucket k, each
+;;  later one a bucket drawn below wABK, again if that one holds wACAP.  A
+;;  bucket's entries, walked in pool order, are then its list in the order
+;;  FFR's bucket gets them.  A8, I16.
+bucketize:
+    .a8
+    .i16
+    LDX #$0000
+  @zero:
+    STZ a:wBCNT, X
+    INX
+    CPX #64
+    BCC @zero
+    STZ a:wAK
+  @next:
+    LDA a:wAK
+    CMP a:wAN
+    BCS @done
+    CMP a:wABK
+    BCC @put                    ; one each to begin: entry k to bucket k
+  @draw:
+    LDA a:wABK
+    JSR rando_below
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wBCNT, X
+    CMP a:wACAP
+    BCS @draw                   ; full: draw again
+    TXA
+  @put:
+    PHA
+    REP #$20
+    .a16
+    LDA a:wAK
+    AND #$00FF
+    CLC
+    ADC a:wFD
+    TAY
+    SEP #$20
+    .a8
+    PLA
+    STA a:$0000, Y
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    INC a:wBCNT, X
+    INC a:wAK
+    BRA @next
+  @done:
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_group -- FFR's ShuffleIndexedSkillsSpells for the scripts in wGRP
+;;
+;;  No Consecutive Nukes on, No Empty Scripts off.  Pool every spell and every
+;;  skill of the group; then, over and over: shuffle both pools, bucket them
+;;  into the scripts that cast spells (8 a script) and those that use skills
+;;  (4), shuffle the two chance lists, and write the scripts out -- each a
+;;  spell chance, a skill chance and, if it casts, its bucket in order.  Deal
+;;  again while any list has two nukes running (FADE or NUKE; NUCLEAR among
+;;  skills) or a script opens with NUKE and NUCLEAR both.  Nothing is
+;;  re-pooled between deals: the pools and the chances shuffle in place, as
+;;  FFR's do.
+;;
+;;  In: wGRP[0..wAGN).  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_group:
+    .a8
+    .i16
+    STZ a:wANSP
+    STZ a:wANSK
+    STZ a:wASB
+    STZ a:wAKB
+    STZ a:wAGI
+  @pool:
+    JSR rec_of_gi
+    LDA a:wSCRIPTS, X           ; the spell chance...
+    STA a:wSCH, Y
+    BEQ :+
+    INC a:wASB
+:   LDA a:wSCRIPTS + 1, X       ; ...and the skill chance
+    STA a:wKCH, Y
+    BEQ :+
+    INC a:wAKB
+:   LDY #$0000
+  @spells:
+    LDA a:wSCRIPTS + 2, X
+    CMP #$FF
+    BEQ :+
+    JSR @addspell
+:   INX
+    INY
+    CPY #8
+    BCC @spells
+    LDX a:wAREC
+    LDY #$0000
+  @skills:
+    LDA a:wSCRIPTS + 11, X
+    CMP #$FF
+    BEQ :+
+    JSR @addskill
+:   INX
+    INY
+    CPY #4
+    BCC @skills
+    INC a:wAGI
+    LDA a:wAGI
+    CMP a:wAGN
+    BCC @pool
+    BRA @deal
+
+  @addspell:                    ; A to the spell pool; X and Y kept
+    PHX
+    PHA
+    LDA a:wANSP
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    PLA
+    STA a:wSPL, X
+    INC a:wANSP
+    PLX
+    RTS
+  @addskill:
+    PHX
+    PHA
+    LDA a:wANSK
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    PLA
+    STA a:wSKL, X
+    INC a:wANSK
+    PLX
+    RTS
+
+  @deal:
+    REP #$20
+    .a16
+    LDA #wSPL
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA a:wANSP
+    JSR fy_bytes
+    REP #$20
+    .a16
+    LDA #wSKL
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA a:wANSK
+    JSR fy_bytes
+    REP #$20
+    .a16
+    LDA #wSPLB
+    STA a:wFD
+    SEP #$20
+    .a8
+    LDA a:wANSP
+    STA a:wAN
+    LDA a:wASB
+    STA a:wABK
+    LDA #8
+    STA a:wACAP
+    JSR bucketize
+    REP #$20
+    .a16
+    LDA #wSKLB
+    STA a:wFD
+    SEP #$20
+    .a8
+    LDA a:wANSK
+    STA a:wAN
+    LDA a:wAKB
+    STA a:wABK
+    LDA #4
+    STA a:wACAP
+    JSR bucketize
+    REP #$20
+    .a16
+    LDA #wSCH
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA a:wAGN
+    JSR fy_bytes
+    REP #$20
+    .a16
+    LDA #wKCH
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDA a:wAGN
+    JSR fy_bytes
+
+    STZ a:wAREROLL
+    STZ a:wASI
+    STZ a:wAKI
+    STZ a:wAGI
+  @write:
+    JSR rec_of_gi
+    LDA a:wSCH, Y
+    STA a:wSCRIPTS, X
+    LDA a:wKCH, Y
+    STA a:wSCRIPTS + 1, X
+    LDA #$FF
+    LDY #14
+  @clear:
+    STA a:wSCRIPTS + 2, X
+    INX
+    DEY
+    BNE @clear
+    STZ a:wASTART
+
+    JSR rec_of_gi               ; Y = the position again
+    LDA a:wSCH, Y
+    BEQ @nospells
+    STZ a:wAPREV
+    LDA #2
+    STA a:wAJ                   ; the list's first slot
+    LDY #$0000
+  @spw:
+    TYA
+    CMP a:wANSP
+    BCS @spdone
+    LDA a:wSPLB, Y
+    CMP a:wASI
+    BNE @spskip
+    STZ a:wT2                   ; is it a nuke?
+    LDA a:wSPL, Y
+    CMP #FADE_SPELL
+    BEQ @spnuke
+    CMP #NUKE_SPELL
+    BNE @spput
+  @spnuke:
+    INC a:wT2
+  @spput:
+    JSR @put                    ; A at slot wAJ, the nuke rules applied
+    LDA a:wAJ
+    CMP #2 + 1
+    BNE @spskip                 ; only the first entry opens the list
+    LDA a:wT2
+    ORA a:wASTART
+    STA a:wASTART
+  @spskip:
+    INY
+    BRA @spw
+  @spdone:
+    INC a:wASI
+  @nospells:
+
+    JSR rec_of_gi
+    LDA a:wKCH, Y
+    BEQ @noskills
+    STZ a:wAPREV
+    LDA #11
+    STA a:wAJ
+    LDY #$0000
+  @skw:
+    TYA
+    CMP a:wANSK
+    BCS @skdone
+    LDA a:wSKLB, Y
+    CMP a:wAKI
+    BNE @skskip
+    STZ a:wT2
+    LDA a:wSKL, Y
+    CMP #NUCLEAR
+    BNE @skput
+    INC a:wT2
+  @skput:
+    JSR @put
+    LDA a:wAJ
+    CMP #11 + 1
+    BNE @skskip
+    LDA a:wT2
+    ASL A
+    ORA a:wASTART
+    STA a:wASTART
+  @skskip:
+    INY
+    BRA @skw
+  @skdone:
+    INC a:wAKI
+  @noskills:
+
+    LDA a:wASTART
+    CMP #3
+    BNE :+
+    STA a:wAREROLL              ; NUKE and NUCLEAR to open with
+:   INC a:wAGI
+    LDA a:wAGI
+    CMP a:wAGN
+    BCS :+
+    JMP @write
+:   LDA a:wAREROLL
+    BEQ @done
+    JMP @deal
+  @done:
+    RTS
+
+    ;  A (an entry, its nuke flag in wT2) to slot wAJ of the script at wAREC,
+    ;  then wAJ + 1.  Two nukes running set wAREROLL.  Y kept.
+  @put:
+    PHA
+    LDA a:wT2
+    AND a:wAPREV
+    ORA a:wAREROLL
+    STA a:wAREROLL
+    LDA a:wT2
+    STA a:wAPREV
+    REP #$20
+    .a16
+    LDA a:wAJ
+    AND #$00FF
+    CLC
+    ADC a:wAREC
+    TAX
+    SEP #$20
+    .a8
+    PLA
+    STA a:wSCRIPTS, X
+    INC a:wAJ
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_touch -- an enemy's touch, from the cache
+;;
+;;  Called by opt_scaleatk as an enemy attacks, which stores the ailment where
+;;  bank $0C's attack setup took it from ROM, and under Weapon Stats the
+;;  element.  With Status attacks off, the cartridge's own.
+;;
+;;  In: A = the enemy.  Out: A = its touch's ailment, Y = the element.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_touch:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLA
+    ASL A
+    TAX
+    LDY a:wTOUCH, X
+    LDA a:wTOUCH + 1, X
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_enemyai -- Enemy_DoAi's script lookup, from the cache
+;;
+;;  The enemy's script id comes from the cache by its id in battle RAM, not
+;;  from its ROM record, and the script is copied to OPTAISHADOW in SRAM, which
+;;  bank $0C's reads through @aiptr see.  So every later read is the game's
+;;  own, and the per-enemy AI positions index the shadow as they indexed ROM.
+;;  The shadow lives only while this enemy chooses.
+;;
+;;  In: ($9A) = the enemy's RAM stats, read with the caller's data bank.
+;;  Out: carry set if it has no script; else clear, with @aiptr ($9E) at the
+;;  shadow.  A, X, Y not kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_enemyai:
+    .a8
+    .i8
+    LDY #en_enemyid
+    LDA ($9A), Y                ; battle RAM, which the caller's bank sees
+    PHB
+    PHA
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLA
+    TAX
+    LDA a:wESCRIPT, X
+    CMP #$FF
+    BEQ @none
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    CLC
+    ADC #wSCRIPTS
+    TAX
+    LDY #OPTAISHADOW
+    LDA #16 - 1
+    MVN #^RANDOWRAM, #^SRAMFAR  ; leaves DBR = SRAM's bank, which PLB puts back
+    SEP #$30
+    .a8
+    .i8
+    LDA #<OPTAISHADOW
+    STA z:$9E
+    LDA #>OPTAISHADOW
+    STA z:$9F
+    SEC
+    XCE
+    CLC                         ; a script
+    PLB
+    RTL
+  @none:
+    SEP #$30
+    SEC
+    XCE
+    SEC                         ; none: attack a random player
+    PLB
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_rng -- the encounter and battle tables, as the cartridge has them.
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_rng:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDX #$0000
+  @copy:
+    LDA f:ROMENCRNG, X
+    STA a:wENCRNG, X
+    LDA f:ROMBATRNG, X
+    STA a:wBATRNG, X
+    INX
+    INX
+    CPX #256
+    BCC @copy
+    SEP #$20
+    .a8
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_rng -- FFR's RNG Tables
+;;
+;;  The battle table, then the encounter table, each Fisher-Yates from the
+;;  top, from one stream, in FFR's order.  A table of 256 needs a bound of
+;;  256, so the draws are rando_below16's.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_rng:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_RNG)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_RNG)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #wBATRNG
+    JSR fy256
+    LDA #wENCRNG
+    JSR fy256
+    SEP #$20
+    .a8
+    RTS
+
+
+;;  Fisher-Yates over the 256 bytes at A16 (an address in bank $7F), from the
+;;  top.  A16, I16 in and out.
+fy256:
+    .a16
+    .i16
+    STA a:wFK
+    LDA #256
+    STA a:wFN                   ; i + 1
+  @loop:
+    LDA a:wFN
+    CMP #2
+    BCC @done
+    JSR rando_below16           ; j, 0..i
+    CLC
+    ADC a:wFK
+    TAX
+    LDA a:wFN
+    DEC A
+    CLC
+    ADC a:wFK
+    TAY
+    SEP #$20
+    .a8
+    LDA a:$0000, X
+    PHA
+    LDA a:$0000, Y
+    STA a:$0000, X
+    PLA
+    STA a:$0000, Y
+    REP #$20
+    .a16
+    DEC a:wFN
+    BRA @loop
+  @done:
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_steprng -- BattleStepRNG's read of the encounter table
+;;
+;;  The step's byte, from the cache's copy of lut_RNG: the cartridge's with RNG
+;;  tables off.  It runs every step, and ensures like every consumer, though
+;;  @Begin has built the cache already.  BattleRNG reads the battle table from
+;;  the cache with no ensure at all, because of @Begin and because every
+;;  battle comes through rando_formdata besides.
+;;
+;;  In: X = battlestep.  Out: A = the table's byte, N and Z from it, as the
+;;  LDA it replaces left them; X and Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_steprng:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLY
+    PLX
+    LDA a:wENCRNG, X
+    SEP #$30
+    SEC
+    XCE
+    PLB
+    ORA #$00                    ; N and Z from the byte, not from the bank
+    RTL

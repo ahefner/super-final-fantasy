@@ -1,0 +1,15 @@
+--- OLD
+  @Begin:
+    JSR ClearZeroPage               ; clear Zero Page for good measure
+--- NEW
+  @Begin:
+    JSR ClearZeroPage               ; clear Zero Page for good measure
+
+.import rando_ensure
+    ;  The randomizer's world, built here from the save New Game just made or
+    ;  Continue just loaded -- before any game code runs, so the build's
+    ;  pause falls in the transition into the game rather than on the first
+    ;  step, battle or menu that wants it.  After a soft reset WRAM, and so
+    ;  the cache, is intact: this only compares the tag.  The consumers still
+    ;  ensure, a check that should now never fire.
+    JSL rando_ensure + RANDOFAR

@@ -1,0 +1,5 @@
+--- OLD
+data_EnemyStats:
+--- NEW
+.export data_EnemyStats, lut_EnemyAi    ; the randomizer's copies start from these
+data_EnemyStats:

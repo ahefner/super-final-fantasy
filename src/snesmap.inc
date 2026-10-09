@@ -1294,7 +1294,11 @@ RANDO_FORMS     = RANDO_SAVE+$0A  ; FORMS_* below: formation rarity
 RANDO_ZONES     = RANDO_SAVE+$0B  ; ZONES_* below: formations across zones
 RANDO_NORUN     = RANDO_SAVE+$0C  ; RUNS_* below: which fights cannot be run from
 RANDO_SURPRISE  = RANDO_SAVE+$0D  ; SURPRISE_* below: the fights' surprise rates
-RANDO_SAVE_SIZE = $0E
+RANDO_STATUS    = RANDO_SAVE+$0E  ; STATUS_* below: enemies' touches
+RANDO_SCRIPTS   = RANDO_SAVE+$0F  ; AI_* below: which enemy has which script
+RANDO_SKILLS    = RANDO_SAVE+$10  ; AI_* below: what the scripts hold
+RANDO_RNG       = RANDO_SAVE+$11  ; RNG_* below: the encounter and battle tables
+RANDO_SAVE_SIZE = $12
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1316,12 +1320,17 @@ OPT_NG_FORMS    = OPT_NG + (RANDO_FORMS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_ZONES    = OPT_NG + (RANDO_ZONES - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_NORUN    = OPT_NG + (RANDO_NORUN - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SURPRISE = OPT_NG + (RANDO_SURPRISE - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_STATUS   = OPT_NG + (RANDO_STATUS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_SCRIPTS  = OPT_NG + (RANDO_SCRIPTS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_SKILLS   = OPT_NG + (RANDO_SKILLS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_RNG      = OPT_NG + (RANDO_RNG - RANDO_SAVE) - RANDO_NGOFF
 
 ;  Two buffers the randomizer hands to game code, in SRAM because every chunk
 ;  sees it and none sees WRAM above $2000.  Written before every read.
+OPTAISHADOW     = OPTBLOCK+$E0  ; 16 bytes: the script an enemy is choosing by
 OPTGEARSHADOW   = OPTBLOCK+$F0  ; 8 bytes: a blursed weapon or armour record
 OPTNAMEBUF      = OPTBLOCK+$F8  ; 8 bytes: a blursed name and its terminator
-.assert OPT_NG + OPT_NG_SIZE <= OPTGEARSHADOW, error, "new-game settings run into the gear buffers"
+.assert OPT_NG + OPT_NG_SIZE <= OPTAISHADOW, error, "new-game settings run into the shadows"
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and
@@ -1396,6 +1405,31 @@ SURPRISE_OFF    = 0
 SURPRISE_SHUFFLE = 1
 SURPRISE_MODES  = 2
 
+;  Status attacks: FFR's Enemy Status Attacks in Shuffle mode.  Every enemy's
+;  touch -- the ailment (record byte $0F) and its element ($0E), together --
+;  dealt out again among all 128 but the pirates, bosses included.
+STATUS_OFF      = 0
+STATUS_SHUFFLE  = 1
+STATUS_MODES    = 2
+
+;  Enemy scripts and Enemy skills: bit 0 the normal enemies, bit 1 the bosses.
+;  Scripts are FFR's Shuffle Scripts: which enemy has which script.  Skills
+;  are its Shuffle Skills & Spells: what each script holds.
+AI_OFF          = 0
+AI_ENEMIES      = 1
+AI_BOSSES       = 2
+AI_BOTH         = 3
+AI_MODES        = 4
+
+;  RNG tables: FFR's flag of that name.  The encounter table (lut_RNG, which
+;  decides whether a step fights and from which slot) and the battle table
+;  (lut_BattleScramble) each shuffled: every probability the same, the order
+;  and the spacing of encounters not.  FFR's Fix Missing Battle RNG Entry,
+;  Set RNG and Advanced Encounter RNG are left out.
+RNG_OFF         = 0
+RNG_SHUFFLE     = 1
+RNG_MODES       = 2
+
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
 ;  expected $FF.  The sum is an add-with-carry chain, which is ones'-complement
@@ -1415,7 +1449,7 @@ SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 ;  touch it, which is what keeps those resets instant.
 RANDOWRAM       = $7F8000
 RW_TAG          = RANDOWRAM+$0000 ; RW_TAG_VAL once the cache below is whole
-RW_TAGBLK       = RANDOWRAM+$0001 ; the save block the cache was built from
+RW_TAGBLK       = RANDOWRAM+$00C0 ; the save block the cache was built from
 RW_RNG          = RANDOWRAM+$0010 ; 4 bytes: the stream being drawn from
 RW_T            = RANDOWRAM+$0014 ; 2 bytes of scratch for the PRNG
 RW_LEN          = RANDOWRAM+$0016 ; 2 bytes: entries left in RW_LIST
@@ -1480,5 +1514,36 @@ RW_POS          = RANDOWRAM+$2000 ; zones: one rarity class's slots, words, 512 
 RW_NORUN        = RANDOWRAM+$2400 ; 1 for a side that cannot be run from, by
                                   ; formation id with the side in bit 7
 RW_SURPRISE     = RANDOWRAM+$2500 ; each formation's surprise rate, 128 bytes
+RW_TOUCH        = RANDOWRAM+$2600 ; each enemy's touch: element, ailment; 256
+RW_ESCRIPT      = RANDOWRAM+$2700 ; each enemy's script id, $FF none; 128
+RW_SCRIPTS      = RANDOWRAM+$2800 ; the 44 scripts, 16 bytes each, as lut_EnemyAi
+;  Skills & spells: one group of scripts at a time.
+RW_SPL          = RANDOWRAM+$2B00 ; the group's spells, pooled, 255 max
+RW_SPLB         = RANDOWRAM+$2C00 ; ...and the script each is dealt to
+RW_SKL          = RANDOWRAM+$2D00 ; the group's skills, pooled
+RW_SKLB         = RANDOWRAM+$2E00 ; ...and the script each is dealt to
+RW_SCH          = RANDOWRAM+$2F00 ; the group's spell chances, by position
+RW_KCH          = RANDOWRAM+$2F40 ; ...and skill chances
+RW_BCNT         = RANDOWRAM+$2F80 ; how many each bucket holds so far
+RW_GRP          = RANDOWRAM+$2FC0 ; the group's script ids, in order
+RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
+RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
+RW_AGN          = RANDOWRAM+$00A0 ; scripts in the group
+RW_ANSP         = RANDOWRAM+$00A1 ; spells in the pool
+RW_ANSK         = RANDOWRAM+$00A2 ; skills in the pool
+RW_ASB          = RANDOWRAM+$00A3 ; scripts that cast: spell buckets
+RW_AKB          = RANDOWRAM+$00A4 ; scripts that use skills: skill buckets
+RW_AREROLL      = RANDOWRAM+$00A5 ; nonzero to deal the group again
+RW_ASI          = RANDOWRAM+$00A6 ; the next spell bucket
+RW_AKI          = RANDOWRAM+$00A7 ; the next skill bucket
+RW_AGI          = RANDOWRAM+$00A8 ; the group position being written
+RW_APREV        = RANDOWRAM+$00A9 ; was the last list entry a nuke?
+RW_ASTART       = RANDOWRAM+$00AA ; bit 0: list opens with NUKE, bit 1: NUCLEAR
+RW_AJ           = RANDOWRAM+$00AB ; a list slot
+RW_AREC         = RANDOWRAM+$00AC ; the script's offset in RW_SCRIPTS, a word
+RW_AK           = RANDOWRAM+$00AE ; a pool position
+RW_ACAP         = RANDOWRAM+$00AF ; a bucket's capacity
+RW_AN           = RANDOWRAM+$00B0 ; a pool's length, for bucketize
+RW_ABK          = RANDOWRAM+$00B1 ; ...and its bucket count
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
-.assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"
+.assert RANDO_SAVE_SIZE <= $40, error, "the tag copy runs into RW_LIST"

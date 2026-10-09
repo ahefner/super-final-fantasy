@@ -44,6 +44,12 @@ STREAM_ZONES = 0x5A4F4E45       # "ZONE"
 STREAM_RARITY = 0x52415245      # "RARE"
 STREAM_RUNS = 0x52554E53        # "RUNS"
 STREAM_SURPRISE = 0x53555250    # "SURP"
+STREAM_TOUCH = 0x54554348       # "TUCH"
+STREAM_SCRIPTS = 0x53435250     # "SCRP"
+STREAM_BSCRIPTS = 0x42534352    # "BSCR"
+STREAM_SKILLS = 0x534B494C      # "SKIL"
+STREAM_BSKILLS = 0x42534B4C     # "BSKL"
+STREAM_RNG = 0x524E4754         # "RNGT"
 WARMUP = 8
 
 
@@ -457,6 +463,195 @@ def build_surprise(rom, seed, surprise):
     return bytes(t)
 
 
+# --- enemies: touches, scripts, skills & spells -------------------------------------
+#  data_EnemyStats, bank $0C $8520: 128 records of 20 bytes; byte 7 the script
+#  id ($FF none), $0E the touch's element, $0F its ailment.  lut_EnemyAi, bank
+#  $0C $9020: 44 scripts of 16 bytes -- spell chance, skill chance, 8 spells,
+#  a $FF, 4 skills, a $FF.  Enemies 0-117 are normal, 15 the pirates; 118
+#  WarMECH, 119-126 the fiends and their refights alternately, 127 Chaos.
+ENEMIES_AT = (1 + 0x0C) * 0x10000 + 0x8520
+ENEMYAI_AT = (1 + 0x0C) * 0x10000 + 0x9020
+STATUS_OFF, STATUS_SHUFFLE = 0, 1
+STATUS_MODES = 2
+STATUS_NAMES = {"off": STATUS_OFF, "shuffle": STATUS_SHUFFLE}
+AI_OFF, AI_ENEMIES, AI_BOSSES, AI_BOTH = 0, 1, 2, 3
+AI_MODES = 4
+AI_NAMES = {"off": AI_OFF, "enemies": AI_ENEMIES, "bosses": AI_BOSSES, "both": AI_BOTH}
+PIRATES = 15
+FIENDS = (119, 121, 123, 125)                   # the overworld fiends
+BIG_BOSSES = (118, 120, 122, 124, 126, 127)     # WarMECH, the refights, Chaos
+NORMAL_SCRIPTS = tuple(range(32)) + (33, 43)
+FIEND_SCRIPTS = (34, 36, 38, 40)
+BIG_SCRIPTS = (32, 35, 37, 39, 41, 42)
+NUKES = (57, 60)                                # FADE, NUKE: FFR's FindSpells
+NUCLEAR = 0x14
+CRACK_SCRIPT, TOXIC_SCRIPT = 7, 27              # FFR takes two of each out
+
+
+def skill_name(rom, k):
+    """An enemy skill's name: lut_EnemyAttack, bank $0A $B600."""
+    b = (1 + 0x0A) * 0x10000
+    p = b + 0xB600 + 2 * k
+    return decode_text(rom[b + (rom[p] | rom[p + 1] << 8):][:12])
+
+
+AILMENTS = ("dead", "stone", "poison", "dark", "stun", "sleep", "mute", "confuse")
+
+
+def touch_text(elem, ail):
+    names = [n for i, n in enumerate(AILMENTS) if ail >> i & 1]
+    return "%s (element $%02X)" % ("+".join(names) or "none", elem)
+
+
+def script_text(rom, rec):
+    spells = [item_name(rom, 0xB0 + x) for x in rec[2:10] if x != 0xFF]
+    skills = [skill_name(rom, x) for x in rec[11:15] if x != 0xFF]
+    return "spells %d: %s; skills %d: %s" % (rec[0], " ".join(spells) or "-", rec[1],
+                                              " ".join(skills) or "-")
+
+
+def build_touch(rom, seed, status):
+    """Every enemy's touch, element then ailment, 256 bytes."""
+    t = bytearray()
+    for e in range(128):
+        t += rom[ENEMIES_AT + e * 20 + 0x0E:][:2]
+    if 0 < status < STATUS_MODES:
+        rng = Stream(seed, STREAM_TOUCH)
+        es = [e for e in range(128) if e != PIRATES]
+        for i in range(len(es) - 1, 0, -1):
+            j = rng.below(i + 1)
+            a, b = es[i] * 2, es[j] * 2
+            t[a:a + 2], t[b:b + 2] = t[b:b + 2], t[a:a + 2]
+    return bytes(t)
+
+
+def _fisher_yates(xs, rng):
+    for i in range(len(xs) - 1, 0, -1):
+        j = rng.below(i + 1)
+        xs[i], xs[j] = xs[j], xs[i]
+
+
+def _bucketize(xs, count, size, rng):
+    """FFR's Bucketize without its min2: one each in order, then the rest
+    each to a random bucket with room."""
+    out = [[x] for x in xs[:count]]
+    i = count
+    while i < len(xs):
+        b = rng.below(count)
+        if len(out[b]) < size:
+            out[b].append(xs[i])
+            i += 1
+    return out
+
+
+def _deal_group(table, group, rng, opening=True):
+    """FFR's ShuffleIndexedSkillsSpells, No Consecutive Nukes on, No Empty
+    Scripts off: pool the group's spells and skills, shuffle them and the
+    chances, deal the pools into the scripts that cast, and deal again while
+    any list has two nukes running or opens with NUKE and NUCLEAR both."""
+    rec = lambda g, k: g * 16 + k
+    spells = [table[rec(g, 2 + k)] for g in group for k in range(8) if table[rec(g, 2 + k)] != 0xFF]
+    skills = [table[rec(g, 11 + k)] for g in group for k in range(4) if table[rec(g, 11 + k)] != 0xFF]
+    sch = [table[rec(g, 0)] for g in group]
+    kch = [table[rec(g, 1)] for g in group]
+    nsp, nsk = sum(1 for c in sch if c), sum(1 for c in kch if c)
+    while True:
+        _fisher_yates(spells, rng)
+        _fisher_yates(skills, rng)
+        sb = _bucketize(spells, nsp, 8, rng)
+        kb = _bucketize(skills, nsk, 4, rng)
+        _fisher_yates(sch, rng)
+        _fisher_yates(kch, rng)
+        reroll, si, ki, out = False, 0, 0, []
+        for i in range(len(group)):
+            r = [sch[i], kch[i]] + [0xFF] * 14
+            start = 0
+            if sch[i]:
+                prev = False
+                for j, x in enumerate(sb[si]):
+                    nuke = x in NUKES
+                    reroll |= nuke and prev
+                    prev = nuke
+                    r[2 + j] = x
+                start |= sb[si][0] in NUKES
+                si += 1
+            if kch[i]:
+                prev = False
+                for j, x in enumerate(kb[ki]):
+                    nuke = x == NUCLEAR
+                    reroll |= nuke and prev
+                    prev = nuke
+                    r[11 + j] = x
+                start |= (kb[ki][0] == NUCLEAR) << 1
+                ki += 1
+            reroll |= opening and start == 3
+            out.append(r)
+        if not reroll:
+            break
+    for g, r in zip(group, out):
+        table[g * 16:g * 16 + 16] = bytes(r)
+
+
+def build_ai(rom, seed, scripts, skills, opening=True):
+    """Each enemy's script id (128 bytes) and the 44 scripts (704).  opening
+    False drops the NUKE-and-NUCLEAR opening rule, for the test that finds a
+    seed where it matters."""
+    eai = bytearray(rom[ENEMIES_AT + e * 20 + 7] for e in range(128))
+    table = bytearray(rom[ENEMYAI_AT:ENEMYAI_AT + 44 * 16])
+    if not 0 <= scripts < AI_MODES:
+        scripts = AI_OFF
+    if not 0 <= skills < AI_MODES:
+        skills = AI_OFF
+    if scripts & AI_ENEMIES:
+        #  The normal enemies trade script ids, the pirates sitting out.
+        rng = Stream(seed, STREAM_SCRIPTS)
+        es = [e for e in range(118) if e != PIRATES]
+        ids = [eai[e] for e in es]
+        _fisher_yates(ids, rng)
+        for e, v in zip(es, ids):
+            eai[e] = v
+    if scripts & AI_BOSSES:
+        rng = Stream(seed, STREAM_BSCRIPTS)
+        for group in (FIENDS, BIG_BOSSES):
+            ids = [eai[e] for e in group]
+            _fisher_yates(ids, rng)
+            for e, v in zip(group, ids):
+                eai[e] = v
+    if skills & AI_ENEMIES:
+        for sc in (CRACK_SCRIPT, TOXIC_SCRIPT):
+            table[sc * 16 + 13] = table[sc * 16 + 14] = 0xFF
+        _deal_group(table, NORMAL_SCRIPTS, Stream(seed, STREAM_SKILLS), opening)
+    if skills & AI_BOSSES:
+        rng = Stream(seed, STREAM_BSKILLS)
+        _deal_group(table, FIEND_SCRIPTS, rng, opening)
+        _deal_group(table, BIG_SCRIPTS, rng, opening)
+    return bytes(eai), bytes(table)
+
+
+# --- RNG tables -------------------------------------------------------------------
+#  lut_RNG (the encounter table: whether a step fights, and from which slot)
+#  and lut_BattleScramble (the battle table), as the cartridge's own files.
+RNG_OFF, RNG_SHUFFLE = 0, 1
+RNG_MODES = 2
+RNG_NAMES = {"off": RNG_OFF, "shuffle": RNG_SHUFFLE}
+ENCRNG_BIN = os.path.join(ROOT, "game", "bin", "0F_F100_rngtable.bin")
+BATRNG_BIN = os.path.join(ROOT, "game", "bin", "0F_FCF1_rngtable.bin")
+
+
+def build_rng(seed, rng_mode):
+    """The encounter table and the battle table, 256 bytes each: the battle
+    table shuffled first, then the encounter table, from one stream."""
+    enc = bytearray(open(ENCRNG_BIN, "rb").read())
+    bat = bytearray(open(BATRNG_BIN, "rb").read())
+    if 0 < rng_mode < RNG_MODES:
+        rng = Stream(seed, STREAM_RNG)
+        for t in (bat, enc):
+            for i in range(255, 0, -1):
+                j = rng.below16(i + 1)
+                t[i], t[j] = t[j], t[i]
+    return bytes(enc), bytes(bat)
+
+
 def zone_name(z):
     if z < 64:
         return "overworld %d,%d" % (z % 8, z // 8)
@@ -621,7 +816,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 14
+RANDO_SAVE_SIZE = 18
 
 
 def block_from_srm(srm):
@@ -646,26 +841,37 @@ def main():
                     help="unrunnable fights")
     ap.add_argument("--surprise", choices=sorted(SURPRISE_NAMES), default="off",
                     help="surprise rates")
+    ap.add_argument("--status", choices=sorted(STATUS_NAMES), default="off",
+                    help="status attacks: enemies' touches")
+    ap.add_argument("--scripts", choices=sorted(AI_NAMES), default="off",
+                    help="enemy scripts: who has which")
+    ap.add_argument("--skills", choices=sorted(AI_NAMES), default="off",
+                    help="enemy skills: what the scripts hold")
+    ap.add_argument("--rng", choices=sorted(RNG_NAMES), default="off",
+                    help="RNG tables: the encounter and battle tables")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
-        (seed, traps, shops, chests, magic, bless, curse,
-         rarity, zones, runs, surprise) = block_from_srm(open(a.srm, "rb").read())
+        (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
+         surprise, status, scripts, skills, rngt) = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs, surprise = (
+        (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
+         surprise, status, scripts, skills, rngt) = (
             int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
             CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse,
             FORMS_NAMES[a.rarity], ZONES_NAMES[a.zones], RUNS_NAMES[a.runs],
-            SURPRISE_NAMES[a.surprise])
+            SURPRISE_NAMES[a.surprise], STATUS_NAMES[a.status], AI_NAMES[a.scripts],
+            AI_NAMES[a.skills], RNG_NAMES[a.rng])
     else:
         ap.error("give a battery file or --seed")
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
           " blessing +%d, curse -%d, formation rarity %d, zones %d, unrunnable %d,"
-          " surprise %d" % (seed, traps, shops, chests, magic, bless, curse, rarity,
-                            zones, runs, surprise))
+          " surprise %d, status %d, scripts %d, skills %d, RNG tables %d"
+          % (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
+             surprise, status, scripts, skills, rngt))
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:
@@ -721,6 +927,29 @@ def main():
                                                     "" if f == v else "  was $%02X %s"
                                                     % (v, formation_text(rom, v)))
                 print(line.rstrip())
+    if rngt:
+        #  For a runner learning the seed: BattleStepRNG walks this with
+        #  battlestep, up or down as battlestep_sign says, and a step fights
+        #  when its byte is below the map's rate.
+        enc, _ = build_rng(seed, rngt)
+        print("  encounter table (lut_RNG), by battlestep:")
+        for row in range(16):
+            print("    $%X0  %s" % (row, " ".join("%02X" % b for b in enc[row * 16:row * 16 + 16])))
+    if status:
+        was, now = build_touch(rom, seed, 0), build_touch(rom, seed, status)
+        for e in range(128):
+            if was[2 * e:2 * e + 2] != now[2 * e:2 * e + 2]:
+                print("  touch  %-9s %s  (was %s)" % (enemy_name(rom, e), touch_text(*now[2 * e:2 * e + 2]),
+                                                     touch_text(*was[2 * e:2 * e + 2])))
+    if scripts or skills:
+        (ew, tw), (en, tn) = build_ai(rom, seed, 0, 0), build_ai(rom, seed, scripts, skills)
+        for e in range(128):
+            if ew[e] != en[e]:
+                print("  script %-9s %s  (was %s)" % (enemy_name(rom, e),
+                      "none" if en[e] == 0xFF else "#%d" % en[e], "none" if ew[e] == 0xFF else "#%d" % ew[e]))
+        for i in range(44):
+            if tw[i * 16:i * 16 + 16] != tn[i * 16:i * 16 + 16]:
+                print("  script #%-2d %s" % (i, script_text(rom, tn[i * 16:i * 16 + 16])))
     if runs:
         norun = build_runs(rom, seed, runs)
         for f in range(256):

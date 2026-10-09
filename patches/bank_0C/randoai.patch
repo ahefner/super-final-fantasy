@@ -1,0 +1,30 @@
+--- OLD
+    LDA #$00                    ; initialize high byte of AI pointer (in preparation for math below)
+    STA @aiptr+1                ;   (this could be done in the below math, but whatever)
+    
+    LDY #ENROMSTAT_AI
+    LDA (@enrom), Y
+    CMP #$FF                    ; get AI id from ROM (if it's read from ROM, why is it stored in RAM?)
+    BNE :+
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+      
+    ; use enemy AI
+  : LDX #$10                ; get a pointer to this enemy's AI data
+    JSR MultiplyXA          ; $10 bytes per AI entry
+    CLC                     ;   end result, of this math:  @aiptr points to this enemy's AI data
+    ADC #<lut_EnemyAi
+    STA @aiptr
+    TXA
+    ADC #>lut_EnemyAi
+    STA @aiptr+1            ; pointer to AI data
+--- NEW
+.import rando_enemyai
+    ;  The script comes from the randomizer's cache by the enemy id in RAM --
+    ;  the enemy's own with Enemy scripts and skills off -- copied to
+    ;  OPTAISHADOW in SRAM, which the reads through @aiptr below see from this
+    ;  bank.  Carry set: no script.  The ROM's id and lut_EnemyAi go unread.
+    JSL rando_enemyai + RANDOFAR
+    BCC @UseAi
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+    .res 21, $EA                ; the lookup this replaced was 30 bytes
+  @UseAi:

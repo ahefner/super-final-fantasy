@@ -1,0 +1,8 @@
+--- OLD
+    LDY #ENROMSTAT_ATTACKAIL    ; attack ailment from ROM  (curse you, Sorcerers!!!)
+    LDA ($86), Y
+    STA btl_attacker_attackailment
+--- NEW
+    ;  OptScaleEnemyAttack has stored the ailment already, from the
+    ;  randomizer's cache, where Status attacks may have moved it.
+    .res 7, $EA

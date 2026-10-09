@@ -1,0 +1,7 @@
+--- OLD
+    LDA lut_RNG, X         ; use it to get a random number from the LUT
+--- NEW
+.import rando_steprng
+.export BattleStepRNG        ; for tools/test_options.py
+    ;  From the randomizer's copy of lut_RNG, which RNG tables may shuffle.
+    JSL rando_steprng + RANDOFAR

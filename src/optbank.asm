@@ -1791,15 +1791,23 @@ opt_scaleenemies:
 ;  scorpion and an Ice Shield stop nothing a ghoul does.  ($86) points at
 ;  the enemy's ROM record in bank $0C, which is the data bank we were called
 ;  with.  Y is the caller's to reload, and it does.
+;
+;  The touch comes from the randomizer's cache, by the enemy id in RAM, since
+;  Status attacks may have moved it: the ailment always -- bank $0C's load of
+;  it from ROM is gone -- and the element under Weapon Stats.  With Status
+;  attacks off, both are the record's own, as before.
+.import rando_touch
 opt_scaleatk:
+    LDY #en_enemyid
+    LDA ($84), Y
+    JSL rando_touch + RANDOFAR      ; A = the ailment, Y = the element
+    STA btl_attacker_attackailment
     LDA OPTFB_WEAPONSTATS
     AND #OPTFM_WEAPONSTATS
     BEQ @scale
     LDA #$00
     STA btl_attacker_category
-    LDY #ENROMSTAT_TOUCHELEM
-    LDA ($86), Y
-    STA btl_attacker_element
+    STY btl_attacker_element
   @scale:
     JSR opt_statoff
     BCS @out
