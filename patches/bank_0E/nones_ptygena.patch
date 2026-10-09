@@ -1,0 +1,8 @@
+--- OLD
+      JSR PtyGen_Frame              ; Do a frame and update joypad input
+      LDA joy_a
+      BNE DoNameInput               ; if A was pressed, do name input
+--- NEW
+      JSR PtyGen_Frame              ; Do a frame and update joypad input
+      JSR PtyGen_A                  ; A: name input -- or, for a None, done
+      NOP

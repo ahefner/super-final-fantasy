@@ -1,0 +1,28 @@
+--- OLD
+  @LoadStats:
+    LDA ch_class, X         ; get the class
+    ASL A                   ; $10 bytes of starting data for each class
+    ASL A
+    ASL A
+    ASL A
+    TAY                     ; source index in Y
+--- NEW
+  @LoadStats:
+    LDA ch_class, X         ; get the class
+.export NewGame_LoadStartingStats   ; for tools/test_options.py
+    CMP #CLS_NONE
+    BNE @Class
+    ;  A None: dead from the start, and nothing else -- GameStart zeroed the
+    ;  page -- but the experience-to-next it set for everyone.
+    LDA #$01
+    STA ch_ailments, X
+    LDA #$00
+    STA ch_exptonext, X
+    STA ch_exptonext+1, X
+    RTS
+  @Class:
+    ASL A                   ; $10 bytes of starting data for each class
+    ASL A
+    ASL A
+    ASL A
+    TAY                     ; source index in Y

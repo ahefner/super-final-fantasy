@@ -1,0 +1,31 @@
+--- OLD
+  @DrawOne:
+    LDA ptygen_spr_x, X   ; load desired X,Y coords for the sprite
+    STA spr_x
+    LDA ptygen_spr_y, X
+    STA spr_y
+
+    LDA ptygen_class, X   ; get the class
+    TAX
+    LDA lutClassBatSprPalette, X   ; get the palette that class uses
+    STA tmp+1             ; write the palette to tmp+1  (used by DrawSimple2x3Sprite)
+
+    TXA               ; multiply the class index by $20
+    ASL A             ;  this gets the tiles in the pattern tables which have this
+    ASL A             ;  sprite's CHR ($20 tiles is 2 rows, there are 2 rows of tiles
+    ASL A             ;  per class)
+    ASL A
+    ASL A
+    STA tmp           ; store it in tmp for DrawSimple2x3Sprite
+    JMP DrawSimple2x3Sprite
+--- NEW
+.import none_ptygenspr
+  @DrawOne:
+    ;  Position, palette and tiles, as the game set them up -- or carry set
+    ;  for a None, which has no sprite.
+    JSL none_ptygenspr + OPTFAR
+    BCS @NoSprite
+    JMP DrawSimple2x3Sprite
+  @NoSprite:
+    RTS
+    .res 30 - (* - @DrawOne), $EA

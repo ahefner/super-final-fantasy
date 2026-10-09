@@ -1,0 +1,4 @@
+--- OLD
+    JSR IsEquipLegal         ; Confirm to see if this item is equippable by this class
+--- NEW
+    JSR IsEquipLegal_N       ; Confirm to see if this item is equippable by this class

@@ -1,0 +1,27 @@
+--- OLD
+      ;; Stat Code $01 -- the character's class name
+      LDX char_index   ; get character index
+      LDA ch_class, X  ; get character's class
+      CLC              ; add #$F0 (start of class names)
+      ADC #$F0         ; draw it (yes I know, class names are not items, but they're stored with items)
+      JMP @DrawItem
+--- NEW
+      ;; Stat Code $01 -- the character's class name
+      LDX char_index   ; get character index
+      LDA ch_class, X  ; get character's class
+      CMP #CLS_NONE
+      BEQ @ClassNone
+      CLC              ; add #$F0 (start of class names)
+      ADC #$F0         ; draw it (yes I know, class names are not items, but they're stored with items)
+      JMP @DrawItem
+
+    @ClassNone:        ; "None", padded to seven as class names are, drawn
+.import none_nametext  ;  as stat code $00 draws a name
+      JSL none_nametext + OPTFAR
+      JSR @Save
+      LDA #<OPTNAMEBUF
+      STA text_ptr
+      LDA #>OPTNAMEBUF
+      STA text_ptr+1
+      JSR @Draw_NoStall
+      JMP @Restore

@@ -1,0 +1,8 @@
+--- OLD
+    LDA ch_ailments, X    ; get this char's OB ailments
+    CMP #$01              ; check to see if he's dead
+--- NEW
+.import none_isdead
+.export ClinicBuildNameString    ; for tools/test_options.py
+    JSL none_isdead + OPTFAR    ; is he dead?  A None is not, to the clinic
+    NOP

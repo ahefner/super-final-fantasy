@@ -311,14 +311,14 @@ lut_Desc_44:  ; Free ROD
   FFPAD {"ROD, which opens the way"}, 28
   FFPAD {"down through the Earth Cave."}, 28
 
-lut_Desc_47:  ; NEW GAME
+lut_Desc_47:  ; RANDOMIZATION
   FFLINES 4
   FFPAD {"Randomizes the next new"}, 28
   FFPAD {"game.  A saved game keeps"}, 28
   FFPAD {"the world it was started"}, 28
   FFPAD {"with, whatever is set here."}, 28
 
-;  The NEW GAME rows describe the value they are set to, one record each.
+;  The RANDOMIZATION rows describe the value they are set to, one record each.
 ;  Each table is checked against its row's value count, so a value added
 ;  without its text is a build error.
 lut_Desc_48:  ; Trap tiles, by value

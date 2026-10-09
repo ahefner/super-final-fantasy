@@ -1,0 +1,63 @@
+--- OLD
+DoClassChange:
+    LDA ch_class        ; simply bump up every party member's class ID number
+    CLC                 ; to up them to the promoted version of their class
+    ADC #6
+    STA ch_class
+
+    LDA ch_class+(1<<6)
+    CLC
+    ADC #6
+    STA ch_class+(1<<6)
+
+    LDA ch_class+(2<<6)
+    CLC
+    ADC #6
+    STA ch_class+(2<<6)
+
+    LDA ch_class+(3<<6)
+    CLC
+    ADC #6
+    STA ch_class+(3<<6)
+
+    INC dlgflg_reentermap  ; set flag to indicate map needs reentering 
+    RTS                    ;   in order to reload party's mapman graphic
+--- NEW
+.import none_classchange, none_ptygena, none_cursornone
+.export DoClassChange, PtyGen_A, IsEquipLegal_N, DoNameInput  ; for tools/test_options.py
+DoClassChange:
+    ;  Every member promoted but a None, which plus 6 would be a Black Mage.
+    JSL none_classchange + OPTFAR
+    INC dlgflg_reentermap  ; set flag to indicate map needs reentering
+    RTS                    ;   in order to reload party's mapman graphic
+
+;;  Two helpers for the None, in the bytes the class change gave back.
+;;
+;;  PtyGen_A: DoPartyGen_OnCharacter's A.  Not pressed: back to the loop.
+;;  Pressed on a class: on to DoNameInput, as the BNE did.  Pressed on a None,
+;;  which has no name: done, with carry clear, as DoNameInput ends.  Both
+;;  leave DoPartyGen_OnCharacter, so its return address comes off the stack.
+PtyGen_A:
+    LDA joy_a
+    BEQ @Loop
+    JSL none_ptygena + OPTFAR   ; carry set: a None, its name blanked
+    PLA
+    PLA
+    BCS @None
+    JMP DoNameInput
+  @None:
+    CLC
+  @Loop:
+    RTS
+
+;;  IsEquipLegal_N: IsEquipLegal, but a None wears nothing.  It holds gear,
+;;  as any dead character can -- extra bag space -- but cannot equip it.
+IsEquipLegal_N:
+    PHA                         ; the item
+    JSL none_cursornone + OPTFAR    ; carry set: the cursor's character is a None
+    PLA
+    BCS @Cannot
+    JMP IsEquipLegal
+  @Cannot:
+    RTS                         ; C set: cannot be equipped
+    .res 39 - (* - DoClassChange), $FF

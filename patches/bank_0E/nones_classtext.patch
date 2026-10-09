@@ -1,0 +1,18 @@
+--- OLD
+    LDA ptygen_class, X     ; get the selected class
+    CLC
+    ADC #$F0                ; add $F0 to select the class' "item name"
+    STA format_buf-1        ;  store that as 2nd byte in format string
+    LDA #$02                ; first byte in string is $02 -- the control code to
+    STA format_buf-2        ;  print an item name
+
+    LDA #<(format_buf-2)    ; set the text pointer to point to the start of the 2-byte
+    STA text_ptr            ;  string we just constructed
+    LDA #>(format_buf-2)
+    STA text_ptr+1
+--- NEW
+.import none_classtext
+  @ClassText:
+    ;  The class's name at format_buf, and text_ptr at it -- or "None".
+    JSL none_classtext + OPTFAR
+    .res 20 - (* - @ClassText), $EA

@@ -1,0 +1,22 @@
+--- OLD
+DrawCharacter:
+    PHA                     ; backup character ID
+    
+    TAY
+    LDA btl_charattrib, Y
+    STA btl8x8spr_a         ; assign attribute
+    
+    PLA                     ; restore, and put in X (why didn't it just put it in X initially?)
+    TAX
+--- NEW
+.import none_drawchar
+.export DrawCharacter            ; for tools/test_options.py
+DrawCharacter:
+    ;  The attribute, and A = X = the character -- or carry set for a None,
+    ;  which is not drawn: a dead character lies on the ground, a None is not
+    ;  there at all.
+    JSL none_drawchar + OPTFAR
+    BCC @Draw
+      RTS
+    .res 10 - (* - DrawCharacter), $EA
+  @Draw:

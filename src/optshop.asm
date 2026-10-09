@@ -1291,6 +1291,8 @@ opt_canuseit:
     TAX
     LDA ch_class, X
     STA OPTPOSECL
+    CMP #CLS_NONE               ; a None uses nothing (nones.asm), and its
+    BEQ @no                     ;  class would index past every table here
     LDA OPTPOSEIT
     CMP #MG_START
     BCS @spell

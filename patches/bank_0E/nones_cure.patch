@@ -1,0 +1,8 @@
+--- OLD
+    LDA ch_ailments, X    ; get OB ailments
+    CMP tmp               ; compare to given ailment
+--- NEW
+.import none_obailment
+.export CureOBAilment            ; for tools/test_options.py
+    JSL none_obailment + OPTFAR ; his ailment, against tmp -- a None has none
+    NOP

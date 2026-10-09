@@ -1,0 +1,13 @@
+--- OLD
+    LDA lut_MagicPermisPtr, X     ; get the pointer to this class's
+    STA tmp                       ;    magic permissions table
+    LDA lut_MagicPermisPtr+1, X   ; put that pointer in (tmp)
+    STA tmp+1
+--- NEW
+.import none_magperm
+.export MagicShop_AssertLearn    ; for tools/test_options.py
+  @PermPtr:
+    ;  (tmp) at this class's permissions -- or, for a None, at a table that
+    ;  permits nothing.
+    JSL none_magperm + OPTFAR
+    .res 10 - (* - @PermPtr), $EA

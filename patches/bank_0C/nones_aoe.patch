@@ -1,0 +1,43 @@
+--- OLD
+@Loop:
+    LDA $6BCE                           ; use loop counter as player index
+    ORA #$80                            ; set high bit to indicate it is a player target
+    STA btl_defender                    ; set as defender
+    
+    JSR DrawCombatBox_Defender          ; ... do magic casting stuff
+    JSR BtlMag_LoadPlayerDefenderStats
+    JSR Battle_PlMag_IsPlayerValid
+    BEQ :+
+      JSR Battle_ShowIneffective        ; show Ineffective if target is dead/stone
+      JMP @Next
+  : JSR Battle_CastMagicOnPlayer_NoLoad ; (NoLoad because we loaded above)
+  
+  @Next:
+    JSR RespondDelay_UndrawAllBut2Boxes ; undraw all but the Attacker/Attack boxes
+    JSR DrawCharacterStatus             ; update player status' (redraw their HP and stuff)
+    
+    INC $6BCE                           ; loop through all 4 players.
+--- NEW
+.import none_aoetarget
+.export Battle_PlMag_TargetAllPlayers   ; for tools/test_options.py
+@Loop:
+    ;  The defender, as before -- or carry set for a None, which is passed
+    ;  over: no box, no "Ineffective", no pause (nones.asm).
+    JSL none_aoetarget + OPTFAR
+    BCS @None
+    .res 8 - (* - @Loop), $EA
+    
+    JSR DrawCombatBox_Defender          ; ... do magic casting stuff
+    JSR BtlMag_LoadPlayerDefenderStats
+    JSR Battle_PlMag_IsPlayerValid
+    BEQ :+
+      JSR Battle_ShowIneffective        ; show Ineffective if target is dead/stone
+      JMP @Next
+  : JSR Battle_CastMagicOnPlayer_NoLoad ; (NoLoad because we loaded above)
+  
+  @Next:
+    JSR RespondDelay_UndrawAllBut2Boxes ; undraw all but the Attacker/Attack boxes
+    JSR DrawCharacterStatus             ; update player status' (redraw their HP and stuff)
+    
+  @None:
+    INC $6BCE                           ; loop through all 4 players.

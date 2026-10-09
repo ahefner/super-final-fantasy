@@ -1,0 +1,32 @@
+--- OLD
+LoadPlayerMapmanCHR:
+    LDA #0          ; #0 -> tmp
+    STA tmp
+    LDA ch_class    ; Get lead party member's class
+    ORA #$90        ; ORA with #$90, and put in tmp+1
+    STA tmp+1       ;
+--- NEW
+.export LeadClass, LoadPlayerMapmanCHR    ; for tools/test_options.py
+LeadClass:
+    ;  The class the party walks as and is coloured by: the first member's,
+    ;  or, when a None has been put first in the line, the first after it
+    ;  who is not one.  Slot 1 is never a None at the start, so one exists.
+    LDA ch_class
+    CMP #CLS_NONE
+    BNE @Done
+    LDA ch_class+$40
+    CMP #CLS_NONE
+    BNE @Done
+    LDA ch_class+$80
+    CMP #CLS_NONE
+    BNE @Done
+    LDA ch_class+$C0
+  @Done:
+    RTS
+
+LoadPlayerMapmanCHR:
+    LDA #0          ; #0 -> tmp
+    STA tmp
+    JSR LeadClass   ; Get lead party member's class -- not a None's
+    ORA #$90        ; ORA with #$90, and put in tmp+1
+    STA tmp+1       ;

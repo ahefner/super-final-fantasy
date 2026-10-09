@@ -2064,6 +2064,30 @@ opt_castlife:
     LDA #$01
     STA btlmag_spellconnected   ; what the JSR this replaced did
 
+    ;  A None (nones.asm) stays dead.  The cure above has already taken its
+    ;  dead bit off, so put it back, and let the spell not connect.  Only a
+    ;  cure with the dead bit in it can reach a None -- its ailments are that
+    ;  bit alone -- so this is LIFE and LIF2, flag or no flag.
+    LDA btl_defender
+    BPL @alive                  ; an enemy
+    AND #$03
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    TAX
+    LDA ch_class, X
+    CMP #CLS_NONE
+    BNE @alive
+    LDA btlmag_defender_ailments
+    ORA #AIL_DEAD
+    STA btlmag_defender_ailments
+    STZ btlmag_spellconnected
+    RTL
+  @alive:
+
     LDA OPTFB_CASTLIFE
     AND #OPTFM_CASTLIFE
     BEQ @out

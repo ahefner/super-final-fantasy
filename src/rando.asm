@@ -49,7 +49,7 @@
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_steprng
 ;  For tools/test_options.py.
-.export rando_ensure, rando_xs
+.export rando_ensure, rando_stale, rando_xs
 
 .segment "BANK_RANDO"
 
@@ -535,7 +535,10 @@ rando_newgame:
 ;;  *last*, so a reset pressed mid-build leaves a cache that reads as invalid
 ;;  rather than as finished.
 ;;
-;;  rando_ensure is the JSL entry for the harness; consumers JSR ensure.
+;;  rando_ensure is the JSL entry for @Begin and the harness; consumers JSR
+;;  ensure.  rando_stale asks without building: @Begin silences the music
+;;  first when the answer is yes, since nothing calls the driver during a
+;;  build.  Out: C set if ensure would build.  A is zero, X is clobbered.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_ensure:
@@ -544,21 +547,22 @@ rando_ensure:
     JSR ensure
     JMP leave
 
+rando_stale:
+    PHB
+    JSR enter
+    JSR stale                   ; leaves eight-bit registers
+    LDA #0
+    ROL A                       ; the answer, kept through XCE and PLB...
+    SEC
+    XCE
+    PLB
+    LSR A                       ; ...and back in C
+    RTL
+
 ;;  Native mode, DBR = $7F.  Out: A8, I8.
 ensure:
-    SEP #$30
-    .a8
-    .i8
-    LDA a:wTAG
-    CMP #RW_TAG_VAL
-    BNE @build
-    LDX #RANDO_SAVE_SIZE - 1
-  @cmp:
-    LDA f:RANDO_SAVEFAR, X
-    CMP a:wTAGBLK, X
-    BNE @build
-    DEX
-    BPL @cmp
+    JSR stale
+    BCS @build
     RTS
 
   @build:
@@ -572,6 +576,28 @@ ensure:
     BPL @copy
     LDA #RW_TAG_VAL
     STA a:wTAG                  ; ...which is this one
+    RTS
+
+;;  Native mode, DBR = $7F.  Out: A8, I8; C set if the cache does not match
+;;  the save.
+stale:
+    SEP #$30
+    .a8
+    .i8
+    LDA a:wTAG
+    CMP #RW_TAG_VAL
+    BNE @stale
+    LDX #RANDO_SAVE_SIZE - 1
+  @cmp:
+    LDA f:RANDO_SAVEFAR, X
+    CMP a:wTAGBLK, X
+    BNE @stale
+    DEX
+    BPL @cmp
+    CLC
+    RTS
+  @stale:
+    SEC
     RTS
 
 
@@ -2074,7 +2100,7 @@ gearbyte:
 ;;
 ;;  The ROM's pointer, unless A is a piece of gear with a bonus: then its seven
 ;;  letters, with the last two before the icon made the sign and the digit,
-;;  in OPTNAMEBUF.  FFR's rule for the icon: a seventh byte above 200 that is
+;;  in OPTNAMEBUF.  Only gear consults -- or builds -- the cache.  FFR's rule for the icon: a seventh byte above 200 that is
 ;;  not a space.  The name readers draw from wherever this points with the
 ;;  items bank mapped, and SRAM is visible from it.
 ;;
@@ -2088,8 +2114,20 @@ rando_nameptr:
     PHY
     PHA
     JSR enter
-    JSR ensure
+    ;  Only gear's names come from the cache, so only gear asks for it.  The
+    ;  lookup is the game's one table of short names -- items, spells, class
+    ;  names, status words -- and party creation draws class names through it
+    ;  right after New Game has written a new seed: asking there built the
+    ;  whole world on that screen, under its music.  Now the first build
+    ;  after New Game is GameStart's @Begin, with the party confirmed.
     PLA
+    PHA
+    SEC
+    SBC #TCITYPE_WEPSTART
+    CMP #80
+    BCS :+                      ; not gear: no cache wanted
+    JSR ensure
+:   PLA
     STA a:wNAMEID
     REP #$30
     .a16

@@ -1,0 +1,16 @@
+--- OLD
+      LDX char_index
+      CLC
+      LDA ptygen_class, X       ; Add 1 to the class ID of the current character.
+      ADC #1
+      CMP #6
+      BCC :+
+        LDA #0                  ; wrap 5->0
+    : STA ptygen_class, X
+--- NEW
+.import none_nextclass
+  @NextClass:
+      LDX char_index
+      ;  Fighter to Black Mage, then None for slots 2-4, then round again.
+      JSL none_nextclass + OPTFAR
+      .res 17 - (* - @NextClass), $EA

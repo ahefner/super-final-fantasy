@@ -1,0 +1,10 @@
+--- OLD
+@LoadClass:
+    ASL A               ; double class index (each class has 2 rows of tiles)
+--- NEW
+.export LoadBatSprCHRPalettes   ; for tools/test_options.py
+@LoadClass:
+    CMP #CLS_NONE
+    BNE :+
+    LDA #CLS_FT         ; a None's slot: any class's tiles; it is never drawn
+:   ASL A               ; double class index (each class has 2 rows of tiles)

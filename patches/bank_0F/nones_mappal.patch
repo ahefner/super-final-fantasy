@@ -1,0 +1,9 @@
+--- OLD
+    LDA ch_class            ; get lead party member's class
+    ASL A                   ; double it, and put it in X
+    TAX
+--- NEW
+.export LoadMapPalettes     ; for tools/test_options.py
+    JSR LeadClass           ; get lead party member's class -- not a None's
+    ASL A                   ; double it, and put it in X
+    TAX

@@ -1325,6 +1325,10 @@ OPT_NG_SCRIPTS  = OPT_NG + (RANDO_SCRIPTS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SKILLS   = OPT_NG + (RANDO_SKILLS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_RNG      = OPT_NG + (RANDO_RNG - RANDO_SAVE) - RANDO_NGOFF
 
+;  "None", a party slot left empty (nones.asm): the class byte of slots 2-4
+;  may be this, with the character dead from the start.  FFR's value.
+CLS_NONE        = $FF
+
 ;  Two buffers the randomizer hands to game code, in SRAM because every chunk
 ;  sees it and none sees WRAM above $2000.  Written before every read.
 OPTAISHADOW     = OPTBLOCK+$E0  ; 16 bytes: the script an enemy is choosing by

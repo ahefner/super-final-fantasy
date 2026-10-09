@@ -1473,8 +1473,8 @@ lut_OptRows:
   FFPAD "Free ROD", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
-  .BYTE $00, $00   ; NEW GAME
-  FFPAD "NEW GAME", 30
+  .BYTE $00, $00   ; RANDOMIZATION
+  FFPAD "RANDOMIZATION", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $02, $05   ; Trap tiles
@@ -1655,8 +1655,10 @@ lut_ValCurse:
   FFPAD "  -4", 4
   FFPAD "  -5", 4
 
-;  Off or Shuffle: Shops, where Random Wares would be a third value, Chests
-;  and Magic levels.
+;  Off or Shuffle: every randomization row that is a plain shuffle.  Under the
+;  RANDOMIZATION heading, "Trap tiles: Off" reads as the randomization off,
+;  and a Shuffle stands out against a column of Offs; a column of Vanilla,
+;  tried for a day, was a wall of text.
 lut_ValShuffle:
   FFPAD "     Off", 8           ; SHOPS_OFF, CHESTS_OFF
   FFPAD " Shuffle", 8           ; SHOPS_SHUFFLE, CHESTS_SHUFFLE

@@ -40,6 +40,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 from cpu65816 import Bus, CPU, C
+#  warm() hashes machines.  Imported here, at startup, and not in warm():
+#  under PyPy 8.0.0 importing hashlib pulls in socket, whose IntEnum setup
+#  iterates a module dict that PyPy can grow under it, and partway through a
+#  long run about half the time it did -- "dictionary changed size during
+#  iteration", out of test_rando_chestload.  A fresh interpreter never has.
+import hashlib
 
 ROM = os.path.join(ROOT, "SuperFinalFantasy.sfc")
 LABELS = os.path.join(ROOT, "out", "labels.txt")
@@ -3815,7 +3821,6 @@ def warm(bus):
     """
     if bus.rom is not ROMDATA:
         return
-    import hashlib
     key = hashlib.blake2b(bytes(bus.wram) + bytes(bus.sram)
                           + repr((sorted(bus.io.items()), bus.mul_a, bus.mul_b)).encode()).digest()
     was = _warm.get(key)
@@ -4160,6 +4165,20 @@ def test_rando_options():
            K["OPT_NG_SURPRISE"] - OPTBLOCK, K["OPT_NG_STATUS"] - OPTBLOCK,
            K["OPT_NG_SCRIPTS"] - OPTBLOCK, K["OPT_NG_SKILLS"] - OPTBLOCK,
            K["OPT_NG_RNG"] - OPTBLOCK])
+
+    #  Every randomization row's first value reads Off -- under the
+    #  RANDOMIZATION heading, the randomization off -- so that a Shuffle
+    #  stands out (user, 2026-10-09; Vanilla was tried and was a wall of it).
+    #  The blessing and the curse read 0, a number in their range.
+    img = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    lo, hi = img + SYM["lut_ValTabLo"], img + SYM["lut_ValTabHi"]
+    shift = img + SYM["lut_ValShift"]
+    first = []
+    for v in range(5, 19):
+        at = img + (ROMDATA[lo + v] | ROMDATA[hi + v] << 8)
+        first.append("".join(_decode(b) or "?" for b in ROMDATA[at:at + (1 << ROMDATA[shift + v])]).strip())
+    check("every randomization row starts at Off", first,
+          ["Off"] * 4 + ["0", "0"] + ["Off"] * 8)
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4620,11 +4639,12 @@ def magic_cache(bus):
     return bytes(bus.wram[p:p + 64]), bytes(bus.wram[i:i + 64])
 
 
-def jsl_count(image_bank, name):
+def jsl_count(image_bank, name, bank=None):
     """How many times the image's 16KB at $8000 (or $C000) holds a JSL to name
-    in the randomizer's chunk -- the wiring of a patch, found by its bytes."""
+    in the randomizer's chunk, or in bank -- the wiring of a patch, found by
+    its bytes."""
     a = SYM[name]
-    op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
+    op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK if bank is None else bank])
     lo = image_bank * 0x10000 + 0x8000
     return ROMDATA[lo:lo + 0x8000].count(op)
 
@@ -5607,20 +5627,34 @@ def test_rando_rngload():
 def test_rando_begin():
     """GameStart's @Begin builds the world before any game code runs -- for
     New Game and Continue alike, which meet there -- and on a second pass,
-    as after a soft reset with WRAM intact, only compares the tag.  The JSL
-    is found by its bytes and run alone, from where it sits."""
+    as after a soft reset with WRAM intact, only compares the tag.  It
+    silences the music before a build, since nothing calls the driver
+    during one, and only then: a warm Continue keeps its music.  The code is
+    found by its bytes and run alone, from where it sits."""
     fixed = (0xA7 & 0x1F) * 0x10000
-    a = SYM["rando_ensure"]
+    a, e, d = SYM["rando_stale"], SYM["rando_ensure"], SYM["DisableAPU"]
     op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
     img = ROMDATA[fixed + 0xC000:fixed + 0x10000]
     at = [i for i in range(len(img) - 3) if img[i:i + 4] == op]
-    check("the fixed bank asks rando_ensure once", len(at), 1)
+    check("the fixed bank asks rando_stale once", len(at), 1)
     if len(at) != 1:
         return
     pc = 0xC000 + at[0]
     scroll = K["unsram_ow_scroll_x"]
-    check("...at @Begin: before the overworld scroll is fetched",
-          bytes(img[at[0] + 4:at[0] + 7]), bytes([0xAD, scroll & 0xFF, scroll >> 8]))
+    check("...at @Begin: if stale, mute and build, then fetch the overworld scroll",
+          bytes(img[at[0] + 4:at[0] + 16]),
+          bytes([0x90, 0x07, 0x20, d & 0xFF, d >> 8, 0x22, e & 0xFF, e >> 8, RANDO_BANK,
+                 0xAD, scroll & 0xFF, scroll >> 8]))
+    end = pc + 13
+
+    def playing(bus):
+        bus.wram[APUSHADOW:APUSHADOW + 16] = bytes([0xBF, 0, 0x40, 0x02, 0xBF, 0, 0x60, 0x03,
+                                                    0xFF, 0, 0x80, 0x01, 0x3F, 0, 0, 0])
+        bus.wram[APUSHADOW + 0x15] = 0x0F
+
+    def apu(bus):
+        return (bus.wram[APUSHADOW + 0x15],
+                tuple(bus.wram[APUSHADOW + r] for r in (0x00, 0x04, 0x08, 0x0C)))
 
     bus, cpu = machine()
     seed = 0x600DCAFE
@@ -5628,14 +5662,414 @@ def test_rando_begin():
     for k, v in (("RANDO_BLESS", 5), ("RANDO_CURSE", 5), ("RANDO_NORUN", 1), ("RANDO_SURPRISE", 1),
                  ("RANDO_STATUS", 1), ("RANDO_SCRIPTS", 3), ("RANDO_SKILLS", 3), ("RANDO_RNG", 1)):
         bus.sram[K[k] - 0x6000] = v
-    check("@Begin runs on to the next instruction", cpu.run(0xA7, pc, stop=pc + 4), True)
+    playing(bus)
+    check("@Begin, stale: reaches rando_ensure", cpu.run(0xA7, pc, stop=e), True)
+    check("...the music silenced before it starts",
+          (apu(bus), bus.wram[rw("RW_TAG")]), ((0, (0x30, 0x30, 0x30, 0x30)), 0))
+    n = 0                               # run on from there: run() would call it afresh
+    while (cpu.pbr, cpu.pc) != (0xA7, end) and n < 2_000_000:
+        cpu.step()
+        n += 1
+    check("...and runs on to the next instruction", (cpu.pbr, cpu.pc), (0xA7, end))
     check("...having built the save's world",
           (bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"], form_cache(bus), rng_cache(bus), ai_cache(bus)[1:]),
           (True, R.build_domains(ROMDATA, seed, 2, 2), R.build_rng(seed, 1), R.build_ai(ROMDATA, seed, 3, 3)))
-    #  A soft reset keeps WRAM: the next Continue must cost next to nothing.
+    #  A soft reset keeps WRAM: the next Continue must cost next to nothing,
+    #  and leave the title's music alone.
+    playing(bus)
     s0 = cpu.steps
-    cpu.run(0xA7, pc, stop=pc + 4)
-    check("a second pass only compares the tag (under 300 instructions)", cpu.steps - s0 < 300, True)
+    check("a second pass runs through", cpu.run(0xA7, pc, stop=end), True)
+    check("...only comparing the tag (under 300 instructions)", cpu.steps - s0 < 300, True)
+    check("...with the music left playing", apu(bus), (0x0F, (0xBF, 0xBF, 0xFF, 0x3F)))
+
+    #  rando_stale on its own: the answer in C, the cache untouched.
+    for tag, want in ((K["RW_TAG_VAL"], False), (0, True)):
+        bus.wram[rw("RW_TAG")] = tag
+        call(cpu, "rando_stale", bank=RANDO_BANK)
+        check("rando_stale, tag %02X" % tag, (bool(cpu.p & 1), bus.wram[rw("RW_TAG")], cpu.e),
+              (want, tag, True))
+    bus.wram[rw("RW_TAG")] = K["RW_TAG_VAL"]
+    bus.sram[K["RANDO_RNG"] - 0x6000] ^= 1
+    call(cpu, "rando_stale", bank=RANDO_BANK)
+    check("rando_stale, the tag right and the save changed", bool(cpu.p & 1), True)
+
+
+# --- None, a party slot left empty ------------------------------------------------
+def test_nones():
+    """None: party creation offers it for slots 2-4, and every place the class
+    byte would index past a table, or something could raise the dead, does the
+    right thing with it.  Each check is run on the routine itself, with a None
+    beside an ordinary class so the guard is seen to bite."""
+    NONE, OPT = K["CLS_NONE"], CHUNK_OPT_BANK
+    page = lambda e: K["ch_stats"] - 0x6000 + e * 0x40       # a character, in SRAM
+    img0e, img0c, fixed = (0xA1 + 0x0E) & 0x1F, (0xA1 + 0x0C) & 0x1F, 0xA7 & 0x1F
+
+    def party(bus, classes, ailments=(0, 0, 0, 0)):
+        for e, (c, a) in enumerate(zip(classes, ailments)):
+            bus.sram[page(e)], bus.sram[page(e) + 1] = c, a
+
+    #  Party creation: the cycle, slot by slot.
+    PG = K["ptygen_class"]
+    bus, cpu = machine()
+    for slot in range(4):
+        x = slot * 0x10
+        bus.wram[PG + x] = 0
+        seen = []
+        for _ in range(7):
+            cpu.x = x
+            call(cpu, "none_nextclass")
+            seen.append(bus.wram[PG + x])
+        check("slot %d's choices" % (slot + 1), seen,
+              [1, 2, 3, 4, 5, 0, 1] if slot == 0 else [1, 2, 3, 4, 5, NONE, 0])
+
+    #  ...its name: an item name for a class, "None" spelled out for a None,
+    #  padded to seven as the class names are.
+    nb = K["OPTNAMEBUF"]
+    bus.wram[PG + 0x20] = 3
+    cpu.x = 0x20
+    call(cpu, "none_classtext")
+    check("party creation's name for a Red Mage",
+          (list(bus.wram[0x5E:0x60]), bus.wram[0x3E] | bus.wram[0x3F] << 8), ([0x02, 0xF3], 0x5E))
+    bus.wram[PG + 0x20] = NONE
+    call(cpu, "none_classtext")
+    check("party creation's name for a None",
+          (bytes(bus.sram[nb - 0x6000:nb - 0x6000 + 8]), bus.wram[0x3E] | bus.wram[0x3F] << 8),
+          (bytes([0x97, 0xB2, 0xB1, 0xA8, 0xFF, 0xFF, 0xFF, 0x00]), nb))
+
+    #  ...and drawn where Bl.MAGE was, it leaves nothing of Bl.MAGE behind:
+    #  "NoneAGE" was the first try.  The party creation screen redraws the
+    #  class name in place as the choice changes.
+    nt = K["NESNT"] - 0x7E0000
+    bus, cpu = machine()
+    in_vblank(bus)
+    bus.wram[nt:nt + 0x800] = bytes(0x800)
+    bus.wram[0x60] = 0                          # format_buf's terminator
+    for cls in (5, NONE):
+        bus.wram[PG + 0x20] = cls
+        cpu.x = 0x20
+        call(cpu, "none_classtext")
+        bus.wram[K["dest_x"]], bus.wram[K["dest_y"]] = 3, 5
+        bus.wram[K["cur_bank"]] = bus.wram[K["ret_bank"]] = 0x0E
+        call(cpu, "DrawComplexString")
+    row = bytes(bus.wram[nt + 5 * 32 + 3:nt + 5 * 32 + 10])
+    check("None drawn over Bl.MAGE", row, bytes([0x97, 0xB2, 0xB1, 0xA8, 0xFF, 0xFF, 0xFF]))
+
+    #  ...its sprite: none for a None.
+    for cls in (2, NONE):
+        bus.wram[PG + 0x10] = cls
+        bus.wram[0x10], bus.wram[0x11] = 0xEE, 0xEE
+        cpu.x = 0x10
+        call(cpu, "none_ptygenspr")
+        if cls == NONE:
+            check("party creation draws no sprite for a None", cpu.p & 1, 1)
+        else:
+            pal = ROMDATA[(0xA7 & 0x1F) * 0x10000 + SYM["lutClassBatSprPalette"] + 2]
+            check("...and a class's as it did", (cpu.p & 1, bus.wram[0x10], bus.wram[0x11]),
+                  (0, 2 * 0x20, pal))
+
+    #  ...and A: a class goes to name input; a None is done, its name blank.
+    #  A stub at $AF:1F00 stands in for DoPartyGen_OnCharacter's loop: JSR
+    #  PtyGen_A, then mark $1F10 -- which only a return into the loop reaches.
+    a = SYM["PtyGen_A"]
+    stub = bytes([0x20, a & 0xFF, a >> 8, 0xA9, 0x77, 0x8D, 0x10, 0x1F, 0x60])
+    for cls, pressed, want in ((0, 0, "loop"), (0, 1, "name input"), (NONE, 1, "done")):
+        bus, cpu = machine()
+        bus.wram[0x1F00:0x1F00 + len(stub)] = stub
+        bus.wram[K["char_index"]] = 0x30
+        bus.wram[PG + 0x30] = cls
+        bus.wram[K["ptygen_name"] + 0x30:K["ptygen_name"] + 0x34] = b"\x8a\x8b\x8c\x8d"
+        bus.wram[K["joy_a"]] = pressed
+        stopped = cpu.run(0xAF, 0x1F00, stop=SYM["DoNameInput"])
+        got = ("name input" if stopped else "loop" if bus.wram[0x1F10] == 0x77
+               else "done" if not cpu.p & 1 else "?")
+        check("A on class $%02X (pressed %d)" % (cls, pressed), got, want)
+        if cls == NONE:
+            check("...its name blanked", bytes(bus.wram[K["ptygen_name"] + 0x30:][:4]), b"\xff" * 4)
+
+    #  Starting stats: a None is dead, and has nothing.
+    bus, cpu = machine()
+    party(bus, (0, NONE, 4, NONE))
+    for e in range(4):
+        bus.sram[page(e) + 0x16] = 40
+    call(cpu, "NewGame_LoadStartingStats")
+    rec = lambda e: bytes(bus.sram[page(e):page(e) + 0x40])
+    check("a None starts dead with an empty page",
+          [rec(e)[1:] == bytes([1]) + bytes(0x3E) for e in (1, 3)], [True, True])
+    check("...and a class starts alive with its stats",
+          [(rec(e)[1], rec(e)[0x0C] > 0) for e in (0, 2)], [(0, True), (0, True)])
+
+    #  The class name in the menus: stat code $01, drawn.
+    nt = K["NESNT"] - 0x7E0000
+    for cls, want in ((NONE, "None"), (0, "FIGHTER")):
+        bus, cpu = machine()
+        in_vblank(bus)
+        party(bus, (0, cls, 0, 0))
+        bus.wram[0x1F20:0x1F23] = bytes([0x11, 0x01, 0x00])      # char 1, its class
+        bus.wram[K["text_ptr"]], bus.wram[K["text_ptr"] + 1] = 0x20, 0x1F
+        bus.wram[K["dest_x"]], bus.wram[K["dest_y"]] = 2, 2
+        bus.wram[K["cur_bank"]] = bus.wram[K["ret_bank"]] = 0x0E
+        bus.wram[nt:nt + 0x800] = bytes(0x800)
+        call(cpu, "DrawComplexString")
+        drawn = "".join(_decode(b) or "" for b in bus.wram[nt + 2 * 32 + 2:nt + 2 * 32 + 2 + len(want)])
+        check("the menus name class $%02X" % cls, drawn, want)
+
+    #  The walking sprite and its palette: the first who is not a None.
+    pals = {}
+    for classes in ((4, 1, 0, 0), (NONE, NONE, 4, 1)):
+        bus, cpu = machine()
+        party(bus, classes)
+        call(cpu, "LeadClass")
+        lead = cpu.a & 0xFF
+        call(cpu, "LoadPlayerMapmanCHR")
+        call(cpu, "LoadMapPalettes")
+        pals[classes] = (lead, bus.wram[0x11], bus.wram[K["cur_pal"] + 0x12], bus.wram[K["cur_pal"] + 0x16])
+    check("Nones first in line walk as the first who is not one",
+          pals[(NONE, NONE, 4, 1)], pals[(4, 1, 0, 0)])
+    check("...the lead is the Black Mage", pals[(NONE, NONE, 4, 1)][0], 4)
+
+    #  Class change passes a None by.
+    bus, cpu = machine()
+    party(bus, (0, NONE, 3, NONE))
+    call(cpu, "DoClassChange", bank=0xAF, dbr=0xAF)
+    check("class change promotes all but a None", [bus.sram[page(e)] for e in range(4)], [6, NONE, 9, NONE])
+    check("...and asks for the map again", bus.wram[K["dlgflg_reentermap"]], 1)
+
+    #  Gear: a None wears nothing, whatever the item.
+    bad = []
+    for cls in (NONE,):
+        for kind, first, n in (("weapons", 1, 40), ("armor", 1, 40)):
+            for item in range(first, first + n):
+                bus, cpu = machine()
+                party(bus, (cls, cls, cls, cls))
+                bus.wram[K["cursor"]] = 1 << 2
+                bus.wram[K["equipoffset"]] = K["ch_" + kind] - K["ch_stats"]
+                cpu.a = item
+                call(cpu, "IsEquipLegal_N", bank=0xAF, dbr=0xAF)
+                if cls == NONE and not cpu.p & 1:
+                    bad.append("None %s %d" % (kind, item))
+    check("a None can equip nothing", bad[:3], [])
+    reds = []
+    for item in range(1, 41):
+        bus, cpu = machine()
+        party(bus, (3, 3, 3, 3))
+        bus.wram[K["cursor"]] = 1 << 2
+        bus.wram[K["equipoffset"]] = K["ch_weapons"] - K["ch_stats"]
+        cpu.a = item
+        call(cpu, "IsEquipLegal_N", bank=0xAF, dbr=0xAF)
+        reds.append(not cpu.p & 1)
+    check("...where a Red Mage can still equip what it could", (any(reds), all(reds)), (True, False))
+
+    #  Spells: a None learns nothing -- "You can't learn that", dialogue $19.
+    for cls, want in ((NONE, 0x19), (4, None)):
+        bus, cpu = machine()
+        party(bus, (cls, cls, cls, cls))
+        bus.wram[K["shop_charindex"]] = 0x40
+        bus.wram[K["shop_curitem"]] = 0xB0          # CURE
+        bus.sram[K["ch_spells"] - 0x6000:K["ch_spells"] - 0x6000 + 0x100] = bytes(0x100)
+        stopped = cpu.run(0xAF, SYM["MagicShop_AssertLearn"], stop=SYM["DrawShopDialogueBox"])
+        check("the magic shop and class $%02X" % cls, (cpu.a & 0xFF) if stopped else None, want)
+
+    #  The clinic does not offer to raise a None.
+    for classes, ailments, want in (((0, NONE, 3, 0), (0, 1, 1, 0), (1, [0x12, 0, 1])),
+                                    ((0, NONE, 3, 0), (0, 1, 0, 0), (0, []))):
+        bus, cpu = machine()
+        party(bus, classes, ailments)
+        call(cpu, "ClinicBuildNameString", bank=0xAF, dbr=0xAF)
+        sb = K["str_buf"] + 0x10
+        check("the clinic, ailments %s" % (ailments,),
+              (bus.wram[K["cursor_max"]], list(bus.wram[sb:sb + 3 * want[0]])), want)
+
+    #  ...nor LIFE from the menu.
+    for cls, want in ((NONE, (1, 1)), (3, (0, 0))):
+        bus, cpu = machine()
+        party(bus, (0, cls, 0, 0), (0, 1, 0, 0))
+        bus.wram[K["cursor"]] = 1
+        bus.wram[K["tmp"]] = 1                      # death
+        cpu.p &= ~1
+        call(cpu, "CureOBAilment", bank=0xAF, dbr=0xAF)
+        check("CureOBAilment's death cure on class $%02X: fails, still dead" % cls,
+              (cpu.p & 1, bus.sram[page(1) + 1]), want)
+
+    #  ...nor Cast Life in Battle.
+    for cls, want in ((NONE, (K["AIL_DEAD"], 0)), (3, (0, 1))):
+        bus, cpu = machine()
+        party(bus, (0, cls, 0, 0))
+        bus.sram[K["btl_defender"] - 0x6000] = 0x81
+        bus.sram[K["btlmag_defender_ailments"] - 0x6000] = 0     # the cure took the bit off
+        call(cpu, "opt_castlife", dbr=0xA1 + 0x0C)
+        check("Cast Life in Battle on class $%02X" % cls,
+              (bus.sram[K["btlmag_defender_ailments"] - 0x6000] & K["AIL_DEAD"],
+               bus.sram[K["btlmag_spellconnected"] - 0x6000]), want)
+
+    #  Battle: a None is not drawn.  btl8x8spr_a is the decoy: DrawCharacter's
+    #  first act for anyone it draws is to set it.
+    for cls, want in ((NONE, 0xEE), (0, 0x21)):
+        bus, cpu = machine()
+        party(bus, (0, cls, 0, 0))
+        bus.sram[K["btl_charattrib"] + 1 - 0x6000] = 0x21
+        bus.sram[K["btl8x8spr_a"] - 0x6000] = 0xEE
+        cpu.a = 1
+        try:
+            call(cpu, "DrawCharacter", bank=0xA1 + 0x0C, dbr=0xA1 + 0x0C)
+        except RuntimeError:
+            pass
+        check("DrawCharacter and class $%02X" % cls, bus.sram[K["btl8x8spr_a"] - 0x6000], want)
+
+    #  Battle CHR: a None's slot loads tiles from inside the table -- the
+    #  Fighter's, never drawn -- so with a None there the loader reads exactly
+    #  what it reads with a Fighter there.  Reads of the swapped-in bank only
+    #  ($8000-$BFFF), logged in order: the fixed bank's are the code itself,
+    #  and the None's path through it is an instruction longer.
+    def chr_reads(classes):
+        bus, cpu = machine()
+        party(bus, classes)
+        log, read = [], bus.read
+        def logged(bank, addr):
+            if 0x8000 <= addr & 0xFFFF < 0xC000:
+                log.append((bank & 0xFF, addr & 0xFFFF))
+            return read(bank, addr)
+        bus.read = logged
+        call(cpu, "LoadBatSprCHRPalettes")
+        return log
+    check("battle CHR for a None reads the Fighter's tiles",
+          chr_reads((0, NONE, 3, NONE)) == chr_reads((0, 0, 3, 0)), True)
+
+    #  Shop Information: a None can use nothing.
+    for cls in (NONE, 3):
+        yes = 0
+        for item in list(range(0x1C, 0x6C)) + list(range(0xB0, 0xF0)):
+            bus, cpu = machine()
+            party(bus, (cls, cls, cls, cls))
+            bus.sram[K["OPTPOSEIT"] - 0x6000] = item
+            cpu.x = 1
+            call(cpu, "opt_canuseit", dbr=CHUNK_OPT_BANK)
+            yes += cpu.p & 1
+        check("Shop Information: what class $%02X can use" % cls, yes > 0, cls != NONE)
+
+    #  A spell on the whole party passes over a None -- no box, no
+    #  "Ineffective", no pause -- where the dead and stoned still read
+    #  "Ineffective" (playtest: INV2 read it for both Nones).  The loop runs
+    #  for real; what it calls is found from its own JSRs and replaced by
+    #  recorders in low WRAM, which log the defender each box is drawn for,
+    #  then $CC for a cast, $EE for "Ineffective" and $DD for the pause.
+    b0c = 0xA1 + 0x0C
+    top = SYM["Battle_PlMag_TargetAllPlayers"]
+    base = img0c * 0x10000
+    code = ROMDATA[base + top:base + top + 0x40]
+    a = SYM["none_aoetarget"]
+    at = code.find(bytes([0x22, a & 0xFF, a >> 8, OPT]))
+    check("the all-party loop asks none_aoetarget", at >= 0, True)
+    if at >= 0:
+        def jsr(o):
+            return code[o + 1] | code[o + 2] << 8 if code[o] == 0x20 else None
+        o = at + 8
+        callee = dict(box=jsr(o), load=jsr(o + 3), valid=jsr(o + 6), ineff=jsr(o + 11),
+                      cast=jsr(o + 17), pause=jsr(o + 20), status=jsr(o + 23))
+        check("...and the loop is laid out as it was", None in callee.values(), False)
+        LOG, DEF = 0x1FE0, K["btl_defender"]
+        rec = lambda v: bytes([0xAE, LOG & 0xFF, LOG >> 8, 0xA9, v,
+                               0x9D, (LOG + 1) & 0xFF, (LOG + 1) >> 8, 0xEE, LOG & 0xFF, LOG >> 8, 0x60])
+        ail = K["ch_ailments"]
+        stubs = dict(
+            box=bytes([0xAE, LOG & 0xFF, LOG >> 8, 0xAD, DEF & 0xFF, DEF >> 8,
+                       0x9D, (LOG + 1) & 0xFF, (LOG + 1) >> 8, 0xEE, LOG & 0xFF, LOG >> 8, 0x60]),
+            load=b"\x60", status=b"\x60",
+            valid=bytes([0xAD, DEF & 0xFF, DEF >> 8]) + b"\x0A" * 6 +            # the slot's page
+                  bytes([0xAA, 0xBD, ail & 0xFF, ail >> 8, 0x29, K["AIL_DEAD"] | K["AIL_STONE"], 0x60]),
+            ineff=rec(0xEE), cast=rec(0xCC), pause=rec(0xDD))
+        stubbed, at_wram = bytearray(ROMDATA), 0x1F00
+        where = {}
+        for k in stubs:
+            where[k] = at_wram
+            stubbed[base + callee[k]:base + callee[k] + 3] = bytes([0x4C, at_wram & 0xFF, at_wram >> 8])
+            at_wram += len(stubs[k])
+        check("...its callees far enough apart to stub", min(abs(x - y) for x in callee.values()
+              for y in callee.values() if x != y) >= 3, True)
+
+        def aoe(classes, ailments):
+            bus, cpu = machine()
+            bus.rom = stubbed
+            for k in stubs:
+                bus.wram[where[k]:where[k] + len(stubs[k])] = stubs[k]
+            bus.wram[LOG] = 0
+            party(bus, classes, ailments)
+            call(cpu, "Battle_PlMag_TargetAllPlayers", bank=b0c, dbr=b0c)
+            return list(bus.wram[LOG + 1:LOG + 1 + bus.wram[LOG]]), bus.sram[DEF - 0x6000]
+
+        check("an all-party spell, Fighter / None / dead Bl.MAGE / None",
+              aoe((0, NONE, 5, NONE), (0, 1, 1, 1)),
+              ([0x80, 0xCC, 0xDD, 0x82, 0xEE, 0xDD], 0x83))
+        check("...and with no None, as it always was",
+              aoe((0, 1, 5, 2), (0, 0, 2, 0)),
+              ([0x80, 0xCC, 0xDD, 0x81, 0xCC, 0xDD, 0x82, 0xEE, 0xDD, 0x83, 0xCC, 0xDD], 0x83))
+        check("...and a None in slot 4 with the rest alive",
+              aoe((3, 4, 1, NONE), (0, 0, 0, 1)),
+              ([0x80, 0xCC, 0xDD, 0x81, 0xCC, 0xDD, 0x82, 0xCC, 0xDD], 0x83))
+
+    #  The wiring: each patched site calls its routine, once.
+    for img, name in ((img0e, "none_nextclass"), (img0e, "none_classtext"), (img0e, "none_ptygenspr"),
+                      (img0e, "none_ptygena"), (img0e, "none_classchange"), (img0e, "none_cursornone"),
+                      (img0e, "none_magperm"), (img0e, "none_isdead"), (img0e, "none_obailment"),
+                      (img0c, "none_drawchar"), (img0c, "none_aoetarget")):
+        check("%s is called once" % name, jsl_count(img, name, OPT), 1)
+    for name in ("PtyGen_A", "IsEquipLegal_N"):
+        a = SYM[name]
+        lo = img0e * 0x10000 + 0x8000
+        check("%s is JSR'd once" % name, ROMDATA[lo:lo + 0x4000].count(bytes([0x20, a & 0xFF, a >> 8])), 1)
+
+
+def test_rando_namelazy():
+    """The name lookup builds the cache only for gear.  It is the game's one
+    table of short names, and party creation draws class names through it
+    right after New Game writes a new seed: asking the cache there built the
+    whole world on that screen, a pause under its music.  A class, spell or
+    item name now leaves a stale cache stale, and a gear name still builds
+    it -- blursed, here, with a curse and a blessing of five."""
+    tag = rw("RW_TAG")
+    b0a = (1 + 0x0A) * 0x10000
+    bus, cpu = machine()
+    setgear(bus, 0x0BADF00D, 5, 5)
+    got, want = [], []
+    for item in range(256):
+        if 0x1C <= item < 0x6C:
+            continue
+        s0 = cpu.steps
+        cpu.a = item
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        got.append((item, (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bus.wram[tag], cpu.steps - s0 < 200))
+        want.append((item, ROMDATA[b0a + 0xB700 + 2 * item] | ROMDATA[b0a + 0xB701 + 2 * item] << 8, 0, True))
+    check("every name but gear's: the ROM's pointer, the cache not built, cheaply", got, want)
+    for item in (0x1C, 0x6B):
+        bus, cpu = machine()
+        setgear(bus, 0x0BADF00D, 5, 5)
+        cpu.a = item
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        check("gear $%02X's name builds the cache" % item, bus.wram[tag], K["RW_TAG_VAL"])
+    _, bonus = R.build_gear(ROMDATA, 0x0BADF00D, 5, 5)
+    g = next(i for i, b in enumerate(bonus) if b)
+    bus, cpu = machine()
+    setgear(bus, 0x0BADF00D, 5, 5)
+    cpu.a = 0x1C + g
+    call(cpu, "rando_nameptr", bank=RANDO_BANK)
+    check("a gear name builds the cache, and comes back blursed",
+          (bus.wram[tag], (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8), (K["RW_TAG_VAL"], K["OPTNAMEBUF"]))
+
+    #  And on the party creation screen itself: a class name drawn the way
+    #  PtyGen_DrawOneText draws it, through DrawComplexString's $02.
+    nt = K["NESNT"] - 0x7E0000
+    bus, cpu = machine()
+    in_vblank(bus)
+    setgear(bus, 0x0BADF00D, 5, 5)
+    bus.wram[0x60] = 0
+    bus.wram[K["ptygen_class"]] = 3
+    cpu.x = 0
+    call(cpu, "none_classtext")
+    bus.wram[K["dest_x"]], bus.wram[K["dest_y"]] = 3, 5
+    bus.wram[K["cur_bank"]] = bus.wram[K["ret_bank"]] = 0x0E
+    call(cpu, "DrawComplexString")
+    check("party creation draws a class name without building the world",
+          (bus.wram[tag], "".join(_decode(b) or "?" for b in bus.wram[nt + 5 * 32 + 3:nt + 5 * 32 + 10])),
+          (0, "RedMAGE"))
 
 
 # --- Weapon Stats: the enemy's attack element --------------------------------
@@ -5775,7 +6209,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin)
+             test_rando_begin, test_nones, test_rando_namelazy)
 
     global JOBS
     args, want = sys.argv[1:], []
