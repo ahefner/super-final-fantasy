@@ -480,6 +480,42 @@ lut_Desc_55_3:  ; Formation zones: Random
   FFPAD {"game never uses included."}, 28
   FFPAD {"The land by Coneria stays."}, 28
 
+lut_Desc_56:  ; Unrunnable fights, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_56_0, lut_Desc_56_1
+  .assert * - lut_Desc_56 = 1 + 2 * RUNS_MODES, error, "one unrunnable description per mode"
+
+lut_Desc_56_0:  ; Unrunnable fights: Off
+  FFLINES 2
+  FFPAD {"The fights you cannot run"}, 28
+  FFPAD {"from are the usual ones."}, 28
+
+lut_Desc_56_1:  ; Unrunnable fights: Shuffle
+  FFLINES 5
+  FFPAD {"As many fights as before"}, 28
+  FFPAD {"cannot be run from, but"}, 28
+  FFPAD {"which ones is dealt anew,"}, 28
+  FFPAD {"each side on its own.  The"}, 28
+  FFPAD {"bosses stay as they are."}, 28
+
+lut_Desc_57:  ; Surprise rates, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_57_0, lut_Desc_57_1
+  .assert * - lut_Desc_57 = 1 + 2 * SURPRISE_MODES, error, "one surprise description per mode"
+
+lut_Desc_57_0:  ; Surprise rates: Off
+  FFLINES 2
+  FFPAD {"Each fight is as likely to"}, 28
+  FFPAD {"ambush you as it always is."}, 28
+
+lut_Desc_57_1:  ; Surprise rates: Shuffle
+  FFLINES 5
+  FFPAD {"How likely each fight is to"}, 28
+  FFPAD {"ambush you, and you it, is"}, 28
+  FFPAD {"dealt out again among the"}, 28
+  FFPAD {"fights.  One you cannot run"}, 28
+  FFPAD {"from never ambushes."}, 28
+
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 4
   FFPAD {"The 234 chests that hold no"}, 28
@@ -502,7 +538,7 @@ lut_DescLo:
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
   .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
-  .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55
+  .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56, <lut_Desc_57
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -519,6 +555,6 @@ lut_DescHi:
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
   .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
-  .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55
+  .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56, >lut_Desc_57
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

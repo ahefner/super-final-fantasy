@@ -1493,6 +1493,10 @@ lut_OptRows:
   OPTLABEL {"Formation rarity"}
   .BYTE $02, $0C   ; Formation zones
   OPTLABEL {"Formation zones"}
+  .BYTE $02, $0D   ; Unrunnable fights
+  OPTLABEL {"Unrunnable fights"}
+  .BYTE $02, $0E   ; Surprise rates
+  OPTLABEL {"Surprise rates"}
 
 lut_OptRowsEnd:
 
@@ -1665,17 +1669,21 @@ lut_ValZones:
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
               .BYTE <lut_ValTraps, <lut_ValShuffle, <lut_ValShuffle, <lut_ValShuffle
               .BYTE <lut_ValBless, <lut_ValCurse, <lut_ValRarity, <lut_ValZones
+              .BYTE <lut_ValShuffle, <lut_ValShuffle
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
+              .BYTE >lut_ValShuffle, >lut_ValShuffle
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
+              .BYTE RUNS_MODES, SURPRISE_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
               .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
+              .BYTE <OPT_NG_NORUN, <OPT_NG_SURPRISE
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

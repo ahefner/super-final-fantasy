@@ -42,6 +42,8 @@ STREAM_MAGIC = 0x4D414743       # "MAGC"
 STREAM_GEAR = 0x424C5253        # "BLRS"
 STREAM_ZONES = 0x5A4F4E45       # "ZONE"
 STREAM_RARITY = 0x52415245      # "RARE"
+STREAM_RUNS = 0x52554E53        # "RUNS"
+STREAM_SURPRISE = 0x53555250    # "SURP"
 WARMUP = 8
 
 
@@ -403,6 +405,58 @@ def formation_text(rom, f):
     return ", ".join(out) or "nobody"
 
 
+#  Unrunnable fights and surprise rates: byte $0C of a formation record is its
+#  surprise rate, bit 0 of $0D its no-run flag, for both sides.  The cache
+#  holds the flag per side (formation id, side in bit 7) and the rate per
+#  formation.  0-114 are normal; 115-123 fiends and Chaos; 124-127 Vampire,
+#  Astos, the pirates and Garland.
+RUNS_OFF, RUNS_SHUFFLE = 0, 1
+RUNS_MODES = 2
+RUNS_NAMES = {"off": RUNS_OFF, "shuffle": RUNS_SHUFFLE}
+RUNS_COUNT = 26                 # vanilla's 13 unrunnable normal formations, both sides
+SURPRISE_OFF, SURPRISE_SHUFFLE = 0, 1
+SURPRISE_MODES = 2
+SURPRISE_NAMES = {"off": SURPRISE_OFF, "shuffle": SURPRISE_SHUFFLE}
+NORMAL_FORMS, CHAOS_FORM = 115, 123
+
+
+def build_runs(rom, seed, runs):
+    """1 for every side that cannot be run from, 256 bytes by formation id."""
+    t = bytearray(256)
+    for f in range(128):
+        t[f] = t[0x80 | f] = rom[FORMATIONS_AT + f * 16 + 0x0D] & 1
+    if 0 < runs < RUNS_MODES:
+        #  FFR's pool, cleared as it is built: A-sides 1-114, B-sides 0-114,
+        #  the last four's B-sides.  Then RUNS_COUNT drawn without replacement.
+        rng = Stream(seed, STREAM_RUNS)
+        pool = []
+        for f in range(NORMAL_FORMS):
+            t[f] = t[0x80 | f] = 0
+            if f:
+                pool.append(f)
+        pool += [0x80 | f for f in range(NORMAL_FORMS)]
+        for f in range(CHAOS_FORM + 1, 128):
+            t[0x80 | f] = 0
+            pool.append(0x80 | f)
+        for _ in range(RUNS_COUNT):
+            j = rng.below(len(pool))
+            t[pool[j]] = 1
+            pool[j] = pool[-1]
+            pool.pop()
+    return bytes(t)
+
+
+def build_surprise(rom, seed, surprise):
+    """Every formation's surprise rate, 128 bytes."""
+    t = bytearray(rom[FORMATIONS_AT + f * 16 + 0x0C] for f in range(128))
+    if 0 < surprise < SURPRISE_MODES:
+        rng = Stream(seed, STREAM_SURPRISE)
+        for i in range(NORMAL_FORMS - 1, 0, -1):
+            j = rng.below(i + 1)
+            t[i], t[j] = t[j], t[i]
+    return bytes(t)
+
+
 def zone_name(z):
     if z < 64:
         return "overworld %d,%d" % (z % 8, z // 8)
@@ -567,7 +621,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 12
+RANDO_SAVE_SIZE = 14
 
 
 def block_from_srm(srm):
@@ -588,6 +642,10 @@ def main():
     ap.add_argument("--curse", type=int, default=0, help="min gear curse, 0..5")
     ap.add_argument("--rarity", choices=sorted(FORMS_NAMES), default="off")
     ap.add_argument("--zones", choices=sorted(ZONES_NAMES), default="off")
+    ap.add_argument("--runs", choices=sorted(RUNS_NAMES), default="off",
+                    help="unrunnable fights")
+    ap.add_argument("--surprise", choices=sorted(SURPRISE_NAMES), default="off",
+                    help="surprise rates")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
@@ -595,17 +653,19 @@ def main():
     rom = open(a.rom, "rb").read()
     if a.srm:
         (seed, traps, shops, chests, magic, bless, curse,
-         rarity, zones) = block_from_srm(open(a.srm, "rb").read())
+         rarity, zones, runs, surprise) = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
-        seed, traps, shops, chests, magic, bless, curse, rarity, zones = (
+        seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs, surprise = (
             int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
             CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse,
-            FORMS_NAMES[a.rarity], ZONES_NAMES[a.zones])
+            FORMS_NAMES[a.rarity], ZONES_NAMES[a.zones], RUNS_NAMES[a.runs],
+            SURPRISE_NAMES[a.surprise])
     else:
         ap.error("give a battery file or --seed")
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
-          " blessing +%d, curse -%d, formation rarity %d, zones %d"
-          % (seed, traps, shops, chests, magic, bless, curse, rarity, zones))
+          " blessing +%d, curse -%d, formation rarity %d, zones %d, unrunnable %d,"
+          " surprise %d" % (seed, traps, shops, chests, magic, bless, curse, rarity,
+                            zones, runs, surprise))
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:
@@ -661,6 +721,17 @@ def main():
                                                     "" if f == v else "  was $%02X %s"
                                                     % (v, formation_text(rom, v)))
                 print(line.rstrip())
+    if runs:
+        norun = build_runs(rom, seed, runs)
+        for f in range(256):
+            if norun[f] and (f & 0x7F) < NORMAL_FORMS or f >= 0x80 + CHAOS_FORM + 1 and norun[f]:
+                print("  cannot run  $%02X %s" % (f, formation_text(rom, f)))
+    if surprise:
+        was, now = build_surprise(rom, seed, 0), build_surprise(rom, seed, surprise)
+        for f in range(NORMAL_FORMS):
+            if was[f] != now[f]:
+                print("  surprise    $%02X %3d (was %3d)  %s / %s"
+                      % (f, now[f], was[f], formation_text(rom, f), formation_text(rom, 0x80 | f)))
     src = rom_props(rom)
     out = build_props(rom, seed, traps)
     for i in trap_offsets(src):

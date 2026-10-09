@@ -251,6 +251,10 @@ class CPU:
         that ends by waiting for the player never returns, and the moment it
         first calls UpdateJoy is when it has finished drawing and asks.  The
         answer is True if it halted there, None if the routine returned.
+
+        limit counts this call's steps.  It counted the CPU's whole life once,
+        and a test that ran many cache builds on one CPU crossed it partway
+        through a build that was fine, the day the build grew.
         """
         self.pbr, self.pc = bank, addr
         #  A return address no real code occupies.  The bank byte is pushed
@@ -261,9 +265,10 @@ class CPU:
         self.push(0xFF)
         self.push(0xFF)
         self.push(0xFD)
+        start = self.steps
         while True:
             self.steps += 1
-            if self.steps > limit:
+            if self.steps - start > limit:
                 raise RuntimeError("ran away at $%02X:%04X" % (self.pbr, self.pc))
             if self.pc == 0xFFFE:
                 return

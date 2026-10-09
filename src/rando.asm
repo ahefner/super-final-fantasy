@@ -44,7 +44,7 @@
 .export rando_menuspell, rando_shopspell, rando_shopmagic
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
-.export rando_formation
+.export rando_formation, rando_formdata
 ;  For tools/test_options.py.
 .export rando_ensure, rando_xs
 
@@ -110,6 +110,8 @@ wM16     = .LOWORD(RW_M16)
 wZONEOK  = .LOWORD(RW_ZONEOK)
 wDOMAINS = .LOWORD(RW_DOMAINS)
 wPOS     = .LOWORD(RW_POS)
+wNORUN   = .LOWORD(RW_NORUN)
+wSURPRISE = .LOWORD(RW_SURPRISE)
 
 ;  The cartridge's own tile property tables: eight tilesets, 128 tiles each,
 ;  two bytes a tile -- the function, then a parameter (for a battle tile, its
@@ -144,6 +146,17 @@ ROMDOMAINS   = BANK0BFAR + lut_Domains
 DOMAINS_SIZE = 128 * 8
 WARMECH_FORM = $56              ; Sky Palace 5F's slot 6; Light and Shuffle pin it
 .import lut_RNG, lut_FormationWeight
+
+;  lut_BattleFormations, bank $0B: 128 records of 16 bytes.  Byte $0C is the
+;  surprise rate, bit 0 of $0D the no-run flag, for both sides.  0-114 are the
+;  normal formations; 115-123 the fiends, twice each, and Chaos; 124-127
+;  Vampire, Astos, the pirates and Garland, whose B-sides are ordinary fights.
+.import lut_BattleFormations
+ROMFORMS     = BANK0BFAR + lut_BattleFormations
+NORMAL_FORMS = 115
+CHAOS_FORM   = 123
+STREAM_RUNS     = $52554E53     ; "RUNS"
+STREAM_SURPRISE = $53555250     ; "SURP"
 
 ;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
 .import lut_WeaponData, lut_ArmorData
@@ -605,10 +618,24 @@ build:
     JSR deal_zones
   @rarity:
     LDA f:RANDO_SAVEFAR + (RANDO_FORMS - RANDO_SAVE)
-    BEQ @done                   ; FORMS_OFF
+    BEQ @runs                   ; FORMS_OFF
     CMP #FORMS_MODES
-    BCS @done
+    BCS @runs
     JSR deal_rarity
+
+  @runs:
+    JSR copy_runs
+    LDA f:RANDO_SAVEFAR + (RANDO_NORUN - RANDO_SAVE)
+    BEQ @surprise               ; RUNS_OFF
+    CMP #RUNS_MODES
+    BCS @surprise
+    JSR deal_runs
+  @surprise:
+    LDA f:RANDO_SAVEFAR + (RANDO_SURPRISE - RANDO_SAVE)
+    BEQ @done                   ; SURPRISE_OFF
+    CMP #SURPRISE_MODES
+    BCS @done
+    JSR deal_surprise
   @done:
     PLP
     RTS
@@ -2655,4 +2682,248 @@ rando_formation:
     .a8
     LDA a:wDOMAINS, X
     STA z:btlformation
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_runs -- the no-run flags and surprise rates as the cartridge has them
+;;
+;;  Each formation's no-run bit for both its sides, and its surprise rate.
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_runs:
+    .a8
+    .i16
+    LDX #$0000                  ; the record
+    LDY #$0000                  ; the formation
+  @copy:
+    LDA f:ROMFORMS + $0D, X
+    AND #$01
+    STA a:wNORUN, Y
+    STA a:wNORUN + $80, Y
+    LDA f:ROMFORMS + $0C, X
+    STA a:wSURPRISE, Y
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #16
+    TAX
+    SEP #$20
+    .a8
+    INY
+    CPY #128
+    BCC @copy
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_runs -- FFR's ShuffleUnrunnable, at vanilla's count
+;;
+;;  Every side FFR may mark becomes runnable, then RUNS_COUNT of them are
+;;  drawn, without replacement, and marked.  FFR's pool, 233 sides: the
+;;  A-sides of formations 1-114, the B-sides of 0-114, and the B-sides of the
+;;  last four, 124-127.  Never the imps' A-side, the fiends or Chaos, or the
+;;  A-sides of the last four, which keep the cartridge's flags.  A drawn entry
+;;  is replaced by the list's last, as deal_traps does.
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_runs:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_RUNS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_RUNS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+
+    ;  The pool, built as it is cleared: A-sides 1-114, then B-sides 0-114,
+    ;  then the last four's B-sides.
+    LDY #$0000                  ; entries
+    LDX #$0000                  ; the formation
+  @normal:
+    STZ a:wNORUN, X
+    STZ a:wNORUN + $80, X
+    TXA
+    BEQ @bside                  ; not the imps' A-side
+    STA a:wLIST, Y
+    INY
+  @bside:
+    INX
+    CPX #NORMAL_FORMS
+    BCC @normal
+    LDX #$0000
+  @bpool:
+    TXA
+    ORA #$80
+    STA a:wLIST, Y
+    INY
+    INX
+    CPX #NORMAL_FORMS
+    BCC @bpool
+    LDX #CHAOS_FORM + 1
+  @last4:
+    STZ a:wNORUN + $80, X
+    TXA
+    ORA #$80
+    STA a:wLIST, Y
+    INY
+    INX
+    CPX #128
+    BCC @last4
+    TYA
+    STA a:wLEN                  ; 233
+
+    LDA #RUNS_COUNT
+    STA a:wFC
+  @draw:
+    LDA a:wLEN
+    JSR rando_below
+    REP #$20
+    .a16
+    AND #$00FF
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wLIST, Y
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA #$01
+    STA a:wNORUN, X             ; that side cannot be run from
+    DEC a:wLEN
+    LDA a:wLEN
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wLIST, X              ; the last entry fills the gap
+    STA a:wLIST, Y
+    DEC a:wFC
+    BNE @draw
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_surprise -- FFR's ShuffleSurpriseBonus
+;;
+;;  The surprise rates of the 115 normal formations, Fisher-Yates from the
+;;  top.  Like FFR's, it does not care which fights cannot be run from, which
+;;  never ambush whatever their rate -- as in the cartridge.
+;;
+;;  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+deal_surprise:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_SURPRISE)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_SURPRISE)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA #NORMAL_FORMS
+    STA a:wFC                   ; i + 1
+  @loop:
+    LDA a:wFC
+    CMP #2
+    BCC @done
+    JSR rando_below             ; j, 0..i
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    LDA a:wFC
+    AND #$00FF
+    DEC A
+    TAY
+    SEP #$20
+    .a8
+    LDA a:wSURPRISE, X
+    PHA
+    LDA a:wSURPRISE, Y
+    STA a:wSURPRISE, X
+    PLA
+    STA a:wSURPRISE, Y
+    DEC a:wFC
+    BRA @loop
+  @done:
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_formdata -- EnterBattle's copy of the formation record
+;;
+;;  EnterBattle copied btlformation's sixteen bytes out of lut_BattleFormations
+;;  into btl_formdata.  This copies them the same way and then writes two of
+;;  them from the cache: the surprise rate, and bit 0 of byte $0D as the
+;;  no-run flag of the side being fought.  Every reader -- the first-strike
+;;  check and RUN in bank $0C, and Run -> Wait -- asks bit 0 of that copy, so
+;;  none of them changes, and a side gets its own flag without FFR's second
+;;  bit.  With both rows off, the cache holds the record's own bit for both
+;;  sides and its own rate, so the copy is the cartridge's.
+;;
+;;  The fixed bank keeps its swap to BANK_BTLDATA.  In: btlformation.  Out:
+;;  btl_formdata; A, X and Y not kept, as EnterBattle's loop did not keep them.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_formdata:
+    .a8
+    .i8
+    PHB
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    REP #$30
+    .a16
+    .i16
+    LDA z:btlformation
+    AND #$007F
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    CLC
+    ADC #.LOWORD(ROMFORMS)
+    TAX
+    LDY #btl_formdata
+    LDA #16 - 1
+    MVN #^ROMFORMS, #^SRAMFAR   ; leaves DBR = SRAM's bank, which leave puts back
+    LDA z:btlformation
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:btl_formdata + $0D
+    AND #$FE
+    ORA f:RW_NORUN, X           ; this side's flag
+    STA a:btl_formdata + $0D
+    REP #$20
+    .a16
+    TXA
+    AND #$007F
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RW_SURPRISE, X
+    STA a:btl_formdata + $0C
     JMP leave

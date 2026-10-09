@@ -1292,7 +1292,9 @@ RANDO_BLESS     = RANDO_SAVE+$08  ; the best a piece of gear may roll, 0..5
 RANDO_CURSE     = RANDO_SAVE+$09  ; the worst, as a magnitude, 0..5
 RANDO_FORMS     = RANDO_SAVE+$0A  ; FORMS_* below: formation rarity
 RANDO_ZONES     = RANDO_SAVE+$0B  ; ZONES_* below: formations across zones
-RANDO_SAVE_SIZE = $0C
+RANDO_NORUN     = RANDO_SAVE+$0C  ; RUNS_* below: which fights cannot be run from
+RANDO_SURPRISE  = RANDO_SAVE+$0D  ; SURPRISE_* below: the fights' surprise rates
+RANDO_SAVE_SIZE = $0E
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1312,6 +1314,8 @@ OPT_NG_BLESS    = OPT_NG + (RANDO_BLESS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_CURSE    = OPT_NG + (RANDO_CURSE - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_FORMS    = OPT_NG + (RANDO_FORMS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_ZONES    = OPT_NG + (RANDO_ZONES - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_NORUN    = OPT_NG + (RANDO_NORUN - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_SURPRISE = OPT_NG + (RANDO_SURPRISE - RANDO_SAVE) - RANDO_NGOFF
 
 ;  Two buffers the randomizer hands to game code, in SRAM because every chunk
 ;  sees it and none sees WRAM above $2000.  Written before every read.
@@ -1378,6 +1382,19 @@ ZONES_LIGHT     = 1             ; slots 0, 3, 5 and 6, each pooled across zones
 ZONES_SHUFFLE   = 2             ; each rarity class pooled across zones and dealt
 ZONES_RANDOM    = 3             ; FFR's Totally Random: any formation but a boss
 ZONES_MODES     = 4
+
+;  Unrunnable fights: FFR's Shuffle Unrunnable Encounters at vanilla's count.
+;  The cartridge's 13 unrunnable normal formations are 26 sides, since its
+;  no-run bit covers both; Shuffle marks 26 sides of FFR's 233 instead, each
+;  side on its own.  Surprise rates: FFR's Shuffle Surprise Bonus, the rate
+;  dealt out again among the 115 normal formations.
+RUNS_OFF        = 0
+RUNS_SHUFFLE    = 1
+RUNS_MODES      = 2
+RUNS_COUNT      = 26
+SURPRISE_OFF    = 0
+SURPRISE_SHUFFLE = 1
+SURPRISE_MODES  = 2
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1460,5 +1477,8 @@ RW_M16          = RANDOWRAM+$008C ; ...and its rejection mask
 RW_ZONEOK       = RANDOWRAM+$0500 ; zones: nonzero for a zone the pass may touch
 RW_DOMAINS      = RANDOWRAM+$1C00 ; every zone's 8 formations, as lut_Domains
 RW_POS          = RANDOWRAM+$2000 ; zones: one rarity class's slots, words, 512 max
+RW_NORUN        = RANDOWRAM+$2400 ; 1 for a side that cannot be run from, by
+                                  ; formation id with the side in bit 7
+RW_SURPRISE     = RANDOWRAM+$2500 ; each formation's surprise rate, 128 bytes
 RW_TAG_VAL      = $A5             ; anything but 0, which is what reset leaves
 .assert RANDO_SAVE_SIZE < $10, error, "the tag copy runs into RW_RNG"

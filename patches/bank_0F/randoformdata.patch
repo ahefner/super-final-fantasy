@@ -1,0 +1,34 @@
+--- OLD
+    LDA a:btlformation        ; get the formation ID
+    AND #$7F                  ; remove the 'Formation B' bit to get the raw formation ID
+    LDX #0                    ;  mulitply the formation ID by 16 (shift by 4) and rotate
+    STX btltmp+11             ;  bits into btltmp+11.  The end result is that (btltmp+10) will
+    ASL A                     ;  be formation*16
+    ROL btltmp+11
+    ASL A
+    ROL btltmp+11
+    ASL A
+    ROL btltmp+11
+    ASL A
+    ROL btltmp+11
+    STA btltmp+10
+
+    CLC                       ; add to that the high byte of the formation data pointer
+    LDA btltmp+11             ;  and (btltmp+10) now points to our formation data.
+    ADC #>lut_BattleFormations
+    STA btltmp+11
+
+    LDX #$10                  ; $10 bytes of formation data (down counter)
+    LDY #0                    ; index  (seems pointless to use both X and Y here -- could've just used Y)
+  @FormationLoop:
+      LDA (btltmp+10), Y      ; copy a byte from the LUT in ROM
+      STA btl_formdata, Y     ;  to our formation data buffer in RAM
+      INY                     ; inc index
+      DEX                     ; dec loop counter
+      BNE @FormationLoop      ; and loop until all $10 bytes copied
+--- NEW
+.import rando_formdata
+    ;  The record, copied in the randomizer's chunk, which then writes its
+    ;  surprise rate and the no-run flag of the side being fought from its
+    ;  cache: the cartridge's own with those rows off.  39 bytes back.
+    JSL rando_formdata + RANDOFAR

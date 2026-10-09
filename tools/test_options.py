@@ -4143,13 +4143,14 @@ def test_rando_options():
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
     check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 13]),
+          list(ROMDATA[at:at + 15]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
            K["OPT_NG_MAGIC"] - OPTBLOCK, K["OPT_NG_BLESS"] - OPTBLOCK,
            K["OPT_NG_CURSE"] - OPTBLOCK, K["OPT_NG_FORMS"] - OPTBLOCK,
-           K["OPT_NG_ZONES"] - OPTBLOCK])
+           K["OPT_NG_ZONES"] - OPTBLOCK, K["OPT_NG_NORUN"] - OPTBLOCK,
+           K["OPT_NG_SURPRISE"] - OPTBLOCK])
 
     #  Driving the row itself, through the menu's own adjuster: right steps
     #  it up to the last mode and stops; left steps it down to Off and stops.
@@ -4161,7 +4162,9 @@ def test_rando_options():
             (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
             (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0]),
             (66, K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
-            (67, K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0])):
+            (67, K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
+            (68, K["OPT_NG_NORUN"], 3, [1, 1, 1, 0, 0, 0]),
+            (69, K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -5182,6 +5185,88 @@ def test_rando_formload():
     check("GetBattleFormation asks rando_formation", jsl_count(fixedimg, "rando_formation"), 1)
 
 
+# --- unrunnable fights and surprise rates ----------------------------------------
+FORMS_ROM = (1 + 0x0B) * 0x10000 + 0x8400        # lut_BattleFormations
+
+
+def runs_cache(bus):
+    a, b = rw("RW_NORUN"), rw("RW_SURPRISE")
+    return bytes(bus.wram[a:a + 256]), bytes(bus.wram[b:b + 128])
+
+
+def setruns(bus, seed, runs, surprise):
+    setsave(bus, seed, 0)
+    bus.sram[K["RANDO_NORUN"] - 0x6000] = runs
+    bus.sram[K["RANDO_SURPRISE"] - 0x6000] = surprise
+
+
+def test_rando_runs():
+    rec = lambda f: ROMDATA[FORMS_ROM + f * 16:][:16]
+    flag = [rec(f)[0x0D] & 1 for f in range(128)]
+    rate = [rec(f)[0x0C] for f in range(128)]
+    check("13 of the 115 normal formations cannot be run from", sum(flag[:115]), 13)
+    check("...and every fiend, Chaos and the last four", flag[115:], [1] * 13)
+    #  FFR's pool, stated here rather than taken from randoref.
+    pool = set(range(1, 115)) | set(range(0x80, 0x80 + 115)) | set(range(0xFC, 0x100))
+    check("FFR's pool is 233 sides", len(pool), 233)
+    vanilla = bytes(flag + flag), bytes(rate)
+    seen = {}
+    for runs in range(3):                       # 2 is no mode: as off
+        for surprise in range(3):
+            for seed in (0x600DCAFE, 7, 0x0BADF00D):
+                bus, cpu = machine()
+                setruns(bus, seed, runs, surprise)
+                call(cpu, "rando_ensure", bank=RANDO_BANK)
+                norun, rates = runs_cache(bus)
+                rn, sp = runs % 2, surprise % 2
+                name = "runs %d surprise %d seed $%08X" % (runs, surprise, seed)
+                check(name + ": the reference's flags", norun, R.build_runs(ROMDATA, seed, rn))
+                check(name + ": the reference's rates", rates, R.build_surprise(ROMDATA, seed, sp))
+                seen.setdefault((rn, sp), set()).add((norun, rates))
+                if not rn:
+                    check(name + ": the cartridge's flags, both sides alike", norun, vanilla[0])
+                else:
+                    check(name + ": 26 sides of the pool cannot be run from",
+                          sum(norun[f] for f in pool), 26)
+                    check(name + ": the imps' A-side, the fiends, Chaos and the last four's"
+                          " A-sides keep theirs",
+                          [f for f in range(256) if f not in pool and norun[f] != vanilla[0][f]], [])
+                if not sp:
+                    check(name + ": the cartridge's rates", rates, vanilla[1])
+                else:
+                    check(name + ": the normal formations' rates, among themselves",
+                          sorted(rates[:115]), sorted(vanilla[1][:115]))
+                    check(name + ": the bosses' rates stay", rates[115:], vanilla[1][115:])
+    for (rn, sp), worlds in sorted(seen.items()):
+        check("runs %d surprise %d: three seeds, %s worlds" % (rn, sp, "one" if rn == sp == 0 else "three"),
+              len(worlds), 1 if rn == sp == 0 else 3)
+
+
+def test_rando_formdata():
+    """EnterBattle's copy, through rando_formdata: every side of every
+    formation, with btl_formdata full of junk first.  The record as the ROM
+    has it but for the surprise rate and the side's no-run bit, which are the
+    cache's.  One machine per world, so the first call builds it."""
+    at = K["btl_formdata"] - 0x6000
+    for runs, surprise, seed in ((0, 0, 0x600DCAFE), (1, 1, 0x600DCAFE), (1, 0, 9), (0, 1, 9)):
+        norun = R.build_runs(ROMDATA, seed, runs)
+        rates = R.build_surprise(ROMDATA, seed, surprise)
+        bus, cpu = machine()
+        setruns(bus, seed, runs, surprise)
+        bad = []
+        for f in range(256):
+            want = bytearray(ROMDATA[FORMS_ROM + (f & 0x7F) * 16:][:16])
+            want[0x0C] = rates[f & 0x7F]
+            want[0x0D] = (want[0x0D] & 0xFE) | norun[f]
+            bus.sram[at:at + 16] = bytes((0xA5 + i) & 0xFF for i in range(16))
+            bus.wram[K["btlformation"]] = f
+            call(cpu, "rando_formdata", bank=RANDO_BANK)
+            if bytes(bus.sram[at:at + 16]) != bytes(want):
+                bad.append("$%02X" % f)
+        check("runs %d surprise %d: every side's copy" % (runs, surprise), bad[:4], [])
+    check("EnterBattle asks rando_formdata", jsl_count(0xA7 & 0x1F, "rando_formdata"), 1)
+
+
 # --- Weapon Stats: the enemy's attack element --------------------------------
 #  FFR's FixWeaponStats write at $325B0: with the flag on, an enemy's physical
 #  attack has category 0 and the element of its touch (ROM byte $0E), not its
@@ -5314,7 +5399,8 @@ def main():
              test_rando_magic, test_rando_spellconv, test_rando_oobspell,
              test_rando_spellnames, test_rando_magicshop,
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
-             test_enemyelement, test_rando_formations, test_rando_formload)
+             test_enemyelement, test_rando_formations, test_rando_formload,
+             test_rando_runs, test_rando_formdata)
 
     global JOBS
     args, want = sys.argv[1:], []
