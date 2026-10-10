@@ -409,7 +409,10 @@ FFR's Shuffle Across Zones moved single slots, rarity and all, until 2024 and
 whole zones since, and its tooltip has described each in turn.  Light moves
 only slots 0, 3, 5 and 6, so a zone keeps four of its eight fights.  Neither
 moves WarMECH off Sky Palace 5F; rarity may change its slot there, as FFR's
-does.
+does.  Random is FFR's Totally Random.  Both Shuffles together are "any
+encounter anywhere, regardless of zone or rarity".  `GetBattleFormation`
+reads the cache's copy of `lut_Domains` (26 fixed-bank bytes back).  Played
+2026-10-08.  See `enemy-shuffle-notes.md` §1.
 
 Unrunnable fights and Surprise rates, two value rows: Off, Shuffle.  FFR's
 Shuffle Unrunnable Encounters at vanilla's count -- 26 sides drawn from FFR's
@@ -418,7 +421,7 @@ both -- and its Shuffle Surprise Bonus over the 115 normal formations.  The
 fiends, Chaos and the last four boss A-sides keep their flags.
 `EnterBattle`'s formation copy moved out (39 fixed-bank bytes back) and writes
 the side's flag into bit 0 of the RAM copy, which every reader already asks,
-so no reader changed and FFR's second bit is not needed.
+so no reader changed and FFR's second bit is not needed.  Played 2026-10-08.
 
 Status attacks (Off, Shuffle), Enemy scripts and Enemy skills (Off, Enemies,
 Bosses, Both), three value rows.  Status attacks is FFR's Enemy Status
@@ -430,7 +433,8 @@ both.  Fixed rather than offered (the user's call): No Consecutive Nukes
 on, pirates safe, the vanilla script count, No Empty Scripts off; no Remove
 Boss Scripts, balanced generator or boss sub-options.  The touch reaches the
 battle through `opt_scaleatk`, the script through `rando_enemyai` and a
-16-byte shadow in SRAM.
+16-byte shadow in SRAM.  Played 2026-10-09, in a full playthrough with every
+flag on.
 
 RNG tables, a value row: Off, Shuffle -- FFR's flag of that name, on in all
 its presets but Improved Vanilla.  The encounter table (`lut_RNG`: whether a
@@ -444,10 +448,8 @@ ensures like every consumer; `BattleRNG` reads it directly, since
 comes through `rando_formdata` besides; `GetBattleFormation` already read
 through the cache.  The minigame's puzzle shuffle keeps the
 ROM table.  **Declined (user, 2026-10-09):** Fix Missing Battle RNG Entry,
-Set RNG (identical battles for racers) and Advanced Encounter RNG.  Random is FFR's Totally Random.  Both Shuffles together are "any encounter anywhere,
-regardless of zone or rarity".  `GetBattleFormation` reads the cache's copy
-of `lut_Domains` (26 fixed-bank bytes back).  Played 2026-10-08.  See `enemy-shuffle-notes.md`
-§1.
+Set RNG (identical battles for racers) and Advanced Encounter RNG.  Played
+2026-10-09, in the same playthrough.
 
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
@@ -813,6 +815,10 @@ it re-reads the flag every battle.
 
 
 ## 10. Implementation status
+
+**Everything through commit ddf45b8 has been played** (user, 2026-10-09): a
+full playthrough with every flag enabled, after the earlier rounds that each
+covered part of it.  Nothing built is waiting on a playtest.
 
 ### Done and in `main`
 

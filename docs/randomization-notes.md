@@ -1227,9 +1227,10 @@ key item stays where vanilla put it.
      of which free bytes.  See `enemy-shuffle-notes.md`.  Formations built
      and played 2026-10-08 as two passes, rarity and zones (notes §1);
      unrunnable fights and surprise rates built and played the same day (§2);
-     status attacks, scripts and skills & spells built 2026-10-09 (§3, §4),
+     status attacks, scripts and skills & spells built 2026-10-09 (§3, §4)
+     and played the same day in a full playthrough with every flag on,
      which completes the item.  RNG tables (FFR's flag: the encounter and
-     battle tables shuffled per seed) built the same day; see
+     battle tables shuffled per seed) built and played the same day; see
      `options-design.md`.
 
 **Random Wares is dropped (user, 2026-10-08)**: it fills shops with a pile

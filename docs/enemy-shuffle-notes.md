@@ -265,7 +265,8 @@ casts spells by identity as vanilla does and needs no inverse.  Enemy spells
 still go through `Battle_PrepareMagic` and `opt_magicdata`, so Spell Fixes and
 the spell buffs apply as now.
 
-**Built 2026-10-09, not yet played.**  Two rows, Enemy scripts and Enemy
+**Built and played 2026-10-09** (a full playthrough with every flag on).
+Two rows, Enemy scripts and Enemy
 skills, each Off / Enemies / Bosses / Both (§6).
 
   - `rando_enemyai` replaces `Enemy_DoAi`'s 30-byte lookup (byte-neutral:
@@ -339,7 +340,7 @@ setup (bank `$0C`).  It sits right after the port's existing
 WRAM table.  The 7-byte load that follows the hook (`LDY` / `LDA` / `STA`)
 then goes away, a net +7 bytes in a bank with 4.
 
-**Built 2026-10-09, not yet played**, as one row, Status attacks: Off /
+**Built and played 2026-10-09** (the same playthrough), as one row, Status attacks: Off /
 Shuffle.  `opt_scaleatk` asks `rando_touch` for the enemy's touch from the
 cache (element and ailment, 256 bytes) and stores the ailment, and under
 Weapon Stats the element; bank `$0C`'s ROM load became seven NOPs (the
