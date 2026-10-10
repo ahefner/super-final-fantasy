@@ -1768,7 +1768,7 @@ rando_shopspell:
 ;;  as FFR does:
 ;;
 ;;    weapon   hit + 3b (0..50), damage + 2b (at least 1), crit + 3b (at least 1)
-;;    armour   absorb + kb (at least 1), weight - kb (at least 0), where k is
+;;    armour   absorb + kb (at least 1), evade penalty - kb (at least 0), where k is
 ;;             2 for body armour, the first 16, and 1 for the rest
 ;;
 ;;  and the name's last two letters before its icon become the sign and the
@@ -1922,7 +1922,7 @@ blurse_one:
     LDA #$00FF
     STA a:wCEIL
     LDY #$0000
-    LDA a:wARMOR + 0, X         ; weight - kb, at least 0
+    LDA a:wARMOR + 0, X         ; evade penalty (FFR's weight) - kb, at least 0
     AND #$00FF
     SEC
     SBC a:wT

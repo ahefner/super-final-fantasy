@@ -416,8 +416,8 @@ lut_Desc_53:  ; Min gear curse
   FFLINES 5
   FFPAD {"The worst a piece of gear"}, 28
   FFPAD {"may roll.  On armor, each +1"}, 28
-  FFPAD {"is 1 absorb and 1 less"}, 28
-  FFPAD {"weight, twice that on body"}, 28
+  FFPAD {"is 1 absorb and 1 less evade"}, 28
+  FFPAD {"penalty, twice that on body"}, 28
   FFPAD {"armor.  Each -1 takes away."}, 28
 
 lut_Desc_54:  ; Formation rarity, by value

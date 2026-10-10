@@ -309,7 +309,7 @@ def build_gear(rom, seed, bless, curse):
             j = i - 40
             k = 2 if j < 16 else 1                         # body armour
             a = 320 + j * 4
-            t[a + 0] = clamp(t[a + 0] - k * b, 0, 255)   # weight
+            t[a + 0] = clamp(t[a + 0] - k * b, 0, 255)   # evade penalty, FFR's weight
             t[a + 1] = clamp(t[a + 1] + k * b, 1, 255)   # absorb
     return bytes(t), bonus
 

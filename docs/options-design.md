@@ -1027,7 +1027,7 @@ covered part of it.  Nothing built is waiting on a playtest.
   - **Blursings**, FFR's RandomWeaponBonus and RandomArmorBonus.
       - The stat rules and names are FFR's.  Weapon: hit +3b (0..50), damage
         +2b and crit +3b (at least 1 each).  Armour: absorb +kb (at least 1)
-        and weight -kb (at least 0), with k = 2 for body armour.  The last two
+        and the evade penalty -kb (at least 0; FFR calls it weight), with k = 2 for body armour.  The last two
         letters before the icon become the bonus.
       - Not ported: Exclude Masamune, and the clean-names preference.
       - Stats: the four record-pointer setups in `UnadjustEquipStats` and
