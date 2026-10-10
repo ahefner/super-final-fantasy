@@ -1169,8 +1169,10 @@ the worst flush ending at scanline 255 of 262.
     replaced.  **It needs Weapon Stats on to do anything for the party**: the
     attacker's element and category are only non-zero because `opt_weaponstats`
     fills them, so without it only monsters get the bonus.  **Fixed
-    2026-10-09, accepted on the harness's evidence rather than replayed
-    (user, 2026-10-10):** off 100% Gold/XP, the end of every battle
+    2026-10-09, played 2026-10-10:** the Ninja's Ice sword against Northwest
+    Castle's trap AGAMA, Gold/XP at 500%, swung for 600 and more after other
+    fights, where a lost bonus caps a swing near 410.  Off 100% Gold/XP, the
+    end of every battle
     overwrote `OPTD_ELEMDMG` with a byte of the reward (see "A name is as wide
     as its widest use", below), so from the second battle on the bonus was
     usually 0 until the options were next committed.
