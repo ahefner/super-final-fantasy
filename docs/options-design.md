@@ -34,7 +34,7 @@ a row is one more table entry.
 
 **Decision: left/right stays contextual rather than global.**  Today left/right
 adjusts the respond rate from any cursor position.  It will cycle
-Vanilla -> Improved -> Deluxe -> Custom while the cursor is on the Options row,
+Vanilla -> Improved -> Super -> Custom while the cursor is on the Options row,
 and go on adjusting the respond rate everywhere else.  This preserves the
 existing muscle memory exactly -- nobody who never moves the cursor to the new
 row sees a behaviour change.
@@ -205,14 +205,15 @@ labels, descriptions, tiles -- fits in one 16KB chunk with room to spare.
 
 ## 2. Presets
 
-Three presets plus Custom: **Vanilla**, **Improved**, **Deluxe**.
+Three presets plus Custom: **Vanilla**, **Improved**, **Super**.  Super was
+called Deluxe until 2026-10-10 (user).
 
 **Decision: presets are a single table in source, one row per preset, one named
 constant per setting.**  Retuning a preset is editing one line.  This was an
-explicit requirement -- the Deluxe values below are a starting point, not a
+explicit requirement -- the Super values below are a starting point, not a
 settled balance.
 
-Deluxe: everything on, encounter rate 60%, gold and XP 250%, enemy and boss
+Super: everything on, encounter rate 60%, gold and XP 250%, enemy and boss
 stats 100%, elemental bonus +30.
 
 **Improved carries exactly one variation: Thief and Ninja Hit%.**  Doubling the
@@ -400,8 +401,8 @@ inventory flags, and they exist here for the same reason FFR has them -- to
 put a feature that is otherwise hours away in front of a fresh save.  Each
 grants exactly one thing and touches nothing else.
 
-**Decision: none of them are in any preset, including Deluxe.**  A preset
-describes how the game plays, not what the party is handed; a Deluxe run that
+**Decision: none of them are in any preset, including Super.**  A preset
+describes how the game plays, not what the party is handed; a Super run that
 starts with the airship is a different game, not a smoother one.  They also
 only affect a *new* game -- `opt_freestuff` runs off the new-game path, so an
 existing save is untouched whatever these are set to.
@@ -515,7 +516,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 
 ## 4. Value rows
 
-| setting | range | step | positions | Deluxe |
+| setting | range | step | positions | Super |
 |---|---|---|---|---|
 | Gold + XP | 0-500% | 50% | 11 | 250% |
 | Encounter rate | see below | -- | 14 | 60% |
@@ -554,7 +555,7 @@ would put its digits under that sign instead of under their digits.  Aligning
 the numbers to each other reads better than aligning the fields.
 
 Its presets are FFR's own: vanilla +4, Improved +10 (FFR's Improved Vanilla,
-and its code default), Deluxe +30 (FFR's default preset and most of the rest;
+and its code default), Super +30 (FFR's default preset and most of the rest;
 its 2025 tournament presets use +42).
 
 
@@ -849,7 +850,7 @@ it re-reads the flag every battle.
 
   - Exact Vanilla and Improved preset contents.  Improved is "Vanilla plus some
     QoL and bugfixes"; which ones is not yet decided.
-  - Deluxe values are provisional and expected to be retuned.
+  - Super values are provisional and expected to be retuned.
   - Condensing all 30 descriptions to 5 lines, from the FFR tooltips, plus an
     original for Boss Stats and the two save-compatibility caveats.
 

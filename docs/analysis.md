@@ -326,7 +326,7 @@ patches reshape it deliberately.
     because they are read at the point of use.  Group (c) and (d) mostly do
     too, but anything that alters saved state rather than behaviour needs a
     rule about what happens when a flag is toggled on an existing save.
-  - **Presets and the version byte.**  Vanilla / Improved Vanilla / Deluxe
+  - **Presets and the version byte.**  Vanilla / Improved Vanilla / Super (then called Deluxe)
     should be expressible as a bitmask the options block stores directly, so a
     version bump can reset to a preset without needing to migrate the old
     block's layout.

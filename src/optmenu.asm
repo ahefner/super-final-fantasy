@@ -55,7 +55,7 @@
 ;;  Entered by pressing A on the title screen's mode row, which also switches
 ;;  the mode to Custom -- editing anything means you are no longer on a preset,
 ;;  and seeding Custom from whatever preset was showing is what makes "start
-;;  from Deluxe and change two things" work.
+;;  from Super and change two things" work.
 ;;
 ;;  Leaving re-enters EnterTitleScreen from the top rather than returning into
 ;;  its loop, because TitleScreen_Copyright calls IntroTitlePrepare, which

@@ -89,7 +89,7 @@
 ;;  Presets
 ;;
 ;;  One row per preset, and one named constant per setting, so retuning a
-;;  preset is editing a line rather than counting bits.  The Deluxe values are
+;;  preset is editing a line rather than counting bits.  The Super values are
 ;;  a starting point and are expected to change.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -118,7 +118,7 @@ STAT_100      = 3       ; 25%..500% in 25% steps
 ;  Which preset a cartridge with no valid block comes up in.
 OPT_DEFAULT_PRESET = PRESET_IMPROVED
 
-;  Testing aid, until the menu exists.  FFDEBUG=vanilla|improved|deluxe builds
+;  Testing aid, until the menu exists.  FFDEBUG=vanilla|improved|super builds
 ;  a ROM that forces that preset on every boot instead of honouring whatever is
 ;  in SRAM -- otherwise a block written once keeps its settings across builds
 ;  and there is no way to exercise a different preset.  A normal build never
@@ -147,7 +147,7 @@ lut_Presets:
     .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_FFR_IMP
     .RES    6, $00
-    .DWORD  OPTF_ALLQOL | OPTF_BUGFIX | OPTF_VARIATION                     ; Deluxe
+    .DWORD  OPTF_ALLQOL | OPTF_BUGFIX | OPTF_VARIATION                     ; Super
     .BYTE   0
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF
     .RES    6, $00
@@ -555,7 +555,7 @@ lut_PresetNames:
   .BYTE $FF, $96, $98, $8D, $8E, $FF, $FF, $FF
   .BYTE $92, $96, $99, $9B, $98, $9F, $8E, $8D   ; "IMPROVED MODE "
   .BYTE $FF, $96, $98, $8D, $8E, $FF, $FF, $FF
-  .BYTE $FF, $8D, $8E, $95, $9E, $A1, $8E, $FF   ; " DELUXE MODE  "
+  .BYTE $FF, $FF, $9C, $9E, $99, $8E, $9B, $FF   ; "  SUPER MODE  "
   .BYTE $96, $98, $8D, $8E, $FF, $FF, $FF, $FF
   .BYTE $FF, $8C, $9E, $9C, $9D, $98, $96, $FF   ; " CUSTOM MODE  "
   .BYTE $96, $98, $8D, $8E, $FF, $FF, $FF, $FF

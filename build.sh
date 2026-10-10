@@ -52,14 +52,14 @@ case "$FFDEBUG" in
   *noiseonly*) CA65EXTRA="$CA65EXTRA -DSOLOMASK=\$08" ;;
 esac
 
-#  FFDEBUG=vanilla|improved|deluxe forces that option preset on every boot,
+#  FFDEBUG=vanilla|improved|super forces that option preset on every boot,
 #  ignoring whatever is in SRAM.  Without it there is no way to try a preset
 #  other than the one already written to the cartridge, because a valid block
 #  is deliberately left alone.  Remove once the options menu can do this.
 case "$FFDEBUG" in
   *vanilla*)  CA65EXTRA="$CA65EXTRA -DOPT_FORCE=0" ;;
   *improved*) CA65EXTRA="$CA65EXTRA -DOPT_FORCE=1" ;;
-  *deluxe*)   CA65EXTRA="$CA65EXTRA -DOPT_FORCE=2" ;;
+  *super*)    CA65EXTRA="$CA65EXTRA -DOPT_FORCE=2" ;;
 esac
 
 #  FFSEED=xxxxxxxx (eight hex digits) gives every new game that seed, so a

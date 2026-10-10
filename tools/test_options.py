@@ -241,7 +241,7 @@ def test_presets():
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
         call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
-        name = ("Vanilla", "Improved", "Deluxe")[preset]
+        name = ("Vanilla", "Improved", "Super")[preset]
         check("%s: flags" % name, "$%010X" % flags(bus), "$%010X" % f)
         check("%s: gold/xp step" % name, blk(bus, OPT_GOLDXP), g)
         check("%s: encounter step" % name, blk(bus, OPT_ENCOUNTER), e)
