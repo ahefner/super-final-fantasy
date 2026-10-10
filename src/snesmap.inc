@@ -205,7 +205,13 @@ OPTSCRATCH      = OPTBLOCK+$20  ; a byte the option code may use freely
 OPTD_ELEMDMG    = OPTBLOCK+$21  ; base-damage bonus for hitting a weakness
 OPTFIXSP        = OPTBLOCK+$22  ; opt_spellfixed: the spell it was asked about
 OPTFIXFD        = OPTBLOCK+$23  ; ...and the field
-OPTFIXANY       = OPTBLOCK+$24  ; did any of the eight actually change?
+
+;  opt_scalereward's accumulator: the reward times up to ten, which needs a
+;  byte past the reward's three.  It used OPTSCRATCH and the three bytes after
+;  it, and the first of those is OPTD_ELEMDMG -- so every battle that ended
+;  with Gold/XP off 100% left the weakness bonus at a byte of the reward until
+;  the options were next committed (found 2026-10-09).  Its own four now.
+OPTREWARD       = OPTBLOCK+$24  ; 4 bytes, low byte first
 
 ;  The three spell flags.
 OPTFB_SPELLFIX  = OPT_FLAGS+2
@@ -473,6 +479,11 @@ OPTFM_IMPFIRE   = $80    ; bit 23
 ;  Battle_PrepareMagic hands everything downstream a pointer, so repointing it
 ;  here reaches every field without touching a single reader.
 OPTMAGSHADOW    = OPTBLOCK+$40
+
+;  opt_spellfixed's "did any of the eight fixes change the record?" -- which
+;  record is OPTMAGSHADOW, beside it.  Moved from OPTBLOCK+$24 to make room
+;  for OPTREWARD.
+OPTFIXANY       = OPTBLOCK+$3F
 
 ;  The spell the magic menu is offering, 0-based.  The selection code
 ;  keeps it here while it works out what to prompt for.

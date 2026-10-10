@@ -1128,7 +1128,12 @@ the worst flush ending at scanline 255 of 262.
     byte instead of the constant, one byte more than the immediate it
     replaced.  **It needs Weapon Stats on to do anything for the party**: the
     attacker's element and category are only non-zero because `opt_weaponstats`
-    fills them, so without it only monsters get the bonus.
+    fills them, so without it only monsters get the bonus.  **Fixed
+    2026-10-09, accepted on the harness's evidence rather than replayed
+    (user, 2026-10-10):** off 100% Gold/XP, the end of every battle
+    overwrote `OPTD_ELEMDMG` with a byte of the reward (see "A name is as wide
+    as its widest use", below), so from the second battle on the bonus was
+    usually 0 until the options were next committed.
   - **House restores HP and MP** -- `opt_housemp`.  A HOUSE restores MP only
     if the player accepts the save, and does it *after* the write, so the file
     just saved still holds the old MP.  The hook moves the restore in front of
@@ -1724,3 +1729,16 @@ instruction had already set.
     and copied back a two-day-old file.  `mktemp`, and let the restore fail
     loudly rather than succeed with the wrong contents.  `tools/mutate.py`
     sidesteps it: it mutates only copies, and the tree is never written.
+  - **A name is as wide as its widest use, not its comment.**  `OPTSCRATCH`
+    was declared "a byte the option code may use freely", and
+    `opt_scalereward` used it and the three bytes after it as an
+    accumulator.  The next byte was later given to `OPTD_ELEMDMG`, a derived
+    byte that has to persist -- so off 100% Gold/XP every battle's end
+    overwrote the weakness bonus with a byte of the reward, until the options
+    were next committed.  The accumulator is `OPTREWARD` now, four bytes of
+    its own.  A grep of every `NAME+k` in the option code against each name's
+    declared size found no other overreach; `test_goldxp` now fills the
+    option page with a pattern and fails if the reward scaler writes outside
+    its four bytes, at every step.  Give a multi-byte scratch its own name
+    and size, and never put a byte that must survive beside one that is
+    merely free.

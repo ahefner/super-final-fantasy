@@ -1082,6 +1082,36 @@ def test_goldxp():
     check("goldxp 100% leaves the reward alone",
           [bus.wram[BATTLEREWARD + i] for i in range(3)], [0x9A, 0xBC, 0xDE])
 
+    #  ...and writes nothing on the option page but its own accumulator.  It
+    #  ran four bytes from OPTSCRATCH, the second of which is OPTD_ELEMDMG: a
+    #  battle that ended off 100% left the weakness bonus at a byte of the
+    #  reward until the options were next committed.  A property rather than
+    #  that one byte, so the next neighbour is covered too.
+    acc = K["OPTREWARD"] - 0x6000
+    page = bytes((i * 37 + 11) & 0xFF for i in range(256))
+    stray = []
+    for step in range(11):
+        bus, cpu = machine()
+        bus.sram[0xE00:0xF00] = page
+        setblk(bus, OPT_GOLDXP, step)
+        before = bytes(bus.sram[0xE00:0xF00])
+        for i, v in enumerate((0x2C, 0x01, 0x00)):
+            bus.wram[BATTLEREWARD + i] = v
+        call(cpu, "opt_scalereward", dbr=BANK_0C)
+        after = bytes(bus.sram[0xE00:0xF00])
+        stray += ["step %d wrote $%02X" % (step, o) for o in range(256)
+                  if before[o] != after[o] and not acc - 0xE00 <= o < acc - 0xE00 + 4]
+    check("the reward scaler writes only its own four bytes", stray, [])
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    elem = bus.sram[K["OPTD_ELEMDMG"] - 0x6000]
+    setblk(bus, OPT_GOLDXP, 4)
+    for i, v in enumerate((0x2C, 0x01, 0x00)):          # 300, at 200%
+        bus.wram[BATTLEREWARD + i] = v
+    call(cpu, "opt_scalereward", dbr=BANK_0C)
+    check("the weakness bonus survives a battle's reward",
+          (bus.sram[K["OPTD_ELEMDMG"] - 0x6000], elem > 0), (elem, True))
+
 
 BTL_RNGSTATE = 0x688A
 

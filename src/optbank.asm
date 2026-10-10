@@ -1396,48 +1396,48 @@ opt_scalereward:
     TAY                         ; Y = the number of halves to add up
 
     LDA #$00                    ; a 32-bit accumulator; the reward is 24, and
-    STA OPTSCRATCH              ;   ten times a 24-bit value still fits
-    STA OPTSCRATCH+1
-    STA OPTSCRATCH+2
-    STA OPTSCRATCH+3
+    STA OPTREWARD               ;   ten times a 24-bit value still fits
+    STA OPTREWARD+1
+    STA OPTREWARD+2
+    STA OPTREWARD+3
     CPY #$00
     BEQ @store                  ; 0%: the zeroed accumulator is the answer
 
   @add:
     CLC
-    LDA OPTSCRATCH
+    LDA OPTREWARD
     ADC battlereward
-    STA OPTSCRATCH
-    LDA OPTSCRATCH+1
+    STA OPTREWARD
+    LDA OPTREWARD+1
     ADC battlereward+1
-    STA OPTSCRATCH+1
-    LDA OPTSCRATCH+2
+    STA OPTREWARD+1
+    LDA OPTREWARD+2
     ADC battlereward+2
-    STA OPTSCRATCH+2
-    LDA OPTSCRATCH+3
+    STA OPTREWARD+2
+    LDA OPTREWARD+3
     ADC #$00
-    STA OPTSCRATCH+3
+    STA OPTREWARD+3
     DEY
     BNE @add
 
-    LSR OPTSCRATCH+3            ; halve, because the step counts 50% units
-    ROR OPTSCRATCH+2
-    ROR OPTSCRATCH+1
-    ROR OPTSCRATCH
+    LSR OPTREWARD+3             ; halve, because the step counts 50% units
+    ROR OPTREWARD+2
+    ROR OPTREWARD+1
+    ROR OPTREWARD
 
-    LDA OPTSCRATCH+3            ; battlereward is three bytes and the game has
+    LDA OPTREWARD+3             ; battlereward is three bytes and the game has
     BEQ @store                  ;   nowhere to put a fourth, so peg it
     LDA #$FF
-    STA OPTSCRATCH
-    STA OPTSCRATCH+1
-    STA OPTSCRATCH+2
+    STA OPTREWARD
+    STA OPTREWARD+1
+    STA OPTREWARD+2
 
   @store:
-    LDA OPTSCRATCH
+    LDA OPTREWARD
     STA battlereward
-    LDA OPTSCRATCH+1
+    LDA OPTREWARD+1
     STA battlereward+1
-    LDA OPTSCRATCH+2
+    LDA OPTREWARD+2
     STA battlereward+2
   @out:
     RTL
