@@ -1186,6 +1186,11 @@ Where it departs from the plan below or from §1:
     and keeps its music.  Still to come, as the playtester put it: the build
     after party creation and flag selection on a black screen, and a
     "thinking" sound if it grows much longer.
+  - **The read-only view on Continue, built 2026-10-09** (Select on
+    Continue; `options-design.md`, "Save view"): the saved game's seed and
+    RANDOMIZATION rows.  The rest of item 1's minimum UI -- seed entry, and
+    the New Game flow around it -- waits for that flow's design (user, the
+    same day).
   - **The cache holds all eight property tables** (2KB at `$7F:8800`), and
     `rando_tileprop` MVNs the current one in.  The `$80`-to-`$00` re-encoding
     and the trap deal both happen at build time.  `LoadSMTilesetData`'s

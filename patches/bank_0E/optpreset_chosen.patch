@@ -5,22 +5,21 @@
     RTS                     ;  then exit!
 --- NEW
 @OptionChosen:              ; Jumps here when the player presses A or Start (selected an option)
-    LDA cursor
-    CMP #2
-    BCC @RealChoice         ; the rows below New Game are not ways out of this screen
-
-    ;  Pressing A on a mode opens the settings screen and switches to Custom,
-    ;  seeded from whatever mode was showing -- so "start from Deluxe and
-    ;  change two things" is the natural path in rather than a special case.
-    ;  Pressing it on Credits opens the credits.  opt_titlechoose tells them
-    ;  apart, so this costs the bank no more than the settings call alone did.
+    ;  ...or Select, which TitleScreen_Music now reports too.  Which button
+    ;  on which row means what is opt_titlechoose's to say, in the flags:
+    ;
+    ;    N set  nothing to do: Select off Continue, or with no save
+    ;    Z set  one of its screens was shown -- the settings, the credits or
+    ;           the save view.  Come back through the top of the title
+    ;           screen rather than into its loop: TitleScreen_Copyright calls
+    ;           IntroTitlePrepare, which reloads the menu CHR the screen
+    ;           overwrote and clears the nametable.
+    ;    else   leave, with C set for New Game and clear for Continue -- what
+    ;           the CMP #1 that was here gave
     JSL opt_titlechoose + OPTFAR
-
-    ;  Come back through the top of the title screen rather than into its
-    ;  loop: TitleScreen_Copyright calls IntroTitlePrepare, which reloads the
-    ;  menu CHR the screen overwrote and clears the nametable.
+    BMI @Loop
+    BEQ @Again
+    RTS
+  @Again:
     JMP EnterTitleScreen
-
-  @RealChoice:
-    CMP #1                  ;  this CMP will set C if they selected option 1 (New Game)
-    RTS                     ;  and will clear C if they selected option 0 (Continue)
+    .res 16 - (* - @OptionChosen), $EA      ; the size the call site was

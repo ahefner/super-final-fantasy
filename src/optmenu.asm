@@ -22,7 +22,7 @@
 ;  The row kinds and the description format, shared with opttext.asm.
 .include "optmenu.inc"
 
-.export opt_settings
+.export opt_settings, opt_saveview
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
 
@@ -110,6 +110,7 @@ OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
 OPTMENU_WAS    = OPTBLOCK + $1D ; the row a left/right page started on
 OPTMENU_LEFT   = OPTBLOCK + $1C ; rows still to draw before the next breath
 OPTMENU_ANY    = OPTBLOCK + $1B ; did a section toggle find a checkbox at all?
+OPTMENU_VIEW   = OPTBLOCK + $31 ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
 PAD_RIGHT = $01
@@ -130,10 +131,43 @@ opt_settings:
     PLB
 
     LDA #$00
+    STA OPTMENU_VIEW            ; the settings, not the save view
     STA OPTMENU_SEL             ; row 0 is a heading; step onto the first
     STA OPTMENU_TOP             ;   real setting below
     JSR opt_menu_nextsel
+    BRA opt_menu_screen
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The save view
+;;
+;;  Select on Continue: the seed and the RANDOMIZATION rows of the game
+;;  Continue would load, read from the battery copy of the save.  It is this
+;;  screen held to that one section, read-only -- the same rows, readouts and
+;;  descriptions, so a saved game and the settings for the next one are never
+;;  described two ways.  Up and down move between the rows for their
+;;  descriptions; B or Start leaves; nothing is written.
+;;
+;;  The rows keep their indices, so the descriptions are found as ever.  The
+;;  two above Trap tiles, RANDOMIZATION and a blank in the settings, become
+;;  SAVED GAME and the seed (opt_menu_drawrow); the values come through
+;;  opt_menu_valbyte.  opt_titlechoose has already checked there is a save.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_saveview:
+    PHB
+    PHK
+    PLB
+
+    LDA #$01
+    STA OPTMENU_VIEW
+    LDA #VIEW_FIRST
+    STA OPTMENU_SEL
+    LDA #VIEW_TOP               ; the blank above the heading, as the settings
+    STA OPTMENU_TOP             ;   show it when scrolled here
+    ;  ...and on into the screen.
+
+opt_menu_screen:
     LDA #$00
     wPPUMASK                    ; screen off while it is built
     JSL hal_clearnt + HALFAR
@@ -203,6 +237,15 @@ opt_settings:
     LDA joy
     STA OPTMENU_PREV
 
+    ;  The save view hears up, down and the ways out, and nothing else: no
+    ;  toggles, no value steps, no paging.
+    LDA OPTMENU_VIEW
+    BEQ @heard
+    LDA OPTMENU_EDGE
+    AND #PAD_B | PAD_START | PAD_UP | PAD_DOWN
+    STA OPTMENU_EDGE
+  @heard:
+
     LDA OPTMENU_EDGE
     AND #PAD_B | PAD_START
     BNE @done
@@ -246,6 +289,7 @@ opt_settings:
     JSR opt_sfx_sel
     JSR opt_waitrelease         ; ...and nothing carries back out either
     LDA #$00
+    STA OPTMENU_VIEW            ; set only while the view is on screen
     wPPUMASK
     PLB
     RTL
@@ -299,9 +343,16 @@ opt_settings:
 
 ;;  In: A = row index.  Z set if the cursor may not rest there.  Only the blank
 ;;  separators are excluded: a heading is selectable because pressing A on it
-;;  toggles its whole section.
+;;  toggles its whole section.  In the save view only the value rows are,
+;;  from Trap tiles down: its heading toggles nothing, and the seed is not a
+;;  setting.
 opt_row_selectable:
     PHX
+    LDX OPTMENU_VIEW
+    BEQ @kind
+    CMP #VIEW_FIRST
+    BCC @notx                   ; the save view, above its first value row
+  @kind:
     JSR opt_menu_ptrfor
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
@@ -310,6 +361,8 @@ opt_row_selectable:
     BEQ @no                     ; blanks are pure separators; headings are not
     LDA #$01                    ; selectable: Z clear
     RTS
+  @notx:
+    PLX
   @no:
     LDA #$00                    ; not selectable: Z set
     RTS
@@ -666,8 +719,7 @@ opt_menu_descptr:
     INY
     LDA (OPTMENU_ROWPTR), Y
     TAX                         ; which scalar
-    LDY lut_ValOff, X
-    LDA OPTBLOCK, Y
+    JSR opt_menu_valbyte
     CMP lut_ValCount, X
     BCS @record                 ; out of range: the first value's text
     STA OPTMENU_DLINES
@@ -963,7 +1015,25 @@ opt_waitrelease:
 ;;  The checkbox is worked out first, because opt_flagbit wants X for its own
 ;;  shift; opt_value_ptr wants it too, and is bracketed.
 opt_menu_drawrow:
+    LDX OPTMENU_VIEW
+    BEQ @table
+    CMP #VIEW_HEAD
+    BEQ @head
+    CMP #VIEW_SEED
+    BNE @table
+    LDA #<lut_ViewSeedRow       ; the save view's two rows of its own
+    LDX #>lut_ViewSeedRow
+    BRA @own
+  @head:
+    LDA #<lut_ViewHeadRow
+    LDX #>lut_ViewHeadRow
+  @own:
+    STA OPTMENU_ROWPTR
+    STX OPTMENU_ROWPTR + 1
+    BRA @have
+  @table:
     JSR opt_menu_ptrfor
+  @have:
     JSR opt_menu_ppuaddr
 
     LDY #$00
@@ -1009,6 +1079,8 @@ opt_menu_drawrow:
     LDA (OPTMENU_ROWPTR), Y
     CMP #OPTROW_VAL
     BEQ @value
+    CMP #OPTROW_SEED
+    BEQ @seed
     LDY #VALFIELD
   @pad:
     LDA #$FF
@@ -1043,6 +1115,60 @@ opt_menu_drawrow:
     JSL hal_ntblit + HALFAR     ; X is already the count
     RTS
 
+  @seed:
+    ;  The saved game's seed: eight hex digits, high nibble first, as wide
+    ;  as the widest readouts and ending in the same column.  The digit tiles
+    ;  run on into the capitals, so a nibble is its own tile from $80.
+    TXA
+    SEC
+    SBC #8 - VALFIELD
+    TAX
+    LDY #3
+  @digits:
+    LDA VIEW_SEEDAT, Y
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    ORA #$80
+    STA f:NTSTAGE, X
+    INX
+    LDA VIEW_SEEDAT, Y
+    AND #$0F
+    ORA #$80
+    STA f:NTSTAGE, X
+    INX
+    DEY
+    BPL @digits
+    BRA @blit
+
+
+;;  In: X = which scalar.  Out: A = its step: the option block's, or in the
+;;  save view the saved game's.  X kept; Y clobbered.
+;;
+;;  The view shows only the RANDOMIZATION rows, whose bytes the save block
+;;  keeps in the option page's order from Trap tiles on (snesmap.inc), so
+;;  the same offsets index it.  A step past its row's count -- not from a
+;;  save that passed the checksum, but the screen should not believe that --
+;;  reads as the first, as the description already did.
+VIEW_NGBASE = sram + (RANDO_TRAPS - unsram) - <OPT_NG_TRAPS
+VIEW_SEEDAT = sram + (RANDO_SEED - unsram)
+.assert <OPT_NG_TRAPS = <OPT_NG, error, "the save view indexes the save from Trap tiles"
+
+opt_menu_valbyte:
+    LDY lut_ValOff, X
+    LDA OPTMENU_VIEW
+    BNE @save
+    LDA OPTBLOCK, Y
+    RTS
+  @save:
+    LDA VIEW_NGBASE, Y
+    CMP lut_ValCount, X
+    BCC @ok
+    LDA #$00
+  @ok:
+    RTS
+
 
 ;;  Point OPTMENU_VALPTR at the readout for the value row OPTMENU_ROWPTR
 ;;  describes -- table base plus the current step times the readout's width.
@@ -1056,8 +1182,7 @@ opt_value_ptr:
     STA OPTMENU_VALPTR
     LDA lut_ValTabHi, X
     STA OPTMENU_VALPTR + 1
-    LDY lut_ValOff, X           ; where in the option page it is stored
-    LDA OPTBLOCK, Y
+    JSR opt_menu_valbyte        ; the step it is at
     LDY lut_ValShift, X
   @step:
     ASL A                       ; times the width
@@ -1473,9 +1598,10 @@ lut_OptRows:
   FFPAD "Free ROD", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
+lut_OptRowRando:   ; the save view's rows are found from here
   .BYTE $00, $00   ; RANDOMIZATION
   FFPAD "RANDOMIZATION", 30
-  .BYTE $03, $00   ; (blank)
+  .BYTE $03, $00   ; (blank) -- the seed, in the save view
   FFPAD "", 30
   .BYTE $02, $05   ; Trap tiles
   OPTLABEL {"Trap tiles"}
@@ -1512,6 +1638,24 @@ lut_OptRowsEnd:
 ;  and so does a description table with the wrong number of pointers.  Both
 ;  are edited by hand every time a flag is added.
 .assert lut_OptRowsEnd - lut_OptRows = OPTROW_COUNT * OPTROW_STRIDE, error, "row table is the wrong length"
+
+;  The save view's window onto the list: the blank above RANDOMIZATION at the
+;  top, the heading, the seed's row, then the value rows to the end.  The
+;  section has to be the last, and short enough to fit the window whole --
+;  the view never scrolls.
+VIEW_HEAD  = (lut_OptRowRando - lut_OptRows) / OPTROW_STRIDE
+VIEW_TOP   = VIEW_HEAD - 1
+VIEW_SEED  = VIEW_HEAD + 1
+VIEW_FIRST = VIEW_HEAD + 2
+.assert OPTROW_COUNT - VIEW_TOP <= OPTLIST_ROWS, error, "the save view's section no longer fits its window"
+
+;  Its two rows of its own, drawn in place of the heading and the blank.
+lut_ViewHeadRow:
+  .BYTE OPTROW_HDR, $00
+  FFPAD "SAVED GAME", 30
+lut_ViewSeedRow:
+  .BYTE OPTROW_SEED, $00
+  OPTLABEL {"Seed"}
 
 ;  The two checkbox tiles, in NES 2bpp -- eight bytes of plane 0 then eight
 ;  of plane 1, which is what the HAL's $2007 path expects.  Palette 3 is

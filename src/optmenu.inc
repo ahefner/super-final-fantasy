@@ -14,6 +14,7 @@ OPTROW_HDR    = 0
 OPTROW_CHK    = 1
 OPTROW_VAL    = 2
 OPTROW_BLANK  = 3
+OPTROW_SEED   = 4               ; the save view's seed; never in lut_OptRows
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22

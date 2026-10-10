@@ -1,0 +1,26 @@
+--- OLD
+TitleScreen_Music:
+    JSR CallMusicPlay
+    LDA joy_a
+    RTS
+
+
+ ;; unused space
+
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0
+--- NEW
+.export TitleScreen_Music        ; for tools/test_options.py
+TitleScreen_Music:
+    JSR CallMusicPlay
+    LDA joy_a
+    ;  Select too, for the save view on Continue: opt_titlechoose tells the
+    ;  buttons apart.  Two bytes of the unused space below.
+    ORA joy_select
+    RTS
+
+
+ ;; unused space
+
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0

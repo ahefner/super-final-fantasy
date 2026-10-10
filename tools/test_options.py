@@ -5724,6 +5724,258 @@ def test_rando_begin():
     check("rando_stale, the tag right and the save changed", bool(cpu.p & 1), True)
 
 
+# --- the save view ------------------------------------------------------------
+def test_saveview():
+    """Select on Continue shows the saved game's seed and RANDOMIZATION rows:
+    the settings screen held to that section and read-only, its values read
+    from the battery copy Continue would load.  The screen is run whole, a
+    frame at a time, with the pad pressed as a player would."""
+    OPT = CHUNK_OPT_BANK
+    SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
+    COUNT = int(re.search(r"^OPTROW_COUNT\s*=\s*(\d+)", open(os.path.join(ROOT, "src", "optmenu.inc")).read(),
+                          re.M).group(1))
+    A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
+    UJ = SYM["UpdateJoy"]
+    optimg = (OPT & 0x1F) * 0x10000
+
+    #  The rows, found by reading the table rather than taken from the asm.
+    rows = [ROMDATA[optimg + SYM["lut_OptRows"] + i * 32:][:32] for i in range(COUNT)]
+    head = next(i for i, r in enumerate(rows) if r[0] == 0 and "RANDOMIZATION" in
+                "".join(_decode(b) or "?" for b in r[2:24]))
+    first, top = head + 2, head - 1
+    check("the section ends the list, value rows from two below its heading",
+          [r[0] for r in rows[head:]], [0, 3] + [2] * (COUNT - first))
+
+    def readout(scalar, step):
+        lo = ROMDATA[optimg + SYM["lut_ValTabLo"] + scalar]
+        hi = ROMDATA[optimg + SYM["lut_ValTabHi"] + scalar]
+        w = 1 << ROMDATA[optimg + SYM["lut_ValShift"] + scalar]
+        at = optimg + (lo | hi << 8) + step * w
+        return "".join(_decode(b) or "?" for b in ROMDATA[at:at + w])
+
+    def label(i):
+        return "".join(_decode(b) or "?" for b in rows[i][2:24])
+
+    def saved(bus, cpu, seed, ng):
+        """A save Continue would load, made by the game's own SaveGame."""
+        at = K["RANDO_SAVE"] - 0x6000
+        bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+        bus.sram[at + 4:at + 4 + len(ng)] = bytes(ng)
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["SaveGame"])
+        cpu.dbr = 0xA7
+
+    def screen(bus, i):
+        """List row i as drawn, the window's top being TOP."""
+        nt = K["NESNT"] - 0x7E0000 + (1 + i - bus.wram[TOP]) * 32
+        return " ".join("".join(_decode(b) or "?" for b in bus.wram[nt + 2:nt + 31]).split())
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def frame(bus, cpu, nes):
+        """Hold the pad as given for the UpdateJoy the screen is stopped at,
+        and run to the next.  False once the screen has returned."""
+        pad(bus, nes)
+        cpu.step()
+        for _ in range(3_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            cpu.step()
+        raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def press(bus, cpu, nes):
+        return frame(bus, cpu, nes) and frame(bus, cpu, 0)
+
+    #  --- opt_savevalid: the game's own tests, in its order.
+    bus, cpu = machine()
+    call(cpu, "opt_savevalid")
+    check("no save: not valid", cpu.p & C, C)
+    saved(bus, cpu, 1, [0] * 14)
+    call(cpu, "opt_savevalid")
+    check("a save SaveGame made: valid", cpu.p & C, 0)
+    bus.sram[0x450] ^= 1
+    call(cpu, "opt_savevalid")
+    check("...a byte changed: the checksum fails it", cpu.p & C, C)
+    bus.sram[0x450] ^= 1
+
+    #  An assertion byte wrong under a checksum that still passes, so it is the
+    #  assertion that fails it: the sum VerifyChecksum makes, and the checksum
+    #  byte found that brings it back to SAVEK.
+    def vsum(sram):
+        a = c = 0
+        for x in range(256):
+            for page in range(4):
+                v = a + sram[0x400 + page * 256 + x] + c
+                a, c = v & 0xFF, v >> 8
+        return a
+    good = bytes(bus.sram[0x400:0x800])
+    for name, bad in (("sram_assert_55", 0x56), ("sram_assert_AA", 0xAB)):
+        bus.sram[0x400:0x800] = good
+        bus.sram[K[name] - 0x6000] = bad
+        ck = K["sram_checksum"] - 0x6000
+        bus.sram[ck] = next(v for v in range(256)
+                            if vsum(bus.sram[:ck] + bytes([v]) + bus.sram[ck + 1:]) == K["SAVEK"])
+        call(cpu, "VerifyChecksum")
+        sums = not cpu.p & C
+        call(cpu, "opt_savevalid")
+        check("...%s wrong under a good checksum: not valid" % name, (sums, cpu.p & C), (True, C))
+
+    #  --- the view itself.  Every row a value other than its first, and none
+    #  what the settings hold, so a readout from the wrong place shows.
+    NG = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1]
+    check("one saved value per row", len(NG), COUNT - first)
+    bus, cpu = machine()
+    in_vblank(bus)
+    call(cpu, "opt_init")
+    saved(bus, cpu, 0x0BADF00D, NG)
+    kept = lambda: (bytes(bus.sram[0xE00:0xE10]), bytes(bus.sram[0xEC8:0xEC8 + len(NG)]))
+    before = kept()
+    check("the save view draws and asks for the pad",
+          cpu.run(OPT, SYM["opt_saveview"], stop=UJ), True)
+    check("...the window: the section, from the blank above its heading",
+          (bus.wram[TOP], bus.wram[SEL]), (top, first))
+    check("...the heading", screen(bus, head), "SAVED GAME")
+    check("...the seed", screen(bus, head + 1), "Seed 0BADF00D")
+    want = [" ".join((label(i) + " " + readout(rows[i][1], NG[i - first])).split())
+            for i in range(first, COUNT)]
+    check("...each row, the save's value", [screen(bus, i) for i in range(first, COUNT)], want)
+    check("...nothing past the end", [screen(bus, i) for i in range(COUNT, top + 20)],
+          [""] * (top + 20 - COUNT))
+    check("...Trap tiles described as saved", "formation's B-side" in " ".join(pane(bus)), True)
+    check("...and nothing written", kept(), before)
+    check("...the settings are not switched to Custom", bus.sram[K["OPT_PRESET"] - 0x6000],
+          before[0][K["OPT_PRESET"] - OPTBLOCK])
+
+    frame(bus, cpu, 0)                          # out of the entry's wait for release
+    press(bus, cpu, DOWN)
+    check("down: Shops", bus.wram[SEL], first + 1)
+    check("...described as saved", "dealt out again" in " ".join(pane(bus)), True)
+    shops = screen(bus, first + 1)
+    #  One at a time: right then left would step a value and step it back.
+    #  (A is masked too, though on a value row the settings ignore it anyway.)
+    for name, b in (("right", RIGHT), ("left", LEFT), ("A", A_), ("Select", SELECT)):
+        press(bus, cpu, b)
+        check("%s changes nothing" % name,
+              (bus.wram[SEL], bus.wram[TOP], screen(bus, first + 1), kept()),
+              (first + 1, top, shops, before))
+    press(bus, cpu, UP)
+    press(bus, cpu, UP)
+    check("up stops at Trap tiles: the seed and heading are not settings", bus.wram[SEL], first)
+    for _ in range(COUNT):
+        press(bus, cpu, DOWN)
+    check("down stops at the last row, and the window never scrolls",
+          (bus.wram[SEL], bus.wram[TOP]), (COUNT - 1, top))
+    check("B leaves", frame(bus, cpu, B_) and frame(bus, cpu, 0), False)
+    check("...the view's flag down, and nothing written", (bus.sram[VIEW], kept()), (0, before))
+
+    #  The settings screen, after it, reads the settings again -- even with the
+    #  view's flag left up, as a soft reset in the middle of the view leaves it.
+    bus.wram[SEL], bus.wram[TOP] = first, top
+    call(cpu, "opt_menu_desc", dbr=OPT)
+    check("the settings describe their own Trap tiles afterwards",
+          "fight it always has" in " ".join(pane(bus)), True)
+    bus, cpu = machine()
+    in_vblank(bus)
+    call(cpu, "opt_init")
+    saved(bus, cpu, 0x0BADF00D, NG)
+    bus.sram[VIEW] = 1
+    cpu.run(OPT, SYM["opt_settings"], stop=UJ)
+    check("the settings after a view cut short: the settings' own, editable",
+          (bus.sram[VIEW], screen(bus, 1)), (0, " ".join(label(1).split())))
+
+    #  A saved step past its row's count reads as the first, row and pane --
+    #  never past the end of the readouts.
+    bus, cpu = machine()
+    in_vblank(bus)
+    call(cpu, "opt_init")
+    saved(bus, cpu, 0x0BADF00D, [9] + NG[1:])
+    cpu.run(OPT, SYM["opt_saveview"], stop=UJ)
+    check("a saved Trap tiles of 9 reads as the first value",
+          (screen(bus, first), "fight it always has" in " ".join(pane(bus))),
+          (" ".join((label(first) + " " + readout(rows[first][1], 0)).split()), True))
+
+    #  --- opt_titlechoose, with the three screens stubbed to say which ran.
+    stubbed = bytearray(ROMDATA)
+    MARK = 0x1FF0
+    for name, bank, v in (("opt_saveview", OPT, 0x11), ("opt_settings", OPT, 0x22),
+                          ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33)):
+        at = (bank & 0x1F) * 0x10000 + SYM[name]
+        stubbed[at:at + 7] = bytes([0xA9, v, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0x6B])
+
+    def title(cur, buttons, save=True, at=None, stop=None):
+        bus, cpu = machine()
+        bus.rom = stubbed
+        if save:
+            saved(bus, cpu, 1, [0] * 14)
+        bus.wram[K["cursor"]] = cur
+        for b, name in ((A_, "joy_a"), (START, "joy_start"), (SELECT, "joy_select")):
+            bus.wram[K[name]] = 1 if buttons & b else 0
+        cpu.dbr = BANK_0E
+        if at is None:
+            got = cpu.run(OPT, SYM["opt_titlechoose"])
+        else:
+            got = cpu.run(BANK_0E, at, stop=stop)
+        p = cpu.p
+        return dict(shown=bus.wram[MARK], N=bool(p & 0x80), Z=bool(p & 0x02), C=bool(p & C),
+                    select=bus.wram[K["joy_select"]], stopped=got)
+
+    def flags(r, *keys):
+        return tuple(r[k] for k in keys)
+
+    r = title(0, SELECT)
+    check("Select on Continue: the save view, then rebuild",
+          flags(r, "shown", "Z", "N", "select"), (0x11, True, False, 0))
+    r = title(0, SELECT, save=False)
+    check("...with no save: nothing, back to the loop, the press used up",
+          flags(r, "shown", "N", "select"), (0, True, 0))
+    for cur in (1, 2, 3):
+        r = title(cur, SELECT)
+        check("Select on row %d: nothing" % cur, flags(r, "shown", "N", "select"), (0, True, 0))
+    for cur, b, want in ((0, A_, False), (0, START, False), (1, A_, True), (1, START, True)):
+        r = title(cur, b)
+        check("row %d, button $%02X: leave, New Game %s" % (cur, b, want),
+              flags(r, "shown", "N", "Z", "C"), (0, False, False, want))
+    check("A on the mode row: the settings, then rebuild",
+          flags(title(2, A_), "shown", "Z", "N"), (0x22, True, False))
+    check("A on Credits: the credits, then rebuild",
+          flags(title(3, START), "shown", "Z", "N"), (0x33, True, False))
+    check("A with Select on Continue: Continue",
+          flags(title(0, A_ | SELECT), "shown", "N", "Z", "C"), (0, False, False, False))
+
+    #  --- the call site in bank $0E, run from where it sits.
+    img0e = (BANK_0E & 0x1F) * 0x10000
+    a = SYM["opt_titlechoose"]
+    site = bytes(ROMDATA[img0e + 0x8000:img0e + 0xC000]).find(bytes([0x22, a & 0xFF, a >> 8, OPT]))
+    check("the title screen asks opt_titlechoose once",
+          jsl_count((BANK_0E & 0x1F), "opt_titlechoose", OPT), 1)
+    if site >= 0:
+        site += 0x8000
+        #  Its loop's top: the first JSR ClearOAM in the title screen.
+        co, ets = SYM["ClearOAM"], SYM["EnterTitleScreen"]
+        body = bytes(ROMDATA[img0e + ets:img0e + site])
+        loop = ets + body.find(bytes([0x20, co & 0xFF, co >> 8]))
+        check("...and the loop is found", ets < loop < site, True)
+        check("Select off Continue: back into the loop",
+              title(1, SELECT, at=site, stop=loop)["stopped"], True)
+        check("Select on Continue: the title screen from the top",
+              title(0, SELECT, at=site, stop=ets)["stopped"], True)
+        for cur in (0, 1):
+            r = title(cur, A_, at=site, stop=ets)
+            check("A on row %d: out of the title screen, New Game %s" % (cur, bool(cur)),
+                  flags(r, "stopped", "C"), (None, bool(cur)))
+
+    #  ...and the loop hears Select: TitleScreen_Music answers it with A.
+    for a_, sel, want in ((0, 0, 0), (1, 0, 1), (0, 1, 1)):
+        bus, cpu = machine()
+        bus.wram[K["joy_a"]], bus.wram[K["joy_select"]] = a_, sel
+        bus.wram[K["cur_bank"]] = 0x0E
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["TitleScreen_Music"])
+        check("TitleScreen_Music, A %d Select %d" % (a_, sel), cpu.a & 0xFF, want)
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -6239,7 +6491,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_rando_namelazy)
+             test_rando_begin, test_nones, test_rando_namelazy, test_saveview)
 
     global JOBS
     args, want = sys.argv[1:], []

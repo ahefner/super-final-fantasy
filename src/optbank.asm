@@ -73,8 +73,8 @@
 .import lut_CantHoldWhat
 .import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
-.export opt_titleupdown, opt_titleleftright, opt_titlechoose
-.import opt_settings, credits_screen
+.export opt_titleupdown, opt_titleleftright, opt_titlechoose, opt_savevalid
+.import opt_settings, opt_saveview, credits_screen, VerifyChecksum
 .export opt_commit_body
 
 .import DrawBox
@@ -685,21 +685,74 @@ opt_titleupdown:
     STX cursor
     RTL
 
-;;  A or Start on a row that is not a way out of the title screen: the title
-;;  loop has already returned for Continue and New Game, so this is the mode
-;;  row or Credits.  Each opens its own screen and returns by RTL, and the
-;;  title screen is then rebuilt from the top -- which both of them need, as
-;;  each overwrites the CHR and the nametable.
+;;  A, Start or Select on the title screen: every decision the title loop
+;;  makes about a button, so that its call site in bank $0E, which has no
+;;  bytes to spare, is a call and three branches.
 ;;
-;;  A dispatcher here rather than a comparison in the patch, because bank $0E
-;;  has no bytes to spare: the call site stays the size it was.
+;;    A or Start on Continue or New Game leaves the title screen, as ever.
+;;    A or Start on the mode row opens the settings, and on Credits the
+;;      credits.
+;;    Select on Continue opens the save view (opt_saveview), if there is a
+;;      save Continue would load; anywhere else, or with none, it does
+;;      nothing.
+;;
+;;  A screen of ours overwrites the CHR and the nametable, so the title screen
+;;  is then rebuilt from the top.  Each is called rather than jumped to, so
+;;  the answer below is ours and not whatever its RTL left in the flags.
+;;
+;;  Out: N set -- nothing happened, back to the loop.  Z set -- a screen was
+;;  shown, rebuild the title screen.  Neither -- leave it, with C set for New
+;;  Game and clear for Continue, which is what the game's CMP #1 gave.
 opt_titlechoose:
+    LDA joy_a
+    ORA joy_start
+    BNE @chosen
+
+    ;  Select alone.  The press is used up whatever comes of it, or the loop
+    ;  would find it again next frame.
+    STA joy_select              ; A is zero
     LDA cursor
+    BNE @nothing                ; only Continue has a save behind it
+    JSR opt_savevalid
+    BCS @nothing
+    JSL opt_saveview + OPTFAR
+    BRA @shown
+  @nothing:
+    LDA #$FF                    ; N set
+    RTL
+
+  @chosen:
+    LDA cursor
+    CMP #TITLEROW_MODE
+    BCS @screen
+    CMP #1                      ; C: New Game
+    LDA #$01                    ; ...and Z and N clear
+    RTL
+  @screen:
     CMP #TITLEROW_CREDITS
     BEQ @credits
-    JMP opt_settings            ; its RTL is ours
+    JSL opt_settings + OPTFAR
+    BRA @shown
   @credits:
-    JML credits_screen + CREDITSFAR
+    JSL credits_screen + CREDITSFAR
+  @shown:
+    LDA #$00                    ; Z set
+    RTL
+
+;;  C clear if the battery holds a save Continue would load: the game's own
+;;  tests, in its order -- the two assertion bytes, then the checksum, which
+;;  also fails a save from another SAVEVER.
+opt_savevalid:
+    LDA sram_assert_55
+    CMP #$55
+    BNE @no
+    LDA sram_assert_AA
+    CMP #$AA
+    BNE @no
+    JMP VerifyChecksum          ; its carry is the answer
+  @no:
+    SEC
+    RTS
 
 ;;  In: A = the direction bits.  On the preset row this cycles the preset and
 ;;  reseals the block; anywhere else it is the respond rate, as before -- and

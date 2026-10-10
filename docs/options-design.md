@@ -84,6 +84,46 @@ extra is needed to put the title cursor back on Continue: the way out is
 `JMP EnterTitleScreen`, and `IntroTitlePrepare` on that path already zeroes
 `cursor` along with the button catchers.
 
+### Save view -- Select on Continue
+
+**Built 2026-10-09, played 2026-10-10.**  Select with the title cursor on
+Continue opens a read-only view of the saved game: its seed and its
+RANDOMIZATION rows, read from the battery copy (`$64A0`) that Continue would
+load -- the world that game is, where the settings screen shows what the next
+new game would be.  **Seed entry is not part of it (user, 2026-10-09):** it
+belongs to the New Game flow, which needs more thought first.
+
+  - It is the settings screen held to its last section.  `opt_saveview` sets
+    `OPTMENU_VIEW` (`OPTBLOCK+$31`) and opens the window on the blank above
+    RANDOMIZATION; the heading reads SAVED GAME, and the blank row under it
+    the seed, as eight hex digits high byte first -- the way `FFSEED=` and
+    `randoref.py` take it.  The rows keep their indices, so the labels,
+    readouts and per-value descriptions are the settings' own, and a save
+    and the settings can never be described two ways.
+  - Values come through `opt_menu_valbyte`: the option block, or in the view
+    the save, which keeps the new-game bytes in the option page's order from
+    Trap tiles on.  A step past its row's count reads as the first, as the
+    description pane already did.
+  - Up and down move between the fourteen rows for their descriptions; B or
+    Start leaves.  A, left, right and Select are masked off (A on a value row
+    did nothing anyway).  Nothing is written: the preset is not switched to
+    Custom and the option checksum is untouched.  The flag is cleared on the
+    way out, and `opt_settings` clears it on the way in, so a soft reset in
+    the middle of the view cannot leave the settings reading the save.
+  - With no save Continue would load -- the game's own assertion bytes and
+    checksum, in its order (`opt_savevalid`) -- Select does nothing, as it
+    does on every other row.
+  - The title loop hears Select through `TitleScreen_Music`, which now ORs
+    `joy_select` into the A catcher it returns (two of the thirty unused
+    bytes after it).  `opt_titlechoose` makes every decision about A, Start
+    and Select and answers in the flags -- N: back to the loop; Z: a screen
+    was shown, rebuild the title; otherwise leave, C set for New Game.  It
+    calls each screen with `JSL` rather than tail-jumping into it: the
+    screens end in `PLB` / `RTL`, which would hand back the flags of the bank
+    byte.  Bank `$0E`'s call site went from 16 bytes to 12 and four NOPs.
+  - Nothing on the title screen says Select does anything.  A hint belongs
+    with the New Game and Continue rethink.
+
 ### Tiles and palette
 
 Two new CHR tiles: unchecked and checked.  A white rectangle with a grey
@@ -1484,8 +1524,13 @@ text region in the game references.
                              in the enemy attack setup
     BANK_0D      212 free
     BANK_0E       37 free    12 declared unused at $BFF4, after House MP took
-                             four; 25 NOPs in the old LoadShopInventory
-    BANK_OPT    3920 free   once the descriptions moved out, and the None
+                             four; 25 NOPs in the old LoadShopInventory.
+                             Besides: 28 zero bytes after TitleScreen_Music,
+                             reachable only by code before the pinned $8500
+                             blob (the save view took two), and four NOPs
+                             after the title's @OptionChosen
+    BANK_OPT    3661 free   once the descriptions moved out, the None, and
+                             the save view (259)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer
