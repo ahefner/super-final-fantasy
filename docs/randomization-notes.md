@@ -486,7 +486,10 @@ Your graph framing is the general form, and the right one for the cart,
 because it is the only form that survives entrance shuffle.  Three tables in
 ROM per world variant:
 
-**Nodes.**  At most 128, so the reached set is a 16-byte bitmap:
+**Nodes.**  At most 256, so the reached set is a 32-byte bitmap and a node
+id a byte.  (This said 128 and 16 bytes.  Vanilla already prunes to 161, and
+only by using its own wiring; kept without knowing the wiring it is 182 --
+§9.3.)
 
   - overworld regions, roughly 25 for vanilla (separated by water, river,
     mountain and desert)
@@ -521,7 +524,9 @@ Three properties fall out of this and keep the cart code tiny:
     that adds a river is an edge whose requirement is `EDIT_x`.  A free
     CANAL starts the search owning CANAL.  No table per combination of the
     16 edit flags.
-  - **Entrance and floor shuffle is a rewrite of edge endpoints.**  Each
+  - **Entrance and floor shuffle is a rewrite of edge endpoints** -- for
+    reachability.  It also needs the way back modelled and its invariants
+    checked per seed; §9.3 has what that takes.  Each
     overworld entrance edge points at the map node its permuted destination
     names.
   - **Incentive rules are a location mask.**  Key items go only to locations
@@ -548,7 +553,7 @@ cycles per placement.  Over 25 progression items, plus the verify sweep,
 that is **0.15-0.6 seconds at 3.58MHz**.  That is fine once per New Game,
 and with the placement stored in the save it never runs on Continue.
 
-RAM: the masks, a 16-byte bitmap, a 128-byte worklist and a candidate list,
+RAM: the masks, a 32-byte bitmap, a 256-byte worklist and a candidate list,
 all under 1KB.  ROM: about 2KB of logic per world variant.
 
 **For FFR's feel, port `PredictivePlacement` itself, not just its
@@ -1129,7 +1134,89 @@ What the shuffle itself has to produce, following FFR's
   - **Logic rebuilt per seed.**  Floors become separate nodes, as your note
     says, and entrance edges get rewritten endpoints.  This is the only
     feature that requires the on-cart BFS rather than precomputed
-    requirements.
+    requirements.  What that takes is below.
+
+**What the shuffle moves (2026-10-11, checked against the tile data and
+FFR's `EntrancesFloorsShuffle.cs` / `Teleporters.cs`).**  "Rewrite the edge
+endpoints" holds for reachability and for nothing else.  The rest:
+
+  - **The unit is a destination, not a map and not a staircase.**  FFR's
+    `TeleportDestination` is a landing point in one region of a map plus
+    that region's outgoing teleports.  Gurgu B3 and B4 are two destinations
+    each: what looks like B3 and B4 linked both ways, counted by map, is a
+    forward chain through different regions, B3(a) -> B4(a') -> B3(b) ->
+    B4(b') -> B5.  Sea Shrine is the same; Cardia is one map and five
+    destinations.  And teleport ids are tile properties, so one id can be
+    placed many times: Ice Cave B2's fifteen holes are all id 18.
+  - **The way back is the stack.**  A warp is `DoStandardMap` returning one
+    level (`overworld-notes.md` §3), so it goes wherever the party came
+    from, not anywhere a table says.  44 of the 63 normal teleports land on
+    the destination floor's up-staircase, a warp, and FFR's free-placement
+    floors are all of that kind: deal one anywhere and its way back follows.
+    The other 19 are exactly what FFR pins, each as a group:
+      - Coneria Castle 2F, which returns by a normal teleport (FFR: "could
+        be used if the teleporter here is turned into warp stairs")
+      - the Temple of Fiends -> ToFR link, one way by design
+      - the Ice Cave's back half, `IceCave5`-`8`, pinned when floors and
+        entrances are both shuffled: the holes always drop into the Ice
+        Cave and run on to its own exit
+      - the Castle of Ordeals: ten teleports into its own 2F (the maze), and
+        an exit rather than a warp
+    **Invariant for the cart's shuffle: a dealt destination lands on a warp;
+    anything that does not is pinned, with its group.**  Checked per seed,
+    not assumed.
+  - **One caller per destination.**  FFR never lets two teleports target the
+    same destination.  That is what lets an exit be recomputed to a single
+    root entrance, and keeps a warp's return a single edge.  Titan's Tunnel
+    is two destinations in one map, each with its own exit.
+  - **Exits go back to the root entrance's own region, vehicle and all.**
+    The Waterfall is entered from the river; an exit recomputed to it lands
+    the party in the canoe, not in whatever foot region holds the
+    coordinate.  The ship stays where it was left, so the party comes out
+    where it went in, as in vanilla's warp-outs.
+  - **No game code tests a map id.**  Every read of `cur_map` indexes a
+    table -- the map data, its objects and their graphics, the encounter
+    domain and rate -- so a floor's behaviour goes where it goes.  What also
+    goes with it is its difficulty: a deep floor can land near the start.
+    FFR has no depth rule beyond its dead-end and fork bookkeeping; that is
+    a question of feel for the cart's rules, not one the graph can see.
+  - **In-room landings are not a requirement.**  FFR replaced the teleport
+    handlers to take `inroom` from an unused high bit of the X coordinate
+    (`TeleportXYInroom`).  Vanilla's tables never set those bits, and the
+    two landings FFR marks in-room are pinned Ice Cave links.
+
+**The stack.**  Each normal teleport pushes five bytes and `JSR`s a new
+`DoStandardMap`: seven bytes of page 1 per level, unwound only by a warp.
+Vanilla already lets a party walk Coneria Castle's stairs, or the Ice Cave
+loop, round and round until the stack wraps and the game crashes, at about
+29 levels.  FFR's "Softlock fix" (`asm/StackShift.asm`, installed on every
+ROM from `ExtraTrackingAndInitCode`) catches it before each normal
+teleport: with S below `$30` it slides the stack up seven bytes, dropping
+the oldest frame.  At that depth a warp from the second floor returns to
+the overworld rather than the first floor.  That is harmless to the logic --
+a warp can only come back nearer the overworld -- and a shuffle that chains
+floors deeper than vanilla makes it likelier to matter.  **Port it as an
+unconditional fix**, with the threshold re-derived for the port: battles,
+menus and the HAL's native-mode code use more stack than the NES game did.
+
+**The graph, per seed.**  Static: the regions of every map and the gated
+edges between them; a table from each teleport placement to its region, and
+from each destination record to its landing region.  Per seed: an edge from
+each placement's region to the landing region of the destination its id now
+names; an exit edge from a destination's region to its root entrance's
+region; and a warp as an edge back to the caller.  Warps add no
+reachability, but they are what make assumed fill's premise true -- a region
+once reached stays reachable -- and the stranding check needs them.
+
+  - **Node budget: 256.**  Kept without knowing the wiring -- every region
+    holding a location, either end of a teleport, or an overworld entrance,
+    plus what vanilla's own pruning keeps -- the graph is 182 nodes, 129 in
+    standard maps and 53 elsewhere (`worldgraph`, 2026-10-11).
+  - **The cross-check against FFR covers only the vanilla wiring.**  All
+    260 locations agree there.  For shuffled wiring: generate FFR ROMs with
+    entrance and floor shuffle on, read their teleport tables through
+    `worldgraph`, and compare against FFR's own logic, as `run_ffr_map.py`
+    does for its overworld maps.
 
 FFR also retints dungeon palettes by entrance region.  That is cosmetic and
 can be skipped.
