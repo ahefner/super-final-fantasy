@@ -1468,22 +1468,29 @@ Settled in review 1:
     Entrance and Floor Shuffle, Chaos Rush, Free Enterprise).
       - Vanilla and Improved Vanilla randomize nothing and go straight to
         party creation.
-      - Custom Game goes to overworld map select: a list of names, the
-        map's preview beside it.  The vanilla map goes on to map edits
-        (checkboxes); an alternate map skips them.
-      - The other presets assume the vanilla map and open at map edits, so
-        everything they set can be reviewed and changed on the way through.
+      - Custom Game, and every other preset, goes to overworld map select:
+        a list of names, the map's preview beside it.  Only Vanilla and
+        Improved Vanilla skip the menus, so everything a preset sets can be
+        reviewed and changed on the way through.  The vanilla map goes on
+        to map edits (checkboxes); an alternate map skips them.
       - Then: randomization (the shuffles now on the settings screen, and
         the incentive options under their own heading) -> options (the
         existing screen, less its RANDOMIZATION section) -> seed, when
         anything needs one -> party creation, after which the world is
         built and placed and the game begins.
       - **B returns to the previous screen, throughout** -- to whichever
-        screen led there, so map edits goes back to the preset list when a
-        preset opened it.  On the seed screen B is backspace while a seed
+        screen led there.  On the seed screen B is backspace while a seed
         is being edited, and goes back when nothing has been edited or the
-        entry is empty.  Party creation's B on its first slot, with nothing
-        chosen, goes back (to the seed screen, options, or the preset list).
+        entry is empty.  Party creation already uses B to back up a
+        character, and on the first character it does nothing
+        (`BCS @Char_0`): that is where B goes back (to the seed screen,
+        options, or the preset list), and only there.
+      - Open: whether B on a complete, cursorless seed deletes the last
+        digit or only brings the cursor back; and when a preset takes
+        effect -- written to the global options as it is chosen, as the
+        settings screen writes today, so that backing out leaves it applied
+        and Custom Game starts from it, or held in a working copy until the
+        game starts.
       - The seed screen latches a random seed and shows it; a 4x4 grid of
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
