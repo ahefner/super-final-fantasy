@@ -1596,6 +1596,8 @@ lut_OptRows:
   FFPAD "Free TAIL", 30
   .BYTE $01, $24   ; Free ROD
   FFPAD "Free ROD", 30
+  .BYTE $02, $14   ; Starting items   (scalar 20)
+  FFPAD "Starting items", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
 lut_OptRowRando:   ; the save view's rows are found from here
@@ -1824,6 +1826,19 @@ lut_ValThiefHit:
   FFPAD "  +3", 4                ; THIEFHIT_MODERATE
   FFPAD "  +4", 4                ; THIEFHIT_DOUBLE
 
+;  Starting items: FFR's nine fixed sets, eight columns of each name.  The
+;  description gives the whole name and what the set holds.
+lut_ValStartItems:
+  FFPAD "    None", 8           ; STARTITEMS_NONE
+  FFPAD "  Safety", 8           ; Safety Bit
+  FFPAD "  Beggar", 8           ; Beggar's Choice
+  FFPAD "   Tents", 8           ; Just Tents
+  FFPAD "Explorer", 8           ; Explorer Pack, STARTITEMS_EXPLORER
+  FFPAD "  Estate", 8           ; Real Estate
+  FFPAD " Warrior", 8           ; Warrior's Standard
+  FFPAD "Packmule", 8           ; Royal Packmule
+  FFPAD "Duckling", 8           ; Duckling Boon
+
 ;  Enemy scripts and Enemy skills: which enemies' lists are dealt.
 lut_ValAI:
   FFPAD "     Off", 8           ; AI_OFF
@@ -1838,29 +1853,29 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValBless, <lut_ValCurse, <lut_ValRarity, <lut_ValZones
               .BYTE <lut_ValShuffle, <lut_ValShuffle
               .BYTE <lut_ValShuffle, <lut_ValAI, <lut_ValAI, <lut_ValShuffle
-              .BYTE <lut_ValThiefHit
+              .BYTE <lut_ValThiefHit, <lut_ValStartItems
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
               .BYTE >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValShuffle, >lut_ValAI, >lut_ValAI, >lut_ValShuffle
-              .BYTE >lut_ValThiefHit
+              .BYTE >lut_ValThiefHit, >lut_ValStartItems
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
               .BYTE STATUS_MODES, AI_MODES, AI_MODES, RNG_MODES
-              .BYTE THIEFHIT_STEPS
+              .BYTE THIEFHIT_STEPS, STARTITEMS_SETS
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
-;  Thief and Ninja hit growth is the block's sixth scalar, numbered last
-;  because it came last.
+;  Thief and Ninja hit growth and the starting items are the block's sixth
+;  and seventh, numbered last because they came last.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
               .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
               .BYTE <OPT_NG_NORUN, <OPT_NG_SURPRISE
               .BYTE <OPT_NG_STATUS, <OPT_NG_SCRIPTS, <OPT_NG_SKILLS, <OPT_NG_RNG
-              .BYTE <OPT_THIEFHIT
+              .BYTE <OPT_THIEFHIT, <OPT_STARTITEMS
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

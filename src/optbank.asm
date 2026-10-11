@@ -129,7 +129,7 @@ OPT_FORCED_PRESET = OPT_FORCE
 .endif
 
 lut_Presets:
-    ;  Five bytes of flags, low byte first, then the six scalars.  The fifth
+    ;  Five bytes of flags, low byte first, then the seven scalars.  The fifth
     ;  flag byte holds the bits past 31, and is zero in every preset:
     ;  Treasures and the free key items skip content rather than improve it,
     ;  so none of them belongs in a preset.
@@ -138,11 +138,12 @@ lut_Presets:
     ;  2026-10-11): it takes strategy out of a fight.
     ;
     ;  Rows sit sixteen bytes apart so the index stays a shift rather than a
-    ;  multiply.  The padding costs 15 bytes and buys that.
+    ;  multiply.  The padding costs 12 bytes and buys that.
     .DWORD  0                                                              ; Vanilla
     .BYTE   0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_VANILLA
-    .RES    5, $00
+    .BYTE   STARTITEMS_NONE
+    .RES    4, $00
     ;  Improved is FFR's Improved Vanilla (user, 2026-10-11): the quality of
     ;  life and the bugfixes, gold and XP doubled, Thief and Ninja hit growth
     ;  at Moderate, and the elemental bonus left at the cartridge's +4 --
@@ -151,18 +152,20 @@ lut_Presets:
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX               ; Improved
     .BYTE   0
     .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
-    .RES    5, $00
+    .BYTE   STARTITEMS_NONE
+    .RES    4, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
     .BYTE   0
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
-    .RES    5, $00
+    .BYTE   STARTITEMS_NONE
+    .RES    4, $00
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
 ;  run from the flags up to but not including OPT_RESPOND, which
 ;  opt_loadpreset writes itself.
 PRESET_FIELDS = OPT_RESPOND - OPT_FLAGS
 PRESET_STRIDE = 16
-.assert PRESET_FIELDS = OPT_FLAGBYTES + 6, error, "preset row does not match the option block"
+.assert PRESET_FIELDS = OPT_FLAGBYTES + 7, error, "preset row does not match the option block"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -3029,11 +3032,50 @@ opt_freestuff:
   @rod:
     LDA OPTFB_FREEROD
     AND #OPTFM_FREEROD
-    BEQ @out
+    BEQ @items
     LDA #$01
     STA item_rod
+
+    ;  The starting items: the set's six counts over item_tent..item_soft,
+    ;  which lut_InitUnsramFirstPage has left at zero.  None copies its row of
+    ;  zeros like any other, so there is no special case; a step past the
+    ;  table, which the checksum should have stopped, gives nothing.
+  @items:
+    LDA OPT_STARTITEMS
+    CMP #STARTITEMS_SETS
+    BCS @out
+    ASL A                       ; * 8, the row stride
+    ASL A
+    ASL A
+    TAX
+    LDY #$00
+  @count:
+    LDA f:lut_StartItems + OPTFAR, X
+    STA item_tent, Y
+    INX
+    INY
+    CPY #STARTITEMS_ROW
+    BCC @count
   @out:
     RTL
+
+
+;  FFR's fixed starting sets, StartingInventory.cs, in its order: TENT, CABIN,
+;  HOUSE, HEAL, PURE, SOFT, which is also the order of the inventory.  Rows
+;  of eight so the index is a shift; the last two bytes are padding.
+STARTITEMS_ROW = item_soft + 1 - item_tent
+.assert STARTITEMS_ROW = 6, error, "the six consumables are not adjacent"
+lut_StartItems:
+    .BYTE  0,  0,  0,  0,  0,  0, 0, 0     ; None
+    .BYTE  1,  0,  0,  0,  1,  1, 0, 0     ; Safety Bit
+    .BYTE  5,  0,  0, 20,  2,  1, 0, 0     ; Beggar's Choice
+    .BYTE 10,  0,  0,  0,  0,  0, 0, 0     ; Just Tents
+    .BYTE 10,  0,  0, 50,  4,  2, 0, 0     ; Explorer Pack
+    .BYTE 15,  5,  1,  0,  0,  0, 0, 0     ; Real Estate
+    .BYTE 15,  5,  1, 50,  6,  3, 0, 0     ; Warrior's Standard
+    .BYTE 50, 15,  5, 99, 10,  5, 0, 0     ; Royal Packmule
+    .BYTE 99, 99, 99, 99, 99, 99, 0, 0     ; Duckling Boon
+.assert * - lut_StartItems = 8 * STARTITEMS_SETS, error, "one row per starting set"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

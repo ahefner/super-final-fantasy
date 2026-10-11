@@ -231,6 +231,63 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"starts out with.  Saved"}, 28
   FFPAD {"games are not affected."}, 28
 
+lut_Desc_62:  ; Starting items
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_62_0, lut_Desc_62_1, lut_Desc_62_2, lut_Desc_62_3, lut_Desc_62_4
+  .WORD lut_Desc_62_5, lut_Desc_62_6, lut_Desc_62_7, lut_Desc_62_8
+  .assert * - lut_Desc_62 = 1 + 2 * STARTITEMS_SETS, error, "one description per starting set"
+
+lut_Desc_62_0:  ; Starting items: None
+  FFLINES 2
+  FFPAD {"A new game starts with no"}, 28
+  FFPAD {"items, as it always has."}, 28
+
+lut_Desc_62_1:  ; Safety Bit
+  FFLINES 2
+  FFPAD {"Safety Bit gives a TENT, a"}, 28
+  FFPAD {"PURE and a SOFT."}, 28
+
+lut_Desc_62_2:  ; Beggar's Choice
+  FFLINES 3
+  FFPAD {"Beggar's Choice gives 5"}, 28
+  FFPAD {"TENTs, 20 HEALs, 2 PUREs and"}, 28
+  FFPAD {"a SOFT."}, 28
+
+lut_Desc_62_3:  ; Just Tents
+  FFLINES 1
+  FFPAD {"Just Tents gives 10 TENTs."}, 28
+
+lut_Desc_62_4:  ; Explorer Pack
+  FFLINES 4
+  FFPAD {"Explorer Pack gives 10"}, 28
+  FFPAD {"TENTs, 50 HEALs, 4 PUREs and"}, 28
+  FFPAD {"2 SOFTs.  Most of FFR's"}, 28
+  FFPAD {"presets start with this one."}, 28
+
+lut_Desc_62_5:  ; Real Estate
+  FFLINES 2
+  FFPAD {"Real Estate gives 15 TENTs,"}, 28
+  FFPAD {"5 CABINs and a HOUSE."}, 28
+
+lut_Desc_62_6:  ; Warrior's Standard
+  FFLINES 3
+  FFPAD {"Warrior's Standard gives 15"}, 28
+  FFPAD {"TENTs, 5 CABINs, a HOUSE, 50"}, 28
+  FFPAD {"HEALs, 6 PUREs and 3 SOFTs."}, 28
+
+lut_Desc_62_7:  ; Royal Packmule
+  FFLINES 4
+  FFPAD {"Royal Packmule gives 50"}, 28
+  FFPAD {"TENTs, 15 CABINs, 5 HOUSEs,"}, 28
+  FFPAD {"99 HEALs, 10 PUREs and 5"}, 28
+  FFPAD {"SOFTs."}, 28
+
+lut_Desc_62_8:  ; Duckling Boon
+  FFLINES 3
+  FFPAD {"Duckling Boon gives 99 of"}, 28
+  FFPAD {"every TENT, CABIN, HOUSE,"}, 28
+  FFPAD {"HEAL, PURE and SOFT."}, 28
+
 lut_Desc_46:  ; Thief and Ninja hit%
   FFLINES 5
   FFPAD {"Hit% the Thief and the Ninja"}, 28
@@ -639,7 +696,7 @@ lut_DescLo:
   .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
-  .BYTE <lut_Desc_43, <lut_Desc_44, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
+  .BYTE <lut_Desc_43, <lut_Desc_44, <lut_Desc_62, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
   .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
   .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56, <lut_Desc_57
   .BYTE <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61
@@ -657,7 +714,7 @@ lut_DescHi:
   .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
-  .BYTE >lut_Desc_43, >lut_Desc_44, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
+  .BYTE >lut_Desc_43, >lut_Desc_44, >lut_Desc_62, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
   .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
   .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56, >lut_Desc_57
   .BYTE >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61

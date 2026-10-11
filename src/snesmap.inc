@@ -120,13 +120,17 @@ OPT_THIEFHIT    = OPTBLOCK+$0E  ; the sixth: Thief and Ninja hit growth, which
                                 ;   with the new-game rows, because a preset
                                 ;   writes them: opt_loadpreset copies from
                                 ;   OPT_FLAGS up to OPT_RESPOND.
-OPT_RESPOND     = OPTBLOCK+$0F  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$10
-OPT_SIZE        = $11
+OPT_STARTITEMS  = OPTBLOCK+$0F  ; the seventh: which of FFR's starting sets
+OPT_RESPOND     = OPTBLOCK+$10  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$11
+OPT_SIZE        = $12
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $06           ; bumped from $05: Thief and Ninja hit
+OPT_FORMAT      = $07           ; bumped from $06: the starting items took
+                                ; a seventh scalar, and the respond rate and
+                                ; checksum moved up a byte again.
+                                ; Bumped from $05: Thief and Ninja hit
                                 ; growth became a scalar, so the respond rate
                                 ; and the checksum moved up a byte.
                                 ; Bumped from $04: the checksum now covers
@@ -192,8 +196,7 @@ OPTF_LOK2         = $02000000
 ;  turning that constant into a load -- but the constants live in code that is
 ;  reached far too often to test a flag at.  So the flags are cooked down once,
 ;  here, and the use site just loads a byte.
-OPTD            = OPTBLOCK+$12  ; the derived block, above the option block,
-                                ;   with a byte between for the next scalar
+OPTD            = OPTBLOCK+$12  ; the derived block, just above the option block
 OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
 OPTD_WIPEOPEN_D = OPTD+$01
 OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
@@ -390,6 +393,16 @@ THIEFHIT_VANILLA  = 0           ; +2 a level, the table's
 THIEFHIT_MODERATE = 1           ; +3, FFR's Improved Vanilla
 THIEFHIT_DOUBLE   = 2           ; +4, FFR's other presets
 THIEF_HIT_VANILLA = 2           ; what lut_LvlUpHitRateBonus holds for TH and NJ
+
+;  Starting items: FFR's StartingItemSet, its nine fixed sets.  Each sets the
+;  counts of the six consumables, item_tent through item_soft, which a new
+;  game otherwise starts at zero; so a set is a six-byte row copied over them
+;  (lut_StartItems, optbank.asm).  FFR's six randomized sets are left out:
+;  none of its presets uses one, and each would need a seeded roll at New
+;  Game.  Its presets but Improved Vanilla use the Explorer Pack.
+STARTITEMS_SETS     = 9
+STARTITEMS_NONE     = 0
+STARTITEMS_EXPLORER = 4
 
 OPTFB_THIEFNINJA = OPT_FLAGS+2
 OPTFM_THIEFNINJA = $08   ; bit 19

@@ -165,8 +165,9 @@ HARM.
     collected, counting free and turned-in items.  It goes in the same
     place, with a count of the key item bits.
   - **Starting items: FFR's Explorer pack** (`StartingItemSet`) of 10
-    Tents, 50 Heals, 4 Pures and 2 Softs, in every randomized preset.  It
-    would be a New Game row beside the Free items.
+    Tents, 50 Heals, 4 Pures and 2 Softs, in every randomized preset.
+    *Played 2026-10-11:* a Treasures row with FFR's nine
+    fixed sets.
   - **Hit% cap raised from 200 to 250** (`FixHitChanceCap`), in every
     randomized preset.
   - **SOFT in battle** (`EnableSoftInBattle`), as both the spell and the

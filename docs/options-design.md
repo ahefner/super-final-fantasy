@@ -240,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-42 settings: 36 checkboxes and 6 value rows.
+43 settings: 36 checkboxes and 7 value rows.
 
 ### Quality of life (15)
 
@@ -448,10 +448,10 @@ Agility caps at 99 by level 20, but the original code grants the evade point
 whether or not agility rose, so evade keeps climbing.  A two-character party
 doubles each member's XP and gets there sooner (user's playthrough).
 
-### Treasures (11)
+### Treasures (12)
 
 Free SHIP, Free AIRSHIP, Free BRIDGE, Free CANAL, Free CANOE, Free KEY, Free
-CHIME, Free CROWN, Free LUTE, Free TAIL, Free ROD.
+CHIME, Free CROWN, Free LUTE, Free TAIL, Free ROD, Starting items.
 
 These are not in FFR's own quality-of-life grouping; they are its starting-
 inventory flags, and they exist here for the same reason FFR has them -- to
@@ -465,6 +465,19 @@ only affect a *new* game -- `opt_freestuff` runs off the new-game path, so an
 existing save is untouched whatever these are set to.  *Planned
 (2026-10-11):* the section moves to the New Game flow, and its FFR-derived
 presets free what FFR's do; `randomization-notes.md` §12.
+
+**Starting items** (2026-10-11; played the same day, spot checks and a new game) is a value row of
+FFR's `StartingItemSet`, its nine fixed sets in its order: None, Safety Bit,
+Beggar's Choice, Just Tents, Explorer Pack, Real Estate, Warrior's Standard,
+Royal Packmule, Duckling Boon.  Each sets the counts of TENT, CABIN, HOUSE,
+HEAL, PURE and SOFT, which a new game starts at zero, so `opt_freestuff`
+copies the set's six-byte row of `lut_StartItems` over `item_tent` through
+`item_soft`.  The readout is an eight-column short name; the description,
+one per set, gives FFR's full name and the contents.  FFR's presets but
+Improved Vanilla use the Explorer Pack.  **Decision: the six randomized sets
+are left out** -- none of FFR's presets uses one, and each would need a
+seeded roll at New Game.  Approved by the user, 2026-10-11, as "a subset ...
+or all of them".
 
 ### New game (6)
 
@@ -599,6 +612,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Enemy skills | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
+| Starting items | None and FFR's eight sets | -- | 9 | None |
 
 Each stores a step index in one byte.  Adjusted with left/right, consistent
 with the existing Respond Rate control.  A readout is four columns, or eight
@@ -728,20 +742,19 @@ addresses are not extents, and several buffers here are deliberately overlaid
 on each other because their scenes are mutually exclusive.  Coverage by a
 single name is the test, not absence of a name.
 
-Layout, 17 bytes of the 256:
+Layout, 18 bytes of the 256:
 
-    (at OPTBLOCK = $6E00, 17 of the 256 bytes available)
+    (at OPTBLOCK = $6E00, 18 of the 256 bytes available)
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
     flags       5    36 checkbox bits; bit 21 is unused
-    scalars     6    gold/XP, encounter, enemy, boss, elemental, Thief hit --
-                     step indices
+    scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
+                     starting items -- step indices
     respondrate 1    0-based
     checksum    1    sum forced to $FF, as the game's own save does
 
-`$6E11` is spare, for the next scalar; the derived bytes (`OPTD`) follow at
-`$6E12`.
+The derived bytes (`OPTD`) follow at `$6E12`.
 
 Two more ranges on the page belong to the randomizer:
 
@@ -753,14 +766,14 @@ Two more ranges on the page belong to the randomizer:
                           padded to seven, for the None's class name
 
 The new-game bytes are covered by the checksum -- `opt_sum` adds them after the
-block's sixteen -- and cleared by every preset.  The pool is deliberately
+block's seventeen -- and cleared by every preset.  The pool is deliberately
 outside it: battery noise on a fresh cartridge is welcome there.
 
-`OPT_FORMAT` is 6.  It went to 3 when the flag word grew its fifth byte, to 4
+`OPT_FORMAT` is 7.  It went to 3 when the flag word grew its fifth byte, to 4
 when the elemental bonus became a dial and needed a fifth scalar, to 5 when
-the checksum took in the new-game bytes, and to 6 when Thief hit growth
-became a sixth scalar; each bump costs a cartridge its saved settings once, on
-the first boot after.  The Shops, Chests, Magic and
+the checksum took in the new-game bytes, to 6 when Thief hit growth became a
+sixth scalar, and to 7 when the starting items took a seventh; each bump
+costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic and
 gear bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
 anything else there fails the checksum and resets to a preset.
@@ -786,8 +799,8 @@ The checksum scheme is modelled on the game's own at
 
 **Decision: scratch above the checksum is initialized at boot, and any byte
 that outlives the routine writing it is treated as hostile until proven
-otherwise.**  `OPT_SIZE` is `$11`, so only the settings are covered by the
-checksum -- everything from `OPTBLOCK+$11` up is working storage that happens
+otherwise.**  `OPT_SIZE` is `$12`, so only the settings are covered by the
+checksum -- everything from `OPTBLOCK+$12` up is working storage that happens
 to live in SRAM.  That is fine for per-call scratch, which every routine writes
 before it reads.  It is not fine for a byte whose lifetime spans screens.
 

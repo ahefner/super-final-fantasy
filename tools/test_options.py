@@ -57,9 +57,10 @@ OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
 OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
 OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 11, 12, 13
 OPT_THIEFHIT = 14       # the sixth scalar; bit 21 until it took a third value
-OPT_RESPOND, OPT_CKSUM = 15, 16
-OPT_SIZE = 17
-OPT_FORMAT = 6          # bumped when Thief hit growth became a scalar
+OPT_STARTITEMS = 15     # the seventh: FFR's starting item set
+OPT_RESPOND, OPT_CKSUM = 16, 17
+OPT_SIZE = 18
+OPT_FORMAT = 7          # bumped when the starting items took a scalar
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -236,6 +237,8 @@ def test_presets():
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
     #  is set by none: it is unused since Thief hit became a scalar.
     #
+    #  No preset starts with items: like the Treasures flags, they are for the
+    #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
             1: (0x000007FDFF, 4, 10, 3, 3, 2, 1),
             2: (0x0003DFFDFF, 5, 6, 3, 3, 15, 2)}
@@ -252,6 +255,7 @@ def test_presets():
         check("%s: boss step" % name, blk(bus, OPT_BOSS), bo)
         check("%s: elemental bonus step" % name, blk(bus, OPT_ELEMDMG), el)
         check("%s: Thief hit step" % name, blk(bus, OPT_THIEFHIT), th)
+        check("%s: no starting items" % name, blk(bus, OPT_STARTITEMS), 0)
         #  loadpreset seals as it goes, so init must accept what it wrote
         cpu2 = CPU(bus); cpu2.dbr = 0xA7
         call(cpu2, "opt_init")
@@ -3067,6 +3071,33 @@ def test_treasures():
           inventory(sum(1 << b for _, b in FREE_ITEM.values())),
           {n: 1 for n in FREE_ITEM})
 
+    #  The starting items: FFR's nine fixed sets, StartingInventory.cs, as
+    #  counts of TENT, CABIN, HOUSE, HEAL, PURE and SOFT.  Transcribed from
+    #  FFR's table, not from lut_StartItems.  The counts start at zero, as
+    #  lut_InitUnsramFirstPage leaves them; anything else is kept off them
+    #  by the set's own row, zeros included.
+    SETS = [(0, 0, 0, 0, 0, 0), (1, 0, 0, 0, 1, 1), (5, 0, 0, 20, 2, 1),
+            (10, 0, 0, 0, 0, 0), (10, 0, 0, 50, 4, 2), (15, 5, 1, 0, 0, 0),
+            (15, 5, 1, 50, 6, 3), (50, 15, 5, 99, 10, 5), (99,) * 6]
+    TENT = 0x36                         # unsram + $20 + $16, item_tent
+    def consumables(step, flagbits=0):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        setblk(bus, OPT_STARTITEMS, step)
+        for i in range(-2, 8):                  # a decoy byte either side
+            bus.sram[TENT + i] = 0
+        call(cpu, "opt_freestuff")
+        return tuple(bus.sram[TENT - 2:TENT + 8])
+    for step, want in enumerate(SETS):
+        check("starting set %d" % step, consumables(step), (0, 0) + want + (0, 0))
+    check("a step past the table gives nothing", consumables(9), (0,) * 10)
+    check("...nor does $FF", consumables(0xFF), (0,) * 10)
+    check("the Explorer Pack beside every Treasures flag",
+          consumables(4, sum(1 << b for b in list(FREE_BIT.values())
+                             + [b for _, b in FREE_ITEM.values()])),
+          (0, 0) + SETS[4] + (0, 0))
+
     #  Bits 32 and 33 live in the fifth flag byte, which only exists because
     #  the block grew; a four-byte word would drop them silently.
     check("the flag word is wide enough to hold them",
@@ -3779,7 +3810,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(20):
+    for t in range(21):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
@@ -3794,7 +3825,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the twenty tables hold the expected number of entries", seen, 140)
+    check("the 21 tables hold the expected number of entries", seen, 149)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -4259,8 +4290,8 @@ def test_rando_options():
 
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
-    check("lut_ValOff: the five dials, the new-game rows, then Thief hit",
-          list(ROMDATA[at:at + 20]),
+    check("lut_ValOff: the five dials, the new-game rows, Thief hit, items",
+          list(ROMDATA[at:at + 21]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
@@ -4269,7 +4300,7 @@ def test_rando_options():
            K["OPT_NG_ZONES"] - OPTBLOCK, K["OPT_NG_NORUN"] - OPTBLOCK,
            K["OPT_NG_SURPRISE"] - OPTBLOCK, K["OPT_NG_STATUS"] - OPTBLOCK,
            K["OPT_NG_SCRIPTS"] - OPTBLOCK, K["OPT_NG_SKILLS"] - OPTBLOCK,
-           K["OPT_NG_RNG"] - OPTBLOCK, OPT_THIEFHIT])
+           K["OPT_NG_RNG"] - OPTBLOCK, OPT_THIEFHIT, OPT_STARTITEMS])
 
     #  Every randomization row's first value reads Off -- under the
     #  RANDOMIZATION heading, the randomization off -- so that a Shuffle
@@ -4292,18 +4323,21 @@ def test_rando_options():
     in_vblank(bus)                       # these rows redraw their description
     call(cpu, "opt_init")
     for row, byte, presses, want in (
-            (60, K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
-            (61, K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0]),
-            (66, K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
-            (67, K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
-            (68, K["OPT_NG_NORUN"], 3, [1, 1, 1, 0, 0, 0]),
-            (69, K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0]),
-            (70, K["OPT_NG_STATUS"], 3, [1, 1, 1, 0, 0, 0]),
-            (72, K["OPT_NG_SKILLS"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
-            (73, K["OPT_NG_RNG"], 3, [1, 1, 1, 0, 0, 0]),
+            (optrow("Trap tiles"), K["OPT_NG_TRAPS"], 6, [1, 2, 3, 4, 4, 4, 3, 2, 1, 0, 0, 0]),
+            (optrow("Shops"), K["OPT_NG_SHOPS"], 3, [1, 1, 1, 0, 0, 0]),
+            (optrow("Formation rarity"), K["OPT_NG_FORMS"], 4, [1, 2, 2, 2, 1, 0, 0, 0]),
+            (optrow("Formation zones"), K["OPT_NG_ZONES"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
+            (optrow("Unrunnable fights"), K["OPT_NG_NORUN"], 3, [1, 1, 1, 0, 0, 0]),
+            (optrow("Surprise rates"), K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0]),
+            (optrow("Status attacks"), K["OPT_NG_STATUS"], 3, [1, 1, 1, 0, 0, 0]),
+            (optrow("Enemy skills"), K["OPT_NG_SKILLS"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
+            (optrow("RNG tables"), K["OPT_NG_RNG"], 3, [1, 1, 1, 0, 0, 0]),
             #  Not a randomization row, but the same adjuster: Thief hit,
             #  from Improved's Moderate up to Double and down to the +2.
-            (37, OPTBLOCK + OPT_THIEFHIT, 3, [2, 2, 2, 1, 0, 0])):
+            (optrow("Thief and Ninja hit%"), OPTBLOCK + OPT_THIEFHIT, 3, [2, 2, 2, 1, 0, 0]),
+            #  ...and the starting items, from None to Duckling Boon and back.
+            (optrow("Starting items"), OPTBLOCK + OPT_STARTITEMS, 9,
+             [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -4560,19 +4594,38 @@ def pane(bus):
     return [l for l in lines if l]
 
 
+def optrow(label):
+    """The row of lut_OptRows that carries this label.  Tests find rows this
+    way rather than by number, which every row added above them changed."""
+    base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_OptRows"]
+    for r in range(128):
+        raw = ROMDATA[base + r * 32 + 2:][:22]
+        if "".join(_decode(b) or "?" for b in raw).strip() == label:
+            return r
+    raise KeyError(label)
+
+
 def test_menudesc():
     SEL, TOP = 0x6E, 0x6F
+    TRAPS, SHOPS = optrow("Trap tiles"), optrow("Shops")
+    CHESTS, MAGIC = optrow("Chests"), optrow("Magic levels")
     #  A phrase only that value's text has: A and B share their first line.
-    cases = [(60, K["OPT_NG_TRAPS"], v, phrase) for v, phrase in enumerate((
+    cases = [(TRAPS, K["OPT_NG_TRAPS"], v, phrase) for v, phrase in enumerate((
                  "fight it always has", "trap tiles trade",
                  "formation's A-side", "formation's B-side",
                  "A-side or B-side"))]
-    cases += [(61, K["OPT_NG_SHOPS"], v, phrase) for v, phrase in enumerate((
+    cases += [(SHOPS, K["OPT_NG_SHOPS"], v, phrase) for v, phrase in enumerate((
                  "sells what it always has", "dealt out again"))]
-    cases += [(62, K["OPT_NG_CHESTS"], v, phrase) for v, phrase in enumerate((
+    cases += [(CHESTS, K["OPT_NG_CHESTS"], v, phrase) for v, phrase in enumerate((
                  "holds what it always has", "trade contents"))]
-    cases += [(63, K["OPT_NG_MAGIC"], v, phrase) for v, phrase in enumerate((
+    cases += [(MAGIC, K["OPT_NG_MAGIC"], v, phrase) for v, phrase in enumerate((
                  "level it always is", "trade levels"))]
+    cases += [(optrow("Starting items"), OPTBLOCK + OPT_STARTITEMS, v, phrase)
+              for v, phrase in enumerate((
+                 "starts with no items", "Safety Bit gives", "Beggar's Choice gives",
+                 "Just Tents gives", "Explorer Pack gives", "Real Estate gives",
+                 "Warrior's Standard gives", "Royal Packmule gives",
+                 "Duckling Boon gives"))]
     seen = {}
     for row, byte, value, phrase in cases:
         bus, cpu = machine()
@@ -4587,16 +4640,16 @@ def test_menudesc():
         check("row %d value %d: the data bank put back" % (row, value),
               cpu.dbr, CHUNK_OPT_BANK)
     check("each trap mode reads differently",
-          len({seen[60, v] for v in range(5)}), 5)
+          len({seen[TRAPS, v] for v in range(5)}), 5)
 
     #  A value out of range takes the first value's text rather than reading
     #  past the table.
     bus, cpu = machine()
     call(cpu, "opt_init")
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 9
-    bus.wram[SEL], bus.wram[TOP] = 60, 41
+    bus.wram[SEL], bus.wram[TOP] = TRAPS, TRAPS - 19
     call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
-    check("an out-of-range trap value reads as Off", tuple(pane(bus)), seen[60, 0])
+    check("an out-of-range trap value reads as Off", tuple(pane(bus)), seen[TRAPS, 0])
 
     #  An ordinary row is unchanged: one record whatever its value.
     for row, first in ((1, "Adjustments to the game"), (3, None)):
@@ -4620,11 +4673,11 @@ def test_menudesc():
     bus, cpu = machine()
     in_vblank(bus)
     call(cpu, "opt_init")
-    bus.wram[SEL], bus.wram[TOP] = 60, 41
+    bus.wram[SEL], bus.wram[TOP] = TRAPS, TRAPS - 19
     call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
     cpu.a = K["RIGHT"]
     call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
-    check("right on Trap tiles: the pane follows", tuple(pane(bus)), seen[60, 1])
+    check("right on Trap tiles: the pane follows", tuple(pane(bus)), seen[TRAPS, 1])
 
     #  ...and the row itself: the label whole, and the eight-wide readout
     #  ending in the same column as a four-wide dial's.
