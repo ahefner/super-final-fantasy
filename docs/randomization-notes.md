@@ -1460,13 +1460,46 @@ Settled in review 1:
     while the player is on the title and New Game screens, and editable.  A
     game in progress shows its seed somewhere other than the title screen,
     which is full.  The read-only view is the natural place.
-  - **UI flow.**  New Game goes to map select (thumbnails).  Vanilla then
-    goes on to an edits screen in the style of the options menu, then the
-    randomization menus, seeded from the current save.  Select on Continue
-    opens a read-only view of the save's flags and seed.  Per-save flags
-    move there: the Free items, and the class-creation and growth flags.
+  - **UI flow (user, 2026-10-11; the sketch is `menus.txt` in the project
+    directory).**  The title screen stays as it is -- Continue, New Game,
+    the options row -- and Select on Continue opens the save view (built).
+    New Game opens a list: Custom Game, then presets adapted from FFR's
+    (Vanilla, Improved Vanilla, Beginner, Classic, Entrance Shuffle,
+    Entrance and Floor Shuffle, Chaos Rush, Free Enterprise).
+      - Vanilla and Improved Vanilla randomize nothing and go straight to
+        party creation.
+      - Custom Game, and every other preset, goes through the whole flow,
+        so a preset's choices can be reviewed and changed: overworld map
+        select (a list of names, the map's preview beside it) -> map edits
+        (checkboxes; vanilla map only, alternate maps skip it) ->
+        randomization (the shuffles now on the settings screen, and the
+        incentive options under their own heading) -> options (the
+        existing screen, less its RANDOMIZATION section) -> seed, when
+        anything needs one -> party creation, after which the world is
+        built and placed and the game begins.
+      - The seed screen latches a random seed and shows it; a 4x4 grid of
+        hex digits edits it, A entering a digit and B deleting one; Start,
+        or A once all eight digits are in, goes on, and Start before then
+        plays the error sound.
+    This replaces the map-select-first flow settled in review 1.  Not yet
+    settled: where a preset enters the flow (map select, to show its map
+    edits, or the randomization screen); whether B goes back one screen
+    throughout; how the seed screen and party creation go back; and
+    whether game rules move into the save (below).  The Free items and the
+    class-creation and growth flags were to move to the save view under the
+    old plan; that waits on the same question.
 
 Still open:
+
+  - **Game rules in the save, comfort settings global?**  A New Game preset
+    sets the option flags as well as the randomization rows, and the option
+    block is global: it would overwrite the player's comfort settings, and a
+    Continue of an older save would then play under the new preset's
+    encounter rate and XP.  The proposal: rules (scaling, encounters, bug
+    fixes, treasures) copied into the save at New Game like the
+    randomization rows, presets setting only those, and the title's options
+    row keeping only comfort settings.  It reverses "global dials stay
+    global" above, and costs save space and a format version.
 
   - **NPC dialogue**: replacement text drawn from the options chunk is the
     recommendation (§3).  It needs a hook point before the vanilla string,
