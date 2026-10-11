@@ -676,9 +676,32 @@ incremental reach and per-node location lists, as §4.2 proposes, and
 index per item, 20 bytes, since the pool is 248 locations.  The wiring is
 cheap to regenerate from the seed, or about 70 bytes to store.
 
+**Against FFR's own output (2026-10-11).**  FFR's command-line tool now
+builds here (.NET 10; `dotnet build FF1R -c Release -p:NuGetAudit=false`,
+since the project treats NuGet's ImageSharp advisory as an error), and
+`worldgraph/run_ffr_fe.py` generates ROMs from the original game
+(`../ff1e.nes`, outside the repository and to stay so), reads each one's
+teleport tables and overworld back (`ffr_rom.py`), and checks them beside
+the port's shuffles run with the same preset's settings.  Over 50 seeds of
+FFR's Entrance and Floor Shuffle preset:
+
+  - neither strands the party, shares a landing, or deals a floor without a
+    warp back
+  - entrances moved: FFR 19-22, port 20-22 (the preset leaves towns alone);
+    teleports moved: FFR 32-35, port 29-33, the difference being FFR's
+    `OrdealsPillars` rearranging the Ordeals maze, a separate flag
+  - Titan's Tunnel opens new ground in 51% of FFR's seeds and 49% of the
+    port's (400 seeds)
+  - **FFR itself fails some seeds**: one of the 50 died in placement ("could
+    not meet incentivization requirements"; its command line tool does not
+    retry), and the shuffle's 100-try sanity loop gives up on about one seed
+    in 400 under these settings -- in FFR and the port alike.  The cart must
+    re-roll rather than fail.
+
 Not yet: FFR's ship-spawn table (the ship appears in the inner sea once
 found, as `run_vanilla.py` reads it), its balanced location picker, and a
-comparison against FFR's own output, which needs .NET to run it.
+comparison of placement, which needs FFR's NPC rewards read back as well as
+its chests.
 
 ## 5. Shops
 
