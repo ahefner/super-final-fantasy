@@ -1485,12 +1485,13 @@ Settled in review 1:
         character, and on the first character it does nothing
         (`BCS @Char_0`): that is where B goes back (to the seed screen,
         options, or the preset list), and only there.
-      - Open: whether B on a complete, cursorless seed deletes the last
-        digit or only brings the cursor back; and when a preset takes
-        effect -- written to the global options as it is chosen, as the
-        settings screen writes today, so that backing out leaves it applied
-        and Custom Game starts from it, or held in a working copy until the
-        game starts.
+      - On the seed screen, B on a complete entry, cursor hidden, deletes
+        the last digit and shows the cursor again: while editing, B is
+        always backspace.  From the options screen, Start goes to party
+        creation when nothing needs a seed.
+      - A preset is written to the global options when it is chosen, as the
+        settings screen writes today: backing out leaves it applied, and
+        Custom Game starts from whatever the options hold.
       - The seed screen latches a random seed and shows it; a 4x4 grid of
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
@@ -1500,9 +1501,11 @@ Settled in review 1:
     overwrites the option block, comfort settings and all, and a Continue
     of an older save then plays under it; that is accepted, because the
     options stay editable mid-game from the title screen, which matters
-    more.  "Global dials stay global" above stands.  Open: what the title's
-    options row shows afterwards -- today it cycles Vanilla, Improved,
-    Super and Custom, and would read Custom.
+    more.  "Global dials stay global" above stands.  **The title's options
+    row reads Custom, except after Vanilla or Improved Vanilla while the
+    options are unedited** (user, 2026-10-11) -- so the row's own preset
+    cycle, and Super with it, gives way to the New Game list; to confirm
+    when the title is reworked.
 
 Still open:
 
