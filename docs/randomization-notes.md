@@ -1516,17 +1516,25 @@ Settled in review 1:
     options they interact with (a Free X leaves the incentive pool).
     **The options screen is otherwise not rearranged** (user): the two
     sections are its last, so taking them off moves nothing above them.
-    A preset writes the *rules* and leaves the *comfort* settings alone
-    -- speed hacks, respond rate, shop information and the like are how
-    the player likes to play, not which game it is.  That is a list of
-    which rows a preset writes, not a regrouping of the menu; the list is
-    in `ffr-presets.md` §1.  It overturns two decisions in
-    `options-design.md` (§3, Treasures and New game: "not in any preset"),
-    which held for the title's three presets: FFR's presets free the
-    BRIDGE, or most vehicles, and every one but Improved Vanilla shuffles.
-    The alternative, a save carrying its own rules, was declined: it fixes
-    only a New Game that is reset before its first save, at the cost of a
-    save-format change.
+    It overturns two decisions in `options-design.md` (§3, Treasures and
+    New game: "not in any preset"), which held for the title's three
+    presets: FFR's presets free the BRIDGE, or most vehicles, and every one
+    but Improved Vanilla shuffles.  The alternative, a save carrying its
+    own rules, was declined: it fixes only a New Game that is reset before
+    its first save, at the cost of a save-format change.
+  - **A preset writes every row, as the title's presets do today (user,
+    2026-10-11).**  This replaces a split, proposed with model A, in which
+    presets left "comfort" rows alone.  **Vanilla turns everything off and
+    is the original game.**  Every other preset turns on every
+    quality-of-life row, which is what FFR's presets do: the three that
+    differ between its preset files are missing from the older ones, not
+    switched off.  **Auto retargeting is off in every preset**, left for
+    the player to turn on (user: it takes strategy out, and in FFR most
+    fights are run from or swept with magic anyway, so it matters little).
+  - **Improved Vanilla is FFR's (user, 2026-10-11)**, replacing the
+    title's "quality of life and bugfixes": 200% gold and XP, the elemental
+    bonus at the cartridge's +4, Thief and Ninja hit growth at Balanced
+    (a third value for that row), and NPC guillotine on with the rest.
 
 Still open:
 

@@ -30,38 +30,19 @@ three comfort rows.  Both use the same incentive set.
 
 ## 1. What a preset writes
 
-Options model A (`randomization-notes.md` §12): a preset writes the rules and
-leaves the comfort settings alone.  This is a list of which rows a preset
-writes, not a regrouping of the menu.
+Every row, as the title's presets do today (user, 2026-10-11):
 
-**Rules, which every preset writes:**
+  - **Vanilla turns everything off** and is the original game.
+  - **Every other preset turns on every quality-of-life row**, as FFR's do.
+    Three such flags differ between FFR's preset files -- Repeated potion
+    use, Chests appear opened and Magic menu spell reordering -- but only
+    because the older files predate them: they are missing there, not
+    switched off.
+  - **Auto retargeting is the exception: off in every preset**, for the
+    player to turn on (user).  FFR turns it on in Improved Vanilla and
+    Beginner and off in the rest.
 
-  - SCALE: all five dials.
-  - Auto retargeting: the one quality-of-life row counted as a rule.  It
-    decides whether a swing at a dead enemy is wasted, and FFR's presets
-    disagree on it: on in Improved Vanilla and Beginner, off in the other
-    three.
-  - BUGFIXES and VARIATIONS: every row.
-  - The New Game rows: Treasures and Randomization, moving to the New Game
-    flow, and later the incentives, map edits and map.
-
-**Comfort, which no preset touches:** Speed hacks, Faster walking, Faster
-ship, No party shuffle, Identify treasures, Chests appear opened, Buy
-quantity, Run becomes Wait, Magic menu wraparound, Autosort inventory,
-Repeated potion use, Shop information, Chest information, NPC guillotine, and
-the respond rate.
-
-FFR's presets do set these, and to the same value in all five, except three:
-
-  - Repeated potion use: on in Beginner only.
-  - Chests appear opened: on in Improved Vanilla and Beginner only.
-  - Magic menu spell reordering: on in Beginner only; we haven't ported it.
-
-None of the three changes how a fight turns out.
-
-A consequence: Vanilla means vanilla rules played with the player's comfort
-settings, not vanilla's own speed and menus.
-
+A model that left "comfort" rows alone was considered and dropped.
 
 ## 2. What the cartridge already sets
 
@@ -75,7 +56,7 @@ and Floor Shuffle, CR Chaos Rush and FE Free Enterprise.
 | Encounter rate        | 100%  | 60%²         | 60%     | 60%     | 30%     | Off     |
 | Enemy, boss stats     | 100%  | 100%³        | 100%³   | 100%³   | 100%³   | 100%³ ⁴ |
 | Elemental bonus       | +4⁵   | +30          | +30     | +30     | +30     | +30     |
-| Auto retargeting      | on    | on           | off     | off     | off     | off     |
+| Auto retargeting      | off   | off          | off     | off     | off     | off     |
 | Bugfixes, all four    | on    | on           | on      | on      | on      | on      |
 | Better Thief + Ninja  | -     | on           | on      | on      | on      | on      |
 | Thief and Ninja hit%  | on⁶   | on           | on      | on      | on      | on      |
@@ -102,7 +83,7 @@ and Floor Shuffle, CR Chaos Rush and FE Free Enterprise.
    gold chests and the level thresholds by 2 instead (`Scale.cs`,
    `ScalePrices` and `ExpGoldBoost`).  Measured against what things cost,
    that doubles the gold and XP from enemies, which is our dial at 200%.
-   **Our Improved is 100%**, a deviation to settle (§4).
+   Our Improved was 100%; it changes to 200% (user, 2026-10-11).
 2. FFR has two rates: Beginner is 60% on the overworld and 70% in dungeons.
    Our dial has one.
 3. FFR rolls each enemy's stats between 70% and 150%, and its HP between 50%
@@ -111,11 +92,12 @@ and Floor Shuffle, CR Chaos Rush and FE Free Enterprise.
 4. Free Enterprise also scales boss HP on its own, 80-240%.
 5. FFR's Improved Vanilla has its "Weapon Type Bonus" checkbox off, so the
    +10 on its slider does nothing (`IncreaseWeaponBonus` returns early).
-   **Our Improved is +10**, a deviation, and `options-design.md` §4 called
-   +10 FFR's Improved Vanilla value, which was a misreading.
-6. FFR's Improved Vanilla has hit growth at Balanced.  Our checkbox is
-   Double, which is FFR's code default and the other four presets' value.
-   That is another deviation (§4).
+   Our Improved was +10, from misreading this as FFR's value; it changes
+   to +4 (user, 2026-10-11).
+6. FFR's Improved Vanilla has hit growth at Balanced, 3 a level against
+   vanilla's 2; the other four presets have Double, 4.  Our checkbox was
+   Double; the row becomes Vanilla, Balanced, Double, and Improved takes
+   Balanced (user, 2026-10-11).
 7. FFR's Improved Vanilla sets LOCK accuracy to 162.  On the cartridge that
    is part of Spell fixes; the LOK2 row is FFR's Auto Hit.
 8. FFR's presets use Randomize, not Shuffle: each enemy draws a touch from
@@ -154,6 +136,24 @@ Beginner, Classic, ES, EFS, CR and FE.
       - The Ordeals pillars.
 
 ### 3.2 Cheap
+
+Approved (user, 2026-10-11), each a flag and a commit of its own: the
+starting items (FFR's sets, some or all), SOFT in battle, and White Mage
+HARM.
+
+  - **In all five presets, Improved Vanilla included, and not yet on the
+    cartridge:**
+      - Run chance corrected (`ChanceToRun` Corrected).  Vanilla's chance
+        to run is bugged.
+      - Turn order randomized properly (`ImproveTurnOrderRandomization`).
+        It shuffles the initial bias, so enemies no longer always start the
+        order, and makes the shuffle a true Fisher-Yates.
+      - TRANCE given the status element (`TranceHasStatusElement`), so a
+        Ribbon resists it.
+      - Critical hits shown as numbers (`EnableCritNumberDisplay`, with
+        speed hacks).
+    FFR's Improved Vanilla is otherwise covered: its BB absorb fix is
+    unconditional here.
 
   - **XP and gold bonus +100** (`ExpBonus`), in every randomized preset.
     Every enemy is worth 100 more of each, which makes the early game far
@@ -253,14 +253,13 @@ Beginner, Classic, ES, EFS, CR and FE.
 
 ## 4. Per preset, and an order
 
-  - **Vanilla**: complete.
-  - **Improved Vanilla**: complete, except that our Improved differs from
-    FFR's in three values:
-      - Gold and XP: 100% against 200%.
-      - Elemental bonus: +10 against +4.
-      - Thief hit: Double against Balanced, which would need a third value
-        on the row.
-    These are undecided.
+  - **Vanilla**: complete, apart from what the cartridge does
+    unconditionally.  The None class is offered at party creation, the BB
+    absorb fix applies, Controller Reset works and the stack fix holds.
+  - **Improved Vanilla** becomes FFR's (user, 2026-10-11): 200% gold and
+    XP, elemental bonus +4, Thief hit Balanced, NPC guillotine on, Auto
+    retargeting off.  It then lacks only the four small rules in §3.2 that
+    every FFR preset has.
   - **Beginner and Classic** already get their scaling, variations,
     shuffles and the Free BRIDGE.  What's missing, roughly by weight:
       1. incentive placement;
