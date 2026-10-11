@@ -1468,38 +1468,36 @@ Settled in review 1:
     Entrance and Floor Shuffle, Chaos Rush, Free Enterprise).
       - Vanilla and Improved Vanilla randomize nothing and go straight to
         party creation.
-      - Custom Game, and every other preset, goes through the whole flow,
-        so a preset's choices can be reviewed and changed: overworld map
-        select (a list of names, the map's preview beside it) -> map edits
-        (checkboxes; vanilla map only, alternate maps skip it) ->
-        randomization (the shuffles now on the settings screen, and the
-        incentive options under their own heading) -> options (the
+      - Custom Game goes to overworld map select: a list of names, the
+        map's preview beside it.  The vanilla map goes on to map edits
+        (checkboxes); an alternate map skips them.
+      - The other presets assume the vanilla map and open at map edits, so
+        everything they set can be reviewed and changed on the way through.
+      - Then: randomization (the shuffles now on the settings screen, and
+        the incentive options under their own heading) -> options (the
         existing screen, less its RANDOMIZATION section) -> seed, when
         anything needs one -> party creation, after which the world is
         built and placed and the game begins.
+      - **B returns to the previous screen, throughout** -- to whichever
+        screen led there, so map edits goes back to the preset list when a
+        preset opened it.  On the seed screen B is backspace while a seed
+        is being edited, and goes back when nothing has been edited or the
+        entry is empty.  Party creation's B on its first slot, with nothing
+        chosen, goes back (to the seed screen, options, or the preset list).
       - The seed screen latches a random seed and shows it; a 4x4 grid of
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
         plays the error sound.
-    This replaces the map-select-first flow settled in review 1.  Not yet
-    settled: where a preset enters the flow (map select, to show its map
-    edits, or the randomization screen); whether B goes back one screen
-    throughout; how the seed screen and party creation go back; and
-    whether game rules move into the save (below).  The Free items and the
-    class-creation and growth flags were to move to the save view under the
-    old plan; that waits on the same question.
+    This replaces the map-select-first flow settled in review 1.
+  - **A preset sets the global options (user, 2026-10-11).**  Choosing one
+    overwrites the option block, comfort settings and all, and a Continue
+    of an older save then plays under it; that is accepted, because the
+    options stay editable mid-game from the title screen, which matters
+    more.  "Global dials stay global" above stands.  Open: what the title's
+    options row shows afterwards -- today it cycles Vanilla, Improved,
+    Super and Custom, and would read Custom.
 
 Still open:
-
-  - **Game rules in the save, comfort settings global?**  A New Game preset
-    sets the option flags as well as the randomization rows, and the option
-    block is global: it would overwrite the player's comfort settings, and a
-    Continue of an older save would then play under the new preset's
-    encounter rate and XP.  The proposal: rules (scaling, encounters, bug
-    fixes, treasures) copied into the save at New Game like the
-    randomization rows, presets setting only those, and the title's options
-    row keeping only comfort settings.  It reverses "global dials stay
-    global" above, and costs save space and a format version.
 
   - **NPC dialogue**: replacement text drawn from the options chunk is the
     recommendation (§3).  It needs a hook point before the vanilla string,
