@@ -113,15 +113,23 @@ OPT_ENCOUNTER   = OPTBLOCK+$0A
 OPT_ENEMY       = OPTBLOCK+$0B
 OPT_BOSS        = OPTBLOCK+$0C
 OPT_ELEMDMG     = OPTBLOCK+$0D  ; ...and the fifth, which is why the format
-                                ;   went to 4; it must stay adjacent, because
-                                ;   the value rows index OPT_GOLDXP by scalar
-OPT_RESPOND     = OPTBLOCK+$0E  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$0F
-OPT_SIZE        = $10
+                                ;   went to 4
+OPT_THIEFHIT    = OPTBLOCK+$0E  ; the sixth: Thief and Ninja hit growth, which
+                                ;   was bit 21 until it took a third value.
+                                ;   The scalars are in the block, rather than
+                                ;   with the new-game rows, because a preset
+                                ;   writes them: opt_loadpreset copies from
+                                ;   OPT_FLAGS up to OPT_RESPOND.
+OPT_RESPOND     = OPTBLOCK+$0F  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$10
+OPT_SIZE        = $11
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $05           ; bumped from $04: the checksum now covers
+OPT_FORMAT      = $06           ; bumped from $05: Thief and Ninja hit
+                                ; growth became a scalar, so the respond rate
+                                ; and the checksum moved up a byte.
+                                ; Bumped from $04: the checksum now covers
                                 ; the new-game rows at OPT_NG, so a block
                                 ; written before them would fail anyway --
                                 ; the bump says why.
@@ -184,7 +192,8 @@ OPTF_LOK2         = $02000000
 ;  turning that constant into a load -- but the constants live in code that is
 ;  reached far too often to test a flag at.  So the flags are cooked down once,
 ;  here, and the use site just loads a byte.
-OPTD            = OPTBLOCK+$10  ; the derived block, below the option block
+OPTD            = OPTBLOCK+$12  ; the derived block, above the option block,
+                                ;   with a byte between for the next scalar
 OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
 OPTD_WIPEOPEN_D = OPTD+$01
 OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
@@ -272,7 +281,6 @@ BTLMAG_DEFHIT   = $6884
 ELEMDMG_STEP    = 2
 ELEMDMG_STEPS   = 26            ; +0 to +50
 ELEM_VANILLA    = 2             ; +4, what the cartridge does
-ELEM_FFR_IMP    = 5             ; +10, FFR's slider default (its Improved Vanilla stays +4)
 ELEM_FFR_DEF    = 15            ; +30, FFR's default preset and most others
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,
@@ -365,24 +373,22 @@ OPTFM_STATUSATK = $04    ; bit 18
 OPTFB_HOUSEMP   = OPT_FLAGS+1
 OPTFM_HOUSEMP   = $80    ; bit 15
 
-OPTFB_THIEFHIT  = OPT_FLAGS+2
-OPTFM_THIEFHIT  = $20    ; bit 21, which the elemental bonus vacated when it
-                         ;   became a dial.  Reusing it needs no format bump:
-                         ;   no preset set it in format 4 and no row could, so
-                         ;   a stale block reads it as off, which is vanilla.
-
 ;  Thief and Ninja hit-rate growth.
 ;
 ;  Every level adds a per-class constant to hit rate, from lut_LvlUpHitRateBonus
 ;  in bank $0B -- 3 for the Fighter, 2 for the Thief and Ninja, 1 for the mages.
 ;  FFR's ThiefHitBuff replaces the Thief's and the Ninja's, offering 1 through
 ;  5 from a dropdown; its names for them are "Useless", "Vanilla", "Moderate",
-;  "Double" and "Ridiculous", and its default is Double.  So: a checkbox, and
-;  doubling is what it does.
+;  "Double" and "Ridiculous".  This row offers the middle three, as +2, +3 and
+;  +4 a level: its Improved Vanilla preset uses Moderate and every other
+;  preset of its own Double.  The step is what the hook adds on top of the
+;  table's 2, so the table stays the only place the vanilla number lives.
 ;
-;  Unlike the agility buff this is a growth rate with no starting value, so
-;  both classes carry it and the hook adds the constant twice rather than
-;  naming a second number.
+;  It was a checkbox, bit 21, doing Double; bit 21 is unused again.
+THIEFHIT_STEPS    = 3
+THIEFHIT_VANILLA  = 0           ; +2 a level, the table's
+THIEFHIT_MODERATE = 1           ; +3, FFR's Improved Vanilla
+THIEFHIT_DOUBLE   = 2           ; +4, FFR's other presets
 THIEF_HIT_VANILLA = 2           ; what lut_LvlUpHitRateBonus holds for TH and NJ
 
 OPTFB_THIEFNINJA = OPT_FLAGS+2

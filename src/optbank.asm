@@ -102,15 +102,15 @@ OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
 
-;  Bit 21 is OPTF_THIEFHIT now.  It was the elemental and type bonus until
-;  that became a dial in SCALE; see ELEMDMG_STEP in snesmap.inc.
-OPTF_THIEFHIT = $00200000
-OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE | OPTF_THIEFHIT
+;  Bit 21 is unused.  It was the elemental and type bonus until that became a
+;  dial, then Thief and Ninja hit growth until that became one too.
+OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE
 OPTF_VAR2     = OPTF_IMPFIRE | OPTF_CASTLIFE | OPTF_LOK2
 OPTF_VARIATION= OPTF_VAR1 | OPTF_VAR2
 
 ;  Value-row step indices.  See options-design.md for the step tables.
 GOLDXP_100    = 2       ; 0%,50%,100%..500% in 50% steps
+GOLDXP_200    = 4
 GOLDXP_250    = 5
 ENC_60        = 6       ; Off,10%..100%,150%,200%,300%
 ENC_100       = 10
@@ -129,36 +129,40 @@ OPT_FORCED_PRESET = OPT_FORCE
 .endif
 
 lut_Presets:
-    ;  Five bytes of flags, low byte first, then the four value rows.  The
-    ;  fifth flag byte holds the bits past 31, and is zero in every preset:
+    ;  Five bytes of flags, low byte first, then the six scalars.  The fifth
+    ;  flag byte holds the bits past 31, and is zero in every preset:
     ;  Treasures and the free key items skip content rather than improve it,
     ;  so none of them belongs in a preset.
     ;
+    ;  Auto retargeting is off in all three, for the player to turn on (user,
+    ;  2026-10-11): it takes strategy out of a fight.
+    ;
     ;  Rows sit sixteen bytes apart so the index stays a shift rather than a
-    ;  multiply.  The padding costs 21 bytes and buys that.
+    ;  multiply.  The padding costs 15 bytes and buys that.
     .DWORD  0                                                              ; Vanilla
     .BYTE   0
-    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA
-    .RES    6, $00
-    ;  Improved reaches into the variations for exactly one thing.  Doubling
-    ;  the Thief's and Ninja's hit growth is the difference between a class
-    ;  that misses and one that plays, which is a fix in all but name -- FFR
-    ;  defaults its own dropdown to Double for the same reason.
-    .DWORD  (OPTF_ALLQOL & ~OPTF_GUILLOTINE) | OPTF_BUGFIX | OPTF_THIEFHIT  ; Improved
+    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_VANILLA
+    .RES    5, $00
+    ;  Improved is FFR's Improved Vanilla (user, 2026-10-11): the quality of
+    ;  life and the bugfixes, gold and XP doubled, Thief and Ninja hit growth
+    ;  at Moderate, and the elemental bonus left at the cartridge's +4 --
+    ;  that preset's bonus checkbox is off, so the 10 on its slider never
+    ;  applies.
+    .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX               ; Improved
     .BYTE   0
-    .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_FFR_IMP
-    .RES    6, $00
-    .DWORD  OPTF_ALLQOL | OPTF_BUGFIX | OPTF_VARIATION                     ; Super
+    .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
+    .RES    5, $00
+    .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
     .BYTE   0
-    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF
-    .RES    6, $00
+    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
+    .RES    5, $00
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
 ;  run from the flags up to but not including OPT_RESPOND, which
 ;  opt_loadpreset writes itself.
 PRESET_FIELDS = OPT_RESPOND - OPT_FLAGS
 PRESET_STRIDE = 16
-.assert PRESET_FIELDS = OPT_FLAGBYTES + 5, error, "preset row does not match the option block"
+.assert PRESET_FIELDS = OPT_FLAGBYTES + 6, error, "preset row does not match the option block"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2728,37 +2732,29 @@ opt_thiefhere:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;;  Thief and Ninja hit-rate growth -- a flag of its own, not part of the
+;;  Thief and Ninja hit-rate growth -- a value row of its own, not part of the
 ;;  agility buff above.  FFR keeps them apart too, one dropdown each.
 ;;
 ;;    In: A = hit rate so far with carry clear, X = class id.  Out: A = the
 ;;  level's bonus added, which is what the ADC this replaces left behind.
 ;;
-;;    Doubling is two adds rather than a shift, so the vanilla constant stays
-;;  the only number and there is nothing to keep in step with the table.
+;;    The step is added on top of the table's 2: none, one or two more, for
+;;  FFR's Vanilla, Moderate and Double.  The vanilla number stays in the
+;;  table and nowhere else.  CapAAt200 runs after, as it did after the ADC.
 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_hitgrowth:
-    PHA
-    LDA OPTFB_THIEFHIT
-    AND #OPTFM_THIEFHIT
-    BEQ @plain
+    CLC
+    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
     CPX #CLS_TH
-    BEQ @double
+    BEQ @thief
     CPX #CLS_NJ
-    BNE @plain
-  @double:
-    PLA
+    BNE @out
+  @thief:
     CLC
-    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
-    CLC
-    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
-    RTL
-  @plain:
-    PLA
-    CLC
-    ADC f:lut_LvlUpHitRateBonus + BANK0BFAR, X
+    ADC OPT_THIEFHIT
+  @out:
     RTL
 
 

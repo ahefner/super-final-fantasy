@@ -56,9 +56,10 @@ OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
 #  Treasures section and the free key items took bits 26-33.
 OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
 OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 11, 12, 13
-OPT_RESPOND, OPT_CKSUM = 14, 15
-OPT_SIZE = 16
-OPT_FORMAT = 5          # bumped when the checksum took in the new-game rows
+OPT_THIEFHIT = 14       # the sixth scalar; bit 21 until it took a third value
+OPT_RESPOND, OPT_CKSUM = 15, 16
+OPT_SIZE = 17
+OPT_FORMAT = 6          # bumped when Thief hit growth became a scalar
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -227,16 +228,18 @@ def test_block():
 
 
 def test_presets():
-    #  flags, gold/xp, encounter, enemy, boss, elemental bonus.  The bonus is
-    #  a step of two, so 2 is vanilla's +4, 5 is FFR's Improved Vanilla +10
-    #  and 15 is the +30 most of FFR's own presets use.
-    #  Bit 21 is Thief/Ninja hit growth, and Improved carries it -- the only
-    #  variation it does, because a Thief that misses is a bug in all but name.
+    #  flags, gold/xp, encounter, enemy, boss, elemental bonus, Thief hit.
+    #  The bonus is a step of two, so 2 is vanilla's +4 and 15 the +30 most
+    #  of FFR's own presets use.  Improved is FFR's Improved Vanilla: every
+    #  quality-of-life row but Auto retargeting (bit 9, off in every preset),
+    #  the bugfixes, gold and XP at 200% (step 4), the bonus at +4 -- that
+    #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
+    #  is set by none: it is unused since Thief hit became a scalar.
     #
-    want = {0: (0x0000000000, 2, 10, 3, 3, 2),
-            1: (0x000027BFFF, 2, 10, 3, 3, 5),
-            2: (0x0003FFFFFF, 5, 6, 3, 3, 15)}
-    for preset, (f, g, e, en, bo, el) in want.items():
+    want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
+            1: (0x000007FDFF, 4, 10, 3, 3, 2, 1),
+            2: (0x0003DFFDFF, 5, 6, 3, 3, 15, 2)}
+    for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
@@ -248,6 +251,7 @@ def test_presets():
         check("%s: enemy step" % name, blk(bus, OPT_ENEMY), en)
         check("%s: boss step" % name, blk(bus, OPT_BOSS), bo)
         check("%s: elemental bonus step" % name, blk(bus, OPT_ELEMDMG), el)
+        check("%s: Thief hit step" % name, blk(bus, OPT_THIEFHIT), th)
         #  loadpreset seals as it goes, so init must accept what it wrote
         cpu2 = CPU(bus); cpu2.dbr = 0xA7
         call(cpu2, "opt_init")
@@ -368,7 +372,7 @@ def test_noshuffle():
 
 
 OPTF_SPEEDHACKS, OPTF_GUILLOTINE_HI = 0x01, 0x40
-OPTD = 0x10                                  # derived bytes, just past the block
+OPTD = 0x12                                  # derived bytes, a byte past the block
 TMP = 0x10                                   # game's tmp, from variables.inc
 
 
@@ -3316,33 +3320,104 @@ def test_thiefninja():
     check("flag clear: the byte is what three ASLs made of it", drift, [])
 
 
-#  ...and the separate flag on the same two classes: hit rate grows by a
+#  ...and the separate setting on the same two classes: hit rate grows by a
 #  per-class constant each level -- 3 for the Fighter, 2 for these two, 1 for
-#  the mages -- and this doubles theirs.  FFR keeps it a second dropdown and
-#  defaults it to Double; here it is a checkbox because there is one useful
-#  answer.
-OPTF_THIEFHIT_BIT = 21
-HITBONUS = {CLS_FT: 3, CLS_TH: 2, CLS_NJ: 2}
+#  the mages -- and this raises theirs to FFR's Vanilla, Moderate or Double:
+#  2, 3 or 4.  It was a checkbox doing Double until Improved took Moderate.
+#  The table is the original game's, from the disassembly, not the hook's.
+VANILLA_HITBONUS = (3, 2, 3, 2, 1, 1, 3, 2, 3, 2, 1, 1)
+CLASS_NAMES = ("FT", "TH", "BB", "RM", "WM", "BM", "KN", "NJ", "MA", "RW", "WW", "BW")
+LVLUP_CHMAGIC = 0x84
+CH_LEVEL_OFF, CH_STR_OFF, CH_AGIL_OFF = 0x26, 0x10, 0x11
+CH_DMG_OFF, CH_HIT_OFF, CH_EVADE_OFF = 0x20, 0x21, 0x23
+BANK_0B = 0xA1 + 0x0B
+STARTSTATS = 0xB040                 # lut_ClassStartingStats, in chunk 0
 
 
 def test_thiefhit():
-    def grow(cls, flagged, before=50):
+    def grow(cls, step, before=50):
         bus, cpu = machine()
-        if flagged:
-            setblk(bus, OPT_FLAGS + OPTF_THIEFHIT_BIT // 8,
-                   1 << (OPTF_THIEFHIT_BIT % 8))
+        setblk(bus, OPT_THIEFHIT, step)
         cpu.a = before
         cpu.x = cls
         cpu.p &= ~0x01                      # carry clear, as the CLC before it
         call(cpu, "opt_hitgrowth")
         return cpu.a & 0xFF
 
-    for cls, name in ((CLS_FT, "fighter"), (CLS_TH, "thief"), (CLS_NJ, "ninja")):
-        check("%s, flag clear: the table's bonus" % name,
-              grow(cls, False), 50 + HITBONUS[cls])
-    check("fighter, flag set: unchanged", grow(CLS_FT, True), 50 + 3)
-    check("thief, flag set: doubled", grow(CLS_TH, True), 50 + 4)
-    check("ninja, flag set: doubled", grow(CLS_NJ, True), 50 + 4)
+    wrong = []
+    for step in range(3):
+        for cls in range(12):
+            want = 50 + VANILLA_HITBONUS[cls] + (step if cls in (CLS_TH, CLS_NJ) else 0)
+            if grow(cls, step) != want:
+                wrong.append((CLASS_NAMES[cls], step, grow(cls, step), want))
+    check("hit growth: the table's, plus the step for TH and NJ only", wrong, [])
+
+    #  The whole of it, end to end: a Thief or Ninja levelled from 1 to 50
+    #  through the cartridge's own LvlUp_LevelUp, stopped where it starts
+    #  drawing the level-up boxes, every stat applied by then.  Held against
+    #  FFR's rules rather than anything in the hooks:
+    #    - hit rate is the class's start plus 2, 3 or 4 a level, capped at 200;
+    #    - with Better Thief and Ninja, agility is 80 plus one a level, held
+    #      at 99, and evade 128 plus one a level -- the original code grants
+    #      the evade point even when agility is capped, in FFR as here.
+    #  The 25% rolls for strength and the rest come from BattleRNG, which
+    #  reads the randomizer's cache; rando_ensure builds it, or every roll
+    #  would succeed.  A promoted Ninja levels on the Thief's data.
+    def levels(cls, step, agibuff):
+        bus, cpu = machine()
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        setblk(bus, OPT_THIEFHIT, step)
+        if agibuff:
+            setblk(bus, OPT_FLAGS + OPTF_THIEFNINJA_BIT // 8,
+                   1 << (OPTF_THIEFNINJA_BIT % 8))
+        s = bus.sram
+        base = CH_CLASS - 0x6000
+        start = [bus.read(0xA1, STARTSTATS + CLS_TH * 16 + i) for i in range(11)]
+        s[base] = cls
+        s[base + CH_STR_OFF:base + CH_STR_OFF + 5] = bytes(start[2:7])
+        s[base + CH_DMG_OFF] = start[7]
+        s[base + CH_HIT_OFF] = start[8]
+        s[base + CH_EVADE_OFF] = start[9]
+        if agibuff:                         # the new-game hooks, for a Thief
+            for name in ("opt_startagi", "opt_startevade"):
+                c = CPU(bus); c.dbr = 0xA7; c.x = 0; c.y = CLS_TH * 16
+                s[base] = CLS_TH
+                call(c, name)
+            s[base] = cls
+        bus.wram[LVLUP_CHSTATS] = CH_CLASS & 0xFF
+        bus.wram[LVLUP_CHSTATS + 1] = CH_CLASS >> 8
+        bus.wram[LVLUP_CHMAGIC] = CH_MAGICDATA & 0xFF
+        bus.wram[LVLUP_CHMAGIC + 1] = CH_MAGICDATA >> 8
+        got = {}
+        for _ in range(49):
+            c = CPU(bus); c.dbr = BANK_0B
+            c.run(BANK_0B, SYM["LvlUp_LevelUp"], stop=SYM["Draw4EobBoxes"])
+            if c.pc != SYM["Draw4EobBoxes"]:
+                return None
+            lv = s[base + CH_LEVEL_OFF] + 1
+            got[lv] = (s[base + CH_HIT_OFF], s[base + CH_AGIL_OFF], s[base + CH_EVADE_OFF])
+        return got, start[8]
+
+    for cls in (CLS_TH, CLS_NJ):
+        for step in range(3):
+            for agibuff in (False, True):
+                what = "%s step %d%s" % (CLASS_NAMES[cls], step, ", agility buff" if agibuff else "")
+                r = levels(cls, step, agibuff)
+                if r is None:
+                    check(what + ": reaches the level-up boxes", False, True)
+                    continue
+                got, hit0 = r
+                check(what + ": reaches level 50", sorted(got)[-1], 50)
+                check(what + ": hit rate every level",
+                      [got[lv][0] for lv in range(2, 51)],
+                      [min(200, hit0 + (2 + step) * (lv - 1)) for lv in range(2, 51)])
+                if agibuff:
+                    check(what + ": agility every level",
+                          [got[lv][1] for lv in range(2, 51)],
+                          [min(99, 80 + lv - 1) for lv in range(2, 51)])
+                    check(what + ": evade every level",
+                          [got[lv][2] for lv in range(2, 51)],
+                          [min(200, 128 + lv - 1) for lv in range(2, 51)])
 
 
 # --- the spell data flags ---------------------------------------------------
@@ -3704,7 +3779,7 @@ def test_dialvalues():
     bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
-    for t in range(11):
+    for t in range(20):
         addr = ROMDATA[bank + lo + t] | ROMDATA[bank + hi + t] << 8
         n = ROMDATA[bank + cnt + t]
         STRIDE = 1 << ROMDATA[bank + SYM["lut_ValShift"] + t]
@@ -3719,7 +3794,7 @@ def test_dialvalues():
                 if b not in allowed:
                     stray.append("   table %d entry %d draws $%02X in %r"
                                  % (t, i, b, "".join(_decode(x) or "?" for x in row)))
-    check("the eleven tables hold the expected number of entries", seen, 114)
+    check("the twenty tables hold the expected number of entries", seen, 140)
     check("every byte a dial draws is text, not artwork", len(stray), 0)
     fails.extend(stray[:4])
 
@@ -4184,8 +4259,8 @@ def test_rando_options():
 
     #  The value rows find their bytes through lut_ValOff.
     at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
-    check("lut_ValOff: the five dials, then the new-game rows",
-          list(ROMDATA[at:at + 19]),
+    check("lut_ValOff: the five dials, the new-game rows, then Thief hit",
+          list(ROMDATA[at:at + 20]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
            OPT_GOLDXP + 4, K["OPT_NG_TRAPS"] - OPTBLOCK,
            K["OPT_NG_SHOPS"] - OPTBLOCK, K["OPT_NG_CHESTS"] - OPTBLOCK,
@@ -4194,7 +4269,7 @@ def test_rando_options():
            K["OPT_NG_ZONES"] - OPTBLOCK, K["OPT_NG_NORUN"] - OPTBLOCK,
            K["OPT_NG_SURPRISE"] - OPTBLOCK, K["OPT_NG_STATUS"] - OPTBLOCK,
            K["OPT_NG_SCRIPTS"] - OPTBLOCK, K["OPT_NG_SKILLS"] - OPTBLOCK,
-           K["OPT_NG_RNG"] - OPTBLOCK])
+           K["OPT_NG_RNG"] - OPTBLOCK, OPT_THIEFHIT])
 
     #  Every randomization row's first value reads Off -- under the
     #  RANDOMIZATION heading, the randomization off -- so that a Shuffle
@@ -4225,7 +4300,10 @@ def test_rando_options():
             (69, K["OPT_NG_SURPRISE"], 3, [1, 1, 1, 0, 0, 0]),
             (70, K["OPT_NG_STATUS"], 3, [1, 1, 1, 0, 0, 0]),
             (72, K["OPT_NG_SKILLS"], 5, [1, 2, 3, 3, 3, 2, 1, 0, 0, 0]),
-            (73, K["OPT_NG_RNG"], 3, [1, 1, 1, 0, 0, 0])):
+            (73, K["OPT_NG_RNG"], 3, [1, 1, 1, 0, 0, 0]),
+            #  Not a randomization row, but the same adjuster: Thief hit,
+            #  from Improved's Moderate up to Double and down to the +2.
+            (37, OPTBLOCK + OPT_THIEFHIT, 3, [2, 2, 2, 1, 0, 0])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19

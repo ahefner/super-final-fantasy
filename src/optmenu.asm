@@ -1543,7 +1543,7 @@ lut_OptRows:
   .BYTE $8B, $A8, $B7, $B7, $A8, $B5, $FF, $9D, $AB, $AC
   .BYTE $A8, $A9, $FF, $A4, $B1, $A7, $FF, $97, $AC, $B1
   .BYTE $AD, $A4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $01, $15   ; Thief and Ninja hit%   (bit 21, which the dial vacated)
+  .BYTE $02, $13   ; Thief and Ninja hit%   (scalar 19; bit 21 until 2026-10-11)
   FFPAD "Thief and Ninja hit%", 30
   .BYTE $01, $14   ; Double weapon crit
   .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $FF, $BA, $A8, $A4
@@ -1818,6 +1818,12 @@ lut_ValZones:
   FFPAD " Shuffle", 8           ; ZONES_SHUFFLE
   FFPAD "  Random", 8           ; ZONES_RANDOM
 
+;  Thief and Ninja hit growth a level: FFR's Vanilla, Moderate and Double.
+lut_ValThiefHit:
+  FFPAD "  +2", 4                ; THIEFHIT_VANILLA
+  FFPAD "  +3", 4                ; THIEFHIT_MODERATE
+  FFPAD "  +4", 4                ; THIEFHIT_DOUBLE
+
 ;  Enemy scripts and Enemy skills: which enemies' lists are dealt.
 lut_ValAI:
   FFPAD "     Off", 8           ; AI_OFF
@@ -1832,23 +1838,29 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValBless, <lut_ValCurse, <lut_ValRarity, <lut_ValZones
               .BYTE <lut_ValShuffle, <lut_ValShuffle
               .BYTE <lut_ValShuffle, <lut_ValAI, <lut_ValAI, <lut_ValShuffle
+              .BYTE <lut_ValThiefHit
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
               .BYTE >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValShuffle, >lut_ValAI, >lut_ValAI, >lut_ValShuffle
+              .BYTE >lut_ValThiefHit
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
               .BYTE STATUS_MODES, AI_MODES, AI_MODES, RNG_MODES
+              .BYTE THIEFHIT_STEPS
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
-lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3
+lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
-;  higher up, beside the settings they are copied into the save with.
+;  higher up, beside the settings they are copied into the save with; and
+;  Thief and Ninja hit growth is the block's sixth scalar, numbered last
+;  because it came last.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
               .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
               .BYTE <OPT_NG_NORUN, <OPT_NG_SURPRISE
               .BYTE <OPT_NG_STATUS, <OPT_NG_SCRIPTS, <OPT_NG_SKILLS, <OPT_NG_RNG
+              .BYTE <OPT_THIEFHIT
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"

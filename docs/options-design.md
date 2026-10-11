@@ -213,13 +213,25 @@ constant per setting.**  Retuning a preset is editing one line.  This was an
 explicit requirement -- the Super values below are a starting point, not a
 settled balance.
 
-Super: everything on, encounter rate 60%, gold and XP 250%, enemy and boss
-stats 100%, elemental bonus +30.
+Super: everything on but Auto retargeting, encounter rate 60%, gold and XP
+250%, enemy and boss stats 100%, elemental bonus +30, Thief and Ninja hit +4.
 
-**Improved carries exactly one variation: Thief and Ninja Hit%.**  Doubling the
-growth is the difference between a class that misses and one that plays, which
-is a fix in all but name -- FFR defaults its own dropdown to Double for the
-same reason.  Everything else in that section stays out of Improved.
+**Decision (user, 2026-10-11): Improved is FFR's Improved Vanilla.**  Every
+quality-of-life row but Auto retargeting, the bugfixes, gold and XP at 200%,
+the elemental bonus at the cartridge's +4, and Thief and Ninja hit growth at
++3, FFR's Moderate; no other variation.  It replaces "quality of life and
+bugfixes" with one variation, which had carried hit growth at Double and the
+bonus at +10.  That +10 was a misreading: FFR's preset has the bonus checkbox
+off, so its slider's 10 never applies.  FFR's Improved Vanilla has four small
+rules the cartridge lacks (`ffr-presets.md` §3.2).  Built 2026-10-11 and
+checked by `test_presets`; not yet played.
+
+**Decision (user, 2026-10-11): Auto retargeting is off in every preset**, for
+the player to turn on.  It takes strategy out of a fight, and in FFR most
+fights are run from or swept with magic, so it matters little.  FFR turns it
+on in its Improved Vanilla and Beginner.
+
+Vanilla turns everything off.
 
 **Decision: Custom is seeded from whichever preset was last active, and only
 becomes Custom when a value actually changes.**  Entering the settings screen
@@ -228,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-42 settings: 37 checkboxes and 5 value rows.
+42 settings: 36 checkboxes and 6 value rows.
 
 ### Quality of life (15)
 
@@ -406,11 +418,35 @@ avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, LOCK / LOK2 Mode.
 
-**Decision: FFR's two Thief dropdowns stay two flags here.**  It has "Better
-Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth" separately, and
-they change different things -- one is a starting stat and a growth rate, the
-other is only a growth rate and applies to both classes rather than one.
-Folding them would make a single checkbox that does four things.
+**Decision: FFR's two Thief dropdowns stay two settings here.**  It has
+"Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
+separately, and they change different things -- one is a starting stat and a
+growth rate, the other is only a growth rate and applies to both classes
+rather than one.  Folding them would make a single checkbox that does four
+things.
+
+**Decision (2026-10-11): Thief and Ninja hit% is a value row, +2, +3, +4 a
+level** -- FFR's Vanilla, Moderate and Double, the middle three of its five.
+It was a checkbox doing Double until Improved took Moderate.  Readouts are the
+hit% gained a level, four columns like the other dials: an eight-column word
+would run into the twenty-column label.  Played 2026-10-11, all three steps.
+
+**How strong the two together are** (measured 2026-10-11, the cartridge's own
+`LvlUp_LevelUp` run from level 1 to 50 for forty Thieves; it matches FFR's
+rules exactly, and `test_thiefhit` now holds it to them every level):
+
+    level 30     hit% (attacks)   evade   agility
+    vanilla        63 (2)          78       30
+    both on       121 (4)         157       99
+    level 50
+    vanilla       103 (4)          94       46
+    both on       200 (7)         177       99
+
+Hit% / 32 + 1 is the attacks a round, so at Double the Thief out-hits the
+Fighter (5 at level 50); at Moderate it matches the Fighter's growth of 3.
+Agility caps at 99 by level 20, but the original code grants the evade point
+whether or not agility rose, so evade keeps climbing.  A two-character party
+doubles each member's XP and gets there sooner (user's playthrough).
 
 ### Treasures (11)
 
@@ -562,6 +598,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Enemy scripts | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | Enemy skills | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
+| Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 
 Each stores a step index in one byte.  Adjusted with left/right, consistent
 with the existing Respond Rate control.  A readout is four columns, or eight
@@ -691,16 +728,20 @@ addresses are not extents, and several buffers here are deliberately overlaid
 on each other because their scenes are mutually exclusive.  Coverage by a
 single name is the test, not absence of a name.
 
-Layout, 16 bytes of the 256:
+Layout, 17 bytes of the 256:
 
-    (at OPTBLOCK = $6E00, 16 of the 256 bytes available)
+    (at OPTBLOCK = $6E00, 17 of the 256 bytes available)
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       5    36 checkbox bits; bit 21 is reserved and unused
-    scalars     5    gold/XP, encounter, enemy, boss, elemental -- step indices
+    flags       5    36 checkbox bits; bit 21 is unused
+    scalars     6    gold/XP, encounter, enemy, boss, elemental, Thief hit --
+                     step indices
     respondrate 1    0-based
     checksum    1    sum forced to $FF, as the game's own save does
+
+`$6E11` is spare, for the next scalar; the derived bytes (`OPTD`) follow at
+`$6E12`.
 
 Two more ranges on the page belong to the randomizer:
 
@@ -712,13 +753,14 @@ Two more ranges on the page belong to the randomizer:
                           padded to seven, for the None's class name
 
 The new-game bytes are covered by the checksum -- `opt_sum` adds them after the
-block's fifteen -- and cleared by every preset.  The pool is deliberately
+block's sixteen -- and cleared by every preset.  The pool is deliberately
 outside it: battery noise on a fresh cartridge is welcome there.
 
-`OPT_FORMAT` is 5.  It went to 3 when the flag word grew its fifth byte, to 4
-when the elemental bonus became a dial and needed a fifth scalar, and to 5
-when the checksum took in the new-game bytes; each bump costs a cartridge its
-saved settings once, on the first boot after.  The Shops, Chests, Magic and
+`OPT_FORMAT` is 6.  It went to 3 when the flag word grew its fifth byte, to 4
+when the elemental bonus became a dial and needed a fifth scalar, to 5 when
+the checksum took in the new-game bytes, and to 6 when Thief hit growth
+became a sixth scalar; each bump costs a cartridge its saved settings once, on
+the first boot after.  The Shops, Chests, Magic and
 gear bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
 anything else there fails the checksum and resets to a preset.
@@ -744,8 +786,8 @@ The checksum scheme is modelled on the game's own at
 
 **Decision: scratch above the checksum is initialized at boot, and any byte
 that outlives the routine writing it is treated as hostile until proven
-otherwise.**  `OPT_SIZE` is `$10`, so only the settings are covered by the
-checksum -- everything from `OPTBLOCK+$10` up is working storage that happens
+otherwise.**  `OPT_SIZE` is `$11`, so only the settings are covered by the
+checksum -- everything from `OPTBLOCK+$11` up is working storage that happens
 to live in SRAM.  That is fine for per-call scratch, which every routine writes
 before it reads.  It is not fine for a byte whose lifetime spans screens.
 
@@ -876,8 +918,6 @@ it re-reads the flag every battle.
 
 ## 9. Open items
 
-  - Exact Vanilla and Improved preset contents.  Improved is "Vanilla plus some
-    QoL and bugfixes"; which ones is not yet decided.
   - Super values are provisional and expected to be retuned.
   - Condensing all 30 descriptions to 5 lines, from the FFR tooltips, plus an
     original for Boss Stats and the two save-compatibility caveats.
@@ -1180,11 +1220,11 @@ the worst flush ending at scanline 255 of 262.
     classes for the growth, since a promoted character levels on the Thief's
     data under the Ninja's id.
   - **Thief and Ninja Hit%** -- `opt_hitgrowth`.  Every level adds a per-class
-    constant to hit rate, 2 for these two against the Fighter's 3; this
-    doubles theirs, which is the value FFR's dropdown calls "4 (Double)" and
-    defaults to.  Two adds rather than a shift, so the vanilla constant stays
-    the only number and nothing has to keep in step with the table.  It took
-    bit 21, which the elemental bonus vacated when it became a dial.
+    constant to hit rate, 2 for these two against the Fighter's 3; this adds
+    the row's step on top, 0, 1 or 2, for FFR's "2 (Vanilla)", "3 (Moderate)"
+    and "4 (Double)".  The vanilla constant stays in the table and nowhere
+    else.  It is the block's sixth scalar, `OPT_THIEFHIT`; it was bit 21 as
+    a Double checkbox, and bit 21 is unused again.
   - **Elemental and Type Bonus** -- a dial rather than a hook.  A physical
     attack matching the defender's weakness or category gets +40 hit chance on
     a base of 168 and +4 base damage on a base of the attacker's strength.  The

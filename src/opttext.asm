@@ -232,11 +232,12 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"games are not affected."}, 28
 
 lut_Desc_46:  ; Thief and Ninja hit%
-  FFLINES 4
-  FFPAD {"Hit rate grows twice as fast"}, 28
-  FFPAD {"for the Thief and the Ninja."}, 28
-  FFPAD {"Separate from the agility"}, 28
-  FFPAD {"buff above."}, 28
+  FFLINES 5
+  FFPAD {"Hit% the Thief and the Ninja"}, 28
+  FFPAD {"gain each level.  +2 is the"}, 28
+  FFPAD {"original, +3 the Fighter's,"}, 28
+  FFPAD {"+4 twice the original.  Not"}, 28
+  FFPAD {"the agility buff above."}, 28
 
 lut_Desc_45:  ; SCALE
   FFLINES 3
