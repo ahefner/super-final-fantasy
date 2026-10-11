@@ -334,6 +334,10 @@ class CPU:
         elif op == 0x98: v = self.y & amask; self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0x9B: self.y = self.x; self.setzn(self.y, x8)
         elif op == 0xBB: self.x = self.y; self.setzn(self.x, x8)
+        #  TSX and TXS.  In emulation mode S stays in page 1; natively an
+        #  eight-bit X has a zero high byte, so TXS gives S = $00xx.
+        elif op == 0xBA: self.x = self.s & (0xFF if x8 else 0xFFFF); self.setzn(self.x, x8)
+        elif op == 0x9A: self.s = (0x0100 | (self.x & 0xFF)) if self.e else (self.x & (0xFF if x8 else 0xFFFF))
         elif op == 0x5B: self.d = self.a & 0xFFFF
         elif op == 0x7B: self.a = self.d; self.setzn(self.a, False)
         # logic and arithmetic

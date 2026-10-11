@@ -61,6 +61,7 @@
 .export opt_magicgfx, opt_castlife, opt_playervalid
 .export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
+.export opt_stackshift
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -3035,5 +3036,78 @@ opt_freestuff:
     BEQ @out
     LDA #$01
     STA item_rod
+  @out:
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_stackshift -- keep teleport nesting off the bottom of the stack
+;;
+;;  FFR's "Softlock fix" (asm/StackShift.asm), on every ROM as FFR has it.
+;;  Every normal teleport nests another DoStandardMap: five bytes pushed and
+;;  a JSR, seven bytes of page 1, and only a warp unwinds one.  Stairs that
+;;  lead back by teleport (Coneria Castle's) or a loop (the Ice Cave's) can
+;;  be walked round until the stack runs off the bottom of the page.  On a NES
+;;  that wraps within the page and breaks the next warp.  Here it is worse:
+;;  the HAL and the randomizer run native, where S is sixteen bits, and their
+;;  pushes would go on down into zero page.
+;;
+;;  So, called before a normal teleport's pushes: with S under STACK_FLOOR,
+;;  slide everything below the oldest teleport frame up over it, seven bytes,
+;;  and S with it.  A warp from the second floor then returns to the
+;;  overworld rather than the first floor -- the oldest level is forgotten,
+;;  and nothing else changes.
+;;
+;;  The oldest frame is $01F5-$01FB.  The overworld loop resets S to $FF and
+;;  JSRs DoOWTransitions, whose @Teleport JSRs DoStandardMap: the first map
+;;  runs at S = $FB, and its teleport pushes $01FB-$01F7 and its JSR the
+;;  return at $01F6/$01F5.  That is checked before anything moves.  Down here
+;;  this level was itself entered by a normal teleport, whose frame sits just
+;;  above our own JSL's return, so its return address is @NormalTeleport's:
+;;  if the oldest frame's is not the same, the stack is not laid out as this
+;;  expects, and it is left alone.  FFR's version does not check.
+;;
+;;  STACK_FLOOR is compared with S as this routine sees it, three bytes under
+;;  the map's own for the JSL's return: so a map running under $83 makes the
+;;  next teleport shift, and no map ever runs below $7D.  That leaves 125
+;;  bytes under the deepest map, for native code that must never reach $0100:
+;;  the harness's deepest routines use 31 (the shops), the settings screen
+;;  25, a battle more.  FFR's floor is $30, some 41 bytes on a NES, where
+;;  running over only wraps.  Eighteen levels fit before anything is
+;;  forgotten; vanilla's deepest walk using each teleport once is 14, all but
+;;  three of them the Ordeals maze.
+;;
+;;  Emulation mode, from the fixed bank, with the caller's data bank -- whose
+;;  low 8KB is WRAM, page 1 included.  A, X and the flags are clobbered; the
+;;  caller loads A next.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+STACK_FLOOR  = $80
+STACK_OLDEST = $F5              ; the oldest teleport frame, $01F5-$01FB
+STACK_FRAME  = 7                ; five pushes and a JSR
+
+opt_stackshift:
+    TSX
+    CPX #STACK_FLOOR
+    BCS @out                    ; room enough
+    LDA $0104, X                ; this level's teleport frame, above our
+    CMP $0100 + STACK_OLDEST    ;   three-byte return: its return address,
+    BNE @out                    ;   against the oldest frame's
+    LDA $0105, X
+    CMP $0100 + STACK_OLDEST + 1
+    BNE @out                    ; not a teleport frame: not ours to move
+    STX OPTSCRATCH              ; S, where the copy stops
+    LDX #STACK_OLDEST - 1       ; the byte below the oldest frame
+  @copy:
+    LDA $0100, X                ; up seven, highest first, so nothing is
+    STA $0100 + STACK_FRAME, X  ;   read after it is written
+    DEX
+    CPX OPTSCRATCH
+    BNE @copy
+    TXA                         ; X is S again
+    CLC
+    ADC #STACK_FRAME
+    TAX
+    TXS                         ; our own return moved with the rest
   @out:
     RTL

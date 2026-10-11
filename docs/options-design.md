@@ -360,6 +360,27 @@ in the same equipment-stat path as the Weapon Stats fix and writes the same
 saved fields; making it always-on removes an interaction without costing
 anything anyone wants.
 
+**The stack-depth softlock fix is unconditional too (2026-10-11, played the
+same day)**, as FFR applies its own on every ROM.  Walking Coneria Castle's
+stairs up and down, a build without it crashed after a run of round trips;
+with it, Mesen showed the stack bottoming out at `$0169` and staying there --
+the map loop held at `$017D` and 20 bytes of per-frame calls beneath it.  Each normal teleport nests
+another `DoStandardMap` -- seven bytes of page 1 -- and only a warp gives
+them back, so walking Coneria Castle's stairs up and down (both ways are
+normal teleports, and 2F has no warp) or the Ice Cave loop runs the stack off
+the bottom of the page.  On a NES that wraps and breaks the next warp; here
+the HAL's and the randomizer's native-mode pushes would go on into zero
+page.  `opt_stackshift`, called from `@NormalTeleport` before its pushes,
+slides the stack up a frame over the oldest one once S is low enough: no map
+runs below `$7D`, leaving 125 bytes beneath it, and 18 levels fit before
+anything is forgotten (FFR's floor is `$30`, 41 bytes on a NES).  The cost,
+past 18 levels, is that a warp from the second floor goes to the overworld.
+It checks the oldest frame's return address against the current level's
+before moving anything, which FFR's does not.  `test_stackshift` runs the
+fixed bank's own `@NormalTeleport` over real frames, sixty Coneria trips
+included; the harness's 65816 gained `TSX` and `TXS` for it.  Details:
+`randomization-notes.md` §9.3.
+
 ### Scale (5)
 
 Value rows, and the first section in the list: Gold + XP Scaling, Encounter
@@ -1512,14 +1533,15 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED    68 free    the scarce one; stamped into every chunk.  7
-                             declared, and 61 at the end: the randomizer's
+    BANK_FIXED    64 free    the scarce one; stamped into every chunk.  7
+                             declared, and 57 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
                              formation copy (39) -- the None took 74 (its
                              class name, LeadClass, starting stats, the
-                             battle CHR loader), and @Begin's mute 9
+                             battle CHR loader), @Begin's mute 9, and the
+                             stack fix's JSL 4
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1532,8 +1554,8 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    3661 free   once the descriptions moved out, the None, and
-                             the save view (259)
+    BANK_OPT    3616 free   once the descriptions moved out, the None, the
+                             save view (259) and the stack fix (45)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

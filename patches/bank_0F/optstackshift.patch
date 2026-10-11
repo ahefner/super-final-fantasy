@@ -1,0 +1,84 @@
+--- OLD
+  @NormalTeleport:        ; normal teleport!
+    LDA sm_scroll_x       ;  push the scroll (player position), inroom flags,
+    PHA                   ;  map, and tileset to the stack
+    LDA sm_scroll_y       ; This stuff is all recorded on the stack for
+    PHA                   ; WARP purposes
+    LDA inroom
+    PHA
+    LDA cur_map
+    PHA
+    LDA cur_tileset
+    PHA
+
+    JSR ScreenWipe_Close    ; wipe the screen closed
+    LDA #BANK_TELEPORTINFO  ; swap to the bank containing teleport info
+    JSR SwapPRG_L
+
+    LDX tileprop+1          ; get the teleport ID in X for indexing teleport data
+
+    LDA lut_NormTele_X, X   ; get the X coord to teleport to
+    SEC                     ;  subtract 7 from desired player coord
+    SBC #7                  ;  and wrap to get scroll pos
+    AND #$3F
+    STA sm_scroll_x
+
+    LDA lut_NormTele_Y, X   ; do same with Y coord
+    SEC
+    SBC #7
+    AND #$3F
+    STA sm_scroll_y
+
+    LDA lut_NormTele_Map, X ; get the map and record it
+    STA cur_map
+
+    TAX                     ; then throw the map in X, and use it to get
+    LDA lut_Tilesets, X     ; the tileset for this map
+    STA cur_tileset
+
+    JSR DoStandardMap       ; JSR to DoStandardMap -- which runs a NEW instance of this loop
+--- NEW
+  @NormalTeleport:        ; normal teleport!
+.import opt_stackshift
+    ;  FFR's "Softlock fix": each normal teleport nests another DoStandardMap,
+    ;  and walking round a loop of them would run the stack off the bottom of
+    ;  page 1.  opt_stackshift forgets the oldest level first when it is that
+    ;  deep (optbank.asm).  Before the pushes, so they land in the room made.
+    JSL opt_stackshift + OPTFAR
+    LDA sm_scroll_x       ;  push the scroll (player position), inroom flags,
+    PHA                   ;  map, and tileset to the stack
+    LDA sm_scroll_y       ; This stuff is all recorded on the stack for
+    PHA                   ; WARP purposes
+    LDA inroom
+    PHA
+    LDA cur_map
+    PHA
+    LDA cur_tileset
+    PHA
+
+    JSR ScreenWipe_Close    ; wipe the screen closed
+    LDA #BANK_TELEPORTINFO  ; swap to the bank containing teleport info
+    JSR SwapPRG_L
+
+    LDX tileprop+1          ; get the teleport ID in X for indexing teleport data
+
+    LDA lut_NormTele_X, X   ; get the X coord to teleport to
+    SEC                     ;  subtract 7 from desired player coord
+    SBC #7                  ;  and wrap to get scroll pos
+    AND #$3F
+    STA sm_scroll_x
+
+    LDA lut_NormTele_Y, X   ; do same with Y coord
+    SEC
+    SBC #7
+    AND #$3F
+    STA sm_scroll_y
+
+    LDA lut_NormTele_Map, X ; get the map and record it
+    STA cur_map
+
+    TAX                     ; then throw the map in X, and use it to get
+    LDA lut_Tilesets, X     ; the tileset for this map
+    STA cur_tileset
+
+    JSR DoStandardMap       ; JSR to DoStandardMap -- which runs a NEW instance of this loop

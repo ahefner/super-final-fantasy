@@ -1195,9 +1195,12 @@ teleport: with S below `$30` it slides the stack up seven bytes, dropping
 the oldest frame.  At that depth a warp from the second floor returns to
 the overworld rather than the first floor.  That is harmless to the logic --
 a warp can only come back nearer the overworld -- and a shuffle that chains
-floors deeper than vanilla makes it likelier to matter.  **Port it as an
-unconditional fix**, with the threshold re-derived for the port: battles,
-menus and the HAL's native-mode code use more stack than the NES game did.
+floors deeper than vanilla makes it likelier to matter.  **Ported as an
+unconditional fix, 2026-10-11** (`opt_stackshift`; `options-design.md`,
+Bugfixes), with the threshold re-derived for the port: battles, menus and
+the HAL's native-mode code use more stack than the NES game did, and native
+pushes past `$0100` would land in zero page.  No map runs below S = `$7D`,
+which leaves 125 bytes; the deepest routines the harness runs use 31.
 
 **The graph, per seed.**  Static: the regions of every map and the gated
 edges between them; a table from each teleport placement to its region, and

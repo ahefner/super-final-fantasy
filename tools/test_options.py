@@ -5724,6 +5724,136 @@ def test_rando_begin():
     check("rando_stale, the tag right and the save changed", bool(cpu.p & 1), True)
 
 
+# --- the stack-depth fix ------------------------------------------------------
+def test_stackshift():
+    """FFR's "Softlock fix": a normal teleport nests another DoStandardMap,
+    seven bytes of page 1 that only a warp gives back, so stairs that lead
+    back by teleport can be walked round until the stack runs out.  Before
+    the pushes, opt_stackshift forgets the oldest level once S is under $80.
+
+    Run as the cartridge runs it: the fixed bank's own @NormalTeleport, from
+    its JSL to just before its first call, over a page 1 laid out the way
+    the overworld and every teleport before it leave it."""
+    FLOOR, OLDEST = 0x80, 0xF5
+    fixed = (0xA7 & 0x1F) * 0x10000
+    img = bytes(ROMDATA[fixed + 0xC000:fixed + 0x10000])
+    a = SYM["opt_stackshift"]
+    at = [i for i in range(len(img) - 3) if img[i:i + 4] == bytes([0x22, a & 0xFF, a >> 8, CHUNK_OPT_BANK])]
+    check("one normal teleport asks opt_stackshift", len(at), 1)
+    if len(at) != 1:
+        return
+    site = 0xC000 + at[0]
+    #  Then the five pushes, as the game wrote them, and its first call.
+    zp = [K[n] for n in ("sm_scroll_x", "sm_scroll_y", "inroom", "cur_map", "cur_tileset")]
+    pushes = b"".join(bytes([0xA5, z, 0x48]) for z in zp)
+    check("...right before its five pushes", img[at[0] + 4:at[0] + 19], pushes)
+    stop = site + 19
+    check("...and then a call", img[at[0] + 19], 0x20)
+    #  The JSR DoStandardMap that makes the frame: the call followed by PLA,
+    #  STA cur_tileset.  What it pushes is its own last byte.
+    j = img.find(bytes([0x68, 0x85, K["cur_tileset"]]), at[0]) - 3
+    check("...the nesting call found", img[j], 0x20)
+    ret = 0xC000 + j + 2
+    OWRET = [0x12, 0x34, 0x56, 0x78]                    # $01FC-$01FF: the overworld's
+
+    def frame(k):
+        """Level k's teleport frame, top byte first: the five pushes, then
+        the JSR's return, high byte above low."""
+        return [k, 0x40 | k & 0x3F, k & 1, 0x10 + (k & 0x3F), k & 7, ret >> 8, ret & 0xFF]
+
+    def layout(levels, oldest_ret=None):
+        """Page 1 as the party leaves it at the given depth: the overworld's
+        four bytes, then one frame per teleport taken."""
+        page = bytearray(0x100)
+        page[0xFC:0x100] = bytes(reversed(OWRET))
+        top = 0xFB
+        for k in range(1, levels):
+            page[top - 6:top + 1] = bytes(reversed(frame(k)))
+            top -= 7
+        if oldest_ret is not None:
+            page[OLDEST], page[OLDEST + 1] = oldest_ret & 0xFF, oldest_ret >> 8
+        return page, top
+
+    def teleport(bus, cpu, s):
+        cpu.pbr, cpu.pc, cpu.s, cpu.dbr = 0xA7, site, 0x100 | s, 0xA7
+        for n in range(200_000):
+            if cpu.pc == stop:
+                return cpu.s & 0xFF
+            cpu.step()
+        raise RuntimeError("the teleport ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def frames_from(page, s):
+        """The frames between S and the overworld's four bytes, oldest first,
+        as each level's first push -- or None if anything there is not a
+        teleport frame, so warps would not unwind back to the overworld."""
+        if (0xFB - s) % 7 or list(page[0xFC:0x100]) != list(reversed(OWRET)):
+            return None
+        out = []
+        for top in range(0xFB, s, -7):
+            f = list(reversed(page[top - 6:top + 1]))
+            if f[5:] != [ret >> 8, ret & 0xFF]:
+                return None
+            out.append(f[0])
+        return out
+
+    def run(levels, oldest_ret=None, here=0x5A):
+        bus, cpu = machine()
+        page, s = layout(levels, oldest_ret)
+        bus.wram[0x100:0x200] = page
+        for z in zp:
+            bus.wram[z] = here
+        after = teleport(bus, cpu, s)
+        return s, after, bytes(bus.wram[0x100:0x200])
+
+    #  Shallow: S at $84 after seventeen teleports, nothing moves.
+    s, after, page = run(18)
+    check("17 levels deep, S $%02X: no shift" % s, (s, after), (0x84, 0x84 - 5))
+    want, _ = layout(18)
+    check("...page 1 as it was, with the five new pushes",
+          (page[after + 1:], page[s + 1:]), (bytes([0x5A] * 5) + want[s + 1:], want[s + 1:]))
+
+    #  Deep: S at $7D after eighteen, under $80: the oldest level goes.
+    s, after, page = run(19)
+    check("18 levels deep, S $%02X: shifted seven, then pushed five" % s, (s, after), (0x7D, 0x7D + 7 - 5))
+    shallower, _ = layout(18)
+    moved = bytearray(shallower)
+    for k in range(2, 19):          # level k's frame, one slot higher
+        top = 0xFB - 7 * (k - 2)
+        moved[top - 6:top + 1] = bytes(reversed(frame(k)))
+    check("...the oldest frame gone, the rest one frame higher, the overworld's untouched",
+          page[after + 1 + 5:], bytes(moved[after + 1 + 5:]))
+    check("...and every frame still a teleport's, down to the overworld",
+          frames_from(page, after + 5), list(range(2, 19)))
+
+    #  A stack this does not recognise is left alone -- off in either byte.
+    for bad in (ret ^ 0x0100, ret ^ 0x0001):
+        s, after, page = run(19, oldest_ret=bad)
+        want, _ = layout(19, bad)
+        check("deep, but the oldest frame returns to $%04X, not a teleport: no shift" % bad,
+              (after, page[s + 1:]), (s - 5, want[s + 1:]))
+
+    #  Coneria Castle's stairs, walked up and down sixty times.  Each pass
+    #  is the real code to its first call; the JSR DoStandardMap that would
+    #  follow is done here, pushing what it pushes.
+    bus, cpu = machine()
+    page, s = layout(1)
+    bus.wram[0x100:0x200] = page
+    lowest, deepest = s, 0
+    for trip in range(60):
+        for z in zp:
+            bus.wram[z] = trip
+        s = teleport(bus, cpu, s)
+        bus.wram[0x100 + s], bus.wram[0x100 + s - 1] = ret >> 8, ret & 0xFF
+        s -= 2
+        lowest = min(lowest, s)
+    chain = frames_from(bytearray(bus.wram[0x100:0x200]), s)
+    check("sixty trips down Coneria's stairs: never a frame past $80", lowest >= FLOOR - 7, True)
+    check("...the stack still unwinds frame by frame to the overworld", chain is not None, True)
+    check("...holding the last eighteen levels, the earlier ones forgotten",
+          chain, list(range(60 - len(chain or []), 60)) if chain else None)
+    check("...eighteen of them", len(chain or []), 18)
+
+
 # --- the save view ------------------------------------------------------------
 def test_saveview():
     """Select on Continue shows the saved game's seed and RANDOMIZATION rows:
@@ -6491,7 +6621,8 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_rando_namelazy, test_saveview)
+             test_rando_begin, test_nones, test_rando_namelazy, test_saveview,
+             test_stackshift)
 
     global JOBS
     args, want = sys.argv[1:], []
