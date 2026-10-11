@@ -633,6 +633,53 @@ the ship waits at Pravoka and everything by sea also needs the way there.
 the ship.  FFR's "AIRSHIP flies from anywhere" is safe as it stands, since
 raising the airship already puts the party where it waits.
 
+### 4.6 Prototype: entrance and floor shuffle, and placement (2026-10-11)
+
+`worldgraph/` now builds its graph from a *wiring* -- the three teleport
+tables, vanilla or shuffled (`wiring.py`) -- with the warp-back and
+vehicle-return edges kept apart from the graph's own (`build.py`), and
+checks a wiring the way §9.3 asks (`fecheck.py`; `fe_selftest.py` shows
+each check biting).  `wiring.fe_shuffle` ports FFR's
+`ShuffleEntrancesAndFloors` onto FFR's own destination records
+(`ffr_teleports.py`, read from its source and checked against the ROM's
+tables: all agree but `IceCave6`'s coordinate, which FFR also overwrites
+from the ROM).  `placement.py` ports `PredictivePlacement`: FFR's bins,
+weights, minimum cycles and accessibility, with a uniform location draw
+where FFR has its balanced picker.
+
+Over 200 seeds (`run_fe.py 200 --place`, 19 s under PyPy):
+
+  - **every seed places on the first attempt, is winnable, and reaches
+    every location** with everything owned
+  - **no seed strands the party at any sphere of its own playthrough**:
+    assumed fill's premise, that a region once reached stays reachable,
+    holds under FFR's shuffle once warps are edges back to the caller
+  - seeds run 6-14 spheres, against vanilla's 22
+  - nesting: 187 stay at vanilla's 11 levels; the deepest reaches 19, one
+    short of where the stack fix starts forgetting
+  - Titan's Tunnel opens new ground in 97 (§9.3)
+
+**The incentive pool decides whether placement works at all.**  With all
+twenty key items incentivised into FFR's default incentive locations -- the
+13 NPCs, the caravan and the eight "Major" chests, 22 in all -- placement
+fails two seeds in three.  That is the pool, not the port: with the vehicles
+and the BOTTLE loose it is 200 out of 200, and everything loose likewise.
+The prototype defaults to that until the incentive options are chosen
+(§12).
+
+**Cost on the cart.**  One placement does about 280 reachability fixpoints
+-- 1,100 BFS passes and 85,000 edge relaxations at the median, 150,000 at
+worst -- plus a scan of the locations on every pass.  Naively on the 65816
+that is several seconds (rough: 40 cycles an edge, 30 a location test).  So
+incremental reach and per-node location lists, as §4.2 proposes, and
+**placement stored in the save, not regenerated at power-on**: one pool
+index per item, 20 bytes, since the pool is 248 locations.  The wiring is
+cheap to regenerate from the seed, or about 70 bytes to store.
+
+Not yet: FFR's ship-spawn table (the ship appears in the inner sea once
+found, as `run_vanilla.py` reads it), its balanced location picker, and a
+comparison against FFR's own output, which needs .NET to run it.
+
 ## 5. Shops
 
 `lut_ShopData` (`$0E` `$8300`) is a pointer table and zero-terminated lists.
@@ -1169,6 +1216,17 @@ endpoints" holds for reachability and for nothing else.  The rest:
     same destination.  That is what lets an exit be recomputed to a single
     root entrance, and keeps a warp's return a single edge.  Titan's Tunnel
     is two destinations in one map, each with its own exit.
+  - **Titan's Tunnel should open new ground (user, 2026-10-11): preferred,
+    not required.**  Ideally its two entrances land so that the tunnel gives
+    access to a region not otherwise reachable, as vanilla's does (Sarda's).
+    Not a hard rule: in a floaterless seed -- an FFR option not ported --
+    there is value in the tunnel simply working as a long-distance overworld
+    warp that saves walking.  FFR's only rule is that both ends sit at
+    "connected" entrances, and under it the tunnel opens ground nobody could
+    reach without the airship in 97 of 200 seeds (`worldgraph/run_fe.py`,
+    `fecheck.titan_opens`).  So the preference needs a rule of the cart's
+    own: re-roll, a bounded number of times, for a placement that opens
+    ground, and keep the last one if none does.
   - **Exits go back to the root entrance's own region, vehicle and all.**
     The Waterfall is entered from the river; an exit recomputed to it lands
     the party in the canoe, not in whatever foot region holds the
@@ -1397,7 +1455,10 @@ Still open:
     more of each map, at the cost of a DMA of 2-8KB when the cursor moves.
   - **Which FFR incentive options to carry.**  It has about 30
     `Incentivize*` switches.  Two or three presets of the incentive location
-    mask would cover most real use.
+    mask would cover most real use.  They are not independent of the item
+    list: twenty incentive items into FFR's 22 default incentive locations
+    fails two seeds in three (§4.6), so a preset is an item list and a
+    location set chosen together.
 
 
 ## 13. Keeping the playtest load down
