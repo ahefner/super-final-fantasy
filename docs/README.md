@@ -11,6 +11,8 @@ The rest are explorations, written before (or instead of) building something:
                             and its status paragraphs say where the build
                             departed from the plan
     enemy-shuffle-notes.md  FFR's formation, script, skill and status shuffles
+    ffr-presets.md          what each New Game preset takes from FFR's, and
+                            which of its flags the cartridge still lacks
     overworld-notes.md      alternate overworld maps, and the map in WRAM
     consumables-notes.md    FFR's New Consumables; parked
 

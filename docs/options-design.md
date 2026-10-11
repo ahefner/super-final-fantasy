@@ -426,7 +426,9 @@ grants exactly one thing and touches nothing else.
 describes how the game plays, not what the party is handed; a Super run that
 starts with the airship is a different game, not a smoother one.  They also
 only affect a *new* game -- `opt_freestuff` runs off the new-game path, so an
-existing save is untouched whatever these are set to.
+existing save is untouched whatever these are set to.  *Planned
+(2026-10-11):* the section moves to the New Game flow, and its FFR-derived
+presets free what FFR's do; `randomization-notes.md` §12.
 
 ### New game (6)
 
@@ -522,6 +524,8 @@ row with a game in progress changes nothing in that game.  See §7 and
 
 **Decision: not in any preset.**  For the same reason as Treasures, and
 because a preset describes how the game plays rather than which world it is.
+*Planned (2026-10-11):* the section moves to the New Game flow, whose
+FFR-derived presets set it; `randomization-notes.md` §12, `ffr-presets.md`.
 
 ### Respond rate
 
@@ -575,9 +579,12 @@ the percentage rows spend their last column on the `%`, so right-aligning it
 would put its digits under that sign instead of under their digits.  Aligning
 the numbers to each other reads better than aligning the fields.
 
-Its presets are FFR's own: vanilla +4, Improved +10 (FFR's Improved Vanilla,
-and its code default), Super +30 (FFR's default preset and most of the rest;
-its 2025 tournament presets use +42).
+Its presets: vanilla +4; Improved +10, FFR's slider default; Super +30, FFR's
+default preset and most of the rest (its 2025 tournament presets use +42).
+Improved's +10 was taken for FFR's Improved Vanilla value, but that preset
+leaves the bonus checkbox off, which keeps the cartridge's +4: the slider's
+10 never applies.  `ffr-presets.md` §2 lists it with Improved's other
+departures from FFR's preset.
 
 
 ## 5. Encounter rate

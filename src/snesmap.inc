@@ -272,7 +272,7 @@ BTLMAG_DEFHIT   = $6884
 ELEMDMG_STEP    = 2
 ELEMDMG_STEPS   = 26            ; +0 to +50
 ELEM_VANILLA    = 2             ; +4, what the cartridge does
-ELEM_FFR_IMP    = 5             ; +10, FFR's Improved Vanilla and code default
+ELEM_FFR_IMP    = 5             ; +10, FFR's slider default (its Improved Vanilla stays +4)
 ELEM_FFR_DEF    = 15            ; +30, FFR's default preset and most others
 
 ;  Vanilla steps, and the speed-hack ones.  Open must divide 224 and close 220,

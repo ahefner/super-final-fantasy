@@ -1752,7 +1752,7 @@ lut_ValElem:
   .BYTE $FF, CHR_PLUS, $84, $FF   ;  +4   <- vanilla
   .BYTE $FF, CHR_PLUS, $86, $FF   ;  +6
   .BYTE $FF, CHR_PLUS, $88, $FF   ;  +8
-  .BYTE CHR_PLUS, $81, $80, $FF   ; +10   <- FFR Improved Vanilla
+  .BYTE CHR_PLUS, $81, $80, $FF   ; +10   <- Improved; FFR's slider default
   .BYTE CHR_PLUS, $81, $82, $FF   ; +12
   .BYTE CHR_PLUS, $81, $84, $FF   ; +14
   .BYTE CHR_PLUS, $81, $86, $FF   ; +16

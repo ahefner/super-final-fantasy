@@ -1473,9 +1473,10 @@ Settled in review 1:
         Improved Vanilla skip the menus, so everything a preset sets can be
         reviewed and changed on the way through.  The vanilla map goes on
         to map edits (checkboxes); an alternate map skips them.
-      - Then: randomization (the shuffles now on the settings screen, and
-        the incentive options under their own heading) -> options (the
-        existing screen, less its RANDOMIZATION section) -> seed, when
+      - Then: randomization (the shuffles now on the settings screen, the
+        Free items, and the incentive options, each under its own
+        heading) -> options (the existing screen, less its TREASURES and
+        RANDOMIZATION sections) -> seed, when
         anything needs one -> party creation, after which the world is
         built and placed and the game begins.
       - **B returns to the previous screen, throughout** -- to whichever
@@ -1497,15 +1498,35 @@ Settled in review 1:
         or A once all eight digits are in, goes on, and Start before then
         plays the error sound.
     This replaces the map-select-first flow settled in review 1.
-  - **A preset sets the global options (user, 2026-10-11).**  Choosing one
-    overwrites the option block, comfort settings and all, and a Continue
-    of an older save then plays under it; that is accepted, because the
-    options stay editable mid-game from the title screen, which matters
-    more.  "Global dials stay global" above stands.  **The title's options
-    row reads Custom, except after Vanilla or Improved Vanilla while the
-    options are unedited** (user, 2026-10-11) -- so the row's own preset
-    cycle, and Super with it, gives way to the New Game list; to confirm
-    when the title is reworked.
+  - **A preset sets the global options (user, 2026-10-11).**  A Continue
+    of an older save then plays under the new preset; that is accepted,
+    because the options stay editable mid-game from the title screen,
+    which matters more.  "Global dials stay global" above stands.  **The
+    title's options row reads Custom, except after Vanilla or Improved
+    Vanilla while the options are unedited** (user, 2026-10-11) -- so the
+    row's own preset cycle, and Super with it, gives way to the New Game
+    list; to confirm when the title is reworked.  Improved Vanilla is the
+    title's Improved: one option set serves both.
+  - **Options model A: global, and only New Game's own rows move (user,
+    2026-10-11).**  What matters only when a game starts leaves the
+    options screen for the New Game flow: the TREASURES rows (the Free
+    items -- `opt_freestuff` runs only on the new-game path, so a game in
+    progress never reads them) go with the RANDOMIZATION rows to the
+    randomization screen, under their own heading beside the incentive
+    options they interact with (a Free X leaves the incentive pool).
+    **The options screen is otherwise not rearranged** (user): the two
+    sections are its last, so taking them off moves nothing above them.
+    A preset writes the *rules* and leaves the *comfort* settings alone
+    -- speed hacks, respond rate, shop information and the like are how
+    the player likes to play, not which game it is.  That is a list of
+    which rows a preset writes, not a regrouping of the menu; the list is
+    in `ffr-presets.md` §1.  It overturns two decisions in
+    `options-design.md` (§3, Treasures and New game: "not in any preset"),
+    which held for the title's three presets: FFR's presets free the
+    BRIDGE, or most vehicles, and every one but Improved Vanilla shuffles.
+    The alternative, a save carrying its own rules, was declined: it fixes
+    only a New Game that is reset before its first save, at the cost of a
+    save-format change.
 
 Still open:
 
