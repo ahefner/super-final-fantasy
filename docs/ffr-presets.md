@@ -256,6 +256,7 @@ HARM.
   - **Vanilla**: complete, apart from what the cartridge does
     unconditionally.  The None class is offered at party creation, the BB
     absorb fix applies, Controller Reset works and the stack fix holds.
+    Those stay: almost identical is identical enough (user, 2026-10-11).
   - **Improved Vanilla** becomes FFR's (user, 2026-10-11): 200% gold and
     XP, elemental bonus +4, Thief hit Balanced, NPC guillotine on, Auto
     retargeting off.  It then lacks only the four small rules in §3.2 that
