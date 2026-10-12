@@ -401,6 +401,22 @@ in the same equipment-stat path as the Weapon Stats fix and writes the same
 saved fields; making it always-on removes an interaction without costing
 anything anyone wants.
 
+**Decision (user, 2026-10-11): the critical hit count is unconditional
+too** -- not worth a flag bit and a menu row.  It is FFR's
+`EnableCritNumberDisplay`: an attack that lands several criticals reports
+"3 Critical hits!" (FFR's wording) where the original says "Critical hit!!"
+whatever the number; one critical reads as it always did.  FFR offers it
+only with its speed hacks, because its code lives there.  Played 2026-10-11.
+`opt_critbox` replaces the thirteen bytes that report the criticals, and the
+site now calls `PrepareAndDrawSimpleCombatBox` -- the routine under
+`DrawBattleMessageCombatBox`, which writes "code, value, 00" into combat box
+4's buffer and draws it -- with the codes `opt_critbox` picks: $0F and the
+message as before, or $11 and the count, the routine's 00 becoming the
+number's high byte, after `opt_critbox` has written the words and terminator
+past those three bytes.  Nineteen bytes, three past box 4's sixteen, as
+FFR's own are; no combat box uses them.  `test_critcount` runs the real
+routine and reads back what the box will print.
+
 **The stack-depth softlock fix is unconditional too (2026-10-11, played the
 same day)**, as FFR applies its own on every ROM.  Walking Coneria Castle's
 stairs up and down, a build without it crashed after a run of round trips;
@@ -457,7 +473,8 @@ has no element, and FFR gives it Status (`$01`), so a Ribbon resists it.
 the spell flags, does the same for this one record.  Enemy attacks reach it
 too: `Enemy_DoMagicEffect` calls `Battle_PrepareMagic`, where it is hooked,
 and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
-sixth flag byte, which the flag word grew for it (format 8).
+sixth flag byte, which the flag word grew for it (format 8) -- and grew
+for the critical hit count too, until that became unconditional.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -1723,11 +1740,11 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2621 free   once the descriptions moved out, the None, the
+    BANK_OPT    2567 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
-                             (513), White Mage HARM (82), and the run chance,
-                             turn order and TRANCE fixes (193)
+                             (513), White Mage HARM (82), and Improved
+                             Vanilla's four small rules (247)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

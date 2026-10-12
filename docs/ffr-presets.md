@@ -152,7 +152,8 @@ HARM.
       - TRANCE given the status element (`TranceHasStatusElement`), so a
         Ribbon resists it.  *Played 2026-10-11:* a Variations row.
       - Critical hits shown as numbers (`EnableCritNumberDisplay`, with
-        speed hacks).
+        speed hacks).  *Played 2026-10-11:* unconditional, not a row
+        (user).
     FFR's Improved Vanilla is otherwise covered: its BB absorb fix is
     unconditional here.
 
@@ -258,7 +259,8 @@ HARM.
 
   - **Vanilla**: complete, apart from what the cartridge does
     unconditionally.  The None class is offered at party creation, the BB
-    absorb fix applies, Controller Reset works and the stack fix holds.
+    absorb fix applies, Controller Reset works, the stack fix holds, and
+    several criticals are counted.
     Those stay: almost identical is identical enough (user, 2026-10-11).
   - **Improved Vanilla** becomes FFR's (user, 2026-10-11): 200% gold and
     XP, elemental bonus +4, Thief hit Balanced, NPC guillotine on, Auto

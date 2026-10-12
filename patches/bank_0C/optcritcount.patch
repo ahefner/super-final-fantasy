@@ -1,0 +1,18 @@
+--- OLD
+    LDA battle_critsconnected
+    BEQ :+                              ; if any criticals connected...
+      LDA #BTLMSG_CRITICALHIT           ; print the Critical Hit!! combat message box
+      JSR DrawBattleMessageCombatBox
+      JSR RespondDelay
+--- NEW
+.import opt_critbox
+.export PrepareAndDrawSimpleCombatBox   ; for the harness
+
+    ;  "Critical hit!!" for one, "N Critical hits!" for several: the options
+    ;  bank picks the box's two codes and the routine under
+    ;  DrawBattleMessageCombatBox draws them.  Thirteen bytes for thirteen.
+    JSL opt_critbox + OPTFAR            ; if any criticals connected...
+    BEQ :+
+      JSR PrepareAndDrawSimpleCombatBox
+      JSR RespondDelay
+      .res 1, $EA

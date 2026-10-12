@@ -129,8 +129,8 @@ OPT_SIZE        = $13
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
 OPT_FORMAT      = $08           ; bumped from $07: the flag word took a
-                                ; sixth byte, for TRANCE's element and the
-                                ; critical hit count, so every scalar moved.
+                                ; sixth byte, for TRANCE's element, so every
+                                ; scalar moved.
                                 ; Bumped from $06: the starting items took
                                 ; a seventh scalar, and the respond rate and
                                 ; checksum moved up a byte again.

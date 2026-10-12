@@ -2933,6 +2933,63 @@ def test_trance():
     check("FIRE untouched by the flag", prepare(True, 4), prepare(False, 4))
 
 
+# --- Critical hit count ---------------------------------------------------------
+#  FFR's EnableCritNumberDisplay, unconditional here (user): several criticals
+#  in one attack read "N Critical hits!" where the original says "Critical
+#  hit!!".  The hook hands
+#  PrepareAndDrawSimpleCombatBox its two codes; for a count it writes FFR's
+#  words after the three bytes that routine writes, and the routine draws the
+#  lot.  Run through the real routine, stopped where it calls the drawing.
+def test_critcount():
+    CRITS = 0x686B                              # battle_critsconnected
+    BOX4 = 0x6AFA + 0x40                        # combat box 4's buffer
+    CRITICALHIT = 0x2C
+
+    def box(n):
+        bus, cpu = machine()
+        bus.sram[CRITS - 0x6000] = n
+        for i in range(0x20):
+            bus.sram[BOX4 - 0x6000 + i] = 0xEE  # what was there before
+        call(cpu, "opt_critbox")
+        if cpu.p & 0x02:
+            return None
+        a, x, y = cpu.a & 0xFF, cpu.x, cpu.y
+        c = CPU(bus); c.dbr = BANK_0C
+        c.a, c.x, c.y = a, x, y
+        c.run(BANK_0C, SYM["PrepareAndDrawSimpleCombatBox"], stop=SYM["DrawCombatBox_L"])
+        ptr = c.x | c.y << 8
+        raw = bytes(bus.sram[ptr - 0x6000 + i] for i in range(0x20))
+        #  what the box prints: $0F is a battle message, $11 a two-byte number
+        out, i = "", 0
+        while raw[i] != 0:
+            if raw[i] == 0x0F:
+                out += "<msg %02X>" % raw[i + 1]; i += 2
+            elif raw[i] == 0x11:
+                out += str(raw[i + 1] | raw[i + 2] << 8); i += 3
+            else:
+                out += _decode(raw[i]) or "?"; i += 1
+        return c.a & 0xFF, ptr, out, i + 1
+
+    check("no criticals: no box", box(0), None)
+    check("one critical: the original's message",
+          box(1), (4, BOX4, "<msg %02X>" % CRITICALHIT, 3))
+    check("two: FFR's count", box(2), (4, BOX4, "2 Critical hits!", 19))
+    check("twelve", box(12)[2], "12 Critical hits!")
+    #  Whatever the flags say: there are none for it.
+    bus, cpu = machine()
+    for i in range(6):
+        setblk(bus, OPT_FLAGS + i, 0)
+    bus.sram[CRITS - 0x6000] = 3
+    call(cpu, "opt_critbox")
+    check("all flags off: still counted", (cpu.y, cpu.x), (0x11, 3))
+    #  ...nineteen bytes, three past box 4's sixteen, as FFR's own are.
+
+    tgt = SYM["opt_critbox"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000 + 0x8000:][:0x4000]
+    check("the attack report calls opt_critbox, once", img.count(jsl), 1)
+
+
 # --- White Mage HARM ---------------------------------------------------------
 #  FFR's WhiteMageHarmEveryone: HARM cast or used by a White Mage or White
 #  Wizard damages anything.  FFR's tooltip: on the living it "will not crit
@@ -7240,7 +7297,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

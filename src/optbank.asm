@@ -65,6 +65,7 @@
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
+.export opt_critbox
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -2564,6 +2565,61 @@ opt_turnsecond:
     LDX #$0C                    ; A is zero from the AND
     CLC
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Critical hit count -- unconditional, not a flag (user, 2026-10-11)
+;;
+;;  FFR's EnableCritNumberDisplay: several criticals in one attack say how
+;;  many.  Not worth a flag bit and a row, so always on, like the BB absorb
+;;  fix.
+;;
+;;  Replaces the end of an attack's report -- LDA battle_critsconnected / BEQ
+;;  / LDA #BTLMSG_CRITICALHIT / JSR DrawBattleMessageCombatBox / JSR
+;;  RespondDelay, thirteen bytes -- with this, a BEQ, a JSR straight into
+;;  PrepareAndDrawSimpleCombatBox and the same RespondDelay.  That routine
+;;  writes "code, value, 00" into combat box 4's buffer and draws it.
+;;  DrawBattleMessageCombatBox is that call with $0F and the message, which is
+;;  what this hands back for one critical.  For several,
+;;  it hands back $11 and the count instead -- the number code, whose high
+;;  byte is the routine's own 00 -- after writing " Critical hits!" and the
+;;  terminator after those three bytes, so the routine draws it all.  FFR's
+;;  own version writes the same nineteen bytes from the same buffer, three
+;;  past the end of box 4's sixteen; nothing else uses them during a turn.
+;;
+;;  Out: Z set when there were no criticals.  Otherwise A = 4, the bottom
+;;  box, and Y, X = the two codes for it.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+CRITBOX = btl_unfmtcbtbox_buffer + $40     ; combat box 4's buffer
+opt_critbox:
+    LDA battle_critsconnected
+    BEQ @out                    ; none: Z set, no box
+    TAX
+    CPX #$02
+    BCC @one
+    PHX                         ; the count
+    LDX #$00                    ; the words, after the number's three bytes
+  @words:
+    LDA f:lut_CritHits + OPTFAR, X
+    STA CRITBOX + 3, X
+    INX
+    CMP #$00
+    BNE @words
+    PLX
+    LDY #$11                    ; the number, X of them
+    LDA #$04                    ; box 4, and Z clear
+    RTL
+  @one:
+    LDX #BTLMSG_CRITICALHIT     ; what the original drew
+    LDY #$0F
+    LDA #$04
+  @out:
+    RTL
+
+lut_CritHits:
+  FFTEXT " Critical hits!"      ; FFR's wording
+  .BYTE $00
 
 
 opt_harmundead:
