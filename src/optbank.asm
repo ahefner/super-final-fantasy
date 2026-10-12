@@ -64,6 +64,7 @@
 .export opt_stackshift
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
+.export opt_harmundead
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -133,9 +134,9 @@ OPT_FORCED_PRESET = OPT_FORCE
 
 lut_Presets:
     ;  Five bytes of flags, low byte first, then the seven scalars.  The fifth
-    ;  flag byte holds the bits past 31, and is zero in every preset:
-    ;  Treasures and the free key items skip content rather than improve it,
-    ;  so none of them belongs in a preset.
+    ;  flag byte holds the bits past 31: the free key items, in no preset --
+    ;  they skip content rather than improve it -- and White Mage HARM, a
+    ;  variation, so Super's.
     ;
     ;  Auto retargeting is off in all three, for the player to turn on (user,
     ;  2026-10-11): it takes strategy out of a fight.
@@ -158,7 +159,7 @@ lut_Presets:
     .BYTE   STARTITEMS_NONE
     .RES    4, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
-    .BYTE   0
+    .BYTE   OPTFM_WMHARM
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
     .BYTE   STARTITEMS_NONE
     .RES    4, $00
@@ -2461,6 +2462,58 @@ opt_drinkrow:
     RTL
   @done:
     SEC
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  White Mage HARM
+;;
+;;  FFR's WhiteMageHarmEveryone: a HARM spell cast or used -- the effect is
+;;  shared with item magic -- by a White Mage or White Wizard damages anything,
+;;  not only the undead.  On the living it does no double damage, which FFR
+;;  arranges by zeroing the hit chance the double is rolled against: its
+;;  tooltip's "averaging 30/60/90/120", HARM's effectivity and up to twice it.
+;;  The undead take HARM exactly as before.
+;;
+;;  Replaces the undead test in BtlMag_Effect_DamageUndead, five bytes for
+;;  four and a NOP.  Out: Z clear for the damage path, as the AND's result
+;;  was; Z set leaves the spell unconnected, as vanilla does for the living.
+;;
+;;  No enemy casts HARM: none of the 44 vanilla scripts lists one, and Enemy
+;;  skills only redeals the spells the scripts already hold.  So the BPL below
+;;  is two bytes of insurance, not a fix -- FFR's lookup, btl_attacker AND $7F
+;;  into a four-entry table, would read past it for an enemy, and this keeps
+;;  the routine right whatever deals the spells.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_harmundead:
+    LDA btlmag_defender_category
+    AND #CATEGORY_UNDEAD
+    BNE @out                    ; undead: Z clear, as ever
+    LDA OPTFB_WMHARM
+    AND #OPTFM_WMHARM
+    BEQ @out                    ; flag off: Z set, as ever
+    LDA btl_attacker
+    BPL @no                     ; an enemy
+    AND #$03                    ; the party member, times $40
+    LSR A
+    ROR A
+    ROR A
+    TAX
+    LDA ch_class, X
+    CMP #CLS_WM
+    BEQ @white
+    CMP #CLS_WW
+    BNE @no
+  @white:
+    LDA #$00                    ; no double: nothing to roll under
+    STA math_hitchance
+    STA math_hitchance+1
+    LDA #$01                    ; Z clear
+    RTL
+  @no:
+    LDA #$00                    ; Z set
+  @out:
     RTL
 
 ;  SOFT's row, with its name spelled out rather than escaped.  The cartridge

@@ -259,6 +259,13 @@ OPTBTLSOFT      = OPTBLOCK+$1D  ; the battle's SOFT count, beside btl_potion_hea
                                 ;   and _pure, which have $6BB1 (battle_bank)
                                 ;   after them; set at every battle's start
 OPTDRINKROW     = OPTBLOCK+$1E  ; which DRINK row opt_drinkrow builds next
+
+;  White Mage HARM, FFR's WhiteMageHarmEveryone: HARM spells cast or used by
+;  a White Mage or White Wizard damage anything, not only the undead.  Bit 37,
+;  in the fifth byte with the free key items; nothing set it before, so a
+;  block that predates it reads off.
+OPTFB_WMHARM    = OPT_FLAGS+4
+OPTFM_WMHARM    = $20    ; bit 37
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 

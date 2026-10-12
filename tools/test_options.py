@@ -235,13 +235,14 @@ def test_presets():
     #  quality-of-life row but Auto retargeting (bit 9, off in every preset),
     #  the bugfixes, gold and XP at 200% (step 4), the bonus at +4 -- that
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
-    #  is SOFT in battle, a variation, so Super has it and Improved does not.
+    #  is SOFT in battle and bit 37 White Mage HARM, variations, so Super has
+    #  them and Improved does not.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
             1: (0x000007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x0003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            2: (0x2003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2786,6 +2787,100 @@ def test_softbattle():
         jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
         img = ROMDATA[(bank & 0x1F) * 0x10000 + base:][:0x4000]
         check("%s is called once, from its bank" % name_, img.count(jsl), 1)
+
+
+# --- White Mage HARM ---------------------------------------------------------
+#  FFR's WhiteMageHarmEveryone: HARM cast or used by a White Mage or White
+#  Wizard damages anything.  FFR's tooltip: on the living it "will not crit
+#  (will not deal double damage except on a 3/256), averaging 30/60/90/120
+#  damage" -- the effectivity and up to twice it, never the undead's double.
+def test_wmharm():
+    F_WMHARM = (4, 0x20)                        # bit 37
+    CATEGORY = 0x6886                           # btlmag_defender_category
+    UNDEAD = 0x08
+    ATTACKER = 0x6C89
+    HITCHANCE = 0x6856
+    CLS = {"FT": 0, "TH": 1, "BB": 2, "RM": 3, "WM": 4, "BM": 5,
+           "KN": 6, "NJ": 7, "MA": 8, "RW": 9, "WW": 10, "BW": 11}
+
+    def setup(on, cls, slot=2, undead=False, attacker=None):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, F_WMHARM[1] if (on and i == F_WMHARM[0]) else 0)
+        for s in range(4):                      # decoys: White Mages everywhere else
+            bus.sram[0x6100 + s * 0x40 - 0x6000] = CLS["WM"] if s != slot else cls
+        bus.sram[ATTACKER - 0x6000] = (0x80 | slot) if attacker is None else attacker
+        bus.sram[CATEGORY - 0x6000] = UNDEAD if undead else 0x01
+        return bus, cpu
+
+    def hook(on, cls, **kw):
+        bus, cpu = setup(on, cls, **kw)
+        bus.sram[HITCHANCE - 0x6000], bus.sram[HITCHANCE + 1 - 0x6000] = 0x99, 0x01
+        call(cpu, "opt_harmundead")
+        hc = bus.sram[HITCHANCE - 0x6000] | bus.sram[HITCHANCE + 1 - 0x6000] << 8
+        return ("damage" if not cpu.p & 0x02 else "ineffective"), hc
+
+    #  The undead, flag either way, any caster: as ever, hit chance untouched.
+    for on in (False, True):
+        for name in ("FT", "WM", "BM"):
+            check("undead, %s, flag %s" % (name, on), hook(on, CLS[name], slot=1, undead=True), ("damage", 0x199))
+    #  The living, flag off: ineffective, whoever casts.
+    for name in ("WM", "WW", "RM"):
+        check("living, %s, flag off" % name, hook(False, CLS[name])[0], "ineffective")
+    #  The living, flag on: White Mages and Wizards in every slot, with no
+    #  double to roll for; everyone else, as ever.
+    for slot in range(4):
+        for name in ("WM", "WW"):
+            check("living, %s in slot %d, flag on" % (name, slot),
+                  hook(True, CLS[name], slot=slot), ("damage", 0))
+    for name in ("FT", "TH", "BB", "RM", "BM", "KN", "NJ", "MA", "RW", "BW"):
+        check("living, %s, flag on" % name, hook(True, CLS[name])[0], "ineffective")
+    #  No enemy casts HARM -- no vanilla script lists one and Enemy skills
+    #  only redeals what the scripts hold -- but if one did, it would not be
+    #  a White Mage, whatever sits in the party slot its low bits name.
+    check("living, an enemy caster, flag on", hook(True, CLS["WM"], attacker=0x02)[0], "ineffective")
+
+    #  The whole effect, run for real: BtlMag_Effect_DamageUndead stopped where
+    #  it draws the damage, over every battle RNG state.  HARM's effectivity is
+    #  20, so a hit is 20 to 40 and a double up to 80.
+    HP = 0x687A
+    def cast(on, cls, undead, state):
+        bus, cpu = setup(on, cls, undead=undead)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        bus.sram[0x6874 - 0x6000] = 20          # btlmag_effectivity
+        bus.sram[0x6870 - 0x6000] = 24          # btlmag_hitrate, HARM's
+        bus.sram[0x6872 - 0x6000] = 0           # btlmag_defender_magdef
+        bus.sram[0x685C - 0x6000] = 0           # btlmag_spellconnected
+        bus.sram[HP - 0x6000], bus.sram[HP + 1 - 0x6000] = 0xF4, 0x01   # 500
+        bus.sram[BTL_RNGSTATE - 0x6000] = state
+        c = CPU(bus); c.dbr = BANK_0C
+        c.run(BANK_0C, SYM["BtlMag_Effect_DamageUndead"], stop=SYM["DrawDamageCombatBox"])
+        hp = bus.sram[HP - 0x6000] | bus.sram[HP + 1 - 0x6000] << 8
+        return 500 - hp, bus.sram[0x685C - 0x6000], c.pc == SYM["DrawDamageCombatBox"]
+    def survey(on, cls, undead):
+        hits = [cast(on, cls, undead, s) for s in range(256)]
+        return (sum(1 for d, conn, drew in hits if conn and drew),
+                min(d for d, _, _ in hits), max(d for d, _, _ in hits),
+                sum(1 for d, _, _ in hits if d > 40))
+    n, lo, hi, doubles = survey(True, CLS["WM"], False)
+    check("living, WM: every cast connects", n, 256)
+    check("living, WM: 20 to 40, as FFR's average says", (lo >= 20, hi <= 80), (True, True))
+    check("living, WM: almost never doubled", doubles <= 4, True)
+    n, lo, hi, udoubles = survey(True, CLS["WM"], True)
+    check("undead, WM: every cast connects", n, 256)
+    check("undead: doubled as often as ever", udoubles > 128, True)
+    check("undead: the flag changes nothing",
+          [cast(True, CLS["WM"], True, s) for s in range(0, 256, 17)],
+          [cast(False, CLS["WM"], True, s) for s in range(0, 256, 17)])
+    n, lo, hi, _ = survey(True, CLS["BM"], False)
+    check("living, BM, flag on: never connects, no damage", (n, hi), (0, 0))
+    n, lo, hi, _ = survey(False, CLS["WM"], False)
+    check("living, WM, flag off: never connects, no damage", (n, hi), (0, 0))
+
+    tgt = SYM["opt_harmundead"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000 + 0x8000:][:0x4000]
+    check("DamageUndead calls opt_harmundead, once", img.count(jsl), 1)
 
 
 # --- the selection menu's graphic and palette --------------------------------
@@ -7001,7 +7096,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

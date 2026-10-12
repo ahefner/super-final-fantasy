@@ -240,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-44 settings: 37 checkboxes and 7 value rows.
+45 settings: 38 checkboxes and 7 value rows.
 
 ### Quality of life (15)
 
@@ -413,11 +413,11 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (8)
+### Variations (9)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
-CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, LOCK /
-LOK2 Mode.
+CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
+Mage HARM, LOCK / LOK2 Mode.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -493,6 +493,24 @@ needed no format bump.  Every FFR preset but Improved Vanilla has it on.
   - **Decision: the fourth row is empty and answers "nothing", as FFR's
     does.**  The 2x4 selector moves over four rows; mirroring a row instead
     would make the cursor stand still for one press at the wrap.
+
+**White Mage HARM** (2026-10-11; played the same day: HARM and HRM4 cast by a White Wizard -- that other classes stay ineffective is checked by `test_wmharm` alone) is FFR's
+`WhiteMageHarmEveryone`: HARM spells cast or used -- item magic shares the
+effect -- by a White Mage or White Wizard damage anything, not only the
+undead.  Bit 37, in the fifth flag byte; Super has it, Improved does not.
+`opt_harmundead` replaces the undead test in `BtlMag_Effect_DamageUndead`
+(five bytes for four and a NOP) and answers "damage" for the undead, as
+ever, or for a White Mage's or Wizard's cast at the living -- zeroing the hit
+chance first, as FFR does, so the double that the undead usually take
+(rolled against it in `BtlMag_ApplyDamage`) almost never comes.  Measured
+through the real routine over all 256 battle RNG states, HARM on the living
+averages 30.3 and doubles 3 times in 256 -- FFR's tooltip says "averaging
+30/60/90/120" and "except on a 3/256" -- while the undead still double 208
+times in 256.  No enemy casts HARM -- none of the 44 vanilla scripts lists
+one, and Enemy skills only redeals the spells the scripts already hold -- so
+the check that only a party member can be a White Mage is insurance: FFR's
+lookup by the attacker's low seven bits would read past its four-entry table
+for an enemy (user asked, 2026-10-11).
 
 ### Treasures (12)
 
@@ -794,7 +812,7 @@ Layout, 18 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       5    37 checkbox bits
+    flags       5    38 checkbox bits
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
@@ -1662,10 +1680,10 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2896 free   once the descriptions moved out, the None, the
+    BANK_OPT    2814 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
-                             and the starting items (207), and SOFT in
-                             battle (513)
+                             and the starting items (207), SOFT in battle
+                             (513), and White Mage HARM (82)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

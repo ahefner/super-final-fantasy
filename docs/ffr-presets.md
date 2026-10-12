@@ -174,7 +174,7 @@ HARM.
     potion, in every randomized preset.  *Played 2026-10-11:* a
     Variations row.
   - **White Mage HARM** (`WhiteMageHarmEveryone`), in every randomized
-    preset.  HARM damages anything when a White Mage or White Wizard casts
+    preset.  *Played 2026-10-11:* a Variations row.  HARM damages anything when a White Mage or White Wizard casts
     or uses it, and averages 30/60/90/120 on targets that aren't undead.
   - **Consumable stacks** (`ConsumableTreasureStackSize` Adequate), in
     every randomized preset.  Chests and NPCs holding consumables give a

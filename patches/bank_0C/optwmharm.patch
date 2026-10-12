@@ -1,0 +1,11 @@
+--- OLD
+    LDA btlmag_defender_category        ; Check defender category to see if they are undead...
+    AND #CATEGORY_UNDEAD
+--- NEW
+.import opt_harmundead
+.export BtlMag_Effect_DamageUndead, DrawDamageCombatBox   ; for the harness
+
+    ;  Undead -- or, for White Mage HARM, a White Mage or Wizard casting at
+    ;  anything.  Five bytes become four and a NOP: this bank is byte-neutral.
+    JSL opt_harmundead + OPTFAR         ; Check defender category to see if they are undead...
+    .res 1, $EA

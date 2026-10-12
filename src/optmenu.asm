@@ -1566,6 +1566,8 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $15   ; SOFT in battle   (bit 21)
   FFPAD "SOFT in battle", 30
+  .BYTE $01, $25   ; White Mage HARM   (bit 37)
+  FFPAD "White Mage HARM", 30
   .BYTE $01, $19   ; LOK2 accuracy
   .BYTE $95, $98, $94, $82, $FF, $A4, $A6, $A6, $B8, $B5
   .BYTE $A4, $A6, $BC, $FF, $FF, $FF, $FF, $FF, $FF, $FF
