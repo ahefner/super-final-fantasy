@@ -138,33 +138,34 @@ lut_Presets:
     ;  flag byte holds the bits past 31: the free key items, in no preset --
     ;  they skip content rather than improve it -- White Mage HARM, a
     ;  variation, so Super's, and the bugfixes that came after the word was
-    ;  full, which Improved and Super both have.
+    ;  full, which Improved and Super both have.  The sixth: TRANCE's element,
+    ;  a variation that FFR's Improved Vanilla has too, so Improved has it.
     ;
     ;  Auto retargeting is off in all three, for the player to turn on (user,
     ;  2026-10-11): it takes strategy out of a fight.
     ;
     ;  Rows sit sixteen bytes apart so the index stays a shift rather than a
-    ;  multiply.  The padding costs 12 bytes and buys that.
+    ;  multiply.  The padding costs 9 bytes and buys that.
     .DWORD  0                                                              ; Vanilla
-    .BYTE   0
+    .BYTE   0, 0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_VANILLA
     .BYTE   STARTITEMS_NONE
-    .RES    4, $00
+    .RES    3, $00
     ;  Improved is FFR's Improved Vanilla (user, 2026-10-11): the quality of
     ;  life and the bugfixes, gold and XP doubled, Thief and Ninja hit growth
     ;  at Moderate, and the elemental bonus left at the cartridge's +4 --
     ;  that preset's bonus checkbox is off, so the 10 on its slider never
     ;  applies.
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX               ; Improved
-    .BYTE   OPTF5_BUGFIX
+    .BYTE   OPTF5_BUGFIX, OPTFM_TRANCE
     .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
     .BYTE   STARTITEMS_NONE
-    .RES    4, $00
+    .RES    3, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
-    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
+    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM, OPTFM_TRANCE
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
     .BYTE   STARTITEMS_NONE
-    .RES    4, $00
+    .RES    3, $00
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
 ;  run from the flags up to but not including OPT_RESPOND, which
@@ -3010,7 +3011,25 @@ opt_magsavemagdef:
 opt_magicdata:
     LDA btl_attackid
     CMP #$40                    ; $40 and up is an enemy attack, not a spell
-    BCS @out
+    BCC @spell
+    ;  ...one of which a flag edits: TRANCE, given the status element.
+    CMP #ATTACK_TRANCE
+    BNE @out
+    LDA OPTFB_TRANCE
+    AND #OPTFM_TRANCE
+    BEQ @out
+    PHY
+    LDY #$07
+  @trance:
+    LDA (btl_magdataptr), Y
+    STA OPTMAGSHADOW, Y
+    DEY
+    BPL @trance
+    PLY
+    LDA #ELEM_STATUS
+    STA OPTMAGSHADOW + MAGDATA_ELEMENT
+    BRA @point
+  @spell:
     PHX
     PHY
     TAX                         ; X = the spell, for the accessor
@@ -3043,6 +3062,7 @@ opt_magicdata:
     PLX
     LDA OPTFIXANY               ; nothing applied: leave the pointer alone
     BEQ @out
+  @point:
     LDA #<OPTMAGSHADOW
     STA btl_magdataptr
     LDA #>OPTMAGSHADOW

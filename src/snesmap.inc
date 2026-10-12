@@ -104,30 +104,34 @@ OPT_MAGIC0      = OPTBLOCK+$00  ; $53 'S'
 OPT_MAGIC1      = OPTBLOCK+$01  ; $46 'F'
 OPT_VERSION     = OPTBLOCK+$02  ; OPT_FORMAT below
 OPT_PRESET      = OPTBLOCK+$03  ; 0..2 preset, 3 = custom
-OPT_FLAGS       = OPTBLOCK+$04  ; 5 bytes: one bit per checkbox.  Four was
+OPT_FLAGS       = OPTBLOCK+$04  ; 6 bytes: one bit per checkbox.  Four was
                                 ; enough until the Treasures section took bits
-                                ; 26-30 and the free key items 31-33.
-OPT_FLAGBYTES   = 5
-OPT_GOLDXP      = OPTBLOCK+$09  ; step indices into the value-row tables
-OPT_ENCOUNTER   = OPTBLOCK+$0A
-OPT_ENEMY       = OPTBLOCK+$0B
-OPT_BOSS        = OPTBLOCK+$0C
-OPT_ELEMDMG     = OPTBLOCK+$0D  ; ...and the fifth, which is why the format
+                                ; 26-30 and the free key items 31-33; five
+                                ; until TRANCE's took bit 40.
+OPT_FLAGBYTES   = 6
+OPT_GOLDXP      = OPTBLOCK+$0A  ; step indices into the value-row tables
+OPT_ENCOUNTER   = OPTBLOCK+$0B
+OPT_ENEMY       = OPTBLOCK+$0C
+OPT_BOSS        = OPTBLOCK+$0D
+OPT_ELEMDMG     = OPTBLOCK+$0E  ; ...and the fifth, which is why the format
                                 ;   went to 4
-OPT_THIEFHIT    = OPTBLOCK+$0E  ; the sixth: Thief and Ninja hit growth, which
+OPT_THIEFHIT    = OPTBLOCK+$0F  ; the sixth: Thief and Ninja hit growth, which
                                 ;   was bit 21 until it took a third value.
                                 ;   The scalars are in the block, rather than
                                 ;   with the new-game rows, because a preset
                                 ;   writes them: opt_loadpreset copies from
                                 ;   OPT_FLAGS up to OPT_RESPOND.
-OPT_STARTITEMS  = OPTBLOCK+$0F  ; the seventh: which of FFR's starting sets
-OPT_RESPOND     = OPTBLOCK+$10  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$11
-OPT_SIZE        = $12
+OPT_STARTITEMS  = OPTBLOCK+$10  ; the seventh: which of FFR's starting sets
+OPT_RESPOND     = OPTBLOCK+$11  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$12
+OPT_SIZE        = $13
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $07           ; bumped from $06: the starting items took
+OPT_FORMAT      = $08           ; bumped from $07: the flag word took a
+                                ; sixth byte, for TRANCE's element and the
+                                ; critical hit count, so every scalar moved.
+                                ; Bumped from $06: the starting items took
                                 ; a seventh scalar, and the respond rate and
                                 ; checksum moved up a byte again.
                                 ; Bumped from $05: Thief and Ninja hit
@@ -197,7 +201,7 @@ OPTF_LOK2         = $02000000
 ;  turning that constant into a load -- but the constants live in code that is
 ;  reached far too often to test a flag at.  So the flags are cooked down once,
 ;  here, and the use site just loads a byte.
-OPTD            = OPTBLOCK+$12  ; the derived block, just above the option block
+OPTD            = OPTBLOCK+$13  ; the derived block, just above the option block
 OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
 OPTD_WIPEOPEN_D = OPTD+$01
 OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
@@ -255,10 +259,13 @@ SOFTBTL_MASK    = $02           ; AIL_STONE: the record's effectivity
 DRINK_SOFT      = 2             ; the SOFT row: 0 HEAL, 1 PURE, 3 empty
 DRINK_ROWS      = 3
 ITEM_HEAL       = $19           ; item ids: item_heal - items, and the next two
-OPTBTLSOFT      = OPTBLOCK+$1D  ; the battle's SOFT count, beside btl_potion_heal
+OPTBTLSOFT      = OPTBLOCK+$1E  ; the battle's SOFT count, beside btl_potion_heal
                                 ;   and _pure, which have $6BB1 (battle_bank)
                                 ;   after them; set at every battle's start
-OPTDRINKROW     = OPTBLOCK+$1E  ; which DRINK row opt_drinkrow builds next
+OPTDRINKROW     = OPTBLOCK+$1F  ; which DRINK row opt_drinkrow builds next
+.assert OPTD + $0B <= OPTBTLSOFT, error, "the derived block runs into the battle's SOFT count"
+.assert OPTDRINKROW < OPTSCRATCH, error, "the DRINK row counter runs into OPTSCRATCH"
+.assert OPT_SIZE <= OPTD - OPTBLOCK, error, "the option block runs into the derived block"
 
 ;  White Mage HARM, FFR's WhiteMageHarmEveryone: HARM spells cast or used by
 ;  a White Mage or White Wizard damage anything, not only the undead.  Bit 37,
@@ -283,6 +290,16 @@ OPTFM_RUNFIX    = $40    ; bit 38
 ;  rewrite does, so every order is equally likely.  Bit 39.
 OPTFB_TURNFIX   = OPT_FLAGS+4
 OPTFM_TURNFIX   = $80    ; bit 39
+
+;  TRANCE status element, FFR's TranceHasStatusElement: the enemy skill TRANCE
+;  (attack $51), which paralyzes the whole party, gets the status element, so
+;  a Ribbon resists it.  Its record has no element; the flag supplies FFR's
+;  one byte through opt_magicdata, as the spell flags supply theirs.  Bit 40,
+;  the sixth flag byte's first.
+OPTFB_TRANCE    = OPT_FLAGS+5
+OPTFM_TRANCE    = $01    ; bit 40
+ATTACK_TRANCE   = $51
+ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 

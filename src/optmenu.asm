@@ -563,7 +563,8 @@ opt_section_toggle:
     RTS
 
 
-;;  In: A = bit number 0..31.  Out: X = byte index, A = mask.
+;;  In: A = bit number, 0 up to 8 * OPT_FLAGBYTES - 1.  Out: X = byte
+;;  index, A = mask.
 opt_flagbit:
     PHA
     LSR A
@@ -1576,6 +1577,8 @@ lut_OptRows:
   .BYTE $95, $98, $94, $82, $FF, $A4, $A6, $A6, $B8, $B5
   .BYTE $A4, $A6, $BC, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $01, $28   ; TRANCE status element   (bit 40)
+  FFPAD "TRANCE status element", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; TREASURES

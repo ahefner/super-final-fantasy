@@ -240,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-47 settings: 40 checkboxes and 7 value rows.
+48 settings: 41 checkboxes and 7 value rows.
 
 ### Quality of life (15)
 
@@ -442,11 +442,22 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (9)
+### Variations (10)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode.
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element.
+
+**TRANCE Status Element** (2026-10-11; played the same day) is FFR's
+`TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
+so Improved has it though it sits among the variations.  TRANCE is the enemy
+skill that paralyzes the whole party (record 81, attack `$51`); its record
+has no element, and FFR gives it Status (`$01`), so a Ribbon resists it.
+`opt_magicdata`, which already swings `btl_magdataptr` at an edited copy for
+the spell flags, does the same for this one record.  Enemy attacks reach it
+too: `Enemy_DoMagicEffect` calls `Battle_PrepareMagic`, where it is hooked,
+and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
+sixth flag byte, which the flag word grew for it (format 8).
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -835,19 +846,21 @@ addresses are not extents, and several buffers here are deliberately overlaid
 on each other because their scenes are mutually exclusive.  Coverage by a
 single name is the test, not absence of a name.
 
-Layout, 18 bytes of the 256:
+Layout, 19 bytes of the 256:
 
-    (at OPTBLOCK = $6E00, 18 of the 256 bytes available)
+    (at OPTBLOCK = $6E00, 19 of the 256 bytes available)
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       5    40 checkbox bits
+    flags       6    41 checkbox bits
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
     checksum    1    sum forced to $FF, as the game's own save does
 
-The derived bytes (`OPTD`) follow at `$6E12`.
+The derived bytes (`OPTD`) follow at `$6E13`, eleven of them, then SOFT in
+battle's two (`OPTBTLSOFT`, `OPTDRINKROW`) at `$6E1E`; `OPTSCRATCH` is
+`$6E20`.  `snesmap.inc` asserts they do not overlap.
 
 Two more ranges on the page belong to the randomizer:
 
@@ -859,13 +872,14 @@ Two more ranges on the page belong to the randomizer:
                           padded to seven, for the None's class name
 
 The new-game bytes are covered by the checksum -- `opt_sum` adds them after the
-block's seventeen -- and cleared by every preset.  The pool is deliberately
+block's eighteen -- and cleared by every preset.  The pool is deliberately
 outside it: battery noise on a fresh cartridge is welcome there.
 
-`OPT_FORMAT` is 7.  It went to 3 when the flag word grew its fifth byte, to 4
+`OPT_FORMAT` is 8.  It went to 3 when the flag word grew its fifth byte, to 4
 when the elemental bonus became a dial and needed a fifth scalar, to 5 when
 the checksum took in the new-game bytes, to 6 when Thief hit growth became a
-sixth scalar, and to 7 when the starting items took a seventh; each bump
+sixth scalar, to 7 when the starting items took a seventh, and to 8 when the
+flag word grew its sixth byte; each bump
 costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic and
 gear bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
@@ -892,8 +906,8 @@ The checksum scheme is modelled on the game's own at
 
 **Decision: scratch above the checksum is initialized at boot, and any byte
 that outlives the routine writing it is treated as hostile until proven
-otherwise.**  `OPT_SIZE` is `$12`, so only the settings are covered by the
-checksum -- everything from `OPTBLOCK+$12` up is working storage that happens
+otherwise.**  `OPT_SIZE` is `$13`, so only the settings are covered by the
+checksum -- everything from `OPTBLOCK+$13` up is working storage that happens
 to live in SRAM.  That is fine for per-call scratch, which every routine writes
 before it reads.  It is not fine for a byte whose lifetime spans screens.
 
@@ -1709,11 +1723,11 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2683 free   once the descriptions moved out, the None, the
+    BANK_OPT    2621 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
-                             (513), White Mage HARM (82), and the run chance
-                             and turn order fixes (131)
+                             (513), White Mage HARM (82), and the run chance,
+                             turn order and TRANCE fixes (193)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

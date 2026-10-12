@@ -54,13 +54,13 @@ OPTBLOCK = 0x6E00
 OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
 #  The flag word is five bytes; everything after it moved when the
 #  Treasures section and the free key items took bits 26-33.
-OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 9, 10
-OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 11, 12, 13
-OPT_THIEFHIT = 14       # the sixth scalar; bit 21 until it took a third value
-OPT_STARTITEMS = 15     # the seventh: FFR's starting item set
-OPT_RESPOND, OPT_CKSUM = 16, 17
-OPT_SIZE = 18
-OPT_FORMAT = 7          # bumped when the starting items took a scalar
+OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 10, 11
+OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 12, 13, 14
+OPT_THIEFHIT = 15       # the sixth scalar; bit 21 until it took a third value
+OPT_STARTITEMS = 16     # the seventh: FFR's starting item set
+OPT_RESPOND, OPT_CKSUM = 17, 18
+OPT_SIZE = 19
+OPT_FORMAT = 8          # bumped when the flag word took a sixth byte
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -185,7 +185,7 @@ def setblk(bus, off, v):
 
 
 def flags(bus):
-    return int.from_bytes(bus.sram[OPTBLOCK - 0x6000 + OPT_FLAGS:][:5], "little")
+    return int.from_bytes(bus.sram[OPTBLOCK - 0x6000 + OPT_FLAGS:][:6], "little")
 
 
 # --- the option block -------------------------------------------------------
@@ -237,20 +237,22 @@ def test_presets():
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
     #  is SOFT in battle and bit 37 White Mage HARM, variations, so Super has
     #  them and Improved does not.  Bits 38 and 39, the Run chance and Turn
-    #  order fixes, are bugfixes past the full word: both have them.
+    #  order fixes, are bugfixes past the full word: both have them.  Bit 40,
+    #  TRANCE's element, is a variation that FFR's Improved Vanilla has, so
+    #  Improved has it as well as Super.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
-            1: (0xC00007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0xE003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            1: (0x01C00007FDFF, 4, 10, 3, 3, 2, 1),
+            2: (0x01E003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
         call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
         name = ("Vanilla", "Improved", "Super")[preset]
-        check("%s: flags" % name, "$%010X" % flags(bus), "$%010X" % f)
+        check("%s: flags" % name, "$%012X" % flags(bus), "$%012X" % f)
         check("%s: gold/xp step" % name, blk(bus, OPT_GOLDXP), g)
         check("%s: encounter step" % name, blk(bus, OPT_ENCOUNTER), e)
         check("%s: enemy step" % name, blk(bus, OPT_ENEMY), en)
@@ -378,7 +380,7 @@ def test_noshuffle():
 
 
 OPTF_SPEEDHACKS, OPTF_GUILLOTINE_HI = 0x01, 0x40
-OPTD = 0x12                                  # derived bytes, a byte past the block
+OPTD = 0x13                                  # derived bytes, just past the block
 TMP = 0x10                                   # game's tmp, from variables.inc
 
 
@@ -2900,6 +2902,37 @@ def test_turnfix():
     check("second, fix: i itself", helper("opt_turnsecond", True)[1:4], (7, 0x5A, True))
 
 
+# --- TRANCE status element --------------------------------------------------------
+#  FFR's TranceHasStatusElement: the enemy skill TRANCE, record 81, attack
+#  $51, gets the status element ($01), so a Ribbon resists it.  FFR asserts
+#  the record's other fields before it edits: hit 0, stun, no element, all
+#  targets, inflict ailment.
+def test_trance():
+    MAGDATA = open('game/bin/0C_81E0_magicdata.bin', 'rb').read()
+    rec = list(MAGDATA[81 * 8:81 * 8 + 8])
+    check("TRANCE is what FFR asserts it is",
+          (rec[0], rec[1], rec[2], rec[3], rec[4]), (0, 0x10, 0, 0x01, 0x03))
+    ATTACKER = 0x6C89
+    EFFECT, ELEMENT, HITRATE, EFFY = 0x686E, 0x6878, 0x6870, 0x6874   # btlmag_*
+
+    def prepare(on, attack):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 5, 0x01 if on else 0)
+        bus.sram[0x6C8C - 0x6000] = attack       # btl_attackid
+        bus.sram[ATTACKER - 0x6000] = 0x02       # an enemy
+        c = CPU(bus); c.dbr = BANK_0C
+        c.run(BANK_0C, SYM["Battle_PrepareMagic"])
+        return tuple(bus.sram[a - 0x6000] for a in (EFFECT, ELEMENT, HITRATE, EFFY))
+
+    check("TRANCE, flag off: no element", prepare(False, 0x51), (3, 0x00, 0, 0x10))
+    check("TRANCE, flag on: the status element", prepare(True, 0x51), (3, 0x01, 0, 0x10))
+    for attack in (0x50, 0x52, 0x42):
+        check("attack $%02X untouched by the flag" % attack,
+              prepare(True, attack), prepare(False, attack))
+    #  ...and a spell still goes the spell flags' way: FIRE, with none on.
+    check("FIRE untouched by the flag", prepare(True, 4), prepare(False, 4))
+
+
 # --- White Mage HARM ---------------------------------------------------------
 #  FFR's WhiteMageHarmEveryone: HARM cast or used by a White Mage or White
 #  Wizard damages anything.  FFR's tooltip: on the living it "will not crit
@@ -3576,7 +3609,7 @@ def test_treasures():
     #  Bits 32 and 33 live in the fifth flag byte, which only exists because
     #  the block grew; a four-byte word would drop them silently.
     check("the flag word is wide enough to hold them",
-          OPT_GOLDXP - OPT_FLAGS, 5)
+          OPT_GOLDXP - OPT_FLAGS, 6)
 
 
 # --- the menu chirps --------------------------------------------------------
@@ -7207,7 +7240,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

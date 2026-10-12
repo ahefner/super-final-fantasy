@@ -150,7 +150,7 @@ HARM.
         order, and makes the shuffle a true Fisher-Yates.  *Played
         2026-10-11:* a Bugfixes row, the Fisher-Yates half.
       - TRANCE given the status element (`TranceHasStatusElement`), so a
-        Ribbon resists it.
+        Ribbon resists it.  *Played 2026-10-11:* a Variations row.
       - Critical hits shown as numbers (`EnableCritNumberDisplay`, with
         speed hacks).
     FFR's Improved Vanilla is otherwise covered: its BB absorb fix is

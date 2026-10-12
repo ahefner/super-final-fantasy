@@ -4,6 +4,7 @@
     STA btl_magdataptr+1
 --- NEW
 .import OptMagicData
+.export Battle_PrepareMagic       ; for the harness
 
     LDA #>lut_MagicData
     JSR OptMagicData        ; finishes the pointer, then -- if either spell
