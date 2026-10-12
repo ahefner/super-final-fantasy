@@ -147,7 +147,8 @@ HARM.
         to run is bugged.  *Played 2026-10-11:* a Bugfixes row.
       - Turn order randomized properly (`ImproveTurnOrderRandomization`).
         It shuffles the initial bias, so enemies no longer always start the
-        order, and makes the shuffle a true Fisher-Yates.
+        order, and makes the shuffle a true Fisher-Yates.  *Played
+        2026-10-11:* a Bugfixes row, the Fisher-Yates half.
       - TRANCE given the status element (`TranceHasStatusElement`), so a
         Ribbon resists it.
       - Critical hits shown as numbers (`EnableCritNumberDisplay`, with

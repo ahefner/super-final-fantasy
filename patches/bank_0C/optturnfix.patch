@@ -1,0 +1,32 @@
+--- OLD
+    LDA #$10 + 1
+    STA btl_curturn             ; temp loop counter (loop 16 times.  +1 because it's 1-based)
+  @ShuffleTurnOrderLoop:
+    LDA #$00
+    LDX #$0C
+    JSR RandAX                  ; pick two random indexes
+    PHA
+    LDA #$00
+    LDX #$0C
+    JSR RandAX
+    TAY                         ; one in Y
+    PLA
+    TAX                         ; one in X
+--- NEW
+.import opt_turncount, opt_turnhi, opt_turnsecond
+.export DoBattleRound, lut_InitialTurnOrder   ; for the harness
+
+    ;  The same passes, or with the Turn order fix a Fisher-Yates walk: the
+    ;  options bank says how many and over what range, and RandAX stays here.
+    ;  Twenty-three bytes for twenty-three.
+    JSL opt_turncount + OPTFAR  ; btl_curturn = 17 passes, or 12
+  @ShuffleTurnOrderLoop:
+    JSL opt_turnhi + OPTFAR     ; A = 0, X = 12, or i with the fix
+    JSR RandAX
+    TAY                         ; one in Y
+    JSL opt_turnsecond + OPTFAR ; with the fix, C set and X = i
+    BCS @Swap
+    JSR RandAX                  ; ...otherwise a second pick
+    TAX                         ; the other in X
+    .res 1, $EA
+  @Swap:

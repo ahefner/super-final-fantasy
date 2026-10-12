@@ -236,14 +236,14 @@ def test_presets():
     #  the bugfixes, gold and XP at 200% (step 4), the bonus at +4 -- that
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
     #  is SOFT in battle and bit 37 White Mage HARM, variations, so Super has
-    #  them and Improved does not.  Bit 38, the Run chance fix, is a bugfix
-    #  past the full word: both have it.
+    #  them and Improved does not.  Bits 38 and 39, the Run chance and Turn
+    #  order fixes, are bugfixes past the full word: both have them.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
-            1: (0x400007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x6003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            1: (0xC00007FDFF, 4, 10, 3, 3, 2, 1),
+            2: (0xE003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2815,6 +2815,89 @@ def test_runfix():
     jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
     img = ROMDATA[(BANK_0C & 0x1F) * 0x10000 + 0x8000:][:0x4000]
     check("Battle_PlayerTryRun calls opt_runlevel, once", img.count(jsl), 1)
+
+
+# --- Turn order fix -------------------------------------------------------------
+#  FFR's ImproveTurnOrderRandomization.  DoBattleRound starts the turn order
+#  enemies first, party last, and shuffles it by swapping two random picks
+#  seventeen times; the fix is FFR's Fisher-Yates walk.  The models here are
+#  written from the disassembly and FFR's patch, with RandAX as it is:
+#  lo + (BattleRNG * (hi + 1 - lo)) >> 8.
+def test_turnfix():
+    RNGTAB = open(os.path.join(ROOT, "game", "bin", "0F_FCF1_rngtable.bin"), "rb").read()
+    CURTURN, ORDER = 0x688E, 0x6848
+    START = list(range(9)) + [0x80, 0x81, 0x82, 0x83]
+
+    def model(fix, state):
+        order, s = list(START), state
+        def randax(lo, hi):
+            nonlocal s
+            r = RNGTAB[s & 0xFF]; s += 1
+            return lo + (r * (hi + 1 - lo) >> 8)
+        if fix:
+            for i in range(12, 0, -1):
+                j = randax(0, i)
+                order[i], order[j] = order[j], order[i]
+        else:
+            for _ in range(17):
+                x = randax(0, 12); y = randax(0, 12)
+                order[x], order[y] = order[y], order[x]
+        return order, (s - state) & 0xFF
+
+    #  The shuffle's end: the DEC btl_curturn / BNE after the swap, found from
+    #  the hook rather than by address.
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000:]
+    tgt = SYM["opt_turncount"]
+    hook = img.find(bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK]), 0x8000)
+    dec = img.find(bytes([0xCE, CURTURN & 0xFF, CURTURN >> 8, 0xD0]), hook)
+    STOP = dec + 5
+
+    def real(fix, state):
+        bus, cpu = machine()
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        setblk(bus, OPT_FLAGS + 4, 0x80 if fix else 0)
+        bus.sram[BTL_RNGSTATE - 0x6000] = state
+        c = CPU(bus); c.dbr = BANK_0C
+        c.run(BANK_0C, SYM["DoBattleRound"], stop=STOP)
+        if c.pc != STOP:
+            return None
+        return ([bus.sram[ORDER - 0x6000 + i] for i in range(13)],
+                (bus.sram[BTL_RNGSTATE - 0x6000] - state) & 0xFF)
+
+    check("the shuffle's end was found after the hook", 0 < hook < dec < hook + 40, True)
+    for fix in (False, True):
+        wrong = [s for s in range(0, 256, 5) if real(fix, s) != model(fix, s)]
+        check("%s: the cartridge's shuffle is the model's, every state" %
+              ("fix" if fix else "original"), wrong, [])
+    check("original: 34 rolls a round", real(False, 0)[1], 34)
+    check("fix: 12 rolls a round", real(True, 0)[1], 12)
+
+    #  Fairness, over every state: where the party ends up.  Thirteen slots,
+    #  four of them the party's, so a fair shuffle puts a party member last
+    #  4 times in 13.
+    def lastparty(fix):
+        return sum(1 for s in range(256) if model(fix, s)[0][12] & 0x80) / 256
+    check("fix: a party member last about 4 times in 13",
+          abs(lastparty(True) - 4 / 13) < 0.08, True)
+    #  ...where the original's swaps leave one last in over half the rounds,
+    #  which is what the row's description says (57% when measured).
+    check("original: a party member last in over half the rounds",
+          lastparty(False) > 0.5, True)
+
+    #  The three helpers alone.
+    def helper(name, fix, curturn=7):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 4, 0x80 if fix else 0)
+        bus.sram[CURTURN - 0x6000] = curturn
+        cpu.y = 0x5A
+        call(cpu, name)
+        return cpu.a & 0xFF, cpu.x, cpu.y, bool(cpu.p & 1), bus.sram[CURTURN - 0x6000]
+    check("count, original", helper("opt_turncount", False)[4], 17)
+    check("count, fix", helper("opt_turncount", True)[4], 12)
+    check("first pick, original: 0 to 12, Y kept", helper("opt_turnhi", False)[:3], (0, 12, 0x5A))
+    check("first pick, fix: 0 to i, Y kept", helper("opt_turnhi", True)[:3], (0, 7, 0x5A))
+    check("second, original: another pick", helper("opt_turnsecond", False)[:4], (0, 12, 0x5A, False))
+    check("second, fix: i itself", helper("opt_turnsecond", True)[1:4], (7, 0x5A, True))
 
 
 # --- White Mage HARM ---------------------------------------------------------
@@ -7124,7 +7207,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

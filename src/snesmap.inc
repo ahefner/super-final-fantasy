@@ -275,6 +275,14 @@ OPTFM_WMHARM    = $20    ; bit 37
 ;  does.  Bit 38; nothing set it before.
 OPTFB_RUNFIX    = OPT_FLAGS+4
 OPTFM_RUNFIX    = $40    ; bit 38
+
+;  Turn order fix, FFR's ImproveTurnOrderRandomization: DoBattleRound shuffles
+;  the turn order by swapping two random entries seventeen times, which leaves
+;  each entry where it started more often than chance -- and the list starts
+;  enemies first, party last.  The flag makes it a Fisher-Yates walk, as FFR's
+;  rewrite does, so every order is equally likely.  Bit 39.
+OPTFB_TURNFIX   = OPT_FLAGS+4
+OPTFM_TURNFIX   = $80    ; bit 39
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 

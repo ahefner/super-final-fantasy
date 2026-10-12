@@ -64,7 +64,7 @@
 .export opt_stackshift
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
-.export opt_harmundead, opt_runlevel
+.export opt_harmundead, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -105,7 +105,7 @@ OPTF_QOL4     = OPTF_SHOPINFO | OPTF_CHESTINFO | OPTF_GUILLOTINE
 OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
-OPTF5_BUGFIX  = OPTFM_RUNFIX    ; ...and those in the fifth byte
+OPTF5_BUGFIX  = OPTFM_RUNFIX | OPTFM_TURNFIX    ; ...and those in the fifth byte
 
 ;  Bit 21 is SOFT in battle.  It was the elemental and type bonus until that
 ;  became a dial, then Thief and Ninja hit growth until that became one too.
@@ -2510,6 +2510,58 @@ opt_runlevel:
   @add:
     CLC
     ADC #15
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Turn order fix
+;;
+;;  DoBattleRound's shuffle, kept in bank $0C because RandAX is there, now asks
+;;  these three how to run.  Without the flag: seventeen passes, each swapping
+;;  two picks from [0, 12] -- the original's own, in its order, so the battle
+;;  RNG is consumed exactly as before.  With it: FFR's Fisher-Yates walk, a
+;;  pass for each i from 12 down to 1 swapping entry i with a pick from [0, i],
+;;  which makes every order equally likely and costs twelve rolls, not 34.
+;;  FFR also baked a seeded permutation into the starting list; with a fair
+;;  shuffle the start does not matter, so that half is left out.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The pass counter, which DoBattleRound decrements to zero.
+opt_turncount:
+    LDA OPTFB_TURNFIX
+    AND #OPTFM_TURNFIX
+    BEQ @vanilla
+    LDA #$0C                    ; i = 12 down to 1
+    BRA @set
+  @vanilla:
+    LDA #$10 + 1                ; the original's "16 + 1"
+  @set:
+    STA btl_curturn
+    RTL
+
+;  The first pick's range.  Out: A = 0, X = 12, or i with the flag.  Y kept.
+opt_turnhi:
+    LDX #$0C
+    LDA OPTFB_TURNFIX
+    AND #OPTFM_TURNFIX
+    BEQ @lo
+    LDX btl_curturn
+  @lo:
+    LDA #$00
+    RTL
+
+;  The second entry.  Out: with the flag, C set and X = i; without it, C
+;  clear, A = 0 and X = 12, for a second pick.  Y kept.
+opt_turnsecond:
+    LDA OPTFB_TURNFIX
+    AND #OPTFM_TURNFIX
+    BEQ @pick
+    LDX btl_curturn
+    SEC
+    RTL
+  @pick:
+    LDX #$0C                    ; A is zero from the AND
+    CLC
     RTL
 
 

@@ -235,6 +235,14 @@ lut_Desc_65:  ; Run chance fix
   FFPAD {"original read a stray byte"}, 28
   FFPAD {"instead."}, 28
 
+lut_Desc_66:  ; Turn order fix
+  FFLINES 5
+  FFPAD {"Each round's turn order is"}, 28
+  FFPAD {"shuffled fairly.  The"}, 28
+  FFPAD {"original's swaps left a"}, 28
+  FFPAD {"party member last in over"}, 28
+  FFPAD {"half the rounds."}, 28
+
 lut_Desc_31:  ; Cast Life in battle
   FFLINES 3
   .BYTE $95, $92, $8F, $8E, $FF, $A4, $B1, $A7, $FF, $95, $92, $8F, $82, $FF, $A6, $A4, $B1, $FF, $A5, $A8, $FF, $B8, $B6, $A8, $A7, $FF, $FF, $FF
@@ -714,7 +722,7 @@ lut_DescLo:
   .BYTE <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11
   .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
   .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
-  .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65, <lut_DescBlank, <lut_Desc_2
+  .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65, <lut_Desc_66, <lut_DescBlank, <lut_Desc_2
   .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
   .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
@@ -732,7 +740,7 @@ lut_DescHi:
   .BYTE >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11
   .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
   .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
-  .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65, >lut_DescBlank, >lut_Desc_2
+  .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65, >lut_Desc_66, >lut_DescBlank, >lut_Desc_2
   .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
   .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37

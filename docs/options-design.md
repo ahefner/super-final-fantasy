@@ -240,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-46 settings: 39 checkboxes and 7 value rows.
+47 settings: 40 checkboxes and 7 value rows.
 
 ### Quality of life (15)
 
@@ -366,7 +366,7 @@ same-bank helpers (`PtyGen_A`, `IsEquipLegal_N`) live in the 39 bytes
 ### Bugfixes (5)
 
 House MP Restoration, Weapon Stats, Spell Fixes, Enemy Status Attacks, Run
-Chance Fix.
+Chance Fix, Turn Order Fix.
 
 **Run Chance Fix** (2026-10-11; played the same day) is FFR's
 `ChanceToRun` at "Corrected", which every FFR preset uses, Improved Vanilla
@@ -379,6 +379,22 @@ the bottom 2".  FFR's fix is one byte, the out-of-battle pointer;
 reads through either pointer by the flag.  The level is 0-based there, as
 FFR reads it too.  Bit 38.  FFR's fixed chances (25% to 100%) are left out:
 no preset uses them.
+
+**Turn Order Fix** (2026-10-11; played the same day) is FFR's
+`ImproveTurnOrderRandomization`, in every FFR preset.  `DoBattleRound` starts
+the order enemies first, party last, and shuffles it by swapping two random
+picks seventeen times (Disch counts sixteen; the counter starts at 17).  That
+leaves entries near where they started: over all 256 RNG states a party
+member ends the round's order last 57% of the time, where a fair shuffle
+gives 4 in 13 (31%), and 1.9 entries never move, where fair is 1.  The flag
+makes it FFR's Fisher-Yates walk -- 30% and 1.0 -- in twelve rolls rather than
+34.  The loop stays in bank `$0C`, because `RandAX` is there; three helpers
+say how many passes and over what range (`opt_turncount`, `_hi`, `_second`),
+and with the flag off they reproduce the original's passes and its RNG use
+exactly.  FFR also baked a seeded permutation into the starting list; a fair
+shuffle makes the start irrelevant, so that half is left out.  `test_turnfix`
+runs the real `DoBattleRound` to the end of its shuffle against models of
+both, from the disassembly and FFR's patch.  Bit 39.
 
 **Decision: the BB/Master absorb fix is unconditional, not a flag.**  It lives
 in the same equipment-stat path as the Weapon Stats fix and writes the same
@@ -825,7 +841,7 @@ Layout, 18 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       5    39 checkbox bits
+    flags       5    40 checkbox bits
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
@@ -1693,11 +1709,11 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2763 free   once the descriptions moved out, the None, the
+    BANK_OPT    2683 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and the run chance
-                             fix (51)
+                             and turn order fixes (131)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

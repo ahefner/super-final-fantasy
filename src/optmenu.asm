@@ -1529,6 +1529,8 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $26   ; Run chance fix   (bit 38)
   FFPAD "Run chance fix", 30
+  .BYTE $01, $27   ; Turn order fix   (bit 39)
+  FFPAD "Turn order fix", 30
   .BYTE $03, $00   ; (blank)
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
