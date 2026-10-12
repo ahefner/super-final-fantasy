@@ -1,0 +1,12 @@
+--- OLD
+    LDY #ch_level - ch_stats        ; Get Level
+    LDA (btl_ib_charstat_ptr), Y    ; BUGGED - Reading wrong value -- should be OB, not IB
+    CLC
+    ADC #15                         ; level + 15
+--- NEW
+.import opt_runlevel
+
+    ;  Level + 15: the original's misread, or the real level with the Run
+    ;  chance fix.  Seven bytes become four and three NOPs.
+    JSL opt_runlevel + OPTFAR       ; level + 15
+    .res 3, $EA

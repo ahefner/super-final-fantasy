@@ -236,13 +236,14 @@ def test_presets():
     #  the bugfixes, gold and XP at 200% (step 4), the bonus at +4 -- that
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
     #  is SOFT in battle and bit 37 White Mage HARM, variations, so Super has
-    #  them and Improved does not.
+    #  them and Improved does not.  Bit 38, the Run chance fix, is a bugfix
+    #  past the full word: both have it.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
-            1: (0x000007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x2003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            1: (0x400007FDFF, 4, 10, 3, 3, 2, 1),
+            2: (0x6003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2787,6 +2788,33 @@ def test_softbattle():
         jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
         img = ROMDATA[(bank & 0x1F) * 0x10000 + base:][:0x4000]
         check("%s is called once, from its bank" % name_, img.count(jsl), 1)
+
+
+# --- Run chance fix -------------------------------------------------------------
+#  FFR's ChanceToRun "Corrected".  Running is luck against rand[0, level + 15],
+#  and the original reads the level through btl_ib_charstat_ptr, where offset
+#  $26 is not the level -- Disch: "the ailment byte for 2 players after this
+#  one".  FFR's fix is one byte, the out-of-battle pointer instead.
+def test_runfix():
+    IB, OB = 0x80, 0x82                         # btl_ib_ / btl_ob_charstat_ptr
+    def level(on, lv, stray):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 4, 0x40 if on else 0)
+        bus.wram[OB], bus.wram[OB + 1] = 0x00, 0x05     # the saved stats, at $0500
+        bus.wram[IB], bus.wram[IB + 1] = 0x00, 0x06     # the battle's, at $0600
+        bus.wram[0x0526] = lv                   # ch_level, 0-based
+        bus.wram[0x0626] = stray                # what the original reads instead
+        call(cpu, "opt_runlevel")
+        return cpu.a & 0xFF, cpu.y
+    check("flag off: the original's stray byte + 15", level(False, 29, 0x40), (0x40 + 15, 0x26))
+    check("flag on: the level + 15", level(True, 29, 0x40), (29 + 15, 0x26))
+    check("flag on, level 1: 15", level(True, 0, 0x40)[0], 15)
+    check("flag on, level 50: 64", level(True, 49, 0x40)[0], 64)
+
+    tgt = SYM["opt_runlevel"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000 + 0x8000:][:0x4000]
+    check("Battle_PlayerTryRun calls opt_runlevel, once", img.count(jsl), 1)
 
 
 # --- White Mage HARM ---------------------------------------------------------
@@ -7096,7 +7124,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

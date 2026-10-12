@@ -64,7 +64,7 @@
 .export opt_stackshift
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
-.export opt_harmundead
+.export opt_harmundead, opt_runlevel
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -105,6 +105,7 @@ OPTF_QOL4     = OPTF_SHOPINFO | OPTF_CHESTINFO | OPTF_GUILLOTINE
 OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
+OPTF5_BUGFIX  = OPTFM_RUNFIX    ; ...and those in the fifth byte
 
 ;  Bit 21 is SOFT in battle.  It was the elemental and type bonus until that
 ;  became a dial, then Thief and Ninja hit growth until that became one too.
@@ -135,8 +136,9 @@ OPT_FORCED_PRESET = OPT_FORCE
 lut_Presets:
     ;  Five bytes of flags, low byte first, then the seven scalars.  The fifth
     ;  flag byte holds the bits past 31: the free key items, in no preset --
-    ;  they skip content rather than improve it -- and White Mage HARM, a
-    ;  variation, so Super's.
+    ;  they skip content rather than improve it -- White Mage HARM, a
+    ;  variation, so Super's, and the bugfixes that came after the word was
+    ;  full, which Improved and Super both have.
     ;
     ;  Auto retargeting is off in all three, for the player to turn on (user,
     ;  2026-10-11): it takes strategy out of a fight.
@@ -154,12 +156,12 @@ lut_Presets:
     ;  that preset's bonus checkbox is off, so the 10 on its slider never
     ;  applies.
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX               ; Improved
-    .BYTE   0
+    .BYTE   OPTF5_BUGFIX
     .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
     .BYTE   STARTITEMS_NONE
     .RES    4, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
-    .BYTE   OPTFM_WMHARM
+    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
     .BYTE   STARTITEMS_NONE
     .RES    4, $00
@@ -2485,6 +2487,31 @@ opt_drinkrow:
 ;;  into a four-entry table, would read past it for an enemy, and this keeps
 ;;  the routine right whatever deals the spells.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Run chance fix
+;;
+;;  Replaces Battle_PlayerTryRun's LDY / LDA (btl_ib_charstat_ptr), Y / CLC /
+;;  ADC #15, seven bytes for four and three NOPs.  Out: A = the level plus 15,
+;;  the top of the roll luck has to beat -- the real level with the flag on,
+;;  and with it off whatever the original read.  Y as the original left it.
+;;  The level is 0-based out of battle, as FFR's fix reads it too.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_runlevel:
+    LDY #ch_level - ch_stats
+    LDA OPTFB_RUNFIX
+    AND #OPTFM_RUNFIX
+    BEQ @bugged
+    LDA (btl_ob_charstat_ptr), Y    ; the level
+    BRA @add
+  @bugged:
+    LDA (btl_ib_charstat_ptr), Y    ; the original's stray byte
+  @add:
+    CLC
+    ADC #15
+    RTL
+
 
 opt_harmundead:
     LDA btlmag_defender_category

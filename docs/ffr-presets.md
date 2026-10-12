@@ -144,7 +144,7 @@ HARM.
   - **In all five presets, Improved Vanilla included, and not yet on the
     cartridge:**
       - Run chance corrected (`ChanceToRun` Corrected).  Vanilla's chance
-        to run is bugged.
+        to run is bugged.  *Played 2026-10-11:* a Bugfixes row.
       - Turn order randomized properly (`ImproveTurnOrderRandomization`).
         It shuffles the initial bias, so enemies no longer always start the
         order, and makes the shuffle a true Fisher-Yates.

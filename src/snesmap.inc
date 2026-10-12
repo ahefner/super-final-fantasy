@@ -266,6 +266,15 @@ OPTDRINKROW     = OPTBLOCK+$1E  ; which DRINK row opt_drinkrow builds next
 ;  block that predates it reads off.
 OPTFB_WMHARM    = OPT_FLAGS+4
 OPTFM_WMHARM    = $20    ; bit 37
+
+;  Run chance fix, FFR's ChanceToRun "Corrected": running is luck against
+;  rand[0, level + 15], and the original reads the level through the in-battle
+;  stat pointer, where that offset is not the level -- Disch: "the ailment
+;  byte for 2 players after this one (for top 2 slots) or other garbage".
+;  The flag reads it through the out-of-battle one, as FFR's one-byte patch
+;  does.  Bit 38; nothing set it before.
+OPTFB_RUNFIX    = OPT_FLAGS+4
+OPTFM_RUNFIX    = $40    ; bit 38
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 
