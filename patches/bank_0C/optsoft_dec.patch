@@ -1,0 +1,8 @@
+--- OLD
+    LDX $6856               ; get menu selection
+    DEC btl_potion_heal, X  ; remove the item from the qty
+--- NEW
+.import opt_drinkdec
+
+    JSL opt_drinkdec + OPTFAR   ; remove the item from the qty: SOFT's is apart
+    .res 2, $EA

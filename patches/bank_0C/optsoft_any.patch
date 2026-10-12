@@ -1,0 +1,10 @@
+--- OLD
+BattleSubMenu_Drink:
+    LDA btl_potion_heal         ; see if there are any Heal/Pure potions remaining
+    ORA btl_potion_pure
+--- NEW
+.import opt_drinkany
+
+BattleSubMenu_Drink:
+    JSL opt_drinkany + OPTFAR   ; any potions left?  SOFT counts, with the flag
+    .res 2, $EA

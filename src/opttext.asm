@@ -212,6 +212,13 @@ lut_Desc_30:  ; Improved Fire spells
   .BYTE $91, $8A, $9B, $96, $FF, $AB, $AC, $B7, $B6, $FF, $AB, $A4, $B5, $A7, $A8, $B5, $FF, $A4, $B1, $A7, $FF, $B6, $B7, $B5, $AC, $AE, $A8, $B6
   .BYTE $A4, $FF, $B6, $AC, $B1, $AA, $AF, $A8, $FF, $B7, $A4, $B5, $AA, $A8, $B7, $C0, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
 
+lut_Desc_63:  ; SOFT in battle
+  FFLINES 4
+  FFPAD {"The SOFT spell and the SOFT"}, 28
+  FFPAD {"potion cure stone in battle."}, 28
+  FFPAD {"DRINK offers SOFT as a third"}, 28
+  FFPAD {"potion."}, 28
+
 lut_Desc_31:  ; Cast Life in battle
   FFLINES 3
   .BYTE $95, $92, $8F, $8E, $FF, $A4, $B1, $A7, $FF, $95, $92, $8F, $82, $FF, $A6, $A4, $B1, $FF, $A5, $A8, $FF, $B8, $B6, $A8, $A7, $FF, $FF, $FF
@@ -693,7 +700,7 @@ lut_DescLo:
   .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
   .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_DescBlank, <lut_Desc_2
   .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
-  .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
+  .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_32, <lut_DescBlank, <lut_Desc_33
   .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
   .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_Desc_62, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
@@ -711,7 +718,7 @@ lut_DescHi:
   .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
   .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_DescBlank, >lut_Desc_2
   .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
-  .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
+  .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_32, >lut_DescBlank, >lut_Desc_33
   .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
   .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_Desc_62, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank

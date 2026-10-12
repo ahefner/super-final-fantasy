@@ -62,6 +62,8 @@
 .export opt_magicmsg, opt_curedmsg
 .export opt_startagi, opt_startevade, opt_thiefgrowth, opt_hitgrowth
 .export opt_stackshift
+.export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
+.export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -69,6 +71,7 @@
 .import OnReset
 .import lut_MagicBattleMessages
 .import lut_LvlUpHitRateBonus
+.import lut_DrinkCursorPos, lut_CombatDrinkBox
 .import opt_spelloverride
 .import lut_WaitString
 .import lut_CantHoldWhat
@@ -102,10 +105,10 @@ OPTF_ALLQOL   = OPTF_QOL | OPTF_QOL2 | OPTF_QOL3 | OPTF_QOL4
 
 OPTF_BUGFIX   = OPTF_HOUSEMP | OPTF_WEAPONSTATS | OPTF_SPELLFIXES | OPTF_STATUSATK
 
-;  Bit 21 is unused.  It was the elemental and type bonus until that became a
-;  dial, then Thief and Ninja hit growth until that became one too.
+;  Bit 21 is SOFT in battle.  It was the elemental and type bonus until that
+;  became a dial, then Thief and Ninja hit growth until that became one too.
 OPTF_VAR1     = OPTF_THIEFNINJA | OPTF_CRITRATE | OPTF_IMPCURE
-OPTF_VAR2     = OPTF_IMPFIRE | OPTF_CASTLIFE | OPTF_LOK2
+OPTF_VAR2     = OPTF_IMPFIRE | OPTF_CASTLIFE | OPTF_SOFTBTL | OPTF_LOK2
 OPTF_VARIATION= OPTF_VAR1 | OPTF_VAR2
 
 ;  Value-row step indices.  See options-design.md for the step tables.
@@ -1977,6 +1980,12 @@ lut_LifeRecord:
   .BYTE   0, $01, 0, $10, $08, 224, 43, 0      ; LIFE
   .BYTE   0, $81, 0, $10, $08, 224, 44, 0      ; LIF2
 
+;;  SOFT in battle: FFR's EnableSoftInBattle record, the same shape -- cure
+;;  ailment, single ally, with AIL_STONE for the mask.  Vanilla's is the same
+;;  blank stub as LIFE's.
+lut_SoftRecord:
+  .BYTE   0, SOFTBTL_MASK, 0, $10, BTLMAG_CUREAILMENT, 184, 40, 0
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Cast Life in Battle -- the two messages
@@ -2007,8 +2016,15 @@ lut_LifeRecord:
 
 ;  Replaces the LDA lut_MagicBattleMessages, X in BtlMag_PrintMagicMessage.
 ;  In: X = the spell.  Out: A = the message, Z set if there is none -- which is
-;  the flag the BEQ after the call reads, and RTL does not disturb it.
+;  the flag the BEQ after the call reads, and RTL does not disturb it.  SOFT
+;  carries the same $4A as LIFE and goes quiet for the same reason.
 opt_magicmsg:
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @life
+    CPX #SPELL_SOFT
+    BEQ @silent
+  @life:
     LDA OPTFB_CASTLIFE
     AND #OPTFM_CASTLIFE
     BEQ @vanilla
@@ -2026,12 +2042,24 @@ opt_magicmsg:
 ;  Replaces the TXA / CLC / ADC at @AilmentCured, four bytes for four.
 ;  In: X = the ailment loop counter, 8 down to 1.  Out: A = the message, and
 ;  nonzero, which the BNE after the call depends on.
+;
+;  AIL_STONE is bit 1, so 7, and lands on INEFFECTIVENOW, whose comment in
+;  Constants.inc says it all: you cannot cure stone in battle.  With SOFT in
+;  battle you can, and it reads "cured" too.
 opt_curedmsg:
+    CPX #$07                    ; the counter when the bit is AIL_STONE
+    BNE @life
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BNE @cured
+    BRA @vanilla
+  @life:
     LDA OPTFB_CASTLIFE
     AND #OPTFM_CASTLIFE
     BEQ @vanilla
     CPX #$08                    ; the counter when the bit is AIL_DEAD
     BNE @vanilla
+  @cured:
     LDA #ALTBTLMSG_CURED_1      ; ...rather than the wording for dying
     RTL
   @vanilla:
@@ -2065,12 +2093,27 @@ opt_curedmsg:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_playervalid:
-    LDA OPTFB_CASTLIFE
-    AND #OPTFM_CASTLIFE
-    BEQ @vanilla
     LDA btlmag_effect
     CMP #BTLMAG_CUREAILMENT
     BNE @vanilla
+
+    ;  SOFT in battle: the stoned are who it is for.  The dead are still
+    ;  refused -- which is also what keeps it off a None.
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @life
+    LDA btlmag_effectivity
+    CMP #SOFTBTL_MASK
+    BNE @life
+    LDY #ch_ailments - ch_stats
+    LDA (btl_entityptr_obrom), Y
+    AND #AIL_DEAD
+    RTL
+
+  @life:
+    LDA OPTFB_CASTLIFE
+    AND #OPTFM_CASTLIFE
+    BEQ @vanilla
     LDA btlmag_effectivity
     CMP #CASTLIFE_LIFE
     BEQ @valid
@@ -2183,6 +2226,311 @@ opt_castlife:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  SOFT in battle -- the potion
+;;
+;;  The spell half is the record and Cast Life's hooks above.  The potion is a
+;;  third row in the DRINK box, and vanilla's box knows of exactly two:
+;;    - two battle counters, btl_potion_heal and _pure, with battle_bank in
+;;      the byte after them, so the SOFT count lives here, at OPTBTLSOFT;
+;;    - the menu choice is btlcurs_y AND 1, the cursor table mirrors two rows
+;;      over the 2x4 selector's four, and the box is drawn two rows high;
+;;    - the effect is $40 plus the choice, and $42 is the first enemy attack.
+;;  So bank $0C keeps its control flow and each of those places asks here
+;;  instead.  The potion's effect is the SOFT spell itself, as FFR's DRINK
+;;  table has it: btl_attackid SPELL_SOFT with source DRINK, so the record,
+;;  the targeting and the messages all go through the spell's own overrides.
+;;  The fourth row is empty and answers "nothing", as FFR's does.
+;;
+;;  With the flag off every one of these does what the code it replaced did.
+;;  The inventory side needed nothing: the turn's DEC item_heal, X reaches
+;;  item_soft when X is 2.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  Battle_AfterFadeIn: the battle's counts, from the inventory.  SOFT's is
+;  taken whatever the flag says, so nothing reads it before it is written.
+opt_drinkinit:
+    LDA item_heal
+    STA btl_potion_heal
+    LDA item_pure
+    STA btl_potion_pure
+    LDA item_soft
+    STA OPTBTLSOFT
+    RTL
+
+;  Is there anything to drink?  Out: Z clear if so, for the BNE after.
+opt_drinkany:
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @two                    ; A is zero: SOFT does not count
+    LDA OPTBTLSOFT
+  @two:
+    ORA btl_potion_heal
+    ORA btl_potion_pure
+    RTL
+
+;  The row the cursor was on, and whether there is one of it to drink.
+;  Out: DRINK_SEL and DRINK_ID = the row, as vanilla's two temporaries had
+;  it; C clear if there is a potion there, set for "nothing".
+opt_drinkpick:
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @two
+    LDA #$03                    ; four rows: HEAL, PURE, SOFT, empty
+  @two:
+    ORA #$01                    ; ...or vanilla's two, mirrored
+    AND btlcurs_y
+    STA DRINK_SEL
+    STA DRINK_ID
+    TAX
+    JSR opt_drinkcount
+    BEQ @none
+    CLC
+    RTL
+  @none:
+    SEC
+    RTL
+
+;  In: X = the row.  Out: A = how many are left of it, Z set for none.
+opt_drinkcount:
+    CPX #DRINK_SOFT
+    BEQ @soft
+    BCS @empty                  ; the fourth row holds nothing
+    LDA btl_potion_heal, X
+    RTS
+  @soft:
+    LDA OPTBTLSOFT
+    RTS
+  @empty:
+    LDA #$00
+    RTS
+
+;  Take one off the battle's count.  In: DRINK_ID = the row.
+opt_drinkdec:
+    LDX DRINK_ID
+    CPX #DRINK_SOFT
+    BEQ @soft
+    DEC btl_potion_heal, X
+    RTL
+  @soft:
+    DEC OPTBTLSOFT
+    RTL
+
+;  ...and put it back, when B backs up over the character who chose it.
+;  In: Y = the character.  Y comes back untouched.
+opt_drinkundo:
+    LDX btl_charcmdconsumeid, Y
+    CPX #DRINK_SOFT
+    BEQ @soft
+    INC btl_potion_heal, X
+    RTL
+  @soft:
+    INC OPTBTLSOFT
+    RTL
+
+;  The effect the command records.  Out: A = $40 or $41 for HEAL and PURE,
+;  as vanilla's ADC made them, or the SOFT spell.
+opt_drinkeffect:
+    LDA DRINK_SEL
+    CMP #DRINK_SOFT
+    BEQ @soft
+    CLC
+    ADC #$40
+    RTL
+  @soft:
+    LDA #SPELL_SOFT
+    RTL
+
+;  Player_DoMagicEffect's item name for a DRINK.  Vanilla takes $40 off the
+;  effect and adds HEAL's item id, which for the SOFT spell would name the
+;  LUTE.  Out: A = the item, nonzero, for the BNE after.
+opt_drinkname:
+    LDA btl_attackid
+    CMP #$40
+    BCC @soft                   ; a spell: only SOFT drinks as one
+    SEC
+    SBC #$40 - ITEM_HEAL
+    RTL
+  @soft:
+    LDA #ITEM_HEAL + DRINK_SOFT
+    RTL
+
+;  MenuSelection_Drink's cursor table, vanilla's or ours.
+opt_drinkcursor:
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BNE @three
+    LDX #$0F
+  @vanilla:
+    LDA f:lut_DrinkCursorPos + BANK0CFAR, X
+    STA btlcurs_positions, X
+    DEX
+    BPL @vanilla
+    RTL
+  @three:
+    LDX #$0F
+  @ours:
+    LDA f:lut_DrinkCursorSoft + OPTFAR, X
+    STA btlcurs_positions, X
+    DEX
+    BPL @ours
+    RTL
+
+;  Four rows down the left, each 16 pixels below the last, as vanilla spaces
+;  its two; the right column mirrors the left, as vanilla's does.
+lut_DrinkCursorSoft:
+  .BYTE $18, $A6, $18, $B6, $18, $C6, $18, $D6
+  .BYTE $18, $A6, $18, $B6, $18, $C6, $18, $D6
+
+;  DrawDrinkBox, in the fixed bank, is now a loop over these two.  The box's
+;  spec: vanilla's, but tall enough for four rows when SOFT is one of them --
+;  the height of the ITEM box.
+DRINKBOX_TALL = $0A
+opt_drinkbox:
+    LDX #$00
+  @spec:
+    LDA f:lut_CombatDrinkBox + OPTFAR, X
+    STA btl_msgdraw_hdr, X
+    INX
+    CPX #$05
+    BCC @spec
+    STZ OPTDRINKROW
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @out
+    LDA #DRINKBOX_TALL
+    STA btl_msgdraw_hdr + 4     ; the height
+  @out:
+    RTL
+
+;  The next row's text: the potion and how many, or blank if there are none,
+;  at btl_unfmtcbtbox_buffer + $20 * row, exactly as vanilla built its two.
+;  Out: C set when there are no more rows; otherwise btl_msgdraw_srcptr points
+;  at the row and btl_msgdraw_y is on its line, two below the last.
+opt_drinkrow:
+    LDX OPTDRINKROW
+    CPX #DRINK_ROWS
+    BCS @done
+    CPX #DRINK_SOFT
+    BNE @row
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @done                   ; SOFT's row only with the flag
+  @row:
+    TXA
+    BEQ @first
+    INC btl_msgdraw_y
+    INC btl_msgdraw_y
+  @first:
+    TXA                         ; Y = the row's offset in the buffer
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    TAY
+    JSR opt_drinkcount
+    BEQ @blank                  ;   FF 0E id FF 11 qty 00 00: the name, the number
+    CPX #DRINK_SOFT
+    BNE @escaped
+    JSR opt_drinksoftname       ; SOFT's own way, the whole row
+    BRA @ptr
+  @escaped:
+    STA btl_unfmtcbtbox_buffer + 5, Y
+    LDA #$11
+    STA btl_unfmtcbtbox_buffer + 4, Y
+    TXA
+    CLC
+    ADC #ITEM_HEAL
+    STA btl_unfmtcbtbox_buffer + 2, Y
+    LDA #$0E
+    STA btl_unfmtcbtbox_buffer + 1, Y
+  @blank:
+    LDA #$00
+    STA btl_unfmtcbtbox_buffer + 6, Y
+    STA btl_unfmtcbtbox_buffer + 7, Y
+  @ptr:
+    TYA
+    CLC
+    ADC #<btl_unfmtcbtbox_buffer
+    STA btl_msgdraw_srcptr
+    LDA #>btl_unfmtcbtbox_buffer
+    ADC #$00
+    STA btl_msgdraw_srcptr+1
+    INC OPTDRINKROW
+    CLC
+    RTL
+  @done:
+    SEC
+    RTL
+
+;  SOFT's row, with its name spelled out rather than escaped.  The cartridge
+;  stores HEAL and PURE as four letters and the potion icon, but SOFT with two
+;  spaces after the icon -- seven, the width of the item lists -- and vanilla
+;  never drew it here, so through the $0E escape its count landed two columns
+;  right of theirs and off the edge of the box (user, 2026-10-11).  So this
+;  copies the cartridge's own name, drops the trailing spaces, and puts the
+;  space, number and terminators after it as the escape rows have them.
+;
+;  The name is in bank $0A at an address only the pointer table knows, and an
+;  8-bit index cannot reach it, so the read is through a long pointer in the
+;  game's tmp, saved and put back around it.
+;
+;  In: A = the count, nonzero; Y = the row's offset.  Y comes back untouched.
+ITEMNAME_MAX = 7                ; no item name is longer
+opt_drinksoftname:
+    STA OPTSCRATCH              ; the count
+    LDA tmp
+    PHA
+    LDA tmp+1
+    PHA
+    LDA tmp+2
+    PHA
+    LDA f:BANK0AFAR + lut_ItemNamePtrTbl + 2 * (ITEM_HEAL + DRINK_SOFT)
+    STA tmp
+    LDA f:BANK0AFAR + lut_ItemNamePtrTbl + 2 * (ITEM_HEAL + DRINK_SOFT) + 1
+    STA tmp+1
+    LDA #^BANK0AFAR
+    STA tmp+2
+    PHY
+    TYA
+    TAX                         ; X = where the name goes, less one
+    LDY #$00
+  @copy:
+    LDA [tmp], Y
+    BEQ @copied                 ; the name's terminator
+    STA btl_unfmtcbtbox_buffer + 1, X
+    INX
+    INY
+    CPY #ITEMNAME_MAX
+    BCC @copy
+  @copied:
+  @trim:                        ; back over the padding to the last non-space,
+    LDA btl_unfmtcbtbox_buffer, X   ;   which the first letter guarantees
+    CMP #$FF
+    BNE @trimmed
+    DEX
+    BRA @trim
+  @trimmed:
+    LDA #$FF                    ; then as the others: space, number, the count
+    STA btl_unfmtcbtbox_buffer + 1, X
+    LDA #$11
+    STA btl_unfmtcbtbox_buffer + 2, X
+    LDA OPTSCRATCH
+    STA btl_unfmtcbtbox_buffer + 3, X
+    LDA #$00                    ; its high byte, and the end of the string
+    STA btl_unfmtcbtbox_buffer + 4, X
+    STA btl_unfmtcbtbox_buffer + 5, X
+    PLY
+    PLA
+    STA tmp+2
+    PLA
+    STA tmp+1
+    PLA
+    STA tmp
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The graphic and palette the selection menu records
 ;;
 ;;  Two more bytes read through the *selection* pointer rather than the casting
@@ -2227,6 +2575,19 @@ opt_spellfixed:
     STX OPTFIXSP
     STY OPTFIXFD
 
+    LDA OPTFB_SOFTBTL
+    AND #OPTFM_SOFTBTL
+    BEQ @notsoft
+    CPX #SPELL_SOFT
+    BNE @notsoft
+    PHX
+    TYX
+    LDA f:lut_SoftRecord + OPTFAR, X
+    PLX
+    SEC
+    RTS
+
+  @notsoft:
     LDA OPTFB_CASTLIFE
     AND #OPTFM_CASTLIFE
     BEQ @lock

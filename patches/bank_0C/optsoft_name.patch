@@ -1,0 +1,11 @@
+--- OLD
+      LDA btl_attackid              ; ... get the item ID for heal/pure potions
+      SEC                           ; subtract $40 because drink effects start at $40 -- get 0 for heal, 1 for pure
+      SBC #$40 - (item_heal - items); but then add item_heal-items to convert to the item ID for the heal potion/pure potion
+--- NEW
+.import opt_drinkname
+
+      ;  The item to name: HEAL or PURE from $40 or $41, as vanilla's sum, or
+      ;  SOFT, whose effect is the spell and would otherwise name the LUTE.
+      JSL opt_drinkname + OPTFAR
+      .res 2, $EA

@@ -235,13 +235,13 @@ def test_presets():
     #  quality-of-life row but Auto retargeting (bit 9, off in every preset),
     #  the bugfixes, gold and XP at 200% (step 4), the bonus at +4 -- that
     #  preset's bonus checkbox is off -- and Thief hit at Moderate.  Bit 21
-    #  is set by none: it is unused since Thief hit became a scalar.
+    #  is SOFT in battle, a variation, so Super has it and Improved does not.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
             1: (0x000007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x0003DFFDFF, 5, 6, 3, 3, 15, 2)}
+            2: (0x0003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2517,6 +2517,275 @@ def test_castlife():
     tgt = SYM["opt_castlife"]
     jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
     check("CureAilment calls opt_castlife", jsl in ROMDATA, True)
+
+
+# --- SOFT in battle ----------------------------------------------------------
+#  FFR's EnableSoftInBattle: the SOFT spell and the SOFT potion work in battle.
+#  The spell is Cast Life's pattern -- FFR's record, cure ailment on AIL_STONE,
+#  through the same override, message and targeting hooks.  The potion is a
+#  third row in the DRINK box, which vanilla builds for exactly two, so each
+#  place that knew that asks the options bank instead.  Expectations come from
+#  FFR (SpellBalance.EnableSoftInBattle, ExtConsumables' DRINK tables) and the
+#  disassembly, not from lut_SoftRecord or the hooks.
+def test_softbattle():
+    F_SOFT = (2, 0x20)                          # bit 21
+    SPELL_SOFT, SPELL_LIFE, SPELL_PURE = 40, 33, 24
+    INEFFECTIVENOW_MSG, CURED_1, INEFFNOW_ALT = 0x4A, 0x0D, 0x13
+    HEAL_ID, PURE_ID, SOFT_ID = 0x19, 0x1A, 0x1B
+    POT_HEAL, POT_PURE, BATTLE_BANK = 0x6BAF, 0x6BB0, 0x6BB1
+    BTLSOFT = K["OPTBTLSOFT"]
+    ITEM_HEAL_AT = 0x6039                       # item_heal: unsram + $20 + $19
+    CURS_Y, CURS_POS = 0x6AAB, 0x6AAC
+    SEL, ID = 0x6B7D, 0x6856
+    CONSUMEID = 0x68A7
+    ATTACKID = 0x6C8C
+    HDR, MSGY, SRCPTR, BUF = 0x6A9E, 0x6AA0, 0x6AA1, 0x6AFA
+
+    def m(soft):
+        bus, cpu = machine()
+        for i in range(5):
+            setblk(bus, OPT_FLAGS + i, F_SOFT[1] if (soft and i == F_SOFT[0]) else 0)
+        return bus, cpu
+    def sr(bus, a):
+        return bus.sram[a - 0x6000]
+    def sw(bus, a, v):
+        bus.sram[a - 0x6000] = v
+
+    # -- the spell --------------------------------------------------------
+    #  FFR's record: routine $08 cure ailment, effect $02, target $10, hit 0,
+    #  element 0, graphic 184, palette 40.  Our field order is hit,
+    #  effectivity, element, target, effect, graphic, palette, unused.
+    want = [0, 0x02, 0, 0x10, 0x08, 184, 40, 0]
+    def field(spell, f, soft):
+        bus, cpu = m(soft)
+        cpu.x, cpu.y = spell, f
+        call(cpu, "opt_spellfixed")
+        return (cpu.a & 0xFF) if cpu.p & 0x01 else None
+    check("SOFT's record with the flag on", [field(SPELL_SOFT, f, True) for f in range(8)], want)
+    check("SOFT's record with the flag off: the cartridge's",
+          [field(SPELL_SOFT, f, False) for f in range(8)], [None] * 8)
+    check("LIFE is not SOFT's", [field(SPELL_LIFE, f, True) for f in range(8)], [None] * 8)
+
+    def msg(spell, soft):
+        bus, cpu = m(soft)
+        cpu.x = spell
+        call(cpu, "opt_magicmsg")
+        return cpu.a & 0xFF, bool(cpu.p & 0x02)
+    check("SOFT's cartridge message is INEFFECTIVENOW", msg(SPELL_SOFT, False)[0], INEFFECTIVENOW_MSG)
+    check("SOFT silent with the flag on", msg(SPELL_SOFT, True), (0, True))
+    check("LIFE keeps its own with only SOFT on", msg(SPELL_LIFE, True)[0], INEFFECTIVENOW_MSG)
+
+    def cured(counter, soft):
+        bus, cpu = m(soft)
+        cpu.x = counter
+        call(cpu, "opt_curedmsg")
+        return cpu.a & 0xFF, bool(cpu.p & 0x02)
+    check("STONE cured, flag off: INEFFECTIVENOW", cured(7, False), (INEFFNOW_ALT, False))
+    check("STONE cured, flag on: CURED", cured(7, True), (CURED_1, False))
+    for counter in (1, 2, 3, 4, 5, 6, 8):
+        check("counter %d untouched by SOFT" % counter, cured(counter, True), cured(counter, False))
+
+    def valid(ailments, effectivity, soft, effect=0x08):
+        bus, cpu = m(soft)
+        bus.wram[0x92], bus.wram[0x93] = 0x00, 0x04
+        bus.wram[0x0401] = ailments
+        sw(bus, 0x686E, effect)
+        sw(bus, 0x6874, effectivity)
+        call(cpu, "opt_playervalid")
+        return "valid" if cpu.p & 0x02 else "refused"
+    check("stoned, SOFT, flag on", valid(0x02, 0x02, True), "valid")
+    check("stoned, SOFT, flag off", valid(0x02, 0x02, False), "refused")
+    check("healthy, SOFT, flag on", valid(0x00, 0x02, True), "valid")
+    check("dead, SOFT, flag on", valid(0x01, 0x02, True), "refused")
+    check("dead and stoned, SOFT, flag on", valid(0x03, 0x02, True), "refused")
+    check("stoned, PURE, flag on", valid(0x02, 0x04, True), "refused")
+    check("stoned, effect 7 with SOFT's mask", valid(0x02, 0x02, True, effect=0x07), "refused")
+
+    # -- the potion --------------------------------------------------------
+    def drink(soft, heal=0, pure=0, softn=0):
+        bus, cpu = m(soft)
+        bus.wram[0x10:0x13] = bytes((0xA1, 0xB2, 0xC3))   # the game's tmp, borrowed
+        sw(bus, POT_HEAL, heal); sw(bus, POT_PURE, pure); sw(bus, BTLSOFT, softn)
+        sw(bus, BATTLE_BANK, 0x5A)                  # the decoys after the two:
+        sw(bus, BATTLE_BANK + 1, 0x77)              #   what row 3 would read past
+        return bus, cpu
+
+    bus, cpu = m(True)
+    for i, v in enumerate((11, 22, 33)):
+        sw(bus, ITEM_HEAL_AT + i, v)
+    call(cpu, "opt_drinkinit")
+    check("init: the battle's three counts",
+          (sr(bus, POT_HEAL), sr(bus, POT_PURE), sr(bus, BTLSOFT)), (11, 22, 33))
+
+    def anyp(soft, h, p, s):
+        bus, cpu = drink(soft, h, p, s)
+        call(cpu, "opt_drinkany")
+        return not (cpu.p & 0x02)
+    check("any: nothing at all", anyp(True, 0, 0, 0), False)
+    check("any: only SOFT, flag on", anyp(True, 0, 0, 1), True)
+    check("any: only SOFT, flag off", anyp(False, 0, 0, 1), False)
+    check("any: HEAL, flag off", anyp(False, 1, 0, 0), True)
+    check("any: PURE, flag on", anyp(True, 0, 1, 0), True)
+
+    def pick(soft, row, counts=(5, 5, 5)):
+        bus, cpu = drink(soft, *counts)
+        sw(bus, CURS_Y, row)
+        call(cpu, "opt_drinkpick")
+        return (sr(bus, SEL), sr(bus, ID), "nothing" if cpu.p & 0x01 else "ok")
+    for row in range(4):
+        check("pick, flag off, row %d: vanilla's mirror" % row,
+              pick(False, row), (row & 1, row & 1, "ok"))
+    check("pick, flag on, HEAL", pick(True, 0), (0, 0, "ok"))
+    check("pick, flag on, PURE", pick(True, 1), (1, 1, "ok"))
+    check("pick, flag on, SOFT", pick(True, 2), (2, 2, "ok"))
+    check("pick, flag on, the empty row", pick(True, 3)[2], "nothing")
+    check("pick, SOFT with none left", pick(True, 2, (5, 5, 0))[2], "nothing")
+    check("pick, HEAL with none left", pick(True, 0, (0, 5, 5))[2], "nothing")
+    check("pick, PURE with none left, flag off", pick(False, 1, (5, 0, 5))[2], "nothing")
+
+    def dec(soft, which):
+        bus, cpu = drink(soft, 5, 6, 7)
+        sw(bus, ID, which)
+        call(cpu, "opt_drinkdec")
+        return (sr(bus, POT_HEAL), sr(bus, POT_PURE), sr(bus, BTLSOFT), sr(bus, BATTLE_BANK))
+    check("dec HEAL", dec(True, 0), (4, 6, 7, 0x5A))
+    check("dec PURE", dec(True, 1), (5, 5, 7, 0x5A))
+    check("dec SOFT: its own count, not battle_bank", dec(True, 2), (5, 6, 6, 0x5A))
+
+    def undo(which):
+        bus, cpu = drink(True, 5, 6, 7)
+        sw(bus, CONSUMEID + 2, which)               # character 2's choice
+        cpu.y = 2
+        call(cpu, "opt_drinkundo")
+        return (sr(bus, POT_HEAL), sr(bus, POT_PURE), sr(bus, BTLSOFT), sr(bus, BATTLE_BANK), cpu.y)
+    check("undo HEAL", undo(0), (6, 6, 7, 0x5A, 2))
+    check("undo PURE", undo(1), (5, 7, 7, 0x5A, 2))
+    check("undo SOFT: its own count, not battle_bank", undo(2), (5, 6, 8, 0x5A, 2))
+
+    def effect(row):
+        bus, cpu = m(True)
+        sw(bus, SEL, row)
+        call(cpu, "opt_drinkeffect")
+        return cpu.a & 0xFF
+    check("effects: $40, $41 and the SOFT spell", [effect(r) for r in range(3)], [0x40, 0x41, SPELL_SOFT])
+
+    def name(attack):
+        bus, cpu = m(True)
+        sw(bus, ATTACKID, attack)
+        call(cpu, "opt_drinkname")
+        return cpu.a & 0xFF, bool(cpu.p & 0x02)
+    check("names: HEAL, PURE, SOFT, all nonzero",
+          [name(a) for a in (0x40, 0x41, SPELL_SOFT)],
+          [(HEAL_ID, False), (PURE_ID, False), (SOFT_ID, False)])
+
+    def cursor(soft):
+        bus, cpu = m(soft)
+        call(cpu, "opt_drinkcursor")
+        return [sr(bus, CURS_POS + i) for i in range(16)]
+    van = list(ROMDATA[(BANK_0C & 0x1F) * 0x10000 + SYM["lut_DrinkCursorPos"]:][:16])
+    check("cursor, flag off: the cartridge's table", cursor(False), van)
+    check("...which mirrors two rows", van[:4] * 4, van)
+    check("cursor, flag on: four rows, both columns",
+          cursor(True), [0x18, 0xA6, 0x18, 0xB6, 0x18, 0xC6, 0x18, 0xD6] * 2)
+
+    #  The box, then rows until C: what DrawDrinkBox's loop now asks for.
+    def box(soft, counts):
+        bus, cpu = drink(soft, *counts)
+        for i in range(0x80):
+            sw(bus, BUF + i, 0xFF)                  # as ClearUnformattedCombatBoxBuffer
+        call(cpu, "opt_drinkbox")
+        spec = [sr(bus, HDR + i) for i in range(5)]
+        sw(bus, HDR, spec[0] + 1); sw(bus, MSGY, spec[2] + 1)   # the INCs after it
+        rows = []
+        for _ in range(6):
+            c = CPU(bus); c.dbr = 0xA7
+            call(c, "opt_drinkrow")
+            if c.p & 0x01:
+                break
+            ptr = sr(bus, SRCPTR) | sr(bus, SRCPTR + 1) << 8
+            raw = []
+            while len(raw) < 16 and not (len(raw) >= 2 and raw[-2:] == [0, 0]
+                                         and (len(raw) < 3 or raw[-3] != 0x11)):
+                raw.append(sr(bus, ptr + len(raw)))
+            rows.append((sr(bus, MSGY), ptr - BUF, tuple(raw)))
+        return spec, rows, tuple(bus.wram[0x10:0x13])
+    vspec = list(ROMDATA[(0xA7 & 0x1F) * 0x10000 + SYM["lut_CombatDrinkBox"]:][:5])
+    check("the cartridge's box is six high", vspec[4], 6)
+    #  The cartridge's names: HEAL and PURE are four letters and the potion
+    #  icon; SOFT has two spaces after the icon, the width of the item lists.
+    def itemname(item):
+        b = (1 + 0x0A) * 0x10000
+        p = b + 0xB700 + item * 2
+        at = b + (ROMDATA[p] | ROMDATA[p + 1] << 8) - 0x8000
+        return ROMDATA[at:ROMDATA.find(b"\x00", at)]
+    softname = itemname(SOFT_ID).rstrip(b"\xFF")
+    check("SOFT's stored name is padded past HEAL's",
+          (len(itemname(SOFT_ID)) > len(itemname(HEAL_ID)), len(softname)), (True, len(itemname(HEAL_ID))))
+    spec, rows, tmpbytes = box(False, (3, 4, 9))
+    check("flag off: the cartridge's spec", spec, vspec)
+    check("flag off: two rows, as vanilla wrote them", rows,
+          [(vspec[2] + 1, 0x00, (0xFF, 0x0E, HEAL_ID, 0xFF, 0x11, 3, 0, 0)),
+           (vspec[2] + 3, 0x20, (0xFF, 0x0E, PURE_ID, 0xFF, 0x11, 4, 0, 0))])
+    spec, rows, tmpbytes = box(True, (3, 0, 9))
+    check("flag on: ten high", spec, vspec[:4] + [10])
+    check("flag on: three rows, PURE's blank, SOFT's name spelled out", rows,
+          [(vspec[2] + 1, 0x00, (0xFF, 0x0E, HEAL_ID, 0xFF, 0x11, 3, 0, 0)),
+           (vspec[2] + 3, 0x20, (0xFF,) * 6 + (0, 0)),
+           (vspec[2] + 5, 0x40, (0xFF,) + tuple(softname) + (0xFF, 0x11, 9, 0, 0))])
+    #  The property the user saw broken: every count in the same column.  An
+    #  escape prints the cartridge's name in full; a spelled-out name is what
+    #  it is.  The column is everything printed before the number code.
+    def column(row):
+        out, i = 0, 0
+        while row[i] != 0x11:
+            if row[i] == 0x0E:
+                out += len(itemname(row[i + 1])); i += 2
+            else:
+                out += 1; i += 1
+        return out
+    spec, rows, tmpbytes = box(True, (3, 4, 9))
+    check("flag on: HEAL's, PURE's and SOFT's counts in one column",
+          [column(r[2]) for r in rows], [column(rows[0][2])] * 3)
+    check("...and inside the box", column(rows[0][2]) + 2 <= vspec[3] - 2, True)
+    check("SOFT's row gives tmp back", tmpbytes, (0xA1, 0xB2, 0xC3))
+
+    #  ...and the fixed bank's own loop, run for real: DrawDrinkBox stopped
+    #  where it hands the queue to DrawBlockBuffer, which talks to the PPU.
+    #  Each queued block is five bytes: the box's spec, then per row the
+    #  text header, x, y and the row's pointer.
+    QUEUE = 0x0500
+    def queued(soft, counts):
+        bus, cpu = drink(soft, *counts)
+        bus.wram[0x8C], bus.wram[0x8D] = QUEUE & 0xFF, QUEUE >> 8   # blockptrstart
+        bus.wram[0x8E], bus.wram[0x8F] = QUEUE & 0xFF, QUEUE >> 8   # blockptrend
+        cpu.run(0xA7, SYM["DrawDrinkBox"], stop=SYM["DrawBlockBuffer"])
+        if cpu.pc != SYM["DrawBlockBuffer"]:
+            return None
+        n = ((bus.wram[0x8E] | bus.wram[0x8F] << 8) - QUEUE) // 5
+        return [tuple(bus.wram[QUEUE + 5 * i + k] for k in range(5)) for i in range(n)]
+    def textblock(y, row):
+        p = BUF + 0x20 * row
+        return (1, vspec[1] + 1, y, p & 0xFF, p >> 8)
+    check("DrawDrinkBox, flag off: the box and two rows",
+          queued(False, (3, 4, 9)),
+          [tuple(vspec), textblock(vspec[2] + 1, 0), textblock(vspec[2] + 3, 1)])
+    check("DrawDrinkBox, flag on: the tall box and three rows",
+          queued(True, (3, 4, 9)),
+          [tuple(vspec[:4] + [10]), textblock(vspec[2] + 1, 0),
+           textblock(vspec[2] + 3, 1), textblock(vspec[2] + 5, 2)])
+
+    #  The wiring: every hook is called once, from the bank it belongs in --
+    #  bank $0C's half of its chunk, or the fixed bank, which every chunk
+    #  carries a copy of at $C000.
+    for name_, bank, base in (("opt_drinkinit", BANK_0C, 0x8000), ("opt_drinkany", BANK_0C, 0x8000),
+                              ("opt_drinkpick", BANK_0C, 0x8000), ("opt_drinkdec", BANK_0C, 0x8000),
+                              ("opt_drinkundo", BANK_0C, 0x8000), ("opt_drinkeffect", BANK_0C, 0x8000),
+                              ("opt_drinkname", BANK_0C, 0x8000), ("opt_drinkcursor", BANK_0C, 0x8000),
+                              ("opt_drinkbox", 0xA7, 0xC000), ("opt_drinkrow", 0xA7, 0xC000)):
+        tgt = SYM[name_]
+        jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+        img = ROMDATA[(bank & 0x1F) * 0x10000 + base:][:0x4000]
+        check("%s is called once, from its bank" % name_, img.count(jsl), 1)
 
 
 # --- the selection menu's graphic and palette --------------------------------
@@ -6732,7 +7001,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

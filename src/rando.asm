@@ -226,7 +226,7 @@ ROMGEAR    = BANK0CFAR + lut_WeaponData
 
 ;  Item names: lut_ItemNamePtrTbl in bank $0A, a pointer per item id into the
 ;  same bank.  Gear is item ids $1C up, weapons then armour.
-BANK0AFAR  = (CHUNK0 + BANK_ITEMS) * $10000
+.assert BANK0AFAR = (CHUNK0 + BANK_ITEMS) * $10000, error, "BANK0AFAR is not BANK_ITEMS"
 SRAMFAR    = CHUNK0 * $10000    ; SRAM, from a bank that decodes it
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change

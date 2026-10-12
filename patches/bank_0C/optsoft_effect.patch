@@ -1,0 +1,10 @@
+--- OLD
+    LDA $6B7D               ; get the menu selection
+    CLC
+    ADC #$40                ; + $40.
+--- NEW
+.import opt_drinkeffect
+
+    ;  $40 for HEAL, $41 for PURE, or the SOFT spell: $42 is an enemy attack.
+    JSL opt_drinkeffect + OPTFAR
+    .res 2, $EA

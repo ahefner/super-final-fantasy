@@ -240,7 +240,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-43 settings: 36 checkboxes and 7 value rows.
+44 settings: 37 checkboxes and 7 value rows.
 
 ### Quality of life (15)
 
@@ -413,10 +413,11 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (7)
+### Variations (8)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
-CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, LOCK / LOK2 Mode.
+CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, LOCK /
+LOK2 Mode.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -447,6 +448,51 @@ Fighter (5 at level 50); at Moderate it matches the Fighter's growth of 3.
 Agility caps at 99 by level 20, but the original code grants the evade point
 whether or not agility rose, so evade keeps climbing.  A two-character party
 doubles each member's XP and gets there sooner (user's playthrough).
+
+**SOFT in Battle** (2026-10-11; played the same day, spell and potion, each way) is FFR's
+`EnableSoftInBattle`: the SOFT spell and the SOFT potion both work in battle.
+Bit 21, which no row or preset had set since Thief hit became a scalar, so it
+needed no format bump.  Every FFR preset but Improved Vanilla has it on.
+
+  - **The spell** is Cast Life's pattern.  Vanilla's SOFT is the same blank
+    stub as LIFE; the flag supplies FFR's record -- cure ailment ($08) on
+    AIL_STONE, single ally, graphic 184, palette 40 -- through
+    `opt_spellfixed`, and three of Cast Life's hooks learn it: its battle
+    message goes quiet (`opt_magicmsg`; it carried the same $4A, "ineffective
+    now"), curing stone reads "cured" rather than the INEFFECTIVENOW that
+    Constants.inc says is there because "you cannot cure stone in battle"
+    (`opt_curedmsg`), and the target check lets it reach the stoned but still
+    refuses the dead, which also keeps it off a None (`opt_playervalid`).
+  - **The potion** is a third row in the DRINK box, and vanilla's box is
+    built for two throughout: two battle counters with `battle_bank` in the
+    byte after them, the choice taken as `btlcurs_y AND 1` over a cursor
+    table that mirrors two rows across the 2x4 selector's four, the effect as
+    $40 plus the choice -- and $42 is the first enemy attack -- and a box
+    drawn two rows high, row by row.  So bank `$0C` keeps its control flow
+    and eight hooks, each the size of what it replaced, ask the options bank
+    instead (`opt_drinkinit`, `_any`, `_pick`, `_dec`, `_undo`, `_effect`,
+    `_name`, `_cursor`); SOFT's count is `OPTBTLSOFT`, set at each battle's
+    start.  The potion's effect is the SOFT spell itself, as FFR's DRINK
+    table has it, so it shares the spell's record, targeting and messages; it
+    needs its own name for the message box, or it would announce the LUTE.
+  - **SOFT's row spells its name out.**  The cartridge stores HEAL and PURE
+    as four letters and the potion icon but SOFT with two spaces after the
+    icon -- the width of the item lists -- and vanilla never drew it in this
+    box, so through the `$0E` escape its count landed two columns right of
+    the others and off the edge of the box (user, first play).  So
+    `opt_drinksoftname` copies the cartridge's own name, drops the padding,
+    and lays out the number as the escape rows do; `test_softbattle` checks
+    that every row's count falls in one column, from the cartridge's names.
+    The inventory needed nothing: the turn's `DEC item_heal, X` reaches
+    `item_soft` when X is 2.
+  - **`DrawDrinkBox`, in the fixed bank, is now a loop**: the options bank
+    gives it the box's spec (ten rows high rather than six with the flag on,
+    the ITEM box's height) and then each row's text, and the drawing calls
+    stay in the fixed bank.  Vanilla wrote its two rows out longhand, so the
+    loop gave the fixed bank 89 bytes.
+  - **Decision: the fourth row is empty and answers "nothing", as FFR's
+    does.**  The 2x4 selector moves over four rows; mirroring a row instead
+    would make the cursor stand still for one press at the wrap.
 
 ### Treasures (12)
 
@@ -748,7 +794,7 @@ Layout, 18 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       5    36 checkbox bits; bit 21 is unused
+    flags       5    37 checkbox bits
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
@@ -1593,20 +1639,22 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED    64 free    the scarce one; stamped into every chunk.  7
-                             declared, and 57 at the end: the randomizer's
+    BANK_FIXED   153 free    the scarce one; stamped into every chunk.  7
+                             declared, and 146 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
                              formation copy (39) -- the None took 74 (its
                              class name, LeadClass, starting stats, the
                              battle CHR loader), @Begin's mute 9, and the
-                             stack fix's JSL 4
+                             stack fix's JSL 4; SOFT in battle's loop in
+                             DrawDrinkBox gave back 89
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
                              over -- 21 never executed in Enemy_DoAi, 7 NOPs
-                             in the enemy attack setup
+                             in the enemy attack setup -- and 33 never
+                             executed where the DRINK choice used to be
     BANK_0D      212 free
     BANK_0E       37 free    12 declared unused at $BFF4, after House MP took
                              four; 25 NOPs in the old LoadShopInventory.
@@ -1614,8 +1662,10 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    3616 free   once the descriptions moved out, the None, the
-                             save view (259) and the stack fix (45)
+    BANK_OPT    2896 free   once the descriptions moved out, the None, the
+                             save view (259), the stack fix (45), Thief hit
+                             and the starting items (207), and SOFT in
+                             battle (513)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer

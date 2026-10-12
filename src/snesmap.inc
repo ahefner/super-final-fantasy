@@ -158,7 +158,8 @@ OPT_RESPOND_DEFAULT = 7         ; 0-based, so this is the 8 the menu shows
 ;  Bits 0..7 are in OPT_FLAGS+0, 8..15 in +1, and so on, so a test is
 ;  "LDA OPT_FLAGS+n / AND #mask".  The OPTFB_/OPTFM_ pairs below give the
 ;  byte and the mask for the ones that have hooks so far.
-;  Flag bits, low byte first.  26 of the 32 are spoken for.
+;  Flag bits, low byte first.  These are the first 32; the Treasures bits
+;  past them are in the fifth byte and are named OPTFB_/OPTFM_ only.
 OPTF_SPEEDHACKS   = $00000001
 OPTF_FASTWALK     = $00000002
 OPTF_FASTSHIP     = $00000004
@@ -180,7 +181,7 @@ OPTF_SPELLFIXES   = $00020000
 OPTF_STATUSATK    = $00040000
 OPTF_THIEFNINJA   = $00080000
 OPTF_CRITRATE     = $00100000
-OPTF_ELEMBONUS    = $00200000
+OPTF_SOFTBTL      = $00200000   ; was the elemental bonus, then Thief hit
 OPTF_IMPCURE      = $00400000
 OPTF_IMPFIRE      = $00800000
 OPTF_CASTLIFE     = $01000000
@@ -242,6 +243,25 @@ BTLMAG_CUREAILMENT = $08        ; the effect id both Life spells borrow
 OPTFB_LOK2      = OPT_FLAGS+3
 OPTFM_LOK2      = $02    ; bit 25
 
+;  SOFT in battle, FFR's EnableSoftInBattle: the SOFT spell and the SOFT
+;  potion both work in battle.  The spell is Cast Life's pattern again --
+;  FFR's record, cure ailment on AIL_STONE, plus the message and targeting
+;  hooks Life already has.  The potion is a third row in the DRINK box,
+;  which in vanilla knows of exactly two.  Bit 21: no row or preset has set
+;  it since Thief hit became a scalar, so a block that predates it reads off.
+OPTFB_SOFTBTL   = OPT_FLAGS+2
+OPTFM_SOFTBTL   = $20    ; bit 21
+SOFTBTL_MASK    = $02           ; AIL_STONE: the record's effectivity
+DRINK_SOFT      = 2             ; the SOFT row: 0 HEAL, 1 PURE, 3 empty
+DRINK_ROWS      = 3
+ITEM_HEAL       = $19           ; item ids: item_heal - items, and the next two
+OPTBTLSOFT      = OPTBLOCK+$1D  ; the battle's SOFT count, beside btl_potion_heal
+                                ;   and _pure, which have $6BB1 (battle_bank)
+                                ;   after them; set at every battle's start
+OPTDRINKROW     = OPTBLOCK+$1E  ; which DRINK row opt_drinkrow builds next
+DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
+DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
+
 ;  Spell indices, as FFR's enum numbers them.
 SPELL_LOCK      = 6
 SPELL_LOK2      = 23
@@ -249,6 +269,7 @@ SPELL_HEL2      = 35
 SPELL_CUR4      = 48
 SPELL_SABR      = 54
 SPELL_LIFE      = 33
+SPELL_SOFT      = 40
 SPELL_LIF2      = 56
 
 ;  The defender's hit rate during a magic attack.  variables.inc never named
@@ -1069,6 +1090,8 @@ h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
 BANK00FAR       = (CHUNK0 + $00) * $10000
 BANK0BFAR       = (CHUNK0 + $0B) * $10000
 BANK0CFAR       = (CHUNK0 + $0C) * $10000
+;  The item names, lut_ItemNamePtrTbl and what it points at: BANK_ITEMS.
+BANK0AFAR       = (CHUNK0 + $0A) * $10000
 ;  The equip permission words live in bank $0E, reached the same way.
 BANK0EFAR       = (CHUNK0 + $0E) * $10000
 

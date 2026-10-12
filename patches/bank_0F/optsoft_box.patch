@@ -1,0 +1,83 @@
+--- OLD
+DrawDrinkBox:
+    LDY #$05
+    : LDA lut_CombatDrinkBox-1, Y       ; load the specs for the drink box
+      STA btl_msgdraw_hdr-1, Y          ; -1 because Y is 1-based
+      DEY
+      BNE :-
+    JSR BattleDraw_AddBlockToBuffer     ; add the box to the block buffer
+    
+    JSR ClearUnformattedCombatBoxBuffer ; clear the unformatted buffer (we'll be drawing to it)
+    
+    INC btl_msgdraw_hdr                 ; For text, hdr=1
+    INC btl_msgdraw_x                   ; move text right+down 1 tile from where the box was drawn
+    INC btl_msgdraw_y
+    LDA btl_potion_heal
+    BEQ :+                              ; if there are any heal potions
+      STA btl_unfmtcbtbox_buffer + 5    ; set buffer to:   FF 0E 19 FF 11 xx xx 00  noting:
+      LDA #$11                          ;   FF       = space
+      STA btl_unfmtcbtbox_buffer + 4    ;   0E 19    = 0E prints an item name, 19 indicates the Heal Potion item
+      LDA #$19                          ;   11 xx xx = 11 prints a number, xx xx is the qty (which in this case is 
+      STA btl_unfmtcbtbox_buffer + 2    ;                  the number of potions
+      LDA #$0E
+      STA btl_unfmtcbtbox_buffer + 1
+      
+  : LDA #$00
+    STA btl_unfmtcbtbox_buffer + 6      ; The high byte of the qty
+    STA btl_unfmtcbtbox_buffer + 7      ; The null terminator
+    
+    LDA #<btl_unfmtcbtbox_buffer        ; set the block pointer to the data
+    STA btl_msgdraw_srcptr
+    LDA #>btl_unfmtcbtbox_buffer
+    STA btl_msgdraw_srcptr+1
+    JSR BattleDraw_AddBlockToBuffer     ; and add the block (drawing the Heal Potions)
+    
+    
+    INC btl_msgdraw_y                   ; move down 2 rows for Pure portions
+    INC btl_msgdraw_y
+    LDA btl_potion_pure
+    BEQ :+
+      STA btl_unfmtcbtbox_buffer + $25  ; Exact same deal as above, only it works for the Pure Potion
+      LDA #$11
+      STA btl_unfmtcbtbox_buffer + $24
+      LDA #$1A
+      STA btl_unfmtcbtbox_buffer + $22
+      LDA #$0E
+      STA btl_unfmtcbtbox_buffer + $21
+
+  : LDA #$00
+    STA btl_unfmtcbtbox_buffer + $26
+    STA btl_unfmtcbtbox_buffer + $27
+    
+    LDA #<(btl_unfmtcbtbox_buffer + $20)
+    STA btl_msgdraw_srcptr
+    LDA #>(btl_unfmtcbtbox_buffer + $20)
+    STA btl_msgdraw_srcptr+1
+    JSR BattleDraw_AddBlockToBuffer     ; add the block for the Pure potions
+    
+    JMP DrawBlockBuffer                 ; then draw the actual blocks and exit
+--- NEW
+.export lut_CombatDrinkBox
+.export DrawDrinkBox, DrawBlockBuffer   ; for the harness, which stops at the second
+.import opt_drinkbox, opt_drinkrow
+
+DrawDrinkBox:
+    ;  The box, then one text block per potion, now a loop: the options bank
+    ;  says how tall the box is and builds each row's text, and SOFT in battle
+    ;  makes that three rows where vanilla wrote out two.  The drawing calls
+    ;  stay here, in this bank, as they were.
+    JSL opt_drinkbox + OPTFAR           ; the box's spec into btl_msgdraw_hdr
+    JSR BattleDraw_AddBlockToBuffer     ; add the box to the block buffer
+
+    JSR ClearUnformattedCombatBoxBuffer ; clear the unformatted buffer (we'll be drawing to it)
+
+    INC btl_msgdraw_hdr                 ; For text, hdr=1
+    INC btl_msgdraw_x                   ; move text right+down 1 tile from where the box was drawn
+    INC btl_msgdraw_y
+  @Row:
+    JSL opt_drinkrow + OPTFAR           ; the next potion's line, or C set
+    BCS @Done
+    JSR BattleDraw_AddBlockToBuffer     ; add the block for it
+    JMP @Row
+  @Done:
+    JMP DrawBlockBuffer                 ; then draw the actual blocks and exit

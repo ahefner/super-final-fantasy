@@ -171,7 +171,8 @@ HARM.
   - **Hit% cap raised from 200 to 250** (`FixHitChanceCap`), in every
     randomized preset.
   - **SOFT in battle** (`EnableSoftInBattle`), as both the spell and the
-    potion, in every randomized preset.
+    potion, in every randomized preset.  *Played 2026-10-11:* a
+    Variations row.
   - **White Mage HARM** (`WhiteMageHarmEveryone`), in every randomized
     preset.  HARM damages anything when a White Mage or White Wizard casts
     or uses it, and averages 30/60/90/120 on targets that aren't undead.

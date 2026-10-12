@@ -1,0 +1,14 @@
+--- OLD
+MenuSelection_Drink:
+    LDY #$10
+    : LDA lut_DrinkCursorPos-1, Y   ; copy over the cursor positions for
+      STA btlcurs_positions-1, Y    ;  the drink menu
+      DEY
+      BNE :-
+--- NEW
+.export lut_DrinkCursorPos
+.import opt_drinkcursor
+
+MenuSelection_Drink:
+    JSL opt_drinkcursor + OPTFAR    ; the cursor positions: vanilla's two rows
+    .res 7, $EA                     ;   mirrored, or four for SOFT in battle

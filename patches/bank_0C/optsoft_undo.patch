@@ -1,0 +1,8 @@
+--- OLD
+  : LDX btl_charcmdconsumeid, Y     ; if they did, get the index of the potion they drank
+    INC btl_potion_heal, X          ; INC the potion counter
+--- NEW
+.import opt_drinkundo
+
+  : JSL opt_drinkundo + OPTFAR      ; INC the potion counter: SOFT's is apart
+    .res 2, $EA

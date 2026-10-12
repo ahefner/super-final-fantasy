@@ -1,0 +1,14 @@
+--- OLD
+Battle_AfterFadeIn:
+    LDA item_heal           ; prep potion counts
+    STA btl_potion_heal
+    LDA item_pure
+    STA btl_potion_pure
+--- NEW
+.import opt_drinkinit
+
+Battle_AfterFadeIn:
+    ;  The battle's potion counts, and SOFT's for SOFT in battle.  Twelve bytes
+    ;  become four and eight NOPs: this bank stays byte-neutral.
+    JSL opt_drinkinit + OPTFAR      ; prep potion counts
+    .res 8, $EA

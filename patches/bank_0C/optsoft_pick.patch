@@ -1,0 +1,33 @@
+--- OLD
+  : LDA btlcurs_y               ; see if they selected Heal or Pure potion
+    AND #$01
+    STA $6B7D                   ; stick it in temp mem (0=Heal, 1=Pure)
+    BNE @PureSelected           ; see which they selected?  If heal....
+      LDA btl_potion_heal       ;   ... make sure they have at least 1 heal potion
+      BNE @HealOK               ; if they don't
+      JSR DoNothingMessageBox   ;   show the "nothing" box and cancel
+      JMP CancelBattleAction
+    
+  @PureSelected:                ; if pure selected, make sure they have a Pure potion
+    LDA btl_potion_pure
+    BNE :+                      ; if none, show "nothing" and cancel
+      JSR DoNothingMessageBox
+      JMP CancelBattleAction
+      
+  : LDA #$01
+    STA $6856                   ; store menu selection for pure potion in temp mem $6856
+    JMP @GetTarget              ;  (this means both 6856 AND 6B7D both contain the item being used -- why both?)
+  @HealOK:
+    LDA #$00                    ; for heal potion
+    STA $6856
+--- NEW
+.import opt_drinkpick
+
+    ;  Which row, and is there one of it?  Vanilla's two rows, or SOFT's third
+    ;  and an empty fourth for SOFT in battle; DRINK_SEL and DRINK_ID ($6B7D
+    ;  and $6856) as vanilla set them.  The rest is padding, never reached.
+  : JSL opt_drinkpick + OPTFAR  ; C set: nothing there
+    BCC @GetTarget
+    JSR DoNothingMessageBox     ; show the "nothing" box and cancel
+    JMP CancelBattleAction
+    .res 33, $EA
