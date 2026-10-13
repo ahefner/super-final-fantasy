@@ -123,6 +123,10 @@ belongs to the New Game flow, which needs more thought first.
     byte.  Bank `$0E`'s call site went from 16 bytes to 12 and four NOPs.
   - Nothing on the title screen says Select does anything.  A hint belongs
     with the New Game and Continue rethink.
+  - The hand sits 12 pixels further right than on the settings screen
+    (`VIEW_HAND_DX`; user, 2026-10-13, played).  A save view row is a value
+    row with nothing in the checkbox column the hand normally points at, so
+    at the settings screen's x it stood two tiles off its label.
 
 ### Tiles and palette
 

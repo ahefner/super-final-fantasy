@@ -6880,6 +6880,9 @@ def test_saveview():
     check("...the window: the section, from the blank above its heading",
           (bus.wram[TOP], bus.wram[SEL]), (top, first))
     check("...the heading", screen(bus, head), "SAVED GAME")
+    #  The hand: twelve pixels nearer its row than on the settings screen,
+    #  since a save view row has no checkbox for it to point at (user).
+    check("...the hand, nearer its label", (bus.wram[0x203], bus.wram[0x20B]), (12, 20))
     check("...the seed", screen(bus, head + 1), "Seed 0BADF00D")
     want = [" ".join((label(i) + " " + readout(rows[i][1], NG[i - first])).split())
             for i in range(first, COUNT)]

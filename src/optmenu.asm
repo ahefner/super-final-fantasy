@@ -87,6 +87,7 @@ NT_BOXBODY     = $FF
 OPTMENU_SEL    = $6E            ; which list row the cursor is on
 OPTMENU_TOP    = $6F            ; which list row is drawn at the top
 OPTMENU_ROWPTR = $70            ; 2 bytes: into lut_OptRows
+VIEW_HAND_DX   = 12             ; the save view's hand, this much nearer its row
 OPTMENU_ROWNUM = $72            ; which on-screen row is being drawn
 OPTMENU_ADDR   = $73            ; 2 bytes: nametable address being built
 OPTMENU_SCAN   = $75            ; row index while walking a section
@@ -942,7 +943,13 @@ opt_menu_cursor:
     ADC #(OPTLIST_TOP * 8) - 1
     STA spr_y
     LDA #(OPTLIST_COL * 8) - 16
-    STA spr_x
+    LDX OPTMENU_VIEW
+    BEQ :+
+    ;  The save view's rows are all value rows: nothing in the checkbox
+    ;  column the hand points at on the settings screen, so the hand stood
+    ;  two tiles off its label.  Twelve pixels nearer (user, 2026-10-13).
+    LDA #(OPTLIST_COL * 8) - 16 + VIEW_HAND_DX
+:   STA spr_x
     JMP DrawCursor
 
 
