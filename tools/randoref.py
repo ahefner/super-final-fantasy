@@ -50,6 +50,7 @@ STREAM_BSCRIPTS = 0x42534352    # "BSCR"
 STREAM_SKILLS = 0x534B494C      # "SKIL"
 STREAM_BSKILLS = 0x42534B4C     # "BSKL"
 STREAM_RNG = 0x524E4754         # "RNGT"
+STREAM_ORDEALS = 0x4F52444C     # "ORDL"
 WARMUP = 8
 
 
@@ -652,6 +653,111 @@ def build_rng(seed, rng_mode):
     return bytes(enc), bytes(bat)
 
 
+# --- the Castle of Ordeals' pillars --------------------------------------------
+#  FFR's ShuffleOrdeals (StandardMaps/ShuffleOrdeals.cs).  Castle of Ordeals
+#  2F is a maze of teleporting pillars, fifteen pads, and a pad's tile is its
+#  destination: tiles $4C-$54 land in one room each, $55 leads on to the
+#  stairs.  The rooms are shuffled into a chain from the start room to the
+#  way out, one pad of each leading to the next; every other pad leads back
+#  to the same room or an earlier one, except that the four-pad room sends
+#  one of its three spare pads anywhere but onward.  Every room is on the
+#  chain, so the maze always has a way through.
+#
+#  The pads, in FFR's order: the start room's, then the eight rooms' --
+#  (x, y) on the map.  Each room: the tile that lands in it, and its pads as
+#  indices into ORDEALS_PADS.  Room 8, entered by tile $54, cannot be reached
+#  in vanilla; FFR moves teleport $3C's landing to (16, 18), inside it.
+ORDEALS_PADS = [(0x10, 0x0F),
+                (0x0F, 0x09),
+                (0x08, 0x08), (0x08, 0x0A),
+                (0x09, 0x0F),
+                (0x04, 0x14), (0x04, 0x16),
+                (0x04, 0x12),
+                (0x01, 0x01), (0x03, 0x02),
+                (0x06, 0x08), (0x14, 0x0B), (0x14, 0x0D), (0x12, 0x10),
+                (0x08, 0x12)]
+ORDEALS_ROOMS = [(0x4E, [0]),                   # the start room, never moved
+                 (0x4C, [1]), (0x4D, [2, 3]), (0x4F, [4]), (0x50, [5, 6]),
+                 (0x51, [7]), (0x52, [8, 9]), (0x53, [10, 11, 12, 13]),
+                 (0x54, [14])]
+ORDEALS_EXIT = 0x55
+ORDEALS_MODES = 2           # Off, Shuffle
+ORDEALS_LOST_TELE = 0x3C    # tile $54's teleport...
+ORDEALS_LOST_TO = (0x10, 0x12)   # ...and where FFR has it land
+
+
+def ordeals_text(pads):
+    """Each pad's destination, room by room, and the shortest way through.
+    A room is named by the tile that lands in it, as FFR names them."""
+    land = {tile: r for r, (tile, _) in enumerate(ORDEALS_ROOMS)}
+    name = lambda r: "start" if r == 0 else "room %02X" % ORDEALS_ROOMS[r][0]
+    def dest(p):
+        return None if pads[p] == ORDEALS_EXIT else land[pads[p]]
+    lines = ["  Ordeals 2F pillars:"]
+    for r, (_, ps) in enumerate(ORDEALS_ROOMS):
+        lines.append("    %-8s " % name(r) + ", ".join(
+            "(%d,%d) -> %s" % (ORDEALS_PADS[p][0], ORDEALS_PADS[p][1],
+                               "the way on" if dest(p) is None else name(dest(p))) for p in ps))
+    prev, todo = {0: None}, [0]
+    while todo:                         # breadth first, for the shortest way
+        r = todo.pop(0)
+        for p in ORDEALS_ROOMS[r][1]:
+            d = dest(p)
+            if d is None:
+                way = [p]
+                while prev[r] is not None:
+                    r, q = prev[r]
+                    way.append(q)
+                lines.append("    way through: " + " -> ".join(
+                    "(%d,%d)" % ORDEALS_PADS[q] for q in reversed(way)))
+                return "\n".join(lines)
+            if d not in prev:
+                prev[d] = (r, p)
+                todo.append(d)
+    lines.append("    no way through")
+    return "\n".join(lines)
+
+
+def build_ordeals(seed, mode):
+    """The fifteen pads' tiles, in ORDEALS_PADS order, or None if off."""
+    if not 0 < mode < ORDEALS_MODES:
+        return None
+    rng = Stream(seed, STREAM_ORDEALS)
+    #  The eight rooms, shuffled until the four-pad room is not first.
+    while True:
+        order = list(range(1, 9))
+        _fisher_yates(order, rng)
+        if len(ORDEALS_ROOMS[order[0]][1]) != 4:
+            break
+    seq = [0] + order
+    tiles = [None] * len(ORDEALS_PADS)
+    left = [list(ORDEALS_ROOMS[r][1]) for r in seq]
+    #  The chain: a pad of each room to the next, the last one out.
+    for i in range(len(seq)):
+        k = rng.below(len(left[i]))
+        pad = left[i].pop(k)
+        tiles[pad] = ORDEALS_ROOMS[seq[i + 1]][0] if i + 1 < len(seq) else ORDEALS_EXIT
+    #  The rest: back to this room or an earlier one -- and for the four-pad
+    #  room, two different ways back and one anywhere but onward.
+    for i in range(len(seq)):
+        if len(left[i]) == 1:
+            tiles[left[i][0]] = ORDEALS_ROOMS[seq[rng.below(i + 1)]][0]
+        elif len(left[i]) == 3:
+            pads = left[i]
+            _fisher_yates(pads, rng)
+            back = rng.below(i + 1)
+            other = back
+            while other == back:
+                other = rng.below(i + 1)
+            anywhere = back
+            while anywhere in (back, other, i + 1):
+                anywhere = rng.below(len(seq))
+            tiles[pads[0]] = ORDEALS_ROOMS[seq[back]][0]
+            tiles[pads[1]] = ORDEALS_ROOMS[seq[other]][0]
+            tiles[pads[2]] = ORDEALS_ROOMS[seq[anywhere]][0]
+    return bytes(tiles)
+
+
 def zone_name(z):
     if z < 64:
         return "overworld %d,%d" % (z % 8, z // 8)
@@ -816,7 +922,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 18
+RANDO_SAVE_SIZE = 19
 
 
 def block_from_srm(srm):
@@ -849,6 +955,8 @@ def main():
                     help="enemy skills: what the scripts hold")
     ap.add_argument("--rng", choices=sorted(RNG_NAMES), default="off",
                     help="RNG tables: the encounter and battle tables")
+    ap.add_argument("--ordeals", choices=["off", "shuffle"], default="off",
+                    help="Ordeals pillars: the Castle of Ordeals 2F maze")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
     ap.add_argument("--rom", default=ROM)
@@ -856,22 +964,25 @@ def main():
     rom = open(a.rom, "rb").read()
     if a.srm:
         (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
-         surprise, status, scripts, skills, rngt) = block_from_srm(open(a.srm, "rb").read())
+         surprise, status, scripts, skills, rngt, ordeals) = block_from_srm(open(a.srm, "rb").read())
     elif a.seed:
         (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
-         surprise, status, scripts, skills, rngt) = (
+         surprise, status, scripts, skills, rngt, ordeals) = (
             int(a.seed, 16), TRAP_NAMES[a.traps], SHOP_NAMES[a.shops],
             CHEST_NAMES[a.chests], MAGIC_NAMES[a.magic], a.bless, a.curse,
             FORMS_NAMES[a.rarity], ZONES_NAMES[a.zones], RUNS_NAMES[a.runs],
             SURPRISE_NAMES[a.surprise], STATUS_NAMES[a.status], AI_NAMES[a.scripts],
-            AI_NAMES[a.skills], RNG_NAMES[a.rng])
+            AI_NAMES[a.skills], RNG_NAMES[a.rng], int(a.ordeals == "shuffle"))
     else:
         ap.error("give a battery file or --seed")
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
           " blessing +%d, curse -%d, formation rarity %d, zones %d, unrunnable %d,"
-          " surprise %d, status %d, scripts %d, skills %d, RNG tables %d"
+          " surprise %d, status %d, scripts %d, skills %d, RNG tables %d, Ordeals %d"
           % (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
-             surprise, status, scripts, skills, rngt))
+             surprise, status, scripts, skills, rngt, ordeals))
+    pads = build_ordeals(seed, ordeals)
+    if pads and not a.find:
+        print(ordeals_text(pads))
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:

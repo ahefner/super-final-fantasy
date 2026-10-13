@@ -74,6 +74,7 @@
 .import lut_MagicBattleMessages
 .import lut_LvlUpHitRateBonus
 .import lut_DrinkCursorPos, lut_CombatDrinkBox
+.import rando_mapedits
 .import opt_spelloverride
 .import lut_WaitString
 .import lut_CantHoldWhat
@@ -2584,6 +2585,7 @@ opt_turnsecond:
 ;;      height, then the tiles, row by row
 ;;  ended by $FF.  A rectangle applies when its flag is on and the map is the
 ;;  current one.  The coordinates are FFR's, from StandardMaps/SMUpdates.cs.
+;;  The randomizer's edits, which depend on the seed, follow: rando_mapedits.
 ;;  tmp to tmp+3 are LoadStandardMap's scratch, finished with by now.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -2658,7 +2660,8 @@ opt_mapedits:
     BNE @skiprow
     BRA @record
   @done:
-    RTL
+    ;  ...then the randomizer's: the Ordeals pillars, which a seed deals.
+    JML rando_mapedits + RANDOFAR
 
 MAPEDIT_HEAD = 7
 lut_MapEdits:

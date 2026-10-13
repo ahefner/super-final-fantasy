@@ -6394,6 +6394,132 @@ def test_rando_rng():
     check("three seeds, three shuffles", len(seen), 3)
 
 
+# --- Ordeals pillars --------------------------------------------------------
+#  FFR's ShuffleOrdeals.  Castle of Ordeals 2F's fifteen pillar pads are
+#  dealt tiles -- a pad's tile is where it leads -- from the seed, into the
+#  cache, and written over the map as it loads; and teleport $3C, tile $54's,
+#  lands where FFR moves it.  The pads, rooms and landing are FFR's, in
+#  randoref.py; the checks below hold them to this ROM as well.
+def _ordeals_solvable(tiles):
+    land = {tile: r for r, (tile, _) in enumerate(R.ORDEALS_ROOMS)}
+    seen, todo, out = {0}, [0], False
+    while todo:
+        r = todo.pop()
+        for p in R.ORDEALS_ROOMS[r][1]:
+            if tiles[p] == R.ORDEALS_EXIT:
+                out = True
+            elif tiles[p] not in land:
+                return False, 0                 # not a pad tile at all
+            elif land[tiles[p]] not in seen:
+                seen.add(land[tiles[p]])
+                todo.append(land[tiles[p]])
+    return out, len(seen)
+
+
+def test_rando_ordeals():
+    W = rw("RW_ORDPADS")
+    O2F = K["MAP_ORDEALS2F"]
+    base = (0xA1 & 0x1F) * 0x10000
+    def prop(tileset, tile):
+        o = base + 0x8800 + tileset * 256 + (tile & 0x7F) * 2
+        return ROMDATA[o], ROMDATA[o + 1]
+    def tele(i):
+        return tuple(ROMDATA[base + a + i] for a in (0xAD00, 0xAD40, 0xAD80))
+
+    #  FFR's data against this ROM: the pad tiles are normal teleports into
+    #  2F; $55 is the way on; tile $54's is teleport $3C, landing at (14, 20)
+    #  until FFR moves it.
+    ts = ROMDATA[base + 0xACC0 + O2F]
+    kinds = {t: prop(ts, t) for t in range(0x4C, 0x56)}
+    check("every pad tile is a normal teleport", {k: v[0] for k, v in kinds.items()},
+          {t: 0x80 for t in range(0x4C, 0x56)})
+    check("...into 2F", {tele(v[1])[2] for v in kinds.values()}, {O2F})
+    check("tile $54 is teleport $3C, landing at (14, 20)",
+          (kinds[0x54][1], tele(0x3C)[:2]), (R.ORDEALS_LOST_TELE, (14, 20)))
+
+    def setordeals(bus, seed, mode):
+        setsave(bus, seed, 0)
+        bus.sram[K["RANDO_ORDEALS"] - 0x6000] = mode
+
+    #  The deal: the reference's, byte for byte, and always a way through
+    #  every room.
+    wrong, stuck = [], []
+    for seed in list(range(1, 40)) + [0x0BADF00D, 0xFFFFFFFF, 0x4F52444C]:
+        bus, cpu = machine()
+        setordeals(bus, seed, 1)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        got = bytes(bus.wram[W:W + 15])
+        if got != R.build_ordeals(seed, 1):
+            wrong.append(seed)
+        if _ordeals_solvable(got) != (True, 9):
+            stuck.append(seed)
+    check("the deal is the reference's", wrong, [])
+    check("...and every room is on a way through", stuck, [])
+    check("the reference's own, two thousand seeds",
+          [s for s in range(2000) if _ordeals_solvable(R.build_ordeals(s, 1)) != (True, 9)], [])
+
+    #  The real load of 2F: with the shuffle on, the pads and nothing else
+    #  differ from the map as it ships, and they hold the deal.
+    def load(seed, mode):
+        bus, cpu = machine()
+        setordeals(bus, seed, mode)
+        bus.wram[0x48] = O2F                    # cur_map
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return bytes(bus.sram[0x1000:0x2000]), bytes(bus.wram[W:W + 15])
+    plain, _ = load(5, 0)
+    check("off: the pads as they ship", [plain[y * 64 + x] for x, y in R.ORDEALS_PADS],
+          [0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x4F, 0x51, 0x52, 0x4D, 0x53, 0x4C, 0x50, 0x4C, 0x55, 0x54])
+    check("an unknown mode: as off", load(5, 2)[0], plain)
+    dealt, cache = load(5, 1)
+    diff = {(i % 64, i // 64): dealt[i] for i in range(0x1000) if dealt[i] != plain[i]}
+    want = {xy: cache[k] for k, xy in enumerate(R.ORDEALS_PADS) if cache[k] != plain[xy[1] * 64 + xy[0]]}
+    check("on: only the pads change, to the deal", diff, want)
+    check("...which does rewire them", len(want) >= 5, True)
+    def other(mode):
+        bus, cpu = machine()
+        setordeals(bus, 5, mode)
+        bus.wram[0x48] = K["MAP_LEFEIN"]
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return bytes(bus.sram[0x1000:0x2000])
+    check("another map, shuffle on: untouched", other(1), other(0))
+
+    #  The lost teleport: FFR's landing with the shuffle on, the table's off,
+    #  and no other teleport touched.  X comes back for the map's lookup.
+    def dest(mode, t):
+        bus, cpu = machine()
+        bus.sram[K["RANDO_ORDEALS"] - 0x6000] = mode
+        cpu.x = t
+        call(cpu, "rando_teledest", bank=RANDO_BANK)
+        return bus.wram[0x29], bus.wram[0x2A], cpu.x
+    lost = R.ORDEALS_LOST_TELE
+    check("teleport $3C, on: FFR's (16, 18)", dest(1, lost), (16 - 7, 18 - 7, lost))
+    check("teleport $3C, off: the table's (14, 20)", dest(0, lost), (14 - 7, 20 - 7, lost))
+    for i in (0x00, 0x1A, 0x3B, 0x3D):
+        x, y, _ = tele(i)
+        check("teleport $%02X, on: the table's" % i, dest(1, i), ((x - 7) & 0x3F, (y - 7) & 0x3F, i))
+
+    #  The reference reads a battery file's world from the save block, so
+    #  its idea of the block's size has to be the build's.
+    check("randoref's save block is the build's size",
+          R.RANDO_SAVE_SIZE, K["RANDO_SAVE_SIZE"])
+    srm = bytearray(0x8000)
+    at = R.SRAM_SAVE - 0x6000 + (K["RANDO_SAVE"] - 0x6000)
+    srm[at:at + 4] = (0x0BADF00D).to_bytes(4, "little")
+    srm[at + (K["RANDO_ORDEALS"] - K["RANDO_SAVE"])] = 1
+    block = R.block_from_srm(bytes(srm))
+    check("...and reads Ordeals pillars from a battery file", (block[0], block[-1]), (0x0BADF00D, 1))
+    check("...whose spoiler finds the way through",
+          "way through" in R.ordeals_text(R.build_ordeals(0x0BADF00D, 1)), True)
+
+    #  The wiring.
+    tgt = SYM["rando_teledest"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, RANDO_BANK])
+    fixed = ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:][:0x4000]
+    check("@NormalTeleport calls rando_teledest, once", fixed.count(jsl), 1)
+
+
 def test_rando_rngload():
     """The three readers, in place, with the tables shuffled: BattleStepRNG
     for every battlestep both ways, against the cartridge's own stepping;
@@ -6709,7 +6835,7 @@ def test_saveview():
     bus, cpu = machine()
     call(cpu, "opt_savevalid")
     check("no save: not valid", cpu.p & C, C)
-    saved(bus, cpu, 1, [0] * 14)
+    saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
     call(cpu, "opt_savevalid")
     check("a save SaveGame made: valid", cpu.p & C, 0)
     bus.sram[0x450] ^= 1
@@ -6741,7 +6867,7 @@ def test_saveview():
 
     #  --- the view itself.  Every row a value other than its first, and none
     #  what the settings hold, so a readout from the wrong place shows.
-    NG = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1]
+    NG = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1, 1]  # ...Ordeals pillars last
     check("one saved value per row", len(NG), COUNT - first)
     bus, cpu = machine()
     in_vblank(bus)
@@ -6825,7 +6951,7 @@ def test_saveview():
         bus, cpu = machine()
         bus.rom = stubbed
         if save:
-            saved(bus, cpu, 1, [0] * 14)
+            saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
         bus.wram[K["cursor"]] = cur
         for b, name in ((A_, "joy_a"), (START, "joy_start"), (SELECT, "joy_select")):
             bus.wram[K[name]] = 1 if buttons & b else 0
@@ -7388,7 +7514,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

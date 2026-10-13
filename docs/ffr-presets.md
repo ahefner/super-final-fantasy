@@ -133,7 +133,8 @@ Beginner, Classic, ES, EFS, CR and FE.
       - The Gaia shortcut, and the item shop moved beside it.
       - The Lefein shortcut.
       - The ToFR exit portal.
-      - The Ordeals pillars.
+      - The Ordeals pillars.  *Played 2026-10-13:* a RANDOMIZATION row; the first randomization to edit a map and move a
+        teleport.
 
 ### 3.2 Cheap
 

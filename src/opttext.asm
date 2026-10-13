@@ -708,6 +708,24 @@ lut_Desc_60_3:  ; Enemy skills: Both
   FFPAD {"the last bosses.  Never two"}, 28
   FFPAD {"NUKEs or NUCLEARs in a row."}, 28
 
+lut_Desc_71:  ; Ordeals pillars, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_71_0, lut_Desc_71_1
+  .assert * - lut_Desc_71 = 1 + 2 * ORDEALS_MODES, error, "one Ordeals description per mode"
+
+lut_Desc_71_0:  ; Ordeals pillars: Off
+  FFLINES 3
+  FFPAD {"The pillars in the Castle of"}, 28
+  FFPAD {"Ordeals lead where they"}, 28
+  FFPAD {"always do."}, 28
+
+lut_Desc_71_1:  ; Ordeals pillars: Shuffle
+  FFLINES 4
+  FFPAD {"The teleporting pillars in"}, 28
+  FFPAD {"the Castle of Ordeals go to"}, 28
+  FFPAD {"new places.  There is always"}, 28
+  FFPAD {"a way through."}, 28
+
 lut_Desc_61:  ; RNG tables, by value
   .BYTE DESC_BYVALUE
   .WORD lut_Desc_61_0, lut_Desc_61_1
@@ -749,7 +767,7 @@ lut_DescLo:
   .BYTE <lut_Desc_43, <lut_Desc_44, <lut_Desc_62, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
   .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
   .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56, <lut_Desc_57
-  .BYTE <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61
+  .BYTE <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -767,6 +785,6 @@ lut_DescHi:
   .BYTE >lut_Desc_43, >lut_Desc_44, >lut_Desc_62, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
   .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
   .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56, >lut_Desc_57
-  .BYTE >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61
+  .BYTE >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

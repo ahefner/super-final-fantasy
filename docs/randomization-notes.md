@@ -1231,7 +1231,10 @@ endpoints" holds for reachability and for nothing else.  The rest:
         entrances are both shuffled: the holes always drop into the Ice
         Cave and run on to its own exit
       - the Castle of Ordeals: ten teleports into its own 2F (the maze), and
-        an exit rather than a warp
+        an exit rather than a warp.  The maze itself is shuffled by its own
+        row, Ordeals pillars (played 2026-10-13; `options-design.md`), which
+        deals pad tiles over 2F and moves teleport $3C as FFR does --
+        nothing a floor shuffle deals
     **Invariant for the cart's shuffle: a dealt destination lands on a warp;
     anything that does not is pinned, with its group.**  Checked per seed,
     not assumed.

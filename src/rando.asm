@@ -47,7 +47,7 @@
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
-.export rando_steprng
+.export rando_steprng, rando_mapedits, rando_teledest
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs
 
@@ -212,6 +212,7 @@ STREAM_BSCRIPTS = $42534352     ; "BSCR"
 STREAM_SKILLS   = $534B494C     ; "SKIL"
 STREAM_BSKILLS  = $42534B4C     ; "BSKL"
 STREAM_RNG      = $524E4754     ; "RNGT"
+STREAM_ORDEALS  = $4F52444C     ; "ORDL"
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -763,12 +764,384 @@ build:
   @rng:
     JSR copy_rng
     LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
-    BEQ @done                   ; RNG_OFF
+    BEQ @ordeals                ; RNG_OFF
     CMP #RNG_MODES
-    BCS @done
+    BCS @ordeals
     JSR deal_rng
+  @ordeals:
+    LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
+    BEQ @done                   ; ORDEALS_OFF
+    CMP #ORDEALS_MODES
+    BCS @done
+    JSR deal_ordeals
   @done:
     PLP
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_ordeals -- the Castle of Ordeals' pillars
+;;
+;;  FFR's ShuffleOrdeals (StandardMaps/ShuffleOrdeals.cs), as randoref.py's
+;;  build_ordeals, draw for draw.  The eight rooms are shuffled until the
+;;  four-pad room is not first, and follow the start room in a chain: one pad
+;;  of each room, picked at random, leads to the next, the last one's out.
+;;  Every other pad leads back to the same room or an earlier one, except in
+;;  the four-pad room, whose three spare pads -- shuffled -- go back two
+;;  different ways and one anywhere but onward.  Every room is on the chain,
+;;  so there is always a way through.
+;;
+;;  In: A8, I16, DBR = $7F.  Out: RW_ORDPADS, the pads' tiles in lut_OrdPad
+;;  order; A8, I16.  The working lists are in RW_LIST, free between deals.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+wORD    = .LOWORD(RW_ORDPADS)
+wOSEQ   = wLIST                 ; the chain, room ids by position, 9
+wOLEFT  = wLIST + $10           ; pads left in each position's room, 9
+wOPADS  = wLIST + $20           ; ...which, four slots a position, 36
+wOI     = wLIST + $50           ; the position being worked on
+wOK     = wLIST + $51           ; a pick, or a count down
+wOCNT   = wLIST + $52           ; a room's pad count
+wOFIRST = wLIST + $53           ; ...and its first pad
+wOEND   = wLIST + $54           ; one past a position's last live slot
+wOPAD   = wLIST + $55           ; the pad the chain takes
+wOBASE  = wLIST + $56           ; a position's first slot
+wOBACK  = wLIST + $57           ; the four-pad room's three destinations
+wOOTHER = wLIST + $58
+wOANY   = wLIST + $59
+
+deal_ordeals:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_ORDEALS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_ORDEALS)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$30                    ; eight-bit indices: everything here is small,
+    .a8                         ;   and TAY then carries no stray high byte
+    .i8
+
+    ;  The eight rooms, shuffled afresh until the four-pad room is not first.
+  @shuffle:
+    STZ a:wOSEQ                 ; position 0: the start room
+    LDX #$01
+  @fill:
+    TXA
+    STA a:wOSEQ, X
+    INX
+    CPX #ORD_ROOMS
+    BCC @fill
+    LDX #$07                    ; Fisher-Yates over positions 1-8
+  @fy:
+    TXA
+    INC A
+    JSR rando_below             ; j <= i
+    TAY
+    LDA a:wOSEQ + 1, X
+    PHA
+    LDA a:wOSEQ + 1, Y
+    STA a:wOSEQ + 1, X
+    PLA
+    STA a:wOSEQ + 1, Y
+    DEX
+    BNE @fy
+    LDX a:wOSEQ + 1
+    LDA f:RANDOFAR + lut_OrdRoomCount, X
+    CMP #$04
+    BEQ @shuffle
+
+    ;  Each position's pads, in its room's order.
+    LDX #$00
+  @lists:
+    STX a:wOI
+    LDA a:wOSEQ, X
+    TAX
+    LDA f:RANDOFAR + lut_OrdRoomCount, X
+    STA a:wOCNT
+    LDA f:RANDOFAR + lut_OrdRoomFirst, X
+    STA a:wOFIRST
+    LDX a:wOI
+    LDA a:wOCNT
+    STA a:wOLEFT, X
+    TXA
+    ASL A
+    ASL A
+    TAY
+    LDX #$00
+  @pads:
+    TXA
+    CLC
+    ADC a:wOFIRST
+    STA a:wOPADS, Y
+    INY
+    INX
+    CPX a:wOCNT
+    BCC @pads
+    LDX a:wOI
+    INX
+    CPX #ORD_ROOMS
+    BCC @lists
+
+    ;  The chain: a pad of each position, taken out of its list as Python's
+    ;  pop() takes it, to the next room, or out.
+    LDX #$00
+  @chain:
+    STX a:wOI
+    TXA
+    ASL A
+    ASL A
+    CLC
+    ADC a:wOLEFT, X
+    STA a:wOEND
+    LDA a:wOLEFT, X
+    JSR rando_below             ; which of the pads left
+    STA a:wOK
+    LDA a:wOI
+    ASL A
+    ASL A
+    CLC
+    ADC a:wOK
+    TAY
+    LDA a:wOPADS, Y
+    STA a:wOPAD
+  @shift:
+    INY
+    CPY a:wOEND
+    BCS @shifted
+    LDA a:wOPADS, Y
+    STA a:wOPADS - 1, Y
+    BRA @shift
+  @shifted:
+    LDX a:wOI
+    DEC a:wOLEFT, X
+    CPX #ORD_ROOMS - 1
+    BCS @out
+    LDA a:wOSEQ + 1, X
+    TAX
+    LDA f:RANDOFAR + lut_OrdRoomTile, X
+    BRA @put
+  @out:
+    LDA #ORD_EXIT
+  @put:
+    LDX a:wOPAD
+    STA a:wORD, X
+    LDX a:wOI
+    INX
+    CPX #ORD_ROOMS
+    BCC @chain
+
+    ;  The rest.
+    LDX #$00
+  @rest:
+    STX a:wOI
+    TXA
+    ASL A
+    ASL A
+    STA a:wOBASE
+    LDA a:wOLEFT, X
+    CMP #$01
+    BEQ @one
+    CMP #$03
+    BEQ @three
+    JMP @next
+  @one:
+    TXA
+    INC A
+    JSR rando_below             ; back to this room or an earlier one
+    LDY a:wOBASE
+    JSR ord_put
+    JMP @next
+  @three:
+    LDA #$02                    ; its three spare pads, shuffled
+    STA a:wOK
+  @fy3:
+    LDA a:wOK
+    INC A
+    JSR rando_below
+    CLC
+    ADC a:wOBASE
+    TAY
+    LDA a:wOK
+    CLC
+    ADC a:wOBASE
+    TAX
+    LDA a:wOPADS, X
+    PHA
+    LDA a:wOPADS, Y
+    STA a:wOPADS, X
+    PLA
+    STA a:wOPADS, Y
+    DEC a:wOK
+    BNE @fy3
+  @back:
+    LDA a:wOI
+    INC A
+    JSR rando_below
+    STA a:wOBACK
+  @other:
+    LDA a:wOI
+    INC A
+    JSR rando_below
+    CMP a:wOBACK
+    BEQ @other
+    STA a:wOOTHER
+  @any:                         ; anywhere but those two, or onward
+    LDA #ORD_ROOMS
+    JSR rando_below
+    STA a:wOANY
+    CMP a:wOBACK
+    BEQ @any
+    CMP a:wOOTHER
+    BEQ @any
+    DEC A
+    CMP a:wOI
+    BEQ @any
+    LDA a:wOBACK
+    LDY a:wOBASE
+    JSR ord_put
+    LDA a:wOOTHER
+    LDY a:wOBASE
+    INY
+    JSR ord_put
+    LDA a:wOANY
+    LDY a:wOBASE
+    INY
+    INY
+    JSR ord_put
+  @next:
+    LDX a:wOI
+    INX
+    CPX #ORD_ROOMS
+    BCS @dealt
+    JMP @rest
+  @dealt:
+    REP #$10
+    .i16
+    RTS
+
+;;  The pad in slot Y of wOPADS leads to the room at chain position A.
+;;  In: A8, I8.
+ord_put:
+    .a8
+    .i8
+    TAX
+    LDA a:wOSEQ, X
+    TAX
+    LDA f:RANDOFAR + lut_OrdRoomTile, X
+    PHA
+    LDA a:wOPADS, Y
+    TAX
+    PLA
+    STA a:wORD, X
+    RTS
+
+;;  The pads, in FFR's order: the start room's, then the rooms' (x, y on
+;;  Castle of Ordeals 2F).  The rooms: the start room's index is 0, and each
+;;  room has the tile that lands in it, its first pad, and how many.
+lut_OrdPadX:      .BYTE $10, $0F, $08, $08, $09, $04, $04, $04, $01, $03, $06, $14, $14, $12, $08
+lut_OrdPadY:      .BYTE $0F, $09, $08, $0A, $0F, $14, $16, $12, $01, $02, $08, $0B, $0D, $10, $12
+lut_OrdRoomTile:  .BYTE $4E, $4C, $4D, $4F, $50, $51, $52, $53, $54
+lut_OrdRoomFirst: .BYTE 0,   1,   2,   4,   5,   7,   8,   10,  14
+lut_OrdRoomCount: .BYTE 1,   1,   2,   1,   2,   1,   2,   4,   1
+.assert * - lut_OrdRoomCount = ORD_ROOMS, error, "one count per room"
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_mapedits -- the dealt pads, written over Castle of Ordeals 2F
+;;
+;;  From opt_mapedits, which LoadStandardMapAndObjects calls once the map is
+;;  decompressed into mapdata.  Emulation mode in and out.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_mapedits:
+    .a8
+    .i8
+    LDA cur_map
+    CMP #MAP_ORDEALS2F
+    BNE @none
+    LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
+    BEQ @none
+    CMP #ORDEALS_MODES
+    BCS @none
+    PHB
+    JSR enter
+    JSR ensure
+    REP #$10
+    .i16
+    LDY #ORD_PADS - 1
+  @pad:
+    TYX
+    REP #$20
+    .a16
+    LDA f:RANDOFAR + lut_OrdPadY, X
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    STA a:wT
+    LDA f:RANDOFAR + lut_OrdPadX, X
+    AND #$00FF
+    CLC
+    ADC a:wT
+    TAX                         ; the pad's offset in the map
+    SEP #$20
+    .a8
+    LDA a:wORD, Y
+    STA f:SRAMFAR + mapdata, X
+    DEY
+    BPL @pad
+    JMP leave
+  @none:
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_teledest -- where a normal teleport lands
+;;
+;;  From @NormalTeleport in the fixed bank, which read lut_NormTele_X and _Y
+;;  itself until the Ordeals pillars needed one of them moved: with the shuffle
+;;  on, teleport $3C, tile $54's, lands at FFR's (16, 18) rather than (14, 20).
+;;
+;;  In: X = the teleport.  Out: sm_scroll_x and _y, each the landing less 7
+;;  and wrapped, as the code this replaced made them; X kept.  Emulation mode.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_teledest:
+    .a8
+    .i8
+    CPX #ORD_LOST_TELE
+    BNE @table
+    LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
+    BEQ @table
+    CMP #ORDEALS_MODES
+    BCS @table
+    LDA #ORD_LOST_X
+    JSR @scroll
+    STA sm_scroll_x
+    LDA #ORD_LOST_Y
+    JSR @scroll
+    STA sm_scroll_y
+    RTL
+  @table:
+    LDA f:BANK00FAR + lut_NormTele_X, X
+    JSR @scroll
+    STA sm_scroll_x
+    LDA f:BANK00FAR + lut_NormTele_Y, X
+    JSR @scroll
+    STA sm_scroll_y
+    RTL
+  @scroll:
+    SEC
+    SBC #7
+    AND #$3F
     RTS
 
 

@@ -715,6 +715,28 @@ ROM table.  **Declined (user, 2026-10-09):** Fix Missing Battle RNG Entry,
 Set RNG (identical battles for racers) and Advanced Encounter RNG.  Played
 2026-10-09, in the same playthrough.
 
+Ordeals pillars, a value row: Off, Shuffle -- FFR's `OrdealsPillars`
+(2026-10-13; played the same day, off and several runs on), in every FFR
+preset but Improved Vanilla.  Castle of Ordeals 2F is a maze of teleporting pillars, fifteen pads,
+and a pad's tile is its destination: $4C-$54 land in one room each, and $55
+leads on to the stairs.  `deal_ordeals` is FFR's `ShuffleOrdeals` draw for
+draw with `randoref.build_ordeals`: the eight rooms shuffled until the
+four-pad room is not first, chained from the start room by one random pad
+each, the last one out; every other pad back to the same room or an earlier
+one, except that the four-pad room's three spare pads, shuffled, go back two
+different ways and one anywhere but onward.  Every room is on the chain, so
+there is always a way through -- `test_rando_ordeals` checks every room is
+reached and the way out found for the cart's deals, and for two thousand of
+the reference's.  The fifteen tiles go to the cache (`RW_ORDPADS`), and
+`rando_mapedits`, which `opt_mapedits` hands on to, writes them over 2F as
+it loads.  FFR also moves teleport $3C, tile $54's, to land at (16, 18), in
+the room vanilla never reaches, so that room can join the chain: the fixed
+bank's `@NormalTeleport` now asks `rando_teledest` for the landing rather than
+reading `lut_NormTele_X` and `_Y` itself, which is also where a floor shuffle
+would route teleports through the cache.  The room table and pads are FFR's,
+held to this ROM by the test.  When incentive placement comes, its logic has
+to see 2F through the deal.
+
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
 `rando_newgame` copies them into the save, beside a seed, when the game
@@ -1747,8 +1769,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   149 free    the scarce one; stamped into every chunk.  7
-                             declared, and 142 at the end: the randomizer's
+    BANK_FIXED   165 free    the scarce one; stamped into every chunk.  7
+                             declared, and 158 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1757,7 +1779,8 @@ text region in the game references.
                              battle CHR loader), @Begin's mute 9, and the
                              stack fix's JSL 4; SOFT in battle's loop in
                              DrawDrinkBox gave back 89; the map-edit hook
-                             took 4
+                             took 4; the teleport landing, now asked of
+                             rando_teledest, gave back 16
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1771,15 +1794,16 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2279 free   once the descriptions moved out, the None, the
+    BANK_OPT    2239 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
                              Vanilla's four small rules (247), and the
-                             Lefein map edits (288)
+                             Lefein map edits (288), and the Ordeals
+                             pillars' row and hand-on (40)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO  13810 free  the randomizer
+    BANK_RANDO  10309 free  the randomizer; the Ordeals pillars took 622
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

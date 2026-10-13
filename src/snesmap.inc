@@ -307,6 +307,23 @@ ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 ;  Lake's Inn and Clinic doors on two of Lefein's houses, and Add Lefein
 ;  SuperStore, its magic shop widened to the doors of every town's white and
 ;  black magic shops but Gaia's.  Bits 41 and 42.
+;  Ordeals pillars, FFR's OrdealsPillars: a RANDOMIZATION row, dealt from the
+;  seed (rando.asm, deal_ordeals) and written over Castle of Ordeals 2F as it
+;  loads.  Each pillar pad's tile is its destination -- $4C-$54 land in one
+;  room each, $55 leads on -- so dealing tiles to the fifteen pads rewires the
+;  maze.  FFR also moves teleport $3C, tile $54's, to land in the room that
+;  vanilla never reaches, so that room can join the chain.
+ORDEALS_OFF     = 0
+ORDEALS_SHUFFLE = 1
+ORDEALS_MODES   = 2
+MAP_ORDEALS2F   = 25
+ORD_ROOMS       = 9             ; the start room and the eight it shuffles
+ORD_PADS        = 15
+ORD_EXIT        = $55           ; the tile that leads on to the stairs
+ORD_LOST_TELE   = $3C           ; tile $54's teleport...
+ORD_LOST_X      = $10           ; ...and where FFR has it land
+ORD_LOST_Y      = $12
+
 OPTFB_LEFEINSHOPS = OPT_FLAGS+5
 OPTFM_LEFEINSHOPS = $02  ; bit 41
 OPTFB_SUPERSTORE  = OPT_FLAGS+5
@@ -1404,7 +1421,8 @@ RANDO_STATUS    = RANDO_SAVE+$0E  ; STATUS_* below: enemies' touches
 RANDO_SCRIPTS   = RANDO_SAVE+$0F  ; AI_* below: which enemy has which script
 RANDO_SKILLS    = RANDO_SAVE+$10  ; AI_* below: what the scripts hold
 RANDO_RNG       = RANDO_SAVE+$11  ; RNG_* below: the encounter and battle tables
-RANDO_SAVE_SIZE = $12
+RANDO_ORDEALS   = RANDO_SAVE+$12  ; ORDEALS_* below: the Castle of Ordeals' pillars
+RANDO_SAVE_SIZE = $13
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1430,6 +1448,7 @@ OPT_NG_STATUS   = OPT_NG + (RANDO_STATUS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SCRIPTS  = OPT_NG + (RANDO_SCRIPTS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SKILLS   = OPT_NG + (RANDO_SKILLS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_RNG      = OPT_NG + (RANDO_RNG - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_ORDEALS  = OPT_NG + (RANDO_ORDEALS - RANDO_SAVE) - RANDO_NGOFF
 
 ;  "None", a party slot left empty (nones.asm): the class byte of slots 2-4
 ;  may be this, with the character dead from the start.  FFR's value.
@@ -1638,6 +1657,7 @@ RW_BCNT         = RANDOWRAM+$2F80 ; how many each bucket holds so far
 RW_GRP          = RANDOWRAM+$2FC0 ; the group's script ids, in order
 RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
 RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
+RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
 RW_AGN          = RANDOWRAM+$00A0 ; scripts in the group
 RW_ANSP         = RANDOWRAM+$00A1 ; spells in the pool
 RW_ANSK         = RANDOWRAM+$00A2 ; skills in the pool

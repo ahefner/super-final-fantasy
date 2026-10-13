@@ -39,7 +39,7 @@
     JSR DoStandardMap       ; JSR to DoStandardMap -- which runs a NEW instance of this loop
 --- NEW
   @NormalTeleport:        ; normal teleport!
-.import opt_stackshift
+.import opt_stackshift, rando_teledest
     ;  FFR's "Softlock fix": each normal teleport nests another DoStandardMap,
     ;  and walking round a loop of them would run the stack off the bottom of
     ;  page 1.  opt_stackshift forgets the oldest level first when it is that
@@ -62,17 +62,9 @@
 
     LDX tileprop+1          ; get the teleport ID in X for indexing teleport data
 
-    LDA lut_NormTele_X, X   ; get the X coord to teleport to
-    SEC                     ;  subtract 7 from desired player coord
-    SBC #7                  ;  and wrap to get scroll pos
-    AND #$3F
-    STA sm_scroll_x
-
-    LDA lut_NormTele_Y, X   ; do same with Y coord
-    SEC
-    SBC #7
-    AND #$3F
-    STA sm_scroll_y
+    ;  The scroll for where it lands: the tables', or -- with the Ordeals
+    ;  pillars shuffled -- the one teleport FFR moves.  X is kept.
+    JSL rando_teledest + RANDOFAR
 
     LDA lut_NormTele_Map, X ; get the map and record it
     STA cur_map
