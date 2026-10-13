@@ -239,13 +239,15 @@ def test_presets():
     #  them and Improved does not.  Bits 38 and 39, the Run chance and Turn
     #  order fixes, are bugfixes past the full word: both have them.  Bit 40,
     #  TRANCE's element, is a variation that FFR's Improved Vanilla has, so
-    #  Improved has it as well as Super.
+    #  Improved has it as well as Super.  Bits 41 and 42, the Lefein map
+    #  edits, are quality of life here but off in FFR's Improved Vanilla: Super
+    #  only.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
             1: (0x01C00007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x01E003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            2: (0x07E003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -2988,6 +2990,95 @@ def test_critcount():
     jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
     img = ROMDATA[(BANK_0C & 0x1F) * 0x10000 + 0x8000:][:0x4000]
     check("the attack report calls opt_critbox, once", img.count(jsl), 1)
+
+
+# --- Standard map edits: the Lefein shops -------------------------------------
+#  FFR's Lefeinish Hospitality and Add Lefein SuperStore, written over Lefein
+#  as it loads.  The expected tiles are FFR's own, from SMUpdates.cs
+#  (EnableLefeinShops, EnableLefeinSuperStore), not lut_MapEdits.
+MAP_LEFEIN = 7
+MAPDATA = 0x7000
+LEFEIN_SHOPS = {(0x11, 5): 0x25, (0x11, 6): 0x71, (0x15, 5): 0x1A, (0x15, 6): 0x65}
+_STORE = ["171717171717171717171700171717171717171717171700",
+          "181818181823181818181801181818181824181818181801",
+          "1D4F5051541D525357581D021D595A5B5E1D5C5D61621D02"]
+LEFEIN_STORE = {(0x28 + j, 1 + i): int(row[2 * j:2 * j + 2], 16)
+                for i, row in enumerate(_STORE) for j in range(24)}
+LEFEIN_STORE[(0x34, 0)] = 0x00                  # the tree, to TownGrass
+
+
+def test_mapedits():
+    def flagbyte(shops, store):
+        return (0x02 if shops else 0) | (0x04 if store else 0)
+
+    #  The routine alone, over a patterned map: exactly FFR's tiles change.
+    def edited(shops, store, mapid=MAP_LEFEIN):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 5, flagbyte(shops, store))
+        pattern = bytes((i * 7 + 3) & 0xFF for i in range(0x1000))
+        bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000] = pattern
+        bus.wram[0x48] = mapid                  # cur_map
+        call(cpu, "opt_mapedits")
+        after = bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000]
+        return {(i % 64, i // 64): after[i] for i in range(0x1000) if after[i] != pattern[i]}
+    def want(shops, store):
+        pattern = bytes((i * 7 + 3) & 0xFF for i in range(0x1000))
+        out = {}
+        for on, edits in ((shops, LEFEIN_SHOPS), (store, LEFEIN_STORE)):
+            if on:
+                out.update({k: v for k, v in edits.items() if pattern[k[1] * 64 + k[0]] != v})
+        return out
+    for shops in (False, True):
+        for store in (False, True):
+            check("Lefein, inn %s, store %s: FFR's tiles and no others" % (shops, store),
+                  edited(shops, store), want(shops, store))
+    check("another map, both on: untouched", edited(True, True, mapid=4), {})
+
+    #  The real load, through LoadStandardMapAndObjects: what the flags change
+    #  in the map as decompressed is FFR's edits, nothing more.
+    def loaded(shops, store):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 5, flagbyte(shops, store))
+        bus.wram[0x48] = MAP_LEFEIN
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return bytes(bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000])
+    plain, both = loaded(False, False), loaded(True, True)
+    diff = {(i % 64, i // 64): both[i] for i in range(0x1000) if both[i] != plain[i]}
+    expect = {k: v for k, v in {**LEFEIN_SHOPS, **LEFEIN_STORE}.items()
+              if plain[k[1] * 64 + k[0]] != v}
+    check("loading Lefein with both on: FFR's edits over the real map", diff, expect)
+    check("...which do change it", len(expect) > 30, True)
+
+    #  The tiles mean what FFR says, in this ROM: Lefein's tileset is the town
+    #  one, the doors are shop doors to the shops named, the signs are solid.
+    ts = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xACC0 + MAP_LEFEIN]
+    def prop(t):
+        o = (0xA1 & 0x1F) * 0x10000 + 0x8800 + ts * 256 + (t & 0x7F) * 2
+        return ROMDATA[o], ROMDATA[o + 1]
+    check("Lefein uses the town tileset", ts, 0)
+    check("the Inn and Clinic doors: Crescent Lake's, shops 55 and 43",
+          (prop(0x71)[1], prop(0x65)[1]), (55, 43))
+    doors = [int(_STORE[2][2 * j:2 * j + 2], 16) for j in range(24)]
+    check("the SuperStore's doors: every magic shop but Gaia's 27, 28, 37, 38",
+          sorted(prop(d)[1] for d in doors if prop(d)[1]),
+          [21, 22, 23, 24, 25, 26, 29, 30, 31, 32, 33, 34, 35, 36, 39, 40])
+    check("the signs are solid, not doors",
+          [prop(s) for s in (0x25, 0x1A, 0x23, 0x24)], [(1, 0)] * 4)
+
+    #  No one in Lefein stands where a tile changes.
+    objs = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xB400 + MAP_LEFEIN * 0x30:][:0x30]
+    standing = {(objs[i + 1] & 0x3F, objs[i + 2] & 0x3F) for i in range(0, 0x30, 3) if objs[i]}
+    check("no NPC stands on an edited tile",
+          sorted(standing & (set(LEFEIN_SHOPS) | set(LEFEIN_STORE))), [])
+
+    #  The wiring: between the decompression and the objects, once.
+    tgt = SYM["opt_mapedits"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    img = ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:][:0x4000]
+    at = img.find(jsl)
+    check("LoadStandardMapAndObjects calls opt_mapedits once, between two JSRs",
+          (img.count(jsl), img[at - 3], img[at + 4]), (1, 0x20, 0x20))
 
 
 # --- White Mage HARM ---------------------------------------------------------
@@ -7297,7 +7388,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

@@ -1502,6 +1502,10 @@ lut_OptRows:
   .BYTE $97, $99, $8C, $FF, $AA, $B8, $AC, $AF, $AF, $B2
   .BYTE $B7, $AC, $B1, $A8, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $01, $29   ; Lefein Inn and Clinic   (bit 41)
+  FFPAD "Lefein Inn and Clinic", 30
+  .BYTE $01, $2A   ; Lefein SuperStore   (bit 42)
+  FFPAD "Lefein SuperStore", 30
   .BYTE $03, $00   ; (blank)
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF

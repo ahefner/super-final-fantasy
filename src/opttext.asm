@@ -250,6 +250,18 @@ lut_Desc_67:  ; TRANCE status element
   FFPAD {"has the status element, so a"}, 28
   FFPAD {"Ribbon resists it."}, 28
 
+lut_Desc_69:  ; Lefein Inn and Clinic
+  FFLINES 2
+  FFPAD {"Lefein gets an Inn and a"}, 28
+  FFPAD {"Clinic."}, 28
+
+lut_Desc_70:  ; Lefein SuperStore
+  FFLINES 4
+  FFPAD {"Lefein's magic shop grows a"}, 28
+  FFPAD {"door to every town's white"}, 28
+  FFPAD {"and black magic shops, but"}, 28
+  FFPAD {"Gaia's next door."}, 28
+
 lut_Desc_31:  ; Cast Life in battle
   FFLINES 3
   .BYTE $95, $92, $8F, $8E, $FF, $A4, $B1, $A7, $FF, $95, $92, $8F, $82, $FF, $A6, $A4, $B1, $FF, $A5, $A8, $FF, $B8, $B6, $A8, $A7, $FF, $FF, $FF
@@ -728,7 +740,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6
   .BYTE <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11
   .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
-  .BYTE <lut_Desc_17, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
+  .BYTE <lut_Desc_17, <lut_Desc_69, <lut_Desc_70, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
   .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65, <lut_Desc_66, <lut_DescBlank, <lut_Desc_2
   .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
   .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64, <lut_Desc_32, <lut_Desc_67, <lut_DescBlank, <lut_Desc_33
@@ -746,7 +758,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6
   .BYTE >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11
   .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
-  .BYTE >lut_Desc_17, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
+  .BYTE >lut_Desc_17, >lut_Desc_69, >lut_Desc_70, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
   .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65, >lut_Desc_66, >lut_DescBlank, >lut_Desc_2
   .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
   .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64, >lut_Desc_32, >lut_Desc_67, >lut_DescBlank, >lut_Desc_33

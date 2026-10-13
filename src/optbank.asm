@@ -65,7 +65,7 @@
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
-.export opt_critbox
+.export opt_critbox, opt_mapedits
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
 .import DrawItemTargetMenu
@@ -140,7 +140,9 @@ lut_Presets:
     ;  they skip content rather than improve it -- White Mage HARM, a
     ;  variation, so Super's, and the bugfixes that came after the word was
     ;  full, which Improved and Super both have.  The sixth: TRANCE's element,
-    ;  a variation that FFR's Improved Vanilla has too, so Improved has it.
+    ;  a variation that FFR's Improved Vanilla has too, so Improved has it;
+    ;  and the two Lefein map edits, quality of life here, which FFR's
+    ;  Improved Vanilla leaves off, so Improved does too.
     ;
     ;  Auto retargeting is off in all three, for the player to turn on (user,
     ;  2026-10-11): it takes strategy out of a fight.
@@ -163,7 +165,7 @@ lut_Presets:
     .BYTE   STARTITEMS_NONE
     .RES    3, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
-    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM, OPTFM_TRANCE
+    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM, OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
     .BYTE   STARTITEMS_NONE
     .RES    3, $00
@@ -2565,6 +2567,120 @@ opt_turnsecond:
     LDX #$0C                    ; A is zero from the AND
     CLC
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Standard map edits
+;;
+;;  FFR edits a map by rewriting it in the ROM; a flag here can change from one
+;;  load to the next, so the edits are written over the map as it loads.
+;;  LoadStandardMapAndObjects calls this between LoadStandardMap, which has
+;;  decompressed the map into mapdata ($7000, 64 x 64, a row every 64 bytes),
+;;  and LoadMapObjects.  That is the only path a standard map is loaded by, a
+;;  Continue included, so an edit is there whenever the map is.
+;;
+;;  lut_MapEdits is a list of rectangles, each:
+;;      flag byte (an index into OPT_FLAGS), flag mask, map, x, y, width,
+;;      height, then the tiles, row by row
+;;  ended by $FF.  A rectangle applies when its flag is on and the map is the
+;;  current one.  The coordinates are FFR's, from StandardMaps/SMUpdates.cs.
+;;  tmp to tmp+3 are LoadStandardMap's scratch, finished with by now.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_mapedits:
+    LDX #$00
+  @record:
+    LDA f:lut_MapEdits + OPTFAR, X
+    BMI @done                   ; $FF: the end of the list
+    TAY
+    LDA f:lut_MapEdits + 5 + OPTFAR, X
+    STA tmp+2                   ; width
+    LDA f:lut_MapEdits + 6 + OPTFAR, X
+    STA tmp+3                   ; height, counted down
+    LDA OPT_FLAGS, Y
+    AND f:lut_MapEdits + 1 + OPTFAR, X
+    BEQ @skip
+    LDA f:lut_MapEdits + 2 + OPTFAR, X
+    CMP cur_map
+    BNE @skip
+
+    LDA f:lut_MapEdits + 4 + OPTFAR, X  ; (tmp) = mapdata + y * 64 + x
+    PHA
+    LSR A
+    LSR A
+    ORA #>mapdata
+    STA tmp+1
+    PLA
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    CLC
+    ADC f:lut_MapEdits + 3 + OPTFAR, X
+    STA tmp
+    TXA
+    CLC
+    ADC #MAPEDIT_HEAD
+    TAX                         ; X = the first tile
+  @row:
+    LDY #$00
+  @col:
+    LDA f:lut_MapEdits + OPTFAR, X
+    STA (tmp), Y
+    INX
+    INY
+    CPY tmp+2
+    BCC @col
+    LDA tmp                     ; the next row down
+    CLC
+    ADC #64
+    STA tmp
+    LDA tmp+1
+    ADC #$00
+    STA tmp+1
+    DEC tmp+3
+    BNE @row
+    BRA @record
+
+  @skip:                        ; past the head and width * height tiles
+    TXA
+    CLC
+    ADC #MAPEDIT_HEAD
+    TAX
+  @skiprow:
+    TXA
+    CLC
+    ADC tmp+2
+    TAX
+    DEC tmp+3
+    BNE @skiprow
+    BRA @record
+  @done:
+    RTL
+
+MAPEDIT_HEAD = 7
+lut_MapEdits:
+    ;  Lefeinish Hospitality: an Inn and a Clinic sign over two house doors,
+    ;  and Crescent Lake's Inn and Clinic doors (tiles $71 and $65, shops 55
+    ;  and 43) in them.
+    .BYTE OPTFB_LEFEINSHOPS - OPT_FLAGS, OPTFM_LEFEINSHOPS, MAP_LEFEIN, $11, $05, 1, 2
+    .BYTE $25, $71
+    .BYTE OPTFB_LEFEINSHOPS - OPT_FLAGS, OPTFM_LEFEINSHOPS, MAP_LEFEIN, $15, $05, 1, 2
+    .BYTE $1A, $65
+    ;  Add Lefein SuperStore: the magic shop rebuilt 24 wide, its doors the
+    ;  white then black magic shops of every town but Gaia, levels in order --
+    ;  shops 21-26 and 29-30, then 31-36 and 39-40 -- and the one tree
+    ;  above it cleared to grass.
+    .BYTE OPTFB_SUPERSTORE - OPT_FLAGS, OPTFM_SUPERSTORE, MAP_LEFEIN, $28, $01, 24, 3
+    .BYTE $17,$17,$17,$17,$17,$17,$17,$17,$17,$17,$17,$00,$17,$17,$17,$17,$17,$17,$17,$17,$17,$17,$17,$00
+    .BYTE $18,$18,$18,$18,$18,$23,$18,$18,$18,$18,$18,$01,$18,$18,$18,$18,$18,$24,$18,$18,$18,$18,$18,$01
+    .BYTE $1D,$4F,$50,$51,$54,$1D,$52,$53,$57,$58,$1D,$02,$1D,$59,$5A,$5B,$5E,$1D,$5C,$5D,$61,$62,$1D,$02
+    .BYTE OPTFB_SUPERSTORE - OPT_FLAGS, OPTFM_SUPERSTORE, MAP_LEFEIN, $34, $00, 1, 1
+    .BYTE $00
+    .BYTE $FF
+.assert * - lut_MapEdits <= 256, error, "lut_MapEdits has outgrown an 8-bit index"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

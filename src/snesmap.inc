@@ -300,6 +300,18 @@ OPTFB_TRANCE    = OPT_FLAGS+5
 OPTFM_TRANCE    = $01    ; bit 40
 ATTACK_TRANCE   = $51
 ELEM_STATUS     = $01           ; FFR's SpellElement.Status
+
+;  Standard map edits: tiles written over a map as it loads, when a flag asks
+;  (opt_mapedits, lut_MapEdits).  The first two are FFR's Lefein shops, both
+;  quality of life here (user, 2026-10-13): Lefeinish Hospitality, Crescent
+;  Lake's Inn and Clinic doors on two of Lefein's houses, and Add Lefein
+;  SuperStore, its magic shop widened to the doors of every town's white and
+;  black magic shops but Gaia's.  Bits 41 and 42.
+OPTFB_LEFEINSHOPS = OPT_FLAGS+5
+OPTFM_LEFEINSHOPS = $02  ; bit 41
+OPTFB_SUPERSTORE  = OPT_FLAGS+5
+OPTFM_SUPERSTORE  = $04  ; bit 42
+MAP_LEFEIN        = 7
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 

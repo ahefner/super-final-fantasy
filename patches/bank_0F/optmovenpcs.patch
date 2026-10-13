@@ -3,9 +3,11 @@
     JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
     RTS                   ; exit
 --- NEW
-.import opt_movenpcs
+.import opt_movenpcs, opt_mapedits
+.export LoadStandardMapAndObjects   ; for the harness
 
     JSR LoadStandardMap   ; decompress the map
+    JSL opt_mapedits + OPTFAR   ; ...and write over it whatever map edits are on
     JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
     JSL opt_movenpcs + OPTFAR   ; ...then shift the ones Speed Hacks moves out
     RTS                   ;      of the player's way.  This is the only path

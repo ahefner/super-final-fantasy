@@ -207,7 +207,10 @@ HARM.
     level opens every locked door without the KEY.  Placement logic has to
     know about it.
   - **Lefein's Inn, Clinic and SuperStore**, in every randomized preset.
-    These are town edits and shop data.
+    These are town edits and shop data.  *Played 2026-10-13:* two
+    quality-of-life rows, and the cartridge's standard-map edit
+    mechanism (`opt_mapedits`); no shop data was needed, since the doors are
+    other towns' own.
   - **Hints**: the town hint-givers and the Sky Warrior bats, in every
     randomized preset.  They mean something only with incentive placement,
     and they wait on the NPC dialogue question still open in §12.

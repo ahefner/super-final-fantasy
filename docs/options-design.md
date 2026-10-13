@@ -240,14 +240,44 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 ## 3. The settings
 
-48 settings: 41 checkboxes and 7 value rows.
+50 settings: 43 checkboxes and 7 value rows.
 
-### Quality of life (15)
+### Quality of life (17)
 
 Speed hacks, Faster Walking, Faster Ship, No Party Shuffle, Identify Treasures,
 Chests Appear Opened, Buy Quantity, Run -> Wait, Battle Magic Menu Wraparound,
 Auto Retargeting, Autosort Inventory, Repeated Heal Potion Use, Shop
-Information, Chest Information, NPC Guillotine.
+Information, Chest Information, NPC Guillotine, Lefein Inn and Clinic, Lefein
+SuperStore.
+
+**The two Lefein rows** (2026-10-13; played the same day) are FFR's
+Lefeinish Hospitality and Add Lefein SuperStore, which FFR files under
+standard maps; quality of life here (user).  They are the cartridge's first
+edits to a standard map, and change nothing about what is reachable, so they
+are ordinary options that can be flipped mid-game -- an edit appears the next
+time Lefein loads.  Bits 41 and 42; Super has them, and Improved, following
+FFR's Improved Vanilla, does not.
+  - **Lefein Inn and Clinic**: an Inn sign and a Clinic sign over two of
+    Lefein's houses, and in them Crescent Lake's own door tiles ($71 and
+    $65): a door tile carries its shop's number, so these are Crescent
+    Lake's Inn and Clinic, shops 55 and 43.
+  - **Lefein SuperStore**: Lefein's magic shop rebuilt 24 tiles wide with
+    sixteen doors, every town's white and black magic shop but Gaia's next
+    door (21-26, 29-30, 31-36, 39-40), and one tree above it turned to grass.
+  - **How a map is edited.**  FFR rewrites the map in its ROM; a flag here
+    can change between loads, so `opt_mapedits` writes over the map as it
+    loads.  `LoadStandardMapAndObjects` -- the only path a standard map is
+    loaded by, a Continue included -- calls it between `LoadStandardMap`,
+    which has decompressed the map into `mapdata` ($7000, 64x64), and
+    `LoadMapObjects`.  `lut_MapEdits` is a list of rectangles: flag byte and
+    mask, map, x, y, width, height, then the tiles, row by row.  The
+    coordinates and tiles are FFR's, from `StandardMaps/SMUpdates.cs`.  Four
+    fixed-bank bytes for the hook.  `test_mapedits` loads Lefein through the
+    real routine with the flags off and on and checks the difference is
+    FFR's edits exactly, that the door tiles in this ROM lead to the shops
+    FFR names, and that no NPC stands on an edited tile.  An edit that
+    changes what is reachable (a shortcut, Titan's Trove) is another matter:
+    it belongs with the world, fixed at New Game and known to the logic.
 
 ### Controller Reset -- not a flag
 
@@ -869,7 +899,7 @@ Layout, 19 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       6    41 checkbox bits
+    flags       6    43 checkbox bits
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
@@ -1717,8 +1747,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   153 free    the scarce one; stamped into every chunk.  7
-                             declared, and 146 at the end: the randomizer's
+    BANK_FIXED   149 free    the scarce one; stamped into every chunk.  7
+                             declared, and 142 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1726,7 +1756,8 @@ text region in the game references.
                              class name, LeadClass, starting stats, the
                              battle CHR loader), @Begin's mute 9, and the
                              stack fix's JSL 4; SOFT in battle's loop in
-                             DrawDrinkBox gave back 89
+                             DrawDrinkBox gave back 89; the map-edit hook
+                             took 4
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1740,11 +1771,12 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2567 free   once the descriptions moved out, the None, the
+    BANK_OPT    2279 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
-                             Vanilla's four small rules (247)
+                             Vanilla's four small rules (247), and the
+                             Lefein map edits (288)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO  13810 free  the randomizer
