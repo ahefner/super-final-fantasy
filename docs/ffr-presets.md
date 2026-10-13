@@ -161,17 +161,24 @@ HARM.
     Every enemy is worth 100 more of each, which makes the early game far
     faster: an Imp's 6 XP becomes 106 before the multiplier.  FFR adds the
     gold against prices it has already divided, so the bonus is multiplied
-    here too.  It belongs in `opt_scalereward`.
+    here too.  *Declined (user, 2026-10-12).*
   - **Progressive scaling, +10% per key item** (`ProgressiveScaleMode`), in
     every randomized preset.  XP and gold gains grow 10% for each key item
-    collected, counting free and turned-in items.  It goes in the same
-    place, with a count of the key item bits.
+    collected, counting free and turned-in items.  *Declined (user,
+    2026-10-12).*
   - **Starting items: FFR's Explorer pack** (`StartingItemSet`) of 10
     Tents, 50 Heals, 4 Pures and 2 Softs, in every randomized preset.
     *Played 2026-10-11:* a Treasures row with FFR's nine
     fixed sets.
   - **Hit% cap raised from 200 to 250** (`FixHitChanceCap`), in every
-    randomized preset.
+    randomized preset -- by name only.  Current FFR has no code for it: the
+    April 2024 clean-up (`43c77f52`) deleted the method, a two-byte patch to
+    the level-up `CapAAt200` that hit% shares with magic defense, and the
+    checkbox went that December ("Remove unused flag"); the presets still
+    say true.  Here no class's hit% passes 200 except a Thief or Ninja at
+    Double growth, 201 at level 50, and an eighth attack needs 224, so the
+    cap changes nothing on this cartridge.  It mattered in FFR alongside
+    class blursings, which are not ported.
   - **SOFT in battle** (`EnableSoftInBattle`), as both the spell and the
     potion, in every randomized preset.  *Played 2026-10-11:* a
     Variations row.
@@ -180,7 +187,9 @@ HARM.
     or uses it, and averages 30/60/90/120 on targets that aren't undead.
   - **Consumable stacks** (`ConsumableTreasureStackSize` Adequate), in
     every randomized preset.  Chests and NPCs holding consumables give a
-    small stack.
+    small stack: 36 placed chests in vanilla (10 HEAL, 7 CABIN, 7 HOUSE,
+    5 PURE, 5 SOFT, 2 TENT), plus 14 table entries on no map.  *Declined
+    (user, 2026-10-12).*
   - **A separate dungeon encounter rate**, Beginner only.  It can be
     skipped: one rate of 60% is near enough.
 
