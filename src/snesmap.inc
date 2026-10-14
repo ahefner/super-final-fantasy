@@ -1739,6 +1739,7 @@ RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
 RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
 RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
+RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
 
 ;  deal_rewards' working memory, in placement's: the two never run together.
 ;  A slot is a chest id, 256 + a reward NPC's entry, or SLOT_CARAVAN.

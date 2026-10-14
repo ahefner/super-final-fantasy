@@ -39,6 +39,7 @@
 .include "snesmap.inc"
 .include "Constants.inc"
 .include "variables.inc"
+.include "fftext.inc"
 
 .export rando_newgame, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
 .export rando_chest
@@ -48,7 +49,7 @@
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
-.export rando_price
+.export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs
 
@@ -1399,7 +1400,13 @@ talk_npc:
     RTS
 
   @gave:
-    LDA f:RANDOFAR + lut_TalkReq, X
+    LDA f:RANDO_PLACEDFAR       ; placed: the giving line is replaced, naming
+    CMP #1                      ;   what was given (rando_dlgtext)
+    BNE :+
+    TXA
+    INC A
+    STA f:RW_DLGNPC
+:   LDA f:RANDOFAR + lut_TalkReq, X
     CMP #TREQ_TRADE
     BNE :+
     LDA f:RANDOFAR + lut_TalkArg, X
@@ -1507,6 +1514,7 @@ talk_holds:
 ;  X and Y clobbered.  The chest's own rules (OpenTreasureChest): an item
 ;  stops at 99, gear wants an empty slot.  No reward is gold yet.
 talk_give:
+    STA dlg_itemid              ; what the line names, if it is replaced
     CMP #REWARD_SHIP
     BCS @vehicle
     CMP #TCITYPE_WEPSTART
@@ -1545,6 +1553,7 @@ talk_give:
     RTS
   @vehicle:
     JSR give_vehicle
+    STA dlg_itemid              ; a vehicle by the id that names it
     CLC
     RTS
   @gold:
@@ -5084,3 +5093,4 @@ rando_steprng:
 
 .include "place.inc"
 .include "rewards.inc"
+.include "dlgtext.inc"

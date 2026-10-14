@@ -470,6 +470,19 @@ Two points to settle in the design:
     earlier in `DrawDialogueBox`, or a vanilla dialogue id with empty text to
     stand in.  The twelve lines live in the options chunk, at about 70 bytes
     each in plain text.
+    **Built (2026-10-14), with neither:** the hook is
+    `DrawDialogueString_PtrLoaded` itself, the point both pointer lookups
+    and `opt_chestinfo` pass, where `text_ptr` is set but nothing is drawn
+    (a JSL, four bytes of the fixed bank).  `rando_talk` arms it
+    (`RW_DLGNPC`, the entry + 1) when it gives under placement, and names
+    the gift in `dlg_itemid`; `rando_dlgtext` builds the NPC's line in
+    `OPTDESC`, spends the flag, and points `text_ptr` there.  The next string
+    drawn after a gift is its line, so nothing else is touched.  The lines
+    are in the randomizer chunk (`dlgtext.inc`), not the options chunk.
+    Thirteen, not twelve: FFR also rewrites Astos's whenever key items move
+    ("I have the #", dialogue `$12`).  FFR's run to ninety bytes; ours are
+    cut to OPTDESC's eighty.  The King and the Canoe Sage have FFR's other
+    line under Early King and Early Sage; Sarda's is one either way.
 
 Two more, from the incentive rows (§12):
 
@@ -881,9 +894,10 @@ shuffled.
     vehicles' reward codes, are the class names, which party creation draws
     through the same lookup.
 
-Not yet: NPC dialogue.  An NPC still says its vanilla giving line -- the
-Princess offering her LUTE as she hands over a SHIP -- until the lines are
-replaced.
+  - **Dialogue.**  Under placement an NPC says FFR's line for it, ending
+    "Received" and the gift's name, instead of its vanilla one -- which
+    named the vanilla reward, the Princess offering her LUTE as she hands
+    over a SHIP.  How it is drawn is in §3.
 
 ## 5. Shops
 
@@ -1780,9 +1794,6 @@ Settled in review 1:
 
 Still open:
 
-  - **NPC dialogue**: replacement text drawn from the options chunk is the
-    recommendation (§3).  It needs a hook point before the vanilla string,
-    or an empty stand-in dialogue.
   - **Map select layout.**  A 4×3 grid of 32×32 thumbnails gives 12 maps, a
     native-mode screen, and about 512 bytes of 4bpp tiles per map, generated
     offline.  The alternative is a scrolling list of names beside one large

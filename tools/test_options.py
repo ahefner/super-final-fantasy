@@ -882,6 +882,145 @@ def test_rando_giving():
           (shut != 0, cpu.a & 0xFF), (True, 0))
 
 
+def ff_decode(body):
+    """The game's text as a string: the glyphs back to letters, a line break
+    as a newline, the item name ($02) as '#', the way FFR's lines write it."""
+    out = []
+    for b in body:
+        if b == 0x02:
+            out.append("#")
+        elif b < 0x1A:
+            out.append("\n")
+        elif b == 0xFF:
+            out.append(" ")
+        elif 0x80 <= b <= 0x89:
+            out.append(chr(ord("0") + b - 0x80))
+        elif 0x8A <= b <= 0xA3:
+            out.append(chr(ord("A") + b - 0x8A))
+        elif 0xA4 <= b <= 0xBD:
+            out.append(chr(ord("a") + b - 0xA4))
+        else:
+            out.append({0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC4: "!",
+                        0xC5: "?"}.get(b, "<%02X>" % b))
+    return "".join(out)
+
+
+def test_rando_dialogue():
+    """With placement in, a reward NPC's giving line names what it gave.
+    rando_talk arms RW_DLGNPC and names the reward in dlg_itemid; the next
+    string drawn is that line, and rando_dlgtext, at the drawer's
+    DrawDialogueString_PtrLoaded, builds the NPC's own line in OPTDESC and
+    spends the flag.  The King and the Sage have FFR's other line under their
+    Early flags; Sarda, whose FFR line is one, does not.  Nothing is armed
+    without placement, or when the gift does not fit."""
+    OPTDESC_A = K["OPTDESC"]
+    DLGNPC = rw("RW_DLGNPC")
+    EARLY = K["RANDO_EARLY"] - 0x6000
+    #  A phrase only that NPC's line has, to tell the lines apart.
+    WORDS = ["saving the\nPrincess", "Queens of Coneria", "you got me",
+             "LIGHT\nWARRIORS", "I am Astos", "My CRYSTAL", "TNT is just",
+             "ADAMANT!!", "earth's rot", "Earth FIEND", None, "BOTTLE",
+             "SKY WARRIORS"]
+    EARLY_WORDS = {0: (K["EARLY_KING"], "To aid you"),
+                   9: (K["EARLY_SAGE"], "FIENDS are waking")}
+    BOX_COLS, BOX_LINES, NAME_MAX = 24, 6, 8      # FFR's own lines' limits
+
+    #  The hook: at the label, so the dialogue's two pointer lookups and Chest
+    #  Information's direct entry all pass it.
+    at = SYM["DrawDialogueString_PtrLoaded"]
+    want = SYM["rando_dlgtext"]
+    check("DrawDialogueString_PtrLoaded begins JSL rando_dlgtext",
+          [chunkbyte(0x0F, at + i) for i in range(4)],
+          [0x22, want & 0xFF, want >> 8, RANDO_BANK])
+
+    def line(entry, early):
+        bus, cpu = machine()
+        bus.wram[DLGNPC] = entry + 1
+        bus.sram[EARLY] = early
+        bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = 0xAA, 0xAA
+        cpu.y = 0x5A
+        dbr = cpu.dbr
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+        end = buf.find(0)
+        ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        kept = (bus.wram[DLGNPC], ptr, cpu.y & 0xFF, cpu.dbr == dbr)
+        return (ff_decode(buf[:end]) if end >= 0 else None), kept
+
+    allbits = K["EARLY_KING"] | K["EARLY_SARDA"] | K["EARLY_SAGE"] | K["EARLY_ORDEALS"]
+    seen = set()
+    for entry in range(13):
+        for early in sorted({0, allbits} | {b for b, _ in EARLY_WORDS.values()}):
+            text, kept = line(entry, early)
+            name = "entry %d, Early $%02X" % (entry, early)
+            check(name + ": flag spent, OPTDESC drawn, Y and DBR kept",
+                  kept, (0, OPTDESC_A, 0x5A, True))
+            if text is None:
+                fails.append(name + ": no terminator within OPTDESC")
+                continue
+            flag, eword = EARLY_WORDS.get(entry, (0, None))
+            word = eword if early & flag else WORDS[entry]
+            if word is None:
+                check(name + ": the line", text, "Take this.\n\nReceived #")
+            else:
+                check(name + ": its own line (%r)" % word, word in text, True)
+            check(name + ": names the gift once", text.count("#"), 1)
+            if entry != TALK_ENTRY["Astos"]:
+                check(name + ": ends Received #", text.endswith("\n\nReceived #"), True)
+            rows = text.split("\n")
+            wide = max(len(r.replace("#", "")) + NAME_MAX * r.count("#") for r in rows)
+            check(name + ": fits the box", (len(rows) <= BOX_LINES, wide <= BOX_COLS),
+                  (True, True))
+            seen.add(text)
+    #  Thirteen lines and two Early ones, all different.
+    check("fifteen different lines", len(seen), 15)
+
+    #  Unarmed: nothing touched.
+    bus, cpu = machine()
+    bus.sram[OPTDESC_A - 0x6000] = 0xEE
+    bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = 0xAA, 0xAA
+    call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+    check("unarmed: text_ptr and OPTDESC untouched",
+          (bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1], bus.sram[OPTDESC_A - 0x6000]),
+          (0xAA, 0xAA, 0xEE))
+
+    #  Arming, through TalkToObject.
+    def talk(name, reward, placed=1, setup=None):
+        obj, _ = TALK_NPCS[name]
+        bus, cpu = machine()
+        s = bus.sram
+        SLOT = 0x10
+        s[0x6F00 - 0x6000 + SLOT] = obj
+        s[GAME_FLAGS - 0x6000 + obj] = 1
+        s[GAME_FLAGS - 0x6000 + 0x12] = 1            # the Princess rescued
+        s[K["RANDO_TALK"] - 0x6000] = 1
+        s[K["RANDO_PLACED"] - 0x6000] = placed
+        bus.wram[rw("RW_TALKREW") + TALK_ENTRY[name]] = reward
+        if setup:
+            setup(s)
+        cpu.x = SLOT
+        call(cpu, "TalkToObject", bank=0xAF, dbr=0xAF)
+        return bus, cpu
+    bus, cpu = talk("King", 0x6E)
+    check("the King, placed: armed, the gold named",
+          (bus.wram[DLGNPC], bus.wram[K["dlg_itemid"]]), (TALK_ENTRY["King"] + 1, 0x6E))
+    call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+    buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+    check("...and the line drawn is his", WORDS[0] in ff_decode(buf[:buf.find(0)]), True)
+    bus, cpu = talk("Princess", 0xF0)
+    check("the Princess, placed, the ship: armed, named as SHIP",
+          (bus.wram[DLGNPC], bus.wram[K["dlg_itemid"]]), (TALK_ENTRY["Princess"] + 1, 0x12))
+    bus, cpu = talk("King", 0x6E, placed=0)
+    check("the King, unplaced: not armed", bus.wram[DLGNPC], 0)
+    def full(s):                                    # four weapons each
+        for c in range(4):
+            s[0x6118 + 0x40 * c - 0x6000:0x611C + 0x40 * c - 0x6000] = bytes([1]) * 4
+    bus, cpu = talk("CubeBot", 0x41, setup=full)
+    check("CubeBot, a Katana, no room: not armed, can't carry",
+          (bus.wram[DLGNPC], cpu.a & 0xFF), (0, DLGID_CANTCARRY))
+
+
 MSGROWS_TOTAL = 12
 
 
@@ -8075,7 +8214,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

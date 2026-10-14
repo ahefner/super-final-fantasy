@@ -789,10 +789,14 @@ Sarda and Sage waive what that NPC waits for in `rando_talk`'s table
 the Earth Orb lit.  The held test still runs, so a Free BRIDGE, ROD or CANOE
 is not given twice.  Early Ordeals is FFR's `EnableEarlyOrdeals`, in the
 cache build: the Castle tileset's two thrones, `$61` and `$62`, the only
-crown tiles, lose their special code and are plain teleports.  The NPCs say
-their vanilla giving lines -- the King's thanks the party for the Princess
--- until the dialogue change replaces them.  `test_rando_early` holds the
-three waivers to their own NPC and the thrones to the reference.
+crown tiles, lose their special code and are plain teleports.  Under Key
+items Vanilla the NPCs keep their vanilla giving lines, as in FFR, which
+rewrites them only when NPC rewards move: Early King's King still thanks the
+party for the Princess.  Under placement every reward NPC has FFR's line,
+naming its gift (`rando_dlgtext`, `randomization-notes.md` §3), and the King
+and the Sage have FFR's Early ones.  `test_rando_early` holds the three
+waivers to their own NPC and the thrones to the reference;
+`test_rando_dialogue` the lines.
 
 **Packed: the option page had nine bytes left and these are 26 rows.**  Each
 row is a field of a byte -- two bits for a three- or two-value item row, one
@@ -1847,8 +1851,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   217 free    the scarce one; stamped into every chunk.  7
-                             declared, and 210 at the end: the randomizer's
+    BANK_FIXED   213 free    the scarce one; stamped into every chunk.  7
+                             declared, and 206 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1861,8 +1865,8 @@ text region in the game references.
                              rando_teledest, gave back 16; the talk funnel,
                              its Guillotine moved to rando_talk, gave back 31;
                              LoadPrice, its table read moved to rando_price,
-                             gave back 24, and the chest's exit for a vehicle
-                             took 3
+                             gave back 24, the chest's exit for a vehicle
+                             took 3, and the reward NPCs' lines' hook 4
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1890,10 +1894,11 @@ text region in the game references.
                              before dated from 10-09 and was not kept up as
                              descriptions were added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   5555 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   4461 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
-                             rewards and their giving 1232
+                             rewards and their giving 1232, the reward
+                             NPCs' lines 1094
     BANK_LOGIC  12670 free  the vanilla world's logic for placement (3714),
                              generated; data only
     HALCODE     ~6200 free   not available; see below

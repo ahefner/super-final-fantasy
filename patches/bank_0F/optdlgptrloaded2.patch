@@ -8,5 +8,9 @@
 ;  boundary is crossed.  A global label rather than a cheap one so it can be
 ;  imported -- which is why the jump above names it too.
 .export DrawDialogueString_PtrLoaded
+.import rando_dlgtext
 DrawDialogueString_PtrLoaded:
                           ; here, text_ptr points to the desired string
+    ;  ...unless a reward NPC has just given what placement put there: then
+    ;  its line, naming that, built far (rando_dlgtext).  Otherwise nothing.
+    JSL rando_dlgtext + RANDOFAR
