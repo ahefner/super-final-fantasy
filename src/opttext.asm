@@ -251,11 +251,10 @@ lut_Desc_67:  ; TRANCE status element
   FFPAD {"Ribbon resists it."}, 28
 
 lut_Desc_92:  ; Asshole Kraken
-  FFLINES 4
-  FFPAD {"Kraken and Kraken 2 attack a"}, 28
+  FFLINES 3
+  FFPAD {"Kraken always targets your"}, 28
   FFPAD {"White Mage or White Wizard"}, 28
-  FFPAD {"every turn, while one can be"}, 28
-  FFPAD {"hit.  No INK, no LIT2."}, 28
+  FFPAD {"before other party members."}, 28
 
 lut_Desc_69:  ; Lefein Inn and Clinic
   FFLINES 2
