@@ -475,6 +475,18 @@ fixed bank's own `@NormalTeleport` over real frames, sixty Coneria trips
 included; the harness's 65816 gained `TSX` and `TXS` for it.  Details:
 `randomization-notes.md` §9.3.
 
+**Two stray map objects are removed, unconditionally (user, 2026-10-14; built,
+not yet played).**  The map object tables list two quest objects twice.  The
+fairy (`$13`) is in Ice Cave B1 as well as Gaia, standing in the map's outer
+void, joined to nothing, once the bottle is opened.  The rod plate (`$16`) is
+in Sky Palace 2F as well as Earth Cave B3, inside a wall, and shown until the
+ROD is used anywhere.  Vanilla always uses it before Sky Palace; a placed ROD
+need not, and then the plate shows in the wall.  Neither can be reached, so
+neither does anything else.  mkrom empties both slots, asserting the bytes as
+it does the Ribbon's (`overlay_strays`), and `test_strayobjects` holds bank
+`$00` to those six bytes.  The world graph reads the cart, so it now has one
+fairy and one plate; the logic tables come out the same.
+
 ### Scale (5)
 
 Value rows, and the first section in the list: Gold + XP Scaling, Encounter

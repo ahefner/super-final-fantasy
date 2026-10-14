@@ -152,6 +152,34 @@ def overlay_ribbon(data):
     return bytes(out)
 
 
+#  Two stray objects in the map object tables (lut_MapObjects, $B400 of bank
+#  $00: fifteen three-byte slots a map, id, x and flags, y; id 0 is empty).
+#  Each is a second copy of a quest object: the fairy ($13) in Ice Cave B1 as
+#  well as Gaia, and the rod plate ($16) in Sky Palace 2F as well as Earth
+#  Cave B3, each alone in slot 0 of its map.  The fairy stands in Ice Cave
+#  B1's outer void, joined to nothing, once the bottle is opened.  The plate
+#  stands inside a wall, shown until the ROD is used anywhere -- which vanilla
+#  always does before Sky Palace, and a placed ROD need not.  Removed,
+#  unconditionally (user, 2026-10-14): neither can be reached, the plate can
+#  be seen, and the world graph, which reads the cart, has one of each.
+#  Asserted, as the Ribbon is.
+OBJINFO_BANK = "00"
+MAPOBJ_OFF = 0xB400 - 0x8000
+MAPOBJ_STRIDE = 0x30
+STRAY_OBJECTS = [(15, 0, bytes([0x13, 0x6F, 0x1E])),     # Ice Cave B1: the fairy
+                 (48, 0, bytes([0x16, 0xDA, 0x1B]))]     # Sky Palace 2F: the rod plate
+
+
+def overlay_strays(data):
+    out = bytearray(data)
+    for m, slot, was in STRAY_OBJECTS:
+        at = MAPOBJ_OFF + m * MAPOBJ_STRIDE + slot * 3
+        if data[at:at + 3] != was:
+            sys.exit("bank_00: map %d's slot %d is not the stray it was" % (m, slot))
+        out[at:at + 3] = bytes(3)
+    return bytes(out)
+
+
 def nesbank(name):
     if name in ASSEMBLED:
         data = read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
@@ -163,6 +191,8 @@ def nesbank(name):
         data = overlay_openchest(data)
     if name == ITEMS_BANK:
         data = overlay_ribbon(data)
+    if name == OBJINFO_BANK:
+        data = overlay_strays(data)
     return data
 
 

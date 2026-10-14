@@ -3828,6 +3828,21 @@ def test_kraken():
     check("two, the first stone: always the other",
           set(kraken_turn(b, s) for s in range(256)), {("hit", 2, 2)})
 
+def test_strayobjects():
+    """The two stray map objects are gone from the cart, and nothing else in
+    bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
+    Earth Cave B3, as the game uses them."""
+    vendored = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()
+    cart = ROMDATA[(1 + 0x00) * 0x10000 + 0x8000:][:0x4000]
+    changed = [o for o in range(0x4000) if cart[o] != vendored[o]]
+    want = list(range(0x3400 + 15 * 0x30, 0x3400 + 15 * 0x30 + 3)) \
+        + list(range(0x3400 + 48 * 0x30, 0x3400 + 48 * 0x30 + 3))
+    check("bank $00: only the two strays' six bytes", changed, want)
+    where = lambda oid: [m for m in range(61) for s in range(15)
+                         if cart[0x3400 + m * 0x30 + s * 3] == oid]
+    check("the fairy: Gaia only", where(0x13), [5])
+    check("the rod plate: Earth Cave B3 only", where(0x16), [30])
+
 def test_magicgfx():
     MAGDATA = open('game/bin/0C_81E0_magicdata.bin','rb').read()
     SPELL_LIFE, SPELL_LIF2, SPELL_CURE, SPELL_HARM = 33, 56, 0, 10
@@ -8322,7 +8337,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
