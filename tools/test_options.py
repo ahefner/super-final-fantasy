@@ -665,6 +665,73 @@ def test_rando_early():
           [(0x0E, 0, True)] * 2)
 
 
+#  Settings for test_rando_place: Key items, the three item row bytes, the
+#  two gear bytes, the Early flags.  BRIDGE free with Masamune and Ribbon is
+#  FFR's Beginner; the rest reach overflow, underflow, all loose and Wide.
+PLACE_CONFIGS = {
+    "beginner":   (1, [0x20, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "late":       (1, [0x20, 0x00, 0x00], [0x81, 0x00], 0x00),
+    "bridge":     (1, [0x00, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "everything": (1, [0x00, 0x00, 0x00], [0xFF, 0x01], 0x0F),
+    "wide-bare":  (2, [0x00, 0x00, 0x00], [0x00, 0x00], 0x0F),
+    "all-loose":  (1, [0x65, 0x55, 0x55], [0x00, 0x00], 0x0F),
+    "free-ent":   (2, [0xAA, 0x02, 0x08], [0xFE, 0x01], 0x0F),
+}
+
+
+def place_cart(job):
+    """rando_place for one seed and setting: RANDO_PLACED and RANDO_PLACE."""
+    seed, (keyitems, items3, gear2, early) = job
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_PLACED"] - 0x6000] = 0x77              # anything but its answer
+    call(cpu, "rando_place", bank=RANDO_BANK)
+    p = K["RANDO_PLACE"] - 0x6000
+    return s[K["RANDO_PLACED"] - 0x6000], list(s[p:p + K["PLACE_ITEMS"]])
+
+
+def test_rando_place():
+    """Incentive placement: rando_place lands every item exactly where
+    randoref.build_placement does, for every setting and seed tried, and every
+    placement is whole -- each item to place once, in the pool, an incentive
+    in a spot unless the spots ran out, nothing else in one.  (That each is
+    winnable on the world graph itself is tools/checkplace.py's, which needs
+    ../worldgraph.)"""
+    jobs = [(seed * 7919 + 13, cfg) for cfg in PLACE_CONFIGS.values() for seed in range(12)]
+    #  ...and seeds that take a rare path, found by searching randoref with
+    #  the path mutated: seed 2 under Beginner weighs the CUBE at between 70
+    #  and 75 places reached, where its minimum of 75 says no.  (The halving
+    #  of a negative count, the ship and canal raised with one incentive place
+    #  reached, and giving up at cycle 15 change no placement in 3,000 seeds of
+    #  each setting: FFR's code, kept, that the vanilla world never needs.)
+    jobs += [(2, PLACE_CONFIGS["beginner"])]
+    res = pmap(place_cart, jobs)
+    bad, whole = [], []
+    for (seed, cfg), (flag, got) in zip(jobs, res):
+        want = R.build_placement(seed, *cfg)
+        if (flag, got if flag == 1 else None) != (1 if want else 0, want):
+            bad.append((seed, cfg, flag, got, want))
+            continue
+        free, items, inc, inclocs, masks = R.place_setup(*cfg)
+        placed = {c: i for i, c in enumerate(got) if c != 0xFF}
+        over = max(0, len(inc) - len(inclocs))
+        if (sorted(placed.values()) != items or len(placed) != len(items)
+                or any(c >= 248 for c in placed)
+                or sum(1 for c, i in placed.items() if i in inc and c not in inclocs) != over
+                or any(i not in inc and c in inclocs for c, i in placed.items())):
+            whole.append((seed, cfg))
+    check("rando_place lands where randoref does", bad[:2], [])
+    check("...and every placement is whole", whole[:2], [])
+    flag, _ = place_cart((1, (0, [0x20, 0, 0], [0x81, 0], 0x0F)))
+    check("Key items Vanilla: no placement", flag, 0)
+
+
 MSGROWS_TOTAL = 12
 
 
@@ -7843,7 +7910,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

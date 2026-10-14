@@ -48,6 +48,8 @@ CREDITSFAR      = (CHUNK0 + CHUNK_CREDITS) * $10000
 CHUNK_RANDO     = $13           ; the randomizer: PRNG, generator, its hooks
 RANDOFAR        = (CHUNK0 + CHUNK_RANDO) * $10000
 CHUNK_OPTTEXT   = $14           ; the settings screen's descriptions; data only
+CHUNK_LOGIC     = $15           ; the vanilla world's logic, for placement; data only
+LOGICFAR        = (CHUNK0 + CHUNK_LOGIC) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -1476,6 +1478,21 @@ RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 ;  reward NPCs from the table.  Each NPC's own record of having given, whatever
 ;  it gives, is its bit in RANDO_GIVEN, not the vanilla "does the party hold
 ;  the item": once rewards move, the Princess may be holding the SHIP.
+;  Incentive placement's result, written at New Game (rando_place) when Key
+;  items is Standard or Wide.  $6040-$609F is a dead copy of the class starting
+;  stats that the game never reads (randomization-notes.md section 1.1), saved
+;  with page 0; junk in older saves, which is why RANDO_PLACED, not the bytes
+;  themselves, says whether there is a placement.
+RANDO_PLACED    = $6040     ; 1: RANDO_PLACE holds this game's placement
+RANDO_PLACE     = $6041     ; PLACE_ITEMS bytes: each item's location, or $FF
+PLACE_ITEMS     = 29        ; nineteen key items, the TAIL, nine gear rows
+PLACE_KEYS      = 19
+PLACE_TAIL      = 19
+PLACE_GEAR      = 20
+PLACE_ATTEMPTS  = 32
+RANDO_PLACEDFAR = (CHUNK0 * $10000) + RANDO_PLACED
+RANDO_PLACEFAR  = (CHUNK0 * $10000) + RANDO_PLACE
+.assert RANDO_PLACE + PLACE_ITEMS <= $60A0, error, "RANDO_PLACE runs into RANDO_SAVE"
 RANDO_TALK      = $60F0     ; nonzero: the reward NPCs run from rando_talk's table
 RANDO_GIVEN     = $60F1     ; 2 bytes: bit n set once table entry n has given
 RANDO_TALKFAR   = (CHUNK0 * $10000) + RANDO_TALK
@@ -1719,6 +1736,78 @@ RW_GRP          = RANDOWRAM+$2FC0 ; the group's script ids, in order
 RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
 RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
 RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
+
+;  Incentive placement's working memory (place.inc).  It runs once, at New
+;  Game, before the cache is built, so nothing here outlives it; the result
+;  goes to RANDO_PLACE in the save.  Above the cache, which ends below $B300.
+RP_BASE         = RANDOWRAM+$4000
+RP_MASK         = RP_BASE+$0000   ; LOGIC_MASKS x 4: the masks, Early waivers applied
+RP_PLACED       = RP_BASE+$0700   ; 256: the item placed at each location, or $FF
+RP_REACH        = RP_BASE+$0800   ; 256: reached with what is placed so far
+RP_SEEN         = RP_BASE+$0900   ; 256: reached in the candidate being asked about
+RP_WW           = RP_BASE+$0A00   ; 32 words: the draw's weights...
+RP_WI           = RP_BASE+$0A40   ; 32 bytes: ...and its items
+RP_NI           = RP_BASE+$0A60   ; 19 words: each key item's new incentive places
+RP_NN           = RP_BASE+$0A88   ; 19 words: ...and new other places
+RP_B3           = RP_BASE+$0AB0   ; 32 bytes: in the bin past the edges
+RP_OWNED        = RP_BASE+$0B00   ; 4: owned, events and items both
+RP_NOTOWN       = RP_BASE+$0B04   ; 4: its complement, for the mask tests
+RP_FREE         = RP_BASE+$0B08   ; 4: what the party starts with
+RP_PEND         = RP_BASE+$0B0C   ; 4: bits gained and not yet asked about
+RP_SAVE         = RP_BASE+$0B10   ; 4: owned, kept across a candidate
+RP_REM          = RP_BASE+$0B14   ; 4: the items still to place, a bit each
+RP_INC          = RP_BASE+$0B18   ; 4: the items that are incentives, this attempt
+RP_INC0         = RP_BASE+$0B1C   ; 4: ...as the settings have them
+RP_ITEMS        = RP_BASE+$0B20   ; 4: every item to place
+RP_WORDS        = RP_BASE+$0B24   ; the words below, zeroed with the rest
+RP_NREM         = RP_BASE+$0B24   ; items still to place
+RP_INCSRC       = RP_BASE+$0B26   ; incentive places reached and empty
+RP_NONSRC       = RP_BASE+$0B28   ; other places reached and empty
+RP_CI           = RP_BASE+$0B2A   ; a candidate's new incentive places
+RP_CN           = RP_BASE+$0B2C   ; ...and new other places
+RP_CYCLE        = RP_BASE+$0B2E
+RP_STATE        = RP_BASE+$0B30   ; PSTATE_* below
+RP_GEN          = RP_BASE+$0B32   ; RP_SEEN's marker for this candidate
+RP_MODE         = RP_BASE+$0B34   ; 0: placing for good; 1: asking about a candidate
+RP_SPOT         = RP_BASE+$0B36   ; LOGIC_STANDARD or LOGIC_WIDE
+RP_NINCPOOL     = RP_BASE+$0B38   ; how many incentive spots there are
+RP_ACCESS       = RP_BASE+$0B3A   ; places reached and empty, both kinds
+RP_WN           = RP_BASE+$0B3C   ; entries in the draw
+RP_TOTAL        = RP_BASE+$0B3E   ; their weights' sum
+RP_W            = RP_BASE+$0B40   ; bin weights and scratch
+RP_B0           = RP_BASE+$0B42
+RP_B1           = RP_BASE+$0B44
+RP_B2           = RP_BASE+$0B46
+RP_RED          = RP_BASE+$0B48   ; how far the last bin's weight shifts down
+RP_LO           = RP_BASE+$0B4A   ; the bins' edges
+RP_HI           = RP_BASE+$0B4C
+RP_BRANCH       = RP_BASE+$0B4E   ; 0 other items' draw, 1 incentives'
+RP_NINCI        = RP_BASE+$0B50   ; incentives still to place
+RP_ITEM         = RP_BASE+$0B52
+RP_LOC          = RP_BASE+$0B54
+RP_T            = RP_BASE+$0B56
+RP_T2           = RP_BASE+$0B58
+RP_ATT          = RP_BASE+$0B5A   ; attempts left
+RP_K            = RP_BASE+$0B5C   ; the item being weighed
+RP_WCUR         = RP_BASE+$0B5E   ; the last bin's weight, as it falls
+RP_BIT          = RP_BASE+$0B60   ; the bit being asked about
+RP_LI           = RP_BASE+$0B62   ; its list: where in it...
+RP_LE           = RP_BASE+$0B64   ; ...and its end
+RP_END          = RP_BASE+$0B66   ; a location's masks' end
+RP_CNT          = RP_BASE+$0B68   ; scratch for counting bits
+RP_BEST         = RP_BASE+$0B6A   ; the last bin: the least count kept...
+RP_BESTI        = RP_BASE+$0B6C   ; ...and its item
+RP_WANT         = RP_BASE+$0B6E   ; 1: an incentive spot wanted
+RP_CLR0         = RP_BASE+$0B70   ; an Early waiver: what of each word to keep
+RP_CLR2         = RP_BASE+$0B72
+RP_WORDSEND     = RP_BASE+$0B74
+RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
+.assert RP_B3 + 32 <= RP_OWNED, error, "RP_B3 runs into RP_OWNED"
+.assert RP_NN + 2 * 19 <= RP_B3, error, "RP_NN runs into RP_B3"
+.assert RP_NI + 2 * 19 <= RP_NN, error, "RP_NI runs into RP_NN"
+PSTATE_NORMAL      = 0
+PSTATE_INCENTIVE   = 1
+PSTATE_NONINCENTIVE = 2
 RW_AGN          = RANDOWRAM+$00A0 ; scripts in the group
 RW_ANSP         = RANDOWRAM+$00A1 ; spells in the pool
 RW_ANSK         = RANDOWRAM+$00A2 ; skills in the pool

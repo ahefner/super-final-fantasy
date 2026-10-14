@@ -1882,9 +1882,11 @@ text region in the game references.
                              readouts and field tables, the field code)
     BANK_OPTTEXT  9167 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   9578 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   6787 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
-                             Early flags 58
+                             Early flags 58, placement's code 2791
+    BANK_LOGIC  12670 free  the vanilla world's logic for placement (3714),
+                             generated; data only
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

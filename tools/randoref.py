@@ -51,6 +51,7 @@ STREAM_SKILLS = 0x534B494C      # "SKIL"
 STREAM_BSKILLS = 0x42534B4C     # "BSKL"
 STREAM_RNG = 0x524E4754         # "RNGT"
 STREAM_ORDEALS = 0x4F52444C     # "ORDL"
+STREAM_KEYS = 0x4B455953        # "KEYS"
 WARMUP = 8
 
 
@@ -855,6 +856,267 @@ def chest_floors(rom):
             if props[o] & TP_SPEC_MASK == TP_SPEC_TREASURE:
                 where.setdefault(props[o + 1], []).append(name)
     return where
+
+
+# --- incentive placement ----------------------------------------------------------
+#  FFR's PredictivePlacement (FF1Lib/PredictivePlacement.cs), as
+#  ../worldgraph/placement.py ports it, over the vanilla world's logic
+#  (logicdata.py, from tools/genlogic.py): each cycle it asks, for every key
+#  item still to place, how many more incentive and other places the party
+#  could reach with it, sorts the items into bins by that, weights the bins by
+#  how many places are reachable now, and draws an item and then a place.
+#  Differences from FFR, all of them the cartridge's: its own PRNG; weights
+#  in integers, 1.0 being 1024, so a weight halved past ten times is zero
+#  where FFR's float never is; no shuffle of the candidates before the draw,
+#  which changes nothing about the odds; up to PLACE_ATTEMPTS tries before
+#  giving up, where FFR stops at three, and then key items stay where they
+#  are.  FFR's safe tables, as it uses on its own map without Entrance
+#  shuffle, and its BRIDGE at 2.0, which it sets for that map.
+import logicdata as _L
+
+PLACE_ATTEMPTS = 32
+#  The items placement places, in the cartridge's order: nineteen key items,
+#  the TAIL, then the nine gear rows.  (name, logic bit or None, the safe
+#  weight in quarters, min cycle, min places reachable)
+PLACE_ITEMS = [
+    ("LUTE", 1), ("CROWN", 3), ("CRYSTAL", 3), ("HERB", 3), ("KEY", 1), ("TNT", 3),
+    ("ADAMANT", 3), ("SLAB", 3), ("RUBY", 4), ("ROD", 4), ("FLOATER", 1), ("CHIME", 1),
+    ("CUBE", 1), ("BOTTLE", 3), ("OXYALE", 1), ("CANOE", 3), ("SHIP", 4), ("BRIDGE", 8),
+    ("CANAL", 4),
+    ("TAIL", 0),
+    ("MASAMUNE", 0), ("KATANA", 0), ("VORPAL", 0), ("DEFENSE", 0), ("OPAL", 0),
+    ("POWERGAUNTLET", 0), ("WHITESHIRT", 0), ("RIBBON", 0), ("XCALBER", 0)]
+PLACE_KEYS = 19                 # the first nineteen open something
+PLACE_TAIL = 19
+PLACE_GEAR = 20
+MIN_CYCLE = {"KEY": 5, "SHIP": 2, "CANOE": 3, "FLOATER": 10, "CHIME": 5, "CUBE": 7, "OXYALE": 5}
+MIN_ACCESS = {"CHIME": 60, "CUBE": 75, "OXYALE": 50}
+NONKEY_MIN_CYCLE = 10
+CRIT_NON, SAFE_NON, CRIT_INC, SAFE_INC = 5, 20, 2, 3
+W1 = 1024                       # a weight of 1.0
+#  The item rows (snesmap.inc's ITEMROW_*), and which item each governs.
+ITEMROW_ITEM = ["SHIP", "FLOATER", "BRIDGE", "CANAL", "CANOE", "KEY", "CHIME", "CROWN", "LUTE",
+                "TAIL", "ROD"]
+OTHER_ITEMS = ["CRYSTAL", "HERB", "TNT", "ADAMANT", "SLAB", "RUBY", "CUBE", "BOTTLE", "OXYALE"]
+ITEM_INCENTIVE, ITEM_LOOSE, ITEM_FREE = 0, 1, 2
+KEYITEMS_VANILLA, KEYITEMS_STANDARD, KEYITEMS_WIDE = 0, 1, 2
+_NAME = [n for n, _ in PLACE_ITEMS]
+_BIT = {n: 1 << _L.BITS.index(n) for n in _NAME[:PLACE_KEYS]}
+_BIT_AIRSHIP = 1 << _L.BITS.index("AIRSHIP")
+
+
+def item_rows(items3):
+    """The three RANDO_ITEMS bytes as twelve row values."""
+    v = int.from_bytes(bytes(items3), "little")
+    return [(v >> (2 * k)) & 3 for k in range(12)]
+
+
+def place_setup(keyitems, items3, gear2, early):
+    """The settings as placement sees them: the free mask, the items to place
+    (cartridge order), which of those are incentives, the incentive places,
+    and each location's masks with the Early flags' waivers applied."""
+    rows = item_rows(items3)
+    gear = int.from_bytes(bytes(gear2), "little")
+    free, items, inc = 0, [], set()
+    for k, name in enumerate(ITEMROW_ITEM):
+        i = _NAME.index(name)
+        v = rows[k] if rows[k] < 3 else ITEM_INCENTIVE
+        if v == ITEM_FREE:
+            if name in _BIT:
+                free |= _BIT[name]
+            if name == "FLOATER":
+                free |= _BIT_AIRSHIP
+            continue
+        items.append(i)
+        if v == ITEM_INCENTIVE:
+            inc.add(i)
+    other = rows[11] if rows[11] < 2 else ITEM_INCENTIVE
+    for name in OTHER_ITEMS:
+        i = _NAME.index(name)
+        items.append(i)
+        if other == ITEM_INCENTIVE:
+            inc.add(i)
+    for g in range(9):
+        if gear >> g & 1:
+            items.append(PLACE_GEAR + g)
+            inc.add(PLACE_GEAR + g)
+    items.sort()
+    spot = 0x01 if keyitems == KEYITEMS_STANDARD else 0x02
+    inclocs = {c for c, l in enumerate(_L.LOCS) if l[2] & spot}
+    masks = []
+    for kind, ident, flags, e, ms, _ in _L.LOCS:
+        clear = _L.EARLY_BIT[e - 1] if e and early >> (e - 1) & 1 else 0
+        masks.append([m & ~clear for m in ms])
+    return free, items, inc, inclocs, masks
+
+
+def place_accessible(masks, placed, owned):
+    """Pool places reachable and not yet holding an item, and what is owned,
+    once everything reachable has been collected."""
+    while True:
+        gained = 0
+        open_ = []
+        for c, ms in enumerate(masks):
+            if any(m & ~owned == 0 for m in ms):
+                open_.append(c)
+                kind, ident = _L.LOCS[c][0], _L.LOCS[c][1]
+                if kind == 3:
+                    gained |= 1 << ident
+                elif c in placed and placed[c] < PLACE_KEYS:
+                    gained |= _BIT[_NAME[placed[c]]]
+        if not gained & ~owned:
+            return {c for c in open_ if c < 248 and c not in placed}, owned
+        owned |= gained
+
+
+def _weight(i, w, cycle, access):
+    name, q = PLACE_ITEMS[i]
+    if access < MIN_ACCESS.get(name, 0) or cycle < MIN_CYCLE.get(name, 0):
+        return 0
+    if i >= PLACE_KEYS:
+        return 0 if cycle < NONKEY_MIN_CYCLE else w >> 1
+    return (w * q) >> 2
+
+
+def _bins(cands, b0, b1, b2, b3, red, cycle, access, key, lo, hi):
+    out = []
+    for i, cnt in cands:
+        c = cnt[key]
+        if c < 0:
+            out.append((_weight(i, b0, cycle, access), i))
+        elif c < lo:
+            out.append((_weight(i, b1, cycle, access), i))
+        elif c < hi:
+            out.append((_weight(i, b2, cycle, access), i))
+    w = b3
+    for i, cnt in sorted((x for x in cands if x[1][key] >= hi), key=lambda x: (x[1][key], x[0])):
+        out.append((_weight(i, w, cycle, access), i))
+        w >>= red
+    return out
+
+
+def _attempt(rng, free, items, inc0, inclocs, masks):
+    incentives = set(inc0)
+    n_inc_pool = len(inclocs)
+    while len(incentives) > n_inc_pool:
+        s = sorted(incentives)
+        incentives.discard(s[rng.below(len(s))])
+    remaining = list(items)
+    keys = [i for i in remaining if i < PLACE_KEYS]
+    placed = {}
+    state = "normal"
+    SHIP, CANAL = _NAME.index("SHIP"), _NAME.index("CANAL")
+    for cycle in range(1, 101):
+        acc, owned = place_accessible(masks, placed, free)
+        inc_src = {c for c in acc if c in inclocs}
+        non_src = acc - inc_src
+        cands = []
+        for i in keys:
+            acc2, _ = place_accessible(masks, placed, owned | _BIT[_NAME[i]])
+            ni = len({c for c in acc2 if c in inclocs}) - len(inc_src)
+            nn = len(acc2) - len(inc_src) - ni - len(non_src)
+            if i in incentives:
+                ni -= 1
+            else:
+                nn -= 1
+            cands.append((i, {"inc": ni, "non": nn}))
+        if SHIP in keys and CANAL in keys:
+            acc2, _ = place_accessible(masks, placed, owned | _BIT["SHIP"] | _BIT["CANAL"])
+            ni = len({c for c in acc2 if c in inclocs}) - len(inc_src)
+            nn = len(acc2) - len(inc_src) - ni - len(non_src)
+            for it in (SHIP, CANAL):
+                if it in incentives:
+                    ni -= 1
+                else:
+                    nn -= 1
+            ni //= 2
+            nn //= 2
+            for i, cnt in cands:
+                if i in (SHIP, CANAL):
+                    if cnt["inc"] < ni and len(inc_src) > 1:
+                        cnt["inc"] = ni
+                    if cnt["non"] < nn and len(non_src) > 1:
+                        cnt["non"] = nn
+        inc_items = [i for i in remaining if i in incentives]
+        access = len(acc)
+        if state == "incentive" or (state == "normal" and rng.below(len(remaining)) < len(inc_items)):
+            cs = [c for c in cands if c[0] in incentives]
+            nonkey = [i for i in remaining if i >= PLACE_KEYS and i in incentives]
+            n = len(inc_src)
+            if n <= 1 or (n <= CRIT_INC and SHIP in keys and CANAL in keys):
+                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "inc", 1, 2)
+            elif n <= SAFE_INC:
+                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "inc", 1, 2)
+                wc += [(_weight(i, W1 // 2, cycle, access), i) for i in nonkey]
+            else:
+                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "inc", 1, 2)
+                wc += [(_weight(i, W1, cycle, access), i) for i in nonkey]
+            if sum(w for w, _ in wc) == 0 and len(inc_items) <= n:
+                wc += [(W1, i) for i in inc_items]
+            if sum(w for w, _ in wc) == 0:
+                if cycle >= 15 and state != "normal":
+                    return None
+                state = "nonincentive"
+                continue
+        else:
+            cs = [c for c in cands if c[0] not in incentives]
+            nonkey = [i for i in remaining if i >= PLACE_KEYS and i not in incentives]
+            n = len(non_src)
+            if n <= CRIT_NON:
+                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "non", 5, 20)
+            elif n <= SAFE_NON:
+                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "non", 5, 20)
+                wc += [(_weight(i, W1 // 2, cycle, access), i) for i in nonkey]
+            else:
+                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "non", 5, 20)
+                wc += [(_weight(i, W1, cycle, access), i) for i in nonkey]
+            if sum(w for w, _ in wc) == 0:
+                if cycle >= 15 and state != "normal":
+                    return None
+                state = "incentive"
+                continue
+        wc = [x for x in wc if x[0] > 0]
+        total = sum(w for w, _ in wc)
+        assert total < 0x10000
+        r = rng.below16(total)
+        for w, item in wc:
+            if r < w:
+                break
+            r -= w
+        where = sorted(inc_src if item in incentives else non_src)
+        if not where:
+            continue
+        placed[where[rng.below(len(where))]] = item
+        remaining.remove(item)
+        if item in keys:
+            keys.remove(item)
+        state = "normal"
+        if not remaining:
+            break
+    if remaining:
+        return None
+    _, owned = place_accessible(masks, placed, free)
+    if not any(m & ~owned == 0 for m in _L.CHAOS_MASKS):
+        return None
+    return placed
+
+
+def build_placement(seed, keyitems, items3, gear2, early):
+    """Where each item goes: a list in PLACE_ITEMS order of cartridge location
+    indices, $FF for an item not placed (free, or gear left as Treasure);
+    None under Key items Vanilla, and None too if every attempt failed."""
+    if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
+        return None
+    free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early)
+    rng = Stream(seed, STREAM_KEYS)
+    for _ in range(PLACE_ATTEMPTS):
+        placed = _attempt(rng, free, items, inc, inclocs, masks)
+        if placed is not None:
+            out = [0xFF] * len(PLACE_ITEMS)
+            for c, i in placed.items():
+                out[i] = c
+            return out
+    return None
 
 
 # --- magic levels ----------------------------------------------------------------

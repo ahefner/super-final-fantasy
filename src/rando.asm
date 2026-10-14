@@ -47,7 +47,7 @@
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
-.export rando_steprng, rando_mapedits, rando_teledest, rando_talk
+.export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs
 
@@ -213,6 +213,7 @@ STREAM_SKILLS   = $534B494C     ; "SKIL"
 STREAM_BSKILLS  = $42534B4C     ; "BSKL"
 STREAM_RNG      = $524E4754     ; "RNGT"
 STREAM_ORDEALS  = $4F52444C     ; "ORDL"
+STREAM_KEYS     = $4B455953     ; "KEYS"
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -528,6 +529,8 @@ rando_newgame:
     LDA #0
     STA f:RANDO_GIVENFAR
     STA f:RANDO_GIVENFAR + 1
+    ;  ...and where its key items are, under Key items Standard or Wide.
+    JSL rando_place + RANDOFAR
     PLX
     PLP
     RTL
@@ -4885,3 +4888,6 @@ rando_steprng:
     PLB
     ORA #$00                    ; N and Z from the byte, not from the bank
     RTL
+
+
+.include "place.inc"

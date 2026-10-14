@@ -40,7 +40,7 @@ ORDER     = ["%02X" % n for n in range(16)]
 # The CHUNK_ numbers in src/snesmap.inc must agree with the keys here,
 # and the keys must run on from $11 without a gap: the image is assumed dense
 # up to the last of them when it is mirrored out to 2MB below.
-EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT"}
+EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x15: "LOGIC"}
 
 
 def read(path, want):

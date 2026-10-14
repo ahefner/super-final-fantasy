@@ -107,6 +107,8 @@ What the bytes hold before anything writes them:
     game reads them from ROM at `lut_ClassStartingStats` (`$B040`,
     `bank_0F.asm:1837`), never from here.  These bytes are free, but they
     hold junk rather than zero until something writes them.
+  - **`$6040-$605D` is placement's** (§4.7): whether there is one, and each
+    item's location.
   - **`$60F0-$60F2` is `rando_talk`'s** (§3): the marker that a game runs its
     reward NPCs from the table, and their given bits.
   - **`$60FD-$60FF` must not be used.**  In the saved copy they are
@@ -783,6 +785,56 @@ Not yet: FFR's ship-spawn table (the ship appears in the inner sea once
 found, as `run_vanilla.py` reads it), its balanced location picker, and a
 comparison of placement, which needs FFR's NPC rewards read back as well as
 its chests.
+
+### 4.7 Built: placement on the cart (2026-10-14; not yet played)
+
+Drawn once, at New Game, and kept in the save; nothing reads it yet -- the
+chests, the reward NPCs and the caravan still give their vanilla contents
+until the rewards change.
+
+  - **The logic** is the world graph's, distilled: `tools/genlogic.py`
+    (needs `../worldgraph`) writes, for each of 256 locations -- the 234
+    chests before the Black Orb, the 13 reward NPCs, the caravan, then eight
+    events (the Princess rescued, the Vampire, Unne, the four altars, the
+    airship raised) -- the minimal sets of key items and events that reach
+    it, 410 masks of 32 bits; Chaos's one mask apart.  The Early flags each
+    waive one bit of a few locations (the King's PRINCESS, Sarda's VAMPIRE,
+    the Sage's ORB_EARTH, the CROWN of the nine past the Ordeals' thrones),
+    and the script proves that reading exact for all sixteen combinations.
+    It also checks that Coneria's dock, where a found ship will be moved as
+    Free SHIP moves it, is on the vanilla ship's sea, so FFR's "the ship
+    sails the inner sea once found" holds.  The tables are in git:
+    `src/logic.inc` (constants), `src/logicdata.inc` in a chunk of their own,
+    `CHUNK_LOGIC` (3.7KB), and `tools/logicdata.py`.
+  - **The algorithm** is FFR's `PredictivePlacement` as `placement.py`
+    ports it, in `randoref.build_placement` and `rando_place` (`place.inc`)
+    alike.  Where both differ from FFR: the cart's PRNG; integer weights,
+    1.0 being 1024; no shuffle of the candidates before the draw (the odds
+    are the same); up to 32 attempts where FFR stops at three, then key items
+    stay where they are.  It uses FFR's safe tables, as FFR does on its own
+    map without Entrance shuffle, and its BRIDGE at 2.0, which FFR sets for
+    that map -- the prototype had the unsafe ones, built for the shuffle.
+  - **Asked incrementally.**  The plain fixpoint the reference uses is a
+    median 155,000 mask tests a placement, two to five seconds on the
+    65816.  The cart keeps what the placed items reach, and a bit gained asks
+    again only of the locations whose masks name it (`lut_LogicByBit`, 722
+    entries); a candidate's walk marks under a fresh generation and is
+    forgotten.  The sets are the fixpoint's, so the draws are too: a median
+    470,000 instructions, about 0.7 s, and 1.4 million, about 2 s, for a seed
+    that needs several attempts.
+  - **In the save**: `RANDO_PLACED` (`$6040`) and `RANDO_PLACE`, one byte per
+    item -- nineteen key items, the TAIL, nine gear rows -- giving its
+    location or `$FF`.  That page-0 range is the dead copy of the class
+    stats (§1.1), junk in older saves; `RANDO_PLACED` says whether the bytes
+    mean anything, and only a game begun with Key items Standard or Wide
+    sets it.  Working memory is `$7FC000` up, above the cache.
+
+`test_rando_place` holds the cart to the reference, placement for placement,
+over seven settings (Beginner, the Early flags off, the BRIDGE placed,
+everything incentivised, Wide with nothing free, all loose, Free
+Enterprise), and checks each whole.  `tools/checkplace.py` puts the
+reference's placements into the world graph's own locations and plays them
+through: 2,100 of 2,100 winnable.
 
 ## 5. Shops
 
