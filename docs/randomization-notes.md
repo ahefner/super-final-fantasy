@@ -498,7 +498,7 @@ The far routine reaches `CheckGameEventFlag`, `HideThisMapObject` and the
 battle starters through `CALL0E`.  Bikke and Astos combine a reward with a
 fight and a hide, so their scripts are reproduced, not generalised.
 
-**Built (2026-10-13; not yet played), with the vanilla rewards: `rando_talk`.**  The
+**Built (2026-10-13; played once 2026-10-14), with the vanilla rewards: `rando_talk`.**  The
 fixed bank's funnel is `JSL rando_talk / BCC / RTS / JMP (tmp+6)`, 31 bytes
 less than the Guillotine it held, which moved far with it.  The thirteen
 NPCs (the caravan is a shop, §5) are one table in the randomizer's chunk:
@@ -799,7 +799,7 @@ found, as `run_vanilla.py` reads it), its balanced location picker, and a
 comparison of placement, which needs FFR's NPC rewards read back as well as
 its chests.
 
-### 4.7 Built: placement on the cart (2026-10-14; not yet played)
+### 4.7 Built: placement on the cart (2026-10-14; played once the same day)
 
 Drawn once, at New Game, and kept in the save; nothing reads it yet -- the
 chests, the reward NPCs and the caravan still give their vanilla contents
@@ -856,7 +856,7 @@ Enterprise), and checks each whole.  `tools/checkplace.py` puts the
 reference's placements into the world graph's own locations and plays them
 through: 2,100 of 2,100 winnable.
 
-### 4.8 Built: the rewards (2026-10-14; not yet played)
+### 4.8 Built: the rewards (2026-10-14; played once the same day)
 
 What chests, reward NPCs and the caravan give once placement is in:
 `deal_rewards` (`rewards.inc`) in the cache build, in place of Tier 1's

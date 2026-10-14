@@ -525,7 +525,7 @@ and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
 sixth flag byte, which the flag word grew for it (format 8) -- and grew
 for the critical hit count too, until that became unconditional.
 
-**Asshole Kraken** (user, 2026-10-14, for fun; built, not yet played) is
+**Asshole Kraken** (user, 2026-10-14, for fun; played the same day, both fights) is
 not FFR's, and is off in every preset.  Kraken and Kraken 2 (enemies `$7B`
 and `$7C`) spend every turn hitting a White Mage or White Wizard with their
 eight-hit melee attack, while one is neither dead nor stone: no INK, and no
@@ -794,7 +794,7 @@ FFR-derived presets set it; `randomization-notes.md` §12, `ffr-presets.md`.
 
 ### Key items (26)
 
-**Built 2026-10-14, not yet played.**  The incentive rows settled in
+**Built 2026-10-14; played once 2026-10-14, a full run with mostly loose key items, completable; another wanted.**  The incentive rows settled in
 `randomization-notes.md` §12, at the end of the RANDOMIZATION section under a
 KEY ITEMS heading of their own, saved with the game like the rows above it
 and shown by the save view with them:
@@ -805,7 +805,7 @@ and shown by the save view with them:
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
     Early King, Sarda, Sage, Ordeals   Off / On
 
-All of it works now (built 2026-10-14, not yet played): Free, which
+All of it works now (built 2026-10-14; played once): Free, which
 `opt_freestuff` reads from the save `rando_newgame` has just written
 (`opt_isfree`) rather than from flag bits; the Early flags; and under Key
 items Standard or Wide, placement and the rewards it deals
