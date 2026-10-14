@@ -495,11 +495,11 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (10)
+### Variations (11)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element.
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshole Kraken.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -512,6 +512,24 @@ too: `Enemy_DoMagicEffect` calls `Battle_PrepareMagic`, where it is hooked,
 and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
 sixth flag byte, which the flag word grew for it (format 8) -- and grew
 for the critical hit count too, until that became unconditional.
+
+**Asshole Kraken** (user, 2026-10-14, for fun; built, not yet played) is
+not FFR's, and is off in every preset.  Kraken and Kraken 2 (enemies `$7B`
+and `$7C`) spend every turn hitting a White Mage or White Wizard with their
+eight-hit melee attack, while one is neither dead nor stone: no INK, and no
+LIT2 from the second.  With nobody to hit the turn is the enemy's own, and
+the battle RNG is not touched.  With two or more white mages, which one is
+`GetRandomPlayerTarget`'s weighting, half the time the first slot, rerolled
+until it lands on one.  `opt_kraken` decides it at the head of `Enemy_DoAi`,
+before the enemy's script is read, and the hook jumps to
+`EnemyAttackPlayer_Physical` as `ChooseAndAttackPlayer` does: twelve of the
+21 never-executed bytes the script lookup left there, so bank `$0C` stays
+byte-neutral.  The patch is `randoai_kraken.patch`, named to sort after
+`randoai.patch`, whose output it edits.  Bit 43, which no build had set, so
+every saved block reads it off and the format stays 9.  `test_kraken` runs
+the real `Enemy_DoAi` from all 256 RNG states: always the white mage with
+the flag, and the enemy's own turns, roll for roll, without it, with nobody
+to hit, for any other enemy, and for every other class.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -1868,9 +1886,10 @@ text region in the game references.
                              gave back 24, the chest's exit for a vehicle
                              took 3, and the reward NPCs' lines' hook 4
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
-    BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
+    BANK_0C        4 free    declared unused at $BFFC; and 16 bytes of
                              padding inside routines the randomizer took
-                             over -- 21 never executed in Enemy_DoAi, 7 NOPs
+                             over -- 9 never executed in Enemy_DoAi (Asshole
+                             Kraken's hook took 12 of 21), 7 NOPs
                              in the enemy attack setup -- and 33 never
                              executed where the DRINK choice used to be
     BANK_0D      212 free
@@ -1880,7 +1899,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    1161 free   once the descriptions moved out, the None, the
+    BANK_OPT    1023 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -1888,8 +1907,9 @@ text region in the game references.
                              Lefein map edits (288), and the Ordeals
                              pillars' row and hand-on (40), and the key
                              item rows (1071: 20 more rows of 32 bytes, their
-                             readouts and field tables, the field code)
-    BANK_OPTTEXT  4702 free  the settings screen's descriptions (measured
+                             readouts and field tables, the field code), and
+                             Asshole Kraken (138: its row and opt_kraken)
+    BANK_OPTTEXT  4587 free  the settings screen's descriptions (measured
                              2026-10-14 from ld65's map: the 10788 here
                              before dated from 10-09 and was not kept up as
                              descriptions were added)

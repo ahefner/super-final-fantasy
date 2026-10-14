@@ -64,7 +64,7 @@
 .export opt_stackshift
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
-.export opt_harmundead, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
+.export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
 .import rando_stir, rando_newgame
@@ -77,6 +77,7 @@
 .import rando_mapedits
 .import opt_spelloverride
 .import lut_WaitString
+.import BattleRNG_L
 .import lut_CantHoldWhat
 .import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
@@ -2769,6 +2770,91 @@ opt_harmundead:
   @no:
     LDA #$00                    ; Z set
   @out:
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Asshole Kraken
+;;
+;;  At the head of Enemy_DoAi, before the enemy's script is read.  With the
+;;  flag, Kraken and Kraken 2 skip their scripts -- no INK, and no LIT2 from
+;;  the second -- and hit a White Mage or White Wizard with their eight
+;;  tentacles, whenever one is neither dead nor stone.  With two or more, which
+;;  one is GetRandomPlayerTarget's own weighting -- half the time slot 0, a
+;;  quarter slot 1, an eighth each slots 2 and 3 -- rerolled until it lands on
+;;  one, as that routine rerolls past the dead.
+;;
+;;  In: ($9A) = the enemy's battle RAM.  Out: C set and A = the party slot to
+;;  hit, in btl_randomplayer too; or C clear, the battle RNG untouched, for the
+;;  enemy's own choice.  X, Y clobbered.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_kraken:
+    LDA OPTFB_KRAKEN
+    AND #OPTFM_KRAKEN
+    BEQ @no
+    LDY #en_enemyid
+    LDA ($9A), Y
+    CMP #ENEMY_KRAKEN
+    BEQ @kraken
+    CMP #ENEMY_KRAKEN2
+    BNE @no
+  @kraken:
+    ;  The slots holding a White Mage or Wizard, slot n in bit n...
+    LDA #$00
+    STA OPTSCRATCH
+    LDX #$C0                    ; slot 3's stats, then down to slot 0
+  @slot:
+    LDA ch_class, X
+    CMP #CLS_WM
+    BEQ @white
+    CMP #CLS_WW
+    BEQ @white
+    CLC
+    BCC @next
+  @white:
+    SEC
+  @next:
+    ROL OPTSCRATCH
+    TXA
+    SEC
+    SBC #$40
+    TAX
+    BCS @slot
+    ;  ...less the dead and the stone, which no attack can be aimed at.
+    LDA btl_drawflagsA
+    ORA btl_drawflagsB
+    EOR #$FF
+    AND OPTSCRATCH
+    BEQ @no
+    STA OPTSCRATCH
+  @roll:
+    JSR BattleRNG_L             ; X clobbered
+    LDY #$00                    ; [80,FF] slot 0, [40,7F] 1, [20,3F] 2,
+    CMP #$80                    ;   [00,1F] 3
+    BCS @have
+    INY
+    CMP #$40
+    BCS @have
+    INY
+    CMP #$20
+    BCS @have
+    INY
+  @have:
+    TYA
+    TAX
+    LDA OPTSCRATCH
+  @bit:
+    LSR A                       ; slot Y's bit, into C
+    DEX
+    BPL @bit
+    BCC @roll
+    STY btl_randomplayer
+    TYA
+    SEC
+    RTL
+  @no:
+    CLC
     RTL
 
 ;  SOFT's row, with its name spelled out rather than escaped.  The cartridge

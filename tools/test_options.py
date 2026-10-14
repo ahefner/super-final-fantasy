@@ -3731,6 +3731,103 @@ def test_wmharm():
 #  OptMagicTarget exists for.  Cast Life is where it showed: vanilla LIFE and
 #  LIF2 are blank stubs, so the menu recorded graphic 0, which is not one of the
 #  eight any spell uses, and the animation drew out of the caster's own CHR.
+def kraken_turn(base, rngstate):
+    """Enemy_DoAi, run on a copy of base from one battle RNG state to where
+    the turn is decided: ("hit", party slot, attacker) at
+    EnemyAttackPlayer_Physical, or ("magic", attack) at Enemy_DoMagicEffect."""
+    bus = Bus(ROMDATA)
+    bus.wram[:], bus.sram[:] = base.wram, base.sram
+    bus.sram[BTL_RNGSTATE - 0x6000] = rngstate
+    cpu = CPU(bus)
+    cpu.dbr = BANK_0C
+    cpu.pbr, cpu.pc = BANK_0C, SYM["Enemy_DoAi"]
+    cpu.push(0xFF); cpu.push(0xFD)
+    for _ in range(20000):
+        if cpu.pbr == BANK_0C and cpu.pc == SYM["EnemyAttackPlayer_Physical"]:
+            return ("hit", cpu.a & 0x03, cpu.x & 0xFF)
+        if cpu.pbr == BANK_0C and cpu.pc == SYM["Enemy_DoMagicEffect"]:
+            return ("magic", cpu.a & 0xFF)
+        cpu.step()
+    return ("lost", cpu.pbr, cpu.pc)
+
+
+def test_kraken():
+    """Asshole Kraken: Kraken and Kraken 2 spend every turn on a White Mage or
+    White Wizard while one can be hit -- the melee attack, no INK, no LIT2.
+    The real Enemy_DoAi, from all 256 battle RNG states, to where the turn is
+    decided.  Off, and on with nothing to hit, the turn is the enemy's own,
+    roll for roll; the control shows that is not always the melee.  With two
+    to choose from, the pick is GetRandomPlayerTarget's weighting, modelled
+    here from its comments, rerolled until it lands on one."""
+    KRAKEN, KRAKEN2 = 0x7B, 0x7C
+    FI, TH, BB, RM, WM, BM = 0, 1, 2, 3, 4, 5
+    WW, NONE = 10, 0xFF
+    ATTACKER, DEAD, STONE, CLASS = 0x6C89, 0x6AD1, 0x6AD2, 0x6100
+    for e, hp in ((KRAKEN, 800), (KRAKEN2, 900)):
+        st = ROMDATA[ENEMIES_ROM + e * 20:][:20]
+        check("enemy $%02X is a Kraken: its HP and eight hits" % e,
+              (st[4] | st[5] << 8, st[10]), (hp, 8))
+
+    def base(enemy, party, on=True, dead=0, stone=0):
+        bus, cpu = machine()
+        setsave(bus, 1, 0)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)  # the battle RNG table
+        setblk(bus, OPT_FLAGS + 5, 0x08 if on else 0)
+        for n, c in enumerate(party):
+            bus.sram[CLASS + 0x40 * n - 0x6000] = c
+        bus.sram[DEAD - 0x6000], bus.sram[STONE - 0x6000] = dead, stone
+        enram(bus, enemy, 2)
+        bus.sram[ATTACKER - 0x6000] = 2
+        return bus
+
+    def turns(*a, **k):
+        b = base(*a, **k)
+        return [kraken_turn(b, s) for s in range(256)]
+
+    party = (FI, WM, BM, TH)
+    for e in (KRAKEN, KRAKEN2):
+        own = turns(e, party, on=False)
+        check("$%02X, flag off: its own turns, INK among them" % e,
+              (sum(t[0] == "magic" for t in own) > 0, sum(t[0] == "hit" for t in own) > 0),
+              (True, True))
+        check("$%02X, flag off: no turn lost" % e,
+              [t for t in own if t[0] not in ("hit", "magic")][:1], [])
+        check("$%02X: the White Mage, every turn, by this enemy" % e,
+              set(turns(e, party)), {("hit", 1, 2)})
+        check("$%02X: a White Wizard in the last slot" % e,
+              set(turns(e, (FI, TH, BB, WW))), {("hit", 3, 2)})
+        #  Nothing to hit: the enemy's own turn, the RNG untouched.
+        for name, kw in (("dead", dict(dead=0x02)), ("stone", dict(stone=0x02))):
+            check("$%02X: the White Mage %s, its own turns" % (e, name),
+                  turns(e, party, **kw), turns(e, party, on=False, **kw))
+        check("$%02X: no white mage, its own turns" % e,
+              turns(e, (FI, TH, BB, RM)), turns(e, (FI, TH, BB, RM), on=False))
+    #  Only these two.
+    for e in (0x7A, 0x7D, 0x7F, 0x00):
+        check("enemy $%02X: its own turns" % e,
+              turns(e, party), turns(e, party, on=False))
+    #  Only these two classes; the None is not one.
+    bad = [c for c in [c for c in range(12) if c not in (WM, WW)] + [NONE]
+           if turns(KRAKEN, (FI, TH, c, BB)) != turns(KRAKEN, (FI, TH, c, BB), on=False)]
+    check("no other class is a white mage", bad, [])
+
+    #  Two of them, slots 0 and 2, and one of them stone: the pick is the
+    #  game's weighting over the cartridge's table, rerolled past the rest.
+    b = base(KRAKEN, (WM, FI, WW, TH))
+    rng = bytes(b.wram[rw("RW_BATRNG"):rw("RW_BATRNG") + 256])
+    bucket = lambda r: 0 if r >= 0x80 else 1 if r >= 0x40 else 2 if r >= 0x20 else 3
+    def model(s, ok):
+        while bucket(rng[s & 0xFF]) not in ok:
+            s += 1
+        return ("hit", bucket(rng[s & 0xFF]), 2)
+    got = [kraken_turn(b, s) for s in range(256)]
+    check("two: the game's weighting, rerolled past the others",
+          got, [model(s, (0, 2)) for s in range(256)])
+    check("...and both are picked", {t[1] for t in got}, {0, 2})
+    b = base(KRAKEN, (WM, FI, WW, TH), stone=0x01)
+    check("two, the first stone: always the other",
+          set(kraken_turn(b, s) for s in range(256)), {("hit", 2, 2)})
+
 def test_magicgfx():
     MAGDATA = open('game/bin/0C_81E0_magicdata.bin','rb').read()
     SPELL_LIFE, SPELL_LIF2, SPELL_CURE, SPELL_HARM = 33, 56, 0, 10
@@ -8225,7 +8322,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

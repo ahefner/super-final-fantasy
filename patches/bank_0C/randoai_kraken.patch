@@ -1,0 +1,20 @@
+--- OLD
+    JSL rando_enemyai + RANDOFAR
+    BCC @UseAi
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+    .res 21, $EA                ; the lookup this replaced was 30 bytes
+--- NEW
+.import opt_kraken
+.export Enemy_DoAi, EnemyAttackPlayer_Physical, Enemy_DoMagicEffect   ; for the harness
+    ;  Asshole Kraken first: Kraken or Kraken 2 with a White Mage or Wizard
+    ;  to hit skips its script and attacks the party slot in A, as
+    ;  ChooseAndAttackPlayer would.  It edits randoai.patch's NEW, so its name
+    ;  sorts after that one.
+    JSL opt_kraken + OPTFAR
+    BCC :+
+      LDX btl_attacker
+      JMP EnemyAttackPlayer_Physical
+:   JSL rando_enemyai + RANDOFAR
+    BCC @UseAi
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+    .res 9, $EA                 ; the lookup this replaced was 30 bytes

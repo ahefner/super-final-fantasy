@@ -1641,6 +1641,8 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $28   ; TRANCE status element   (bit 40)
   FFPAD "TRANCE status element", 30
+  .BYTE $01, $2B   ; Asshole Kraken   (bit 43)
+  FFPAD "Asshole Kraken", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; TREASURES

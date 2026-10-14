@@ -306,6 +306,15 @@ OPTFM_TRANCE    = $01    ; bit 40
 ATTACK_TRANCE   = $51
 ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 
+;  Asshole Kraken (user, 2026-10-14; not FFR's): Kraken and Kraken 2 spend
+;  every turn hitting a White Mage or White Wizard, while one can be hit
+;  (opt_kraken).  Bit 43, in the sixth byte after the Lefein edits; no build
+;  has set it before, so every saved block reads off.
+OPTFB_KRAKEN    = OPT_FLAGS+5
+OPTFM_KRAKEN    = $08    ; bit 43
+ENEMY_KRAKEN    = $7B           ; the Sea Shrine's fiend
+ENEMY_KRAKEN2   = $7C           ; ...and its return in the Temple of Fiends
+
 ;  Standard map edits: tiles written over a map as it loads, when a flag asks
 ;  (opt_mapedits, lut_MapEdits).  The first two are FFR's Lefein shops, both
 ;  quality of life here (user, 2026-10-13): Lefeinish Hospitality, Crescent
