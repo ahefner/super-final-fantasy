@@ -619,7 +619,11 @@ starts with the airship is a different game, not a smoother one.  They also
 only affect a *new* game -- `opt_freestuff` runs off the new-game path, so an
 existing save is untouched whatever these are set to.  *Planned
 (2026-10-11):* the section moves to the New Game flow, and its FFR-derived
-presets free what FFR's do; `randomization-notes.md` §12.
+presets free what FFR's do; `randomization-notes.md` §12.  *Planned
+(2026-10-13):* each Free row becomes a three-value row, Incentive / Loose /
+Free, beside a Key items row, an Other items row, nine incentive gear rows
+and FFR's four Early flags -- the incentive rows, `randomization-notes.md`
+§12.
 
 **Starting items** (2026-10-11; played the same day, spot checks and a new game) is a value row of
 FFR's `StartingItemSet`, its nine fixed sets in its order: None, Safety Bit,

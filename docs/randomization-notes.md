@@ -467,6 +467,16 @@ Two points to settle in the design:
     stand in.  The twelve lines live in the options chunk, at about 70 bytes
     each in plain text.
 
+Two more, from the incentive rows (§12):
+
+  - **Any item, and gold.**  Once key items move, an NPC can hold an
+    ordinary item -- a spot the incentive items did not fill, or with Chests
+    Off a slot a key item vacated -- or gold, a Free item's slot.  The
+    generic routine gives any item id, gold included, and copes with a full
+    bag of weapons or armor as the chest code does.
+  - **The Early flags** make the King's, Sarda's and the Canoe Sage's
+    events optional, each by its own row.
+
 The far routine reaches `CheckGameEventFlag`, `HideThisMapObject` and the
 battle starters through `CALL0E`.  Bikke and Astos combine a reward with a
 fight and a hide, so their scripts are reproduced, not generalised.
@@ -659,13 +669,47 @@ Over 200 seeds (`run_fe.py 200 --place`, 19 s under PyPy):
     short of where the stack fix starts forgetting
   - Titan's Tunnel opens new ground in 97 (§9.3)
 
-**The incentive pool decides whether placement works at all.**  With all
-twenty key items incentivised into FFR's default incentive locations -- the
-13 NPCs, the caravan and the eight "Major" chests, 22 in all -- placement
-fails two seeds in three.  That is the pool, not the port: with the vehicles
-and the BOTTLE loose it is 200 out of 200, and everything loose likewise.
-The prototype defaults to that until the incentive options are chosen
-(§12).
+**Placement failures were the comparison's, not the pool's (corrected
+2026-10-13).**  This paragraph said that all twenty key items incentivised
+into FFR's default incentive locations -- the 13 NPCs, the caravan and the
+eight "Major" chests, 22 in all -- fail two seeds in three, and blamed the
+pool.  On the vanilla world every pool places: 200 seeds in 200 for each of
+ten settings of the cart's rows (§12), FFR's own default among them, every
+result winnable (`run_incentives.py`).  Under the shuffle, three things
+differed from FFR's runs:
+
+  - `run_fe.py` shuffles with `fe_shuffle`'s defaults, which move the towns,
+    Coneria included.  FFR's Entrance and Floor Shuffle preset leaves towns
+    alone.  With Coneria's castle elsewhere, often no incentive location is
+    reachable at the start, and placement never begins.
+  - The graph had none of FFR's Early flags, which every preset that
+    shuffles turns on: the King waited for the Princess, Sarda for the
+    Vampire, the Canoe Sage for the Earth Orb, and the Ordeals thrones for
+    the CROWN.  `build.build(early=...)` now takes them.
+  - The overworld was vanilla's, without FFR's Open Progression edits.
+
+FFR's default pool -- the BRIDGE free, and 19 key items, the Masamune and
+the Ribbon into 21 spots:
+
+    towns shuffled, no Early flags (the old run)     48 of 100 placed
+    the preset's own settings                       149 of 200
+      and the Early flags                           176 of 200
+      and FFR's overworld, read from one of its ROMs 192 of 200
+    FFR itself (run_ffr_fe.py)                       49 of 50
+
+So the port's placement agrees with FFR's.  `placement.py` keeps its old
+default pool, the vehicles and the BOTTLE loose, for `run_fe.py`'s numbers
+above; `placement.setup` builds the pool from the cart's rows.
+
+The cart's rows under the same shuffle, on FFR's overworld
+(`run_incentives.py 100 <FFR rom> --efs`, 100 seeds each): Beginner places
+99, and Chaos Rush, Free Enterprise, all loose and vehicles loose 100;
+everything incentivised, eight spilling over, 95; Beginner without the
+Early flags 84; and the two settings that leave the BRIDGE to be placed --
+Beginner with it an incentive, and Wide with nothing free and no gear -- 78
+and 77.  Every seed placed is winnable.  Every FFR preset that shuffles
+entrances frees the bridge, and this is why.  It is the shuffle's concern
+(Tier 3), and the cart re-rolls a seed that fails either way.
 
 **Cost on the cart.**  One placement does about 280 reachability fixpoints
 -- 1,100 BFS passes and 85,000 edge relaxations at the median, 150,000 at
@@ -1420,7 +1464,9 @@ any seed, and each has a small forced-scenario test (§13).
 
 **Tier 2: incentive placement.**  The logic graph and its oracle for the
 vanilla world, then key items across chests, then NPC rewards and their
-dialogue.  This is the core of the project and the one tier whose
+dialogue.  The rows are settled (§12).  The order of work (2026-10-13): the
+generic NPC talk routine (§3) first, giving the vanilla rewards, so it can
+be played on its own with nothing changed; then the rows and placement.  This is the core of the project and the one tier whose
 correctness cannot come from playing.  It has to come from the oracle.
 
 **Free items leave the pool as a random chest of gold (user, 2026-10-07).**
@@ -1538,6 +1584,57 @@ Settled in review 1:
     title's "quality of life and bugfixes": 200% gold and XP, the elemental
     bonus at the cartridge's +4, Thief and Ninja hit growth at Balanced
     (a third value for that row), and NPC guillotine on with the rest.
+  - **The incentive rows (user, 2026-10-13).**  FFR's thirty-odd
+    `Incentivize*` switches, its Free items and its Early flags become rows
+    of the randomization screen's TREASURES section:
+      - **Key items: Vanilla / Standard / Wide** -- whether key items move,
+        and the incentive spots.  Standard is FFR's default: the 13 NPCs, the
+        caravan, and the seven `*Major` chests but Volcano's (Coneria's
+        locked room, Marsh Cave, Earth Cave, Ice Cave, Ordeals, Sea Shrine,
+        Sky Palace) -- 21.  Wide is Free Enterprise's 25: Volcano's, Marsh
+        Cave's locked room, Titan's Trove and Cardia's as well.  FFR's
+        per-dungeon "random within the dungeon" placement types are left out.
+      - **The eleven Free rows become Incentive / Loose / Free**: SHIP,
+        AIRSHIP (whose item is the FLOATER), BRIDGE, CANAL, CANOE, KEY,
+        CHIME, CROWN, LUTE, TAIL, ROD.  One value per item, where FFR has an
+        Incentivize and a Free checkbox and greys one out.
+      - **Other items: Incentive / Loose**, directly below them, for the nine
+        key items with no Free row (CRYSTAL, HERB, TNT, ADAMANT, SLAB, RUBY,
+        CUBE, BOTTLE, OXYALE), which its description names.  Below the gear
+        it could read as all other treasure.
+      - **Nine gear rows, Incentive / Treasure**: Masmune, Katana, Vorpal,
+        Defense, Opal Bracelet, Power Gauntlet, White Shirt, Ribbon,
+        Xcalber -- Chaos Rush's eight and the tournament flags' Xcalber.
+        Black Shirt, Thor Hammer and Power Staff are not worth incentivising
+        (user).  "Treasure", not "Off", which reads as the item taken out of
+        the game.  The Xcalber is the Smith's reward, so Treasure puts it in
+        the pool only when key items move; under Vanilla the Smith keeps it,
+        as FFR greys its box out unless fetch quests shuffle.
+      - **Early King, Early Sarda, Early Sage, Early Ordeals**: four
+        checkboxes, selectable (user) rather than implied by the shuffle,
+        as in FFR, where they are independent of it.  Placement's logic
+        reads them, so they are fixed at New Game.
+    **FFR's rules when the counts differ** (user: a flag set that unbalances
+    them does so on purpose).  More incentive items than spots sends a
+    random choice of them loose, key items and gear alike; fewer leaves the
+    spare spots to ordinary treasure.  A loose item is placed by the placer,
+    as FFR does, somewhere reachable outside the Temple of Fiends revisited;
+    a Treasure item goes wherever the Chests row sends treasure; a Free item
+    leaves the pool and its slot is gold (§11).
+    **Key items and Chests are independent** (user).  Logic reads only
+    where key items are, and Chests moves only the rest.  With Chests Off, a
+    placed item's slot gives its vanilla contents to a slot that a placed
+    or free item vacated, the free items' leftover slots are gold, and every
+    other chest stays vanilla; the Chests description must say so.
+    The design was tried in `run_incentives.py` (§4.6): ten settings, FFR's
+    Beginner, Chaos Rush and Free Enterprise among them, overflow and
+    underflow, all loose, the Early flags off.  On the vanilla world all
+    place, 200 seeds in 200, and every result is winnable.
+    Readouts: "Incentive" is nine columns, too wide for the eight-column
+    readout, so these rows take a sixteen-column one (`lut_ValShift` 4).
+    That leaves eleven columns of label: the key item names fit, and Other
+    items exactly; Opal Bracelet and Power Gauntlet would take the game's
+    own short names, "Opal" and "Power" with the bracelet and gauntlet tiles.
 
 Still open:
 
@@ -1549,12 +1646,6 @@ Still open:
     offline.  The alternative is a scrolling list of names beside one large
     preview, say 64×64 or 128×128.  That has no count limit and shows far
     more of each map, at the cost of a DMA of 2-8KB when the cursor moves.
-  - **Which FFR incentive options to carry.**  It has about 30
-    `Incentivize*` switches.  Two or three presets of the incentive location
-    mask would cover most real use.  They are not independent of the item
-    list: twenty incentive items into FFR's 22 default incentive locations
-    fails two seeds in three (§4.6), so a preset is an item list and a
-    location set chosen together.
 
 
 ## 13. Keeping the playtest load down
