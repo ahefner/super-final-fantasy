@@ -25,6 +25,7 @@
 .export opt_settings, opt_saveview
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
+.export opt_menu_valbyte          ; for tools/test_options.py
 
 ;  Exported for tools/test_options.py, which checks every label against the
 ;  width the menu actually draws.  Nothing in the game reaches it by name.
@@ -34,7 +35,7 @@
 ;  draw is a digit, a space, CHR_PLUS or CHR_PCT.  A sign written as a literal
 ;  here goes on drawing the old tile after the glyph moves, which is how the
 ;  elemental dial came to read "S50".
-.export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift
+.export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift, lut_ValBit, lut_ValMask
 .import opt_commit_body
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
@@ -353,6 +354,14 @@ opt_row_selectable:
     BEQ @kind
     CMP #VIEW_FIRST
     BCC @notx                   ; the save view, above its first value row
+    JSR opt_menu_ptrfor
+    LDY #$00
+    LDA (OPTMENU_ROWPTR), Y
+    PLX
+    CMP #OPTROW_VAL             ; ...and in it, value rows only: its headings
+    BNE @no                     ;   toggle nothing
+    LDA #$01
+    RTS
   @kind:
     JSR opt_menu_ptrfor
     LDY #$00
@@ -438,6 +447,12 @@ opt_menu_scroll:
     BCS @havemin
     LDA #$00                    ; ...clamped at the start of the list
   @havemin:
+    LDX OPTMENU_VIEW            ; the save view: never above the blank over its
+    BEQ @settings               ;   heading, and back to it at the first row,
+    CMP #VIEW_HEAD + 1          ;   as it opened
+    BCS @settings
+    LDA #VIEW_TOP
+  @settings:
     CMP OPTMENU_TOP
     BCS @bottom                 ; already showing enough above the cursor
     STA OPTMENU_TOP
@@ -1168,13 +1183,48 @@ opt_menu_valbyte:
     LDA OPTMENU_VIEW
     BNE @save
     LDA OPTBLOCK, Y
-    RTS
+    JMP opt_field_get
   @save:
     LDA VIEW_NGBASE, Y
+    JSR opt_field_get
     CMP lut_ValCount, X
     BCC @ok
     LDA #$00
   @ok:
+    RTS
+
+;;  A = the byte scalar X lives in; out A = the scalar, its field of that
+;;  byte (lut_ValBit, lut_ValMask) -- the whole byte for all but the packed
+;;  key item rows.  Y clobbered.
+opt_field_get:
+    AND lut_ValMask, X
+    LDY lut_ValBit, X
+    BEQ @out
+  @shift:
+    LSR A
+    DEY
+    BNE @shift
+  @out:
+    RTS
+
+;;  Store A as scalar X, leaving the rest of its byte alone.  Y clobbered.
+opt_field_put:
+    LDY lut_ValBit, X
+    BEQ @in
+  @shift:
+    ASL A
+    DEY
+    BNE @shift
+  @in:
+    AND lut_ValMask, X
+    PHA
+    LDY lut_ValOff, X
+    LDA lut_ValMask, X
+    EOR #$FF
+    AND OPTBLOCK, Y
+    ORA $01, S
+    STA OPTBLOCK, Y
+    PLA
     RTS
 
 
@@ -1292,25 +1342,26 @@ opt_value_adjust:
     LDA (OPTMENU_ROWPTR), Y
     TAX                         ; X = which scalar
     LDY lut_ValOff, X           ; Y = where it is stored
+    LDA OPTBLOCK, Y
+    JSR opt_field_get
+    TAY                         ; Y = the step it is at
     PLA
     CMP #RIGHT
     BNE @left
 
-    LDA OPTBLOCK, Y
-    CLC
-    ADC #$01
+    INY
+    TYA
     CMP lut_ValCount, X         ; the top step is count-1
     BCS @done                   ; clamped: the readout does not move, so
-    STA OPTBLOCK, Y             ;   neither does the sound
-    JSR opt_sfx_move
-    JMP @done
+    BCC @store                  ;   neither does the sound
 
   @left:
-    LDA OPTBLOCK, Y
+    TYA
     BEQ @done                   ; at the bottom already
-    SEC
-    SBC #$01
-    STA OPTBLOCK, Y
+    DEY
+    TYA
+  @store:
+    JSR opt_field_put
     JSR opt_sfx_move
 
   @done:
@@ -1596,28 +1647,6 @@ lut_OptRows:
   FFPAD "TREASURES", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
-  .BYTE $01, $1A   ; Free SHIP
-  FFPAD "Free SHIP", 30
-  .BYTE $01, $1B   ; Free AIRSHIP
-  FFPAD "Free AIRSHIP", 30
-  .BYTE $01, $1C   ; Free BRIDGE
-  FFPAD "Free BRIDGE", 30
-  .BYTE $01, $1D   ; Free CANAL
-  FFPAD "Free CANAL", 30
-  .BYTE $01, $1E   ; Free CANOE
-  FFPAD "Free CANOE", 30
-  .BYTE $01, $1F   ; Free KEY
-  FFPAD "Free KEY", 30
-  .BYTE $01, $20   ; Free CHIME
-  FFPAD "Free CHIME", 30
-  .BYTE $01, $21   ; Free CROWN
-  FFPAD "Free CROWN", 30
-  .BYTE $01, $22   ; Free LUTE
-  FFPAD "Free LUTE", 30
-  .BYTE $01, $23   ; Free TAIL
-  FFPAD "Free TAIL", 30
-  .BYTE $01, $24   ; Free ROD
-  FFPAD "Free ROD", 30
   .BYTE $02, $14   ; Starting items   (scalar 20)
   FFPAD "Starting items", 30
   .BYTE $03, $00   ; (blank)
@@ -1657,6 +1686,77 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"RNG tables"}
   .BYTE $02, $15   ; Ordeals pillars   (scalar 21)
   OPTLABEL {"Ordeals pillars"}
+  ;  The key item rows (randomization-notes.md section 12), saved with the
+  ;  game like the rows above, and shown by the save view with them.  The
+  ;  item and gear rows read "Incentive", nine columns, so their readouts are
+  ;  sixteen wide and their labels at most eleven.
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $00, $00   ; KEY ITEMS
+  FFPAD "KEY ITEMS", 30
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $02, 22    ; Key items   (scalar 22)
+  OPTLABEL {"Key items"}
+  .BYTE $02, 23    ; SHIP   (scalar 23)
+  OPTLABEL {"SHIP"}
+  .BYTE $02, 24    ; AIRSHIP   (scalar 24)
+  OPTLABEL {"AIRSHIP"}
+  .BYTE $02, 25    ; BRIDGE   (scalar 25)
+  OPTLABEL {"BRIDGE"}
+  .BYTE $02, 26    ; CANAL   (scalar 26)
+  OPTLABEL {"CANAL"}
+  .BYTE $02, 27    ; CANOE   (scalar 27)
+  OPTLABEL {"CANOE"}
+  .BYTE $02, 28    ; KEY   (scalar 28)
+  OPTLABEL {"KEY"}
+  .BYTE $02, 29    ; CHIME   (scalar 29)
+  OPTLABEL {"CHIME"}
+  .BYTE $02, 30    ; CROWN   (scalar 30)
+  OPTLABEL {"CROWN"}
+  .BYTE $02, 31    ; LUTE   (scalar 31)
+  OPTLABEL {"LUTE"}
+  .BYTE $02, 32    ; TAIL   (scalar 32)
+  OPTLABEL {"TAIL"}
+  .BYTE $02, 33    ; ROD   (scalar 33)
+  OPTLABEL {"ROD"}
+  .BYTE $02, 34    ; Other items   (scalar 34)
+  OPTLABEL {"Other items"}
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  ;  The gear by the game's own names, three of them shortened as the game
+  ;  shortens them, with the icon for their kind.
+  .BYTE $02, 35    ; Masmune   (scalar 35)
+  OPTLABEL {"Masmune"}
+  .BYTE $02, 36    ; Katana
+  OPTLABEL {"Katana"}
+  .BYTE $02, 37    ; Vorpal
+  OPTLABEL {"Vorpal"}
+  .BYTE $02, 38    ; Defense
+  OPTLABEL {"Defense"}
+  .BYTE $02, 39    ; Opal Bracelet
+  .BYTE $98, $B3, $A4, $AF, $FF, $FF, $DE
+  .RES 23, $FF
+  .BYTE $02, 40    ; Power Gauntlet
+  .BYTE $99, $B2, $BA, $A8, $B5, $FF, $DD
+  .RES 23, $FF
+  .BYTE $02, 41    ; White Shirt
+  .BYTE $A0, $AB, $AC, $B7, $A8, $FF, $DF
+  .RES 23, $FF
+  .BYTE $02, 42    ; Ribbon
+  OPTLABEL {"Ribbon"}
+  .BYTE $02, 43    ; Xcalber   (scalar 43)
+  OPTLABEL {"Xcalber"}
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE $02, 44    ; Early King   (scalar 44)
+  OPTLABEL {"Early King"}
+  .BYTE $02, 45    ; Early Sarda
+  OPTLABEL {"Early Sarda"}
+  .BYTE $02, 46    ; Early Sage
+  OPTLABEL {"Early Sage"}
+  .BYTE $02, 47    ; Early Ordeals   (scalar 47)
+  OPTLABEL {"Early Ordeals"}
 
 lut_OptRowsEnd:
 
@@ -1666,14 +1766,14 @@ lut_OptRowsEnd:
 .assert lut_OptRowsEnd - lut_OptRows = OPTROW_COUNT * OPTROW_STRIDE, error, "row table is the wrong length"
 
 ;  The save view's window onto the list: the blank above RANDOMIZATION at the
-;  top, the heading, the seed's row, then the value rows to the end.  The
-;  section has to be the last, and short enough to fit the window whole --
-;  the view never scrolls.
+;  top, the heading, the seed's row, then the rest of the section to the end.
+;  The section has to be the last.
 VIEW_HEAD  = (lut_OptRowRando - lut_OptRows) / OPTROW_STRIDE
 VIEW_TOP   = VIEW_HEAD - 1
 VIEW_SEED  = VIEW_HEAD + 1
 VIEW_FIRST = VIEW_HEAD + 2
-.assert OPTROW_COUNT - VIEW_TOP <= OPTLIST_ROWS, error, "the save view's section no longer fits its window"
+;  The section is longer than the window since the key item rows came, so
+;  the view scrolls as the settings do (opt_menu_scroll).
 
 ;  Its two rows of its own, drawn in place of the heading and the blank.
 lut_ViewHeadRow:
@@ -1870,6 +1970,28 @@ lut_ValAI:
   FFPAD "  Bosses", 8           ; AI_BOSSES
   FFPAD "    Both", 8           ; AI_BOTH
 
+;  Key items: whether they move, and to which spots.
+lut_ValKeyItems:
+  FFPAD " Vanilla", 8           ; KEYITEMS_VANILLA
+  FFPAD "Standard", 8           ; KEYITEMS_STANDARD
+  FFPAD "    Wide", 8           ; KEYITEMS_WIDE
+
+;  The item rows, and Other items, which stops at Loose.
+lut_ValIncentive:
+  FFPAD "       Incentive", 16   ; ITEM_INCENTIVE
+  FFPAD "           Loose", 16   ; ITEM_LOOSE
+  FFPAD "            Free", 16   ; ITEM_FREE
+
+;  The gear rows.  Treasure, not Off, which would read as the piece taken out.
+lut_ValGear:
+  FFPAD "        Treasure", 16   ; GEAR_TREASURE
+  FFPAD "       Incentive", 16   ; GEAR_INCENTIVE
+
+;  The Early flags.
+lut_ValOnOff:
+  FFPAD " Off", 4
+  FFPAD "  On", 4
+
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
@@ -1878,19 +2000,53 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValShuffle, <lut_ValShuffle
               .BYTE <lut_ValShuffle, <lut_ValAI, <lut_ValAI, <lut_ValShuffle
               .BYTE <lut_ValThiefHit, <lut_ValStartItems, <lut_ValShuffle
+              .BYTE <lut_ValKeyItems
+              .REPEAT ITEMROWS
+              .BYTE <lut_ValIncentive
+              .ENDREP
+              .REPEAT GEARROWS
+              .BYTE <lut_ValGear
+              .ENDREP
+              .REPEAT 4
+              .BYTE <lut_ValOnOff
+              .ENDREP
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
               .BYTE >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValShuffle, >lut_ValAI, >lut_ValAI, >lut_ValShuffle
               .BYTE >lut_ValThiefHit, >lut_ValStartItems, >lut_ValShuffle
+              .BYTE >lut_ValKeyItems
+              .REPEAT ITEMROWS
+              .BYTE >lut_ValIncentive
+              .ENDREP
+              .REPEAT GEARROWS
+              .BYTE >lut_ValGear
+              .ENDREP
+              .REPEAT 4
+              .BYTE >lut_ValOnOff
+              .ENDREP
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
               .BYTE STATUS_MODES, AI_MODES, AI_MODES, RNG_MODES
               .BYTE THIEFHIT_STEPS, STARTITEMS_SETS, ORDEALS_MODES
+              .BYTE KEYITEMS_MODES
+              .REPEAT ITEMROWS - 1
+              .BYTE ITEM_MODES
+              .ENDREP
+              .BYTE ITEMOTHER_MODES
+              .REPEAT GEARROWS
+              .BYTE GEAR_MODES
+              .ENDREP
+              .REPEAT 4
+              .BYTE EARLY_MODES
+              .ENDREP
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
+              .BYTE 3                                         ; Key items
+              .RES ITEMROWS + GEARROWS, 4                     ; sixteen: "Incentive"
+              .RES 4, 2                                       ; the Early flags
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -1902,4 +2058,37 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_NORUN, <OPT_NG_SURPRISE
               .BYTE <OPT_NG_STATUS, <OPT_NG_SCRIPTS, <OPT_NG_SKILLS, <OPT_NG_RNG
               .BYTE <OPT_THIEFHIT, <OPT_STARTITEMS, <OPT_NG_ORDEALS
+              .BYTE <OPT_NG_KEYITEMS
+              .REPEAT ITEMROWS, k
+              .BYTE <(OPT_NG_ITEMS + k / 4)
+              .ENDREP
+              .REPEAT GEARROWS, g
+              .BYTE <(OPT_NG_GEAR + g / 8)
+              .ENDREP
+              .RES 4, <OPT_NG_EARLY
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
+;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
+;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
+lut_ValBit:   .RES 23, 0                                      ; to Key items
+              .REPEAT ITEMROWS, k
+              .BYTE 2 * (k .MOD 4)
+              .ENDREP
+              .REPEAT GEARROWS, g
+              .BYTE g .MOD 8
+              .ENDREP
+              .BYTE 0, 1, 2, 3                                ; EARLY_KING..EARLY_ORDEALS
+lut_ValMask:  .RES 23, $FF
+              .REPEAT ITEMROWS, k
+              .BYTE $03 << (2 * (k .MOD 4))
+              .ENDREP
+              .REPEAT GEARROWS, g
+              .BYTE $01 << (g .MOD 8)
+              .ENDREP
+              .BYTE EARLY_KING, EARLY_SARDA, EARLY_SAGE, EARLY_ORDEALS
+VALSCALARS = 48
+.assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
+.assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
+.assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"
+.assert lut_ValOff - lut_ValShift = VALSCALARS, error, "lut_ValShift: one per scalar"
+.assert lut_ValBit - lut_ValOff = VALSCALARS, error, "lut_ValOff: one per scalar"
+.assert lut_ValMask - lut_ValBit = VALSCALARS, error, "lut_ValBit: one per scalar"

@@ -128,7 +128,10 @@ OPT_SIZE        = $13
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $08           ; bumped from $07: the flag word took a
+OPT_FORMAT      = $09           ; bumped from $08: the Free items left the
+                                ; flag word for the new-game rows, which grew
+                                ; by the key item rows, packed (RANDO_KEYITEMS).
+                                ; Bumped from $07: the flag word took a
                                 ; sixth byte, for TRANCE's element, so every
                                 ; scalar moved.
                                 ; Bumped from $06: the starting items took
@@ -316,6 +319,55 @@ ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 ORDEALS_OFF     = 0
 ORDEALS_SHUFFLE = 1
 ORDEALS_MODES   = 2
+
+;  Key items (RANDO_KEYITEMS): where they stay, or which incentive spots they
+;  go to -- Standard, FFR's default: the 13 reward NPCs, the caravan and the
+;  seven *Major chests but Volcano's; Wide, Free Enterprise's 25.
+KEYITEMS_VANILLA  = 0
+KEYITEMS_STANDARD = 1
+KEYITEMS_WIDE     = 2
+KEYITEMS_MODES    = 3
+;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
+;  Other items, the nine with no Free, has the first two only.
+ITEM_INCENTIVE  = 0
+ITEM_LOOSE      = 1
+ITEM_FREE       = 2
+ITEM_MODES      = 3
+ITEMOTHER_MODES = 2
+ITEMROW_SHIP    = 0
+ITEMROW_AIRSHIP = 1               ; its item is the FLOATER
+ITEMROW_BRIDGE  = 2
+ITEMROW_CANAL   = 3
+ITEMROW_CANOE   = 4
+ITEMROW_KEY     = 5
+ITEMROW_CHIME   = 6
+ITEMROW_CROWN   = 7
+ITEMROW_LUTE    = 8
+ITEMROW_TAIL    = 9
+ITEMROW_ROD     = 10
+ITEMROW_OTHER   = 11
+ITEMROWS        = 12
+;  Gear rows (RANDO_GEAR): Treasure, or an incentive.
+GEAR_TREASURE   = 0
+GEAR_INCENTIVE  = 1
+GEAR_MODES      = 2
+GEARROW_MASMUNE = 0
+GEARROW_KATANA  = 1
+GEARROW_VORPAL  = 2
+GEARROW_DEFENSE = 3
+GEARROW_OPAL    = 4               ; the Opal Bracelet
+GEARROW_POWER   = 5               ; the Power Gauntlet
+GEARROW_WHITE   = 6               ; the White Shirt
+GEARROW_RIBBON  = 7
+GEARROW_XCALBER = 8
+GEARROWS        = 9
+;  The Early flags (RANDO_EARLY): the King, Sarda and the Canoe Sage give
+;  without the event they wait for, and the Ordeals' thrones need no CROWN.
+EARLY_KING      = $01
+EARLY_SARDA     = $02
+EARLY_SAGE      = $04
+EARLY_ORDEALS   = $08
+EARLY_MODES     = 2               ; each a row, Off / On
 MAP_ORDEALS2F   = 25
 ORD_ROOMS       = 9             ; the start room and the eight it shuffles
 ORD_PADS        = 15
@@ -1278,8 +1330,8 @@ OPTFM_CHESTINFO   = $20
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Treasures
 ;;
-;;  Five flags that change what a new game starts with.  Each of the four
-;;  vehicles is a byte in the first page of unsram saying whether it exists,
+;;  The Free items, ITEM_FREE in the key item rows, change what a new game
+;;  starts with.  Each of the four vehicles is a byte in the first page of unsram saying whether it exists,
 ;;  and coordinates that lut_InitUnsramFirstPage has already filled in -- so
 ;;  granting one is a single store.  The canal is the odd one: it starts set,
 ;;  meaning the waterway is still blocked, and Nerrick's TNT clears it.
@@ -1300,31 +1352,9 @@ FREESHIP_Y        = 169
 FREEAIRSHIP_X     = 153
 FREEAIRSHIP_Y     = 165
 
-OPTFB_FREESHIP    = OPT_FLAGS+3 ; bit 26
-OPTFM_FREESHIP    = $04
-OPTFB_FREEAIRSHIP = OPT_FLAGS+3 ; bit 27
-OPTFM_FREEAIRSHIP = $08
-OPTFB_FREEBRIDGE  = OPT_FLAGS+3 ; bit 28
-OPTFM_FREEBRIDGE  = $10
-OPTFB_FREECANAL   = OPT_FLAGS+3 ; bit 29
-OPTFM_FREECANAL   = $20
-OPTFB_FREECANOE   = OPT_FLAGS+3 ; bit 30
-OPTFM_FREECANOE   = $40
-
-;  The three key items a party can be handed instead of going to fetch them.
-;  KEY is the Mystic Key, which opens everything locked in the game.
-OPTFB_FREEKEY     = OPT_FLAGS+3 ; bit 31
-OPTFM_FREEKEY     = $80
-OPTFB_FREECHIME   = OPT_FLAGS+4 ; bit 32
-OPTFM_FREECHIME   = $01
-OPTFB_FREECROWN   = OPT_FLAGS+4 ; bit 33
-OPTFM_FREECROWN   = $02
-OPTFB_FREELUTE    = OPT_FLAGS+4 ; bit 34
-OPTFM_FREELUTE    = $04
-OPTFB_FREETAIL    = OPT_FLAGS+4 ; bit 35
-OPTFM_FREETAIL    = $08
-OPTFB_FREEROD     = OPT_FLAGS+4 ; bit 36
-OPTFM_FREEROD     = $10
+;  The Free items were flag bits 26-36 until format 9; they are now the
+;  ITEM_FREE value of the key item rows, saved with the game (RANDO_ITEMS), and
+;  those bits are spare.
 ;  Controller Reset is unconditional -- no flag.  L with X or Y is a combo no
 ;  NES-era code can express, so there is nothing for a player to turn off: it
 ;  cannot collide with anything the game does, and a cartridge that shipped
@@ -1422,7 +1452,16 @@ RANDO_SCRIPTS   = RANDO_SAVE+$0F  ; AI_* below: which enemy has which script
 RANDO_SKILLS    = RANDO_SAVE+$10  ; AI_* below: what the scripts hold
 RANDO_RNG       = RANDO_SAVE+$11  ; RNG_* below: the encounter and battle tables
 RANDO_ORDEALS   = RANDO_SAVE+$12  ; ORDEALS_* below: the Castle of Ordeals' pillars
-RANDO_SAVE_SIZE = $13
+;  The key item rows (randomization-notes.md section 12), packed: they are 26
+;  rows and the option page had nine bytes left.  The settings screen reads
+;  each as a field, lut_ValBit and lut_ValMask.  Zero is vanilla throughout:
+;  no key item moves, nothing is free, no gear is an incentive, nothing early.
+RANDO_KEYITEMS  = RANDO_SAVE+$13  ; KEYITEMS_* below: whether key items move, and into which spots
+RANDO_ITEMS     = RANDO_SAVE+$14  ; 3 bytes, two bits per row, ITEM_* below, rows ITEMROW_* in
+                                  ;   order from bit 0 of the first byte
+RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in order: set, an incentive
+RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
+RANDO_SAVE_SIZE = $1A
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1463,6 +1502,10 @@ OPT_NG_SCRIPTS  = OPT_NG + (RANDO_SCRIPTS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SKILLS   = OPT_NG + (RANDO_SKILLS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_RNG      = OPT_NG + (RANDO_RNG - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_ORDEALS  = OPT_NG + (RANDO_ORDEALS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_KEYITEMS = OPT_NG + (RANDO_KEYITEMS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_ITEMS    = OPT_NG + (RANDO_ITEMS - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_GEAR     = OPT_NG + (RANDO_GEAR - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_EARLY    = OPT_NG + (RANDO_EARLY - RANDO_SAVE) - RANDO_NGOFF
 
 ;  "None", a party slot left empty (nones.asm): the class byte of slots 2-4
 ;  may be this, with the character dead from the start.  FFR's value.

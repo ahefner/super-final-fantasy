@@ -60,7 +60,7 @@ OPT_THIEFHIT = 15       # the sixth scalar; bit 21 until it took a third value
 OPT_STARTITEMS = 16     # the seventh: FFR's starting item set
 OPT_RESPOND, OPT_CKSUM = 17, 18
 OPT_SIZE = 19
-OPT_FORMAT = 8          # bumped when the flag word took a sixth byte
+OPT_FORMAT = 9          # bumped when the Free items left the flag word for the key item rows
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -3787,18 +3787,31 @@ FREE_VEHICLE = {"ship_vis": 0x00, "airship_vis": 0x04, "bridge_vis": 0x08,
            "canal_vis": 0x0C, "has_canoe": 0x12}
 FREE_DEFAULT = {"ship_vis": 0, "airship_vis": 0, "bridge_vis": 0,
              "canal_vis": 1, "has_canoe": 0}
-FREE_BIT = {"ship_vis": 26, "airship_vis": 27, "bridge_vis": 28,
-            "canal_vis": 29, "has_canoe": 30}
+#  Each is now the Free value of its key item row (ITEMROW_*), two bits of
+#  RANDO_ITEMS; the settings' copy is OPT_NG_ITEMS, which rando_newgame copies
+#  into the save opt_freestuff then reads.  "Bits" below are row numbers.
+FREE_BIT = {"ship_vis": 0, "airship_vis": 1, "bridge_vis": 2,
+            "canal_vis": 3, "has_canoe": 4}
 #  The three key items are plain inventory entries in the same page.
-FREE_ITEM = {"item_mystickey": (0x25, 31), "item_chime": (0x2C, 32),
-             "item_crown": (0x22, 33), "item_lute": (0x21, 34),
-             "item_tail": (0x2D, 35), "item_rod": (0x2A, 36)}
+FREE_ITEM = {"item_mystickey": (0x25, 5), "item_chime": (0x2C, 6),
+             "item_crown": (0x22, 7), "item_lute": (0x21, 8),
+             "item_tail": (0x2D, 9), "item_rod": (0x2A, 10)}
+
+
+def set_free(bus, rows, value=2):
+    """Set each ITEMROW_* in rows (a mask) to value in the settings' copy --
+    ITEM_FREE by default -- and every other row to Incentive."""
+    at = K["OPT_NG_ITEMS"] - 0x6000
+    for b in range(3):
+        bus.sram[at + b] = 0
+    for k in range(12):
+        if rows >> k & 1:
+            bus.sram[at + k // 4] |= value << (2 * (k % 4))
 
 
 def _freestuff(flagbits):
     bus, cpu = machine()
-    for i in range(4):
-        setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+    set_free(bus, flagbits)
     for name, off in FREE_VEHICLE.items():
         bus.sram[FREE_UNSRAM - 0x6000 + off] = FREE_DEFAULT[name]
     call(cpu, "opt_freestuff")
@@ -3827,8 +3840,7 @@ def test_treasures():
     #  are the party's starting tile, which is the stored scroll plus seven.
     def coords(flagbits):
         bus, cpu = machine()
-        for i in range(4):
-            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        set_free(bus, flagbits)
         for off, v in ((0x01, 0xD2), (0x02, 0x99), (0x05, 0xDD), (0x06, 0xED)):
             bus.sram[off] = v               # what lut_InitUnsramFirstPage holds
         call(cpu, "opt_freestuff")
@@ -3849,8 +3861,7 @@ def test_treasures():
     #  $20 plus each item's own -- KEY is the Mystic Key at +$05.
     def inventory(flagbits):
         bus, cpu = machine()
-        for i in range(4 + 1):
-            setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
+        set_free(bus, flagbits)
         for off, _ in FREE_ITEM.values():
             bus.sram[off] = 0
         call(cpu, "opt_freestuff")
@@ -3866,6 +3877,22 @@ def test_treasures():
     check("all of them together",
           inventory(sum(1 << b for _, b in FREE_ITEM.values())),
           {n: 1 for n in FREE_ITEM})
+
+    #  Only Free gives: Incentive and Loose say where an item is placed, and
+    #  every row at either leaves a new game as it always was.
+    for value, name in ((0, "Incentive"), (1, "Loose")):
+        bus, cpu = machine()
+        set_free(bus, (1 << 12) - 1, value)
+        for n, off in FREE_VEHICLE.items():
+            bus.sram[FREE_UNSRAM - 0x6000 + off] = FREE_DEFAULT[n]
+        for off, _ in FREE_ITEM.values():
+            bus.sram[off] = 0
+        call(cpu, "opt_freestuff")
+        check("every row %s: no vehicle given" % name,
+              {n: bus.sram[FREE_UNSRAM - 0x6000 + off] for n, off in FREE_VEHICLE.items()},
+              FREE_DEFAULT)
+        check("every row %s: no key item given" % name,
+              {n: bus.sram[off] for n, (off, _) in FREE_ITEM.items()}, {n: 0 for n in FREE_ITEM})
 
     #  The starting items: FFR's nine fixed sets, StartingInventory.cs, as
     #  counts of TENT, CABIN, HOUSE, HEAL, PURE and SOFT.  Transcribed from
@@ -5151,6 +5178,64 @@ def test_rando_options():
             call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
             steps.append(bus.sram[byte - 0x6000])
         check("row %d steps and clamps" % row, steps, want)
+    #  The key item rows are fields packed into bytes.  Each steps through its
+    #  own values and clamps there, and leaves the rest of its byte alone: the
+    #  byte starts with every other bit set, which a whole-byte step, a wrong
+    #  shift or a wrong mask would disturb.
+    for name, byte, shift, width, count in (
+            ("Key items", "OPT_NG_KEYITEMS", 0, 8, 3),
+            ("SHIP", "OPT_NG_ITEMS", 0, 2, 3),
+            ("CHIME", "OPT_NG_ITEMS", 4, 2, 3),          # ITEMROW_CHIME 6: byte 1, bits 4-5
+            ("ROD", "OPT_NG_ITEMS", 4, 2, 3),            # ITEMROW_ROD 10: byte 2, bits 4-5
+            ("Other items", "OPT_NG_ITEMS", 6, 2, 2),    # byte 2, bits 6-7, two values
+            ("Masmune", "OPT_NG_GEAR", 0, 1, 2),
+            ("Ribbon", "OPT_NG_GEAR", 7, 1, 2),
+            ("Xcalber", "OPT_NG_GEAR", 0, 1, 2),         # the second gear byte
+            ("Early Ordeals", "OPT_NG_EARLY", 3, 1, 2)):
+        at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
+        mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
+        row = optrow(name)
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.sram[at] = 0xFF & ~mask
+        steps, rest = [], set()
+        for d in (1,) * count + (2,) * count:
+            bus.wram[SEL], bus.wram[TOP] = row, row - 19
+            cpu.a = d
+            call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+            steps.append((bus.sram[at] & mask) >> shift)
+            rest.add(bus.sram[at] & ~mask & 0xFF)
+        want = list(range(1, count)) + [count - 1] + list(range(count - 2, -1, -1)) + [0]
+        check("%s steps and clamps in its field" % name, steps, want)
+        check("...and leaves the rest of its byte", rest, {0xFF & ~mask})
+
+    #  ...and each reads its own field and no other's, in the settings and in
+    #  the save the view reads.  The fields are placed from snesmap.inc's
+    #  layout -- the one the randomizer reads -- not from the menu's tables,
+    #  and one at a time: two rows aliasing one field would read each other.
+    spec = {22: ("OPT_NG_KEYITEMS", 0, 0, 3)}
+    for k in range(12):
+        spec[23 + k] = ("OPT_NG_ITEMS", k // 4, 2 * (k % 4), 3 if k < 11 else 2)
+    for g in range(9):
+        spec[35 + g] = ("OPT_NG_GEAR", g // 8, g % 8, 2)
+    for e in range(4):
+        spec[44 + e] = ("OPT_NG_EARLY", 0, e, 2)
+    view_at = 0x6400 - 0x6000 + (K["RANDO_SAVE"] - 0x6000) + K["RANDO_NGOFF"]
+    ng0 = K["OPT_NG"] - 0x6000
+    bad = []
+    for view, start in ((0, ng0), (1, view_at)):
+        for s, (name, plus, shift, count) in spec.items():
+            vbus, vcpu = machine()
+            vbus.sram[OPTBLOCK - 0x6000 + 0x31] = view         # OPTMENU_VIEW
+            vbus.sram[K[name] - K["OPT_NG"] + start + plus] = (count - 1) << shift
+            for u in spec:
+                vcpu.x = u
+                call(vcpu, "opt_menu_valbyte", dbr=CHUNK_OPT_BANK)
+                if (vcpu.a & 0xFF) != (count - 1 if u == s else 0):
+                    bad.append((view, s, u, vcpu.a & 0xFF))
+    check("each key item row reads its own field alone", bad[:4], [])
+
     ngat = K["OPT_NG"] - 0x6000
     check("...and leaves the block sealed", blk(bus, OPT_CKSUM),
           (sum(bus.sram[OPTBLOCK - 0x6000:][:OPT_SIZE - 1])
@@ -6659,7 +6744,9 @@ def test_rando_ordeals():
     srm[at:at + 4] = (0x0BADF00D).to_bytes(4, "little")
     srm[at + (K["RANDO_ORDEALS"] - K["RANDO_SAVE"])] = 1
     block = R.block_from_srm(bytes(srm))
-    check("...and reads Ordeals pillars from a battery file", (block[0], block[-1]), (0x0BADF00D, 1))
+    #  block[0] is the four-byte seed, so a byte at offset n is block[n - 3].
+    check("...and reads Ordeals pillars from a battery file",
+          (block[0], block[K["RANDO_ORDEALS"] - K["RANDO_SAVE"] - 3]), (0x0BADF00D, 1))
     check("...whose spoiler finds the way through",
           "way through" in R.ordeals_text(R.build_ordeals(0x0BADF00D, 1)), True)
 
@@ -6924,6 +7011,7 @@ def test_saveview():
     from the battery copy Continue would load.  The screen is run whole, a
     frame at a time, with the pad pressed as a player would."""
     OPT = CHUNK_OPT_BANK
+    OPTLIST_ROWS = 20                    # the window, optmenu.asm
     SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
     COUNT = int(re.search(r"^OPTROW_COUNT\s*=\s*(\d+)", open(os.path.join(ROOT, "src", "optmenu.inc")).read(),
                           re.M).group(1))
@@ -6936,8 +7024,13 @@ def test_saveview():
     head = next(i for i, r in enumerate(rows) if r[0] == 0 and "RANDOMIZATION" in
                 "".join(_decode(b) or "?" for b in r[2:24]))
     first, top = head + 2, head - 1
-    check("the section ends the list, value rows from two below its heading",
-          [r[0] for r in rows[head:]], [0, 3] + [2] * (COUNT - first))
+    #  The section ends the list: its heading, the seed's blank, then the
+    #  randomization rows, and the key item rows under a heading of their own.
+    check("the section ends the list, its heading and the seed's row first",
+          [r[0] for r in rows[head:head + 2]], [0, 3])
+    check("...the rest value rows, blanks and one more heading",
+          sorted(set(r[0] for r in rows[first:])), [0, 2, 3])
+    vrows = [i for i in range(first, COUNT) if rows[i][0] == 2]
 
     def readout(scalar, step):
         lo = ROMDATA[optimg + SYM["lut_ValTabLo"] + scalar]
@@ -7015,13 +7108,33 @@ def test_saveview():
         call(cpu, "opt_savevalid")
         check("...%s wrong under a good checksum: not valid" % name, (sums, cpu.p & C), (True, C))
 
-    #  --- the view itself.  Every row a value other than its first, and none
-    #  what the settings hold, so a readout from the wrong place shows.
-    NG = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1, 1]  # ...Ordeals pillars last
-    check("one saved value per row", len(NG), COUNT - first)
+    #  --- the view itself.  Every row a value other than what the settings
+    #  hold, so a readout from the wrong place shows.  The key item rows are
+    #  fields packed into bytes (lut_ValBit, lut_ValMask), so the save is built
+    #  field by field: alternating from row to row, so two rows that alias one
+    #  field cannot agree, and the settings a different value in every field.
+    def tbl(name, s):
+        return ROMDATA[optimg + SYM[name] + s]
+    OLD = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1, 1]  # Trap tiles .. Ordeals pillars
+    base = K["OPT_NG"] - OPTBLOCK
+    step = {}
+    ngb, decoy = bytearray(K["OPT_NG_SIZE"]), bytearray(K["OPT_NG_SIZE"])
+    for n, i in enumerate(vrows):
+        s = rows[i][1]
+        count = tbl("lut_ValCount", s)
+        step[i] = OLD[n] if n < len(OLD) else n % count
+        put = lambda b, v: b.__setitem__(tbl("lut_ValOff", s) - base, b[tbl("lut_ValOff", s) - base]
+                                         | (v << tbl("lut_ValBit", s)) & tbl("lut_ValMask", s))
+        put(ngb, step[i])
+        put(decoy, (step[i] + 1) % count if n >= len(OLD) else 0)
+    check("every saved row's field inside the saved block",
+          all(0 <= tbl("lut_ValOff", rows[i][1]) - base < K["OPT_NG_SIZE"] for i in vrows), True)
+    NG = list(ngb)
     bus, cpu = machine()
     in_vblank(bus)
     call(cpu, "opt_init")
+    ngat = K["OPT_NG"] - 0x6000
+    bus.sram[ngat:ngat + len(decoy)] = decoy     # the settings: never the save's value
     saved(bus, cpu, 0x0BADF00D, NG)
     kept = lambda: (bytes(bus.sram[0xE00:0xE10]), bytes(bus.sram[0xEC8:0xEC8 + len(NG)]))
     before = kept()
@@ -7034,11 +7147,14 @@ def test_saveview():
     #  since a save view row has no checkbox for it to point at (user).
     check("...the hand, nearer its label", (bus.wram[0x203], bus.wram[0x20B]), (12, 20))
     check("...the seed", screen(bus, head + 1), "Seed 0BADF00D")
-    want = [" ".join((label(i) + " " + readout(rows[i][1], NG[i - first])).split())
-            for i in range(first, COUNT)]
-    check("...each row, the save's value", [screen(bus, i) for i in range(first, COUNT)], want)
-    check("...nothing past the end", [screen(bus, i) for i in range(COUNT, top + 20)],
-          [""] * (top + 20 - COUNT))
+
+    def shown():
+        """Each value row in the window, as drawn and as the save has it."""
+        rows_in = [i for i in vrows if bus.wram[TOP] <= i < bus.wram[TOP] + OPTLIST_ROWS]
+        return ([screen(bus, i) for i in rows_in],
+                [" ".join((label(i) + " " + readout(rows[i][1], step[i])).split()) for i in rows_in])
+    got, want = shown()
+    check("...each row in the window, the save's value", got, want)
     check("...Trap tiles described as saved", "formation's B-side" in " ".join(pane(bus)), True)
     check("...and nothing written", kept(), before)
     check("...the settings are not switched to Custom", bus.sram[K["OPT_PRESET"] - 0x6000],
@@ -7059,10 +7175,26 @@ def test_saveview():
     press(bus, cpu, UP)
     press(bus, cpu, UP)
     check("up stops at Trap tiles: the seed and heading are not settings", bus.wram[SEL], first)
+    #  Down through the whole section: the cursor rests on value rows only --
+    #  not the key item rows' heading or the blanks -- and the window scrolls,
+    #  every row it brings in reading its saved value.
+    rested = []
     for _ in range(COUNT):
         press(bus, cpu, DOWN)
-    check("down stops at the last row, and the window never scrolls",
-          (bus.wram[SEL], bus.wram[TOP]), (COUNT - 1, top))
+        rested.append(bus.wram[SEL])
+        got, want = shown()
+        if got != want:
+            check("scrolled to row %d, each row in the window as saved" % bus.wram[SEL], got, want)
+            break
+    check("down rests on value rows only", sorted(set(rested)), sorted(set(vrows) - {first}))
+    check("...and stops at the last, the window scrolled to show it",
+          (bus.wram[SEL], bus.wram[TOP]), (COUNT - 1, COUNT - OPTLIST_ROWS))
+    check("...the Early flags described as saved", "without the CROWN" in " ".join(pane(bus)), True)
+    for _ in range(COUNT):
+        press(bus, cpu, UP)
+    check("up again to Trap tiles, the window back at the section's top",
+          (bus.wram[SEL], bus.wram[TOP]), (first, top))
+    check("...the heading drawn again", screen(bus, head), "SAVED GAME")
     check("B leaves", frame(bus, cpu, B_) and frame(bus, cpu, 0), False)
     check("...the view's flag down, and nothing written", (bus.sram[VIEW], kept()), (0, before))
 

@@ -1622,7 +1622,8 @@ Settled in review 1:
     title's "quality of life and bugfixes": 200% gold and XP, the elemental
     bonus at the cartridge's +4, Thief and Ninja hit growth at Balanced
     (a third value for that row), and NPC guillotine on with the rest.
-  - **The incentive rows (user, 2026-10-13).**  FFR's thirty-odd
+  - **The incentive rows (user, 2026-10-13; the rows built 2026-10-14, not
+    yet played -- `options-design.md`, Key items).**  FFR's thirty-odd
     `Incentivize*` switches, its Free items and its Early flags become rows
     of the randomization screen's TREASURES section:
       - **Key items: Vanilla / Standard / Wide** -- whether key items move,
@@ -1671,8 +1672,9 @@ Settled in review 1:
     Readouts: "Incentive" is nine columns, too wide for the eight-column
     readout, so these rows take a sixteen-column one (`lut_ValShift` 4).
     That leaves eleven columns of label: the key item names fit, and Other
-    items exactly; Opal Bracelet and Power Gauntlet would take the game's
-    own short names, "Opal" and "Power" with the bracelet and gauntlet tiles.
+    items exactly; the Opal Bracelet, Power Gauntlet and White Shirt take the
+    game's own short names, "Opal", "Power" and "White" with their icons.
+    Stored packed, seven bytes, since the option page had nine left.
 
 Still open:
 

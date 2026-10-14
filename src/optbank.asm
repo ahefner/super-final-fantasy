@@ -3643,11 +3643,12 @@ opt_housemp:
 
 
 opt_freestuff:
-    ;  The world: the seed and the new-game rows, into the save.
+    ;  The world: the seed and the new-game rows, into the save -- where the
+    ;  Free items are then read, as this game's rather than the settings'.
     JSL rando_newgame + RANDOFAR
-    LDA OPTFB_FREESHIP
-    AND #OPTFM_FREESHIP
-    BEQ @airship
+    LDA #ITEMROW_SHIP
+    JSR opt_isfree
+    BNE @airship
     LDA #$01
     STA ship_vis
     LDA #FREESHIP_X             ; and moved: its own berth is Pravoka, which
@@ -3655,9 +3656,9 @@ opt_freestuff:
     LDA #FREESHIP_Y
     STA ship_y
   @airship:
-    LDA OPTFB_FREEAIRSHIP
-    AND #OPTFM_FREEAIRSHIP
-    BEQ @bridge
+    LDA #ITEMROW_AIRSHIP
+    JSR opt_isfree
+    BNE @bridge
     LDA #$01
     STA airship_vis
     LDA #FREEAIRSHIP_X          ; parked where the party starts, rather than
@@ -3665,21 +3666,21 @@ opt_freestuff:
     LDA #FREEAIRSHIP_Y
     STA airship_y
   @bridge:
-    LDA OPTFB_FREEBRIDGE
-    AND #OPTFM_FREEBRIDGE
-    BEQ @canal
+    LDA #ITEMROW_BRIDGE
+    JSR opt_isfree
+    BNE @canal
     LDA #$01
     STA bridge_vis
   @canal:
-    LDA OPTFB_FREECANAL
-    AND #OPTFM_FREECANAL
-    BEQ @canoe
+    LDA #ITEMROW_CANAL
+    JSR opt_isfree
+    BNE @canoe
     LDA #$00                    ; cleared, not set: see above
     STA canal_vis
   @canoe:
-    LDA OPTFB_FREECANOE
-    AND #OPTFM_FREECANOE
-    BEQ @key
+    LDA #ITEMROW_CANOE
+    JSR opt_isfree
+    BNE @key
     LDA #$01
     STA has_canoe
 
@@ -3688,39 +3689,39 @@ opt_freestuff:
     ;  page of unsram, items included, has been filled from
     ;  lut_InitUnsramFirstPage by the time this runs.
   @key:
-    LDA OPTFB_FREEKEY
-    AND #OPTFM_FREEKEY
-    BEQ @chime
+    LDA #ITEMROW_KEY
+    JSR opt_isfree
+    BNE @chime
     LDA #$01
     STA item_mystickey
   @chime:
-    LDA OPTFB_FREECHIME
-    AND #OPTFM_FREECHIME
-    BEQ @crown
+    LDA #ITEMROW_CHIME
+    JSR opt_isfree
+    BNE @crown
     LDA #$01
     STA item_chime
   @crown:
-    LDA OPTFB_FREECROWN
-    AND #OPTFM_FREECROWN
-    BEQ @lute
+    LDA #ITEMROW_CROWN
+    JSR opt_isfree
+    BNE @lute
     LDA #$01
     STA item_crown
   @lute:
-    LDA OPTFB_FREELUTE
-    AND #OPTFM_FREELUTE
-    BEQ @tail
+    LDA #ITEMROW_LUTE
+    JSR opt_isfree
+    BNE @tail
     LDA #$01
     STA item_lute
   @tail:
-    LDA OPTFB_FREETAIL
-    AND #OPTFM_FREETAIL
-    BEQ @rod
+    LDA #ITEMROW_TAIL
+    JSR opt_isfree
+    BNE @rod
     LDA #$01
     STA item_tail
   @rod:
-    LDA OPTFB_FREEROD
-    AND #OPTFM_FREEROD
-    BEQ @items
+    LDA #ITEMROW_ROD
+    JSR opt_isfree
+    BNE @items
     LDA #$01
     STA item_rod
 
@@ -3746,6 +3747,32 @@ opt_freestuff:
     BCC @count
   @out:
     RTL
+
+
+
+;;  In: A = an ITEMROW_*.  Out: Z set if this game gives it at the start,
+;;  ITEM_FREE in the save rando_newgame has just written.  X and Y clobbered.
+opt_isfree:
+    TAY
+    LSR A                       ; four rows to a byte
+    LSR A
+    TAX
+    LDA RANDO_ITEMS, X
+    PHA
+    TYA
+    AND #$03
+    TAY
+    PLA
+  @shift:
+    DEY
+    BMI @field
+    LSR A
+    LSR A
+    BPL @shift                  ; always: LSR leaves N clear
+  @field:
+    AND #$03
+    CMP #ITEM_FREE
+    RTS
 
 
 ;  FFR's fixed starting sets, StartingInventory.cs, in its order: TENT, CABIN,

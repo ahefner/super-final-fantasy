@@ -922,7 +922,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 19
+RANDO_SAVE_SIZE = 26
 
 
 def block_from_srm(srm):
@@ -963,8 +963,9 @@ def main():
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
     if a.srm:
+        #  The key item rows after Ordeals pillars place nothing here yet.
         (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
-         surprise, status, scripts, skills, rngt, ordeals) = block_from_srm(open(a.srm, "rb").read())
+         surprise, status, scripts, skills, rngt, ordeals) = block_from_srm(open(a.srm, "rb").read())[:16]
     elif a.seed:
         (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
          surprise, status, scripts, skills, rngt, ordeals) = (

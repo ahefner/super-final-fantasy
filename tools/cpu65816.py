@@ -167,6 +167,11 @@ class CPU:
     def a_dp(self):
         return (0, (self.d + self.fetch()) & 0xFFFF)
 
+    def a_sr(self):
+        """sr,S -- an offset from the stack pointer, in bank 0.  The settings
+        screen's field store (opt_field_put) merges a field it pushed."""
+        return (0, (self.s + self.fetch()) & 0xFFFF)
+
     def a_dpx(self):
         return (0, (self.d + self.fetch() + self.x) & 0xFFFF)
 
@@ -347,10 +352,10 @@ class CPU:
                  0x25: self.a_dp, 0x2F: self.a_long, 0x3F: self.a_longx}[op](), m8)
             r = (self.a & amask) & v
             self.a = (self.a & 0xFF00 | r) if m8 else r; self.setzn(r, m8)
-        elif op in (0x09, 0x0D, 0x1D, 0x19, 0x05, 0x0F, 0x1F, 0x15, 0x11):
+        elif op in (0x09, 0x0D, 0x1D, 0x19, 0x05, 0x0F, 0x1F, 0x15, 0x11, 0x03):
             v = self.a_imm(m8) if op == 0x09 else self.load(
                 {0x11: self.a_dpind_y, 0x15: self.a_dpx, 0x0D: self.a_abs, 0x1D: self.a_absx, 0x19: self.a_absy,
-                 0x05: self.a_dp, 0x0F: self.a_long, 0x1F: self.a_longx}[op](), m8)
+                 0x05: self.a_dp, 0x0F: self.a_long, 0x1F: self.a_longx, 0x03: self.a_sr}[op](), m8)
             r = (self.a & amask) | v
             self.a = (self.a & 0xFF00 | r) if m8 else r; self.setzn(r, m8)
         elif op in (0x49, 0x4D, 0x5D, 0x59, 0x45, 0x4F, 0x5F, 0x55, 0x51):

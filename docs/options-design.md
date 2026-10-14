@@ -104,8 +104,11 @@ belongs to the New Game flow, which needs more thought first.
     the save, which keeps the new-game bytes in the option page's order from
     Trap tiles on.  A step past its row's count reads as the first, as the
     description pane already did.
-  - Up and down move between the fourteen rows for their descriptions; B or
-    Start leaves.  A, left, right and Select are masked off (A on a value row
+  - Up and down move between the value rows for their descriptions; B or
+    Start leaves.  Since the key item rows came (2026-10-14) the section is
+    longer than the window, so the view scrolls as the settings do, never
+    above the blank over its heading and back to it at the first row; the
+    cursor passes over the KEY ITEMS heading and the blanks.  A, left, right and Select are masked off (A on a value row
     did nothing anyway).  Nothing is written: the preset is not switched to
     Custom and the option checksum is untouched.  The flag is cleared on the
     way out, and `opt_settings` clears it on the way in, so a soft reset in
@@ -603,10 +606,12 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### Treasures (12)
+### Treasures (1)
 
-Free SHIP, Free AIRSHIP, Free BRIDGE, Free CANAL, Free CANOE, Free KEY, Free
-CHIME, Free CROWN, Free LUTE, Free TAIL, Free ROD, Starting items.
+Starting items.  *Until 2026-10-14 also* Free SHIP, Free AIRSHIP, Free
+BRIDGE, Free CANAL, Free CANOE, Free KEY, Free CHIME, Free CROWN, Free LUTE,
+Free TAIL and Free ROD: those are now the Free value of the key item rows
+(Key items, below), saved with the game, and what follows describes them.
 
 These are not in FFR's own quality-of-life grouping; they are its starting-
 inventory flags, and they exist here for the same reason FFR has them -- to
@@ -756,6 +761,53 @@ row with a game in progress changes nothing in that game.  See §7 and
 because a preset describes how the game plays rather than which world it is.
 *Planned (2026-10-11):* the section moves to the New Game flow, whose
 FFR-derived presets set it; `randomization-notes.md` §12, `ffr-presets.md`.
+
+### Key items (26)
+
+**Built 2026-10-14, not yet played.**  The incentive rows settled in
+`randomization-notes.md` §12, at the end of the RANDOMIZATION section under a
+KEY ITEMS heading of their own, saved with the game like the rows above it
+and shown by the save view with them:
+
+    Key items        Vanilla / Standard / Wide
+    SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows
+    Other items      Incentive / Loose            the nine with no Free
+    Masmune .. Xcalber   Treasure / Incentive     nine gear rows
+    Early King, Sarda, Sage, Ordeals   Off / On
+
+What works today is Free, which `opt_freestuff` now reads from the save
+`rando_newgame` has just written (`opt_isfree`) rather than from flag bits.
+Key items, Incentive, Loose and the gear rows mean nothing until placement
+lands, and the Early flags until their own change; under Key items Vanilla
+only Free and the Early rows ever will.
+
+**Packed: the option page had nine bytes left and these are 26 rows.**  Each
+row is a field of a byte -- two bits for a three- or two-value item row, one
+for a gear row or an Early flag -- seven bytes in all (`RANDO_KEYITEMS`,
+`RANDO_ITEMS`, `RANDO_GEAR`, `RANDO_EARLY`).  The settings screen reads any
+scalar as a field: `lut_ValBit` its lowest bit, `lut_ValMask` the mask in
+place, the whole byte for every older row.  `opt_field_get` reads it,
+`opt_field_put` writes it back without touching its neighbours (a pushed
+field merged with `ORA $01,S`, an opcode the harness's CPU gained for it).
+Zero is vanilla throughout: Vanilla, Incentive, Treasure, Off -- so a save
+from before them is a vanilla world, and no SAVEVER bump.  Gear reads
+Treasure first, not Off, which would read as the piece taken out (user).
+
+The item and gear rows read "Incentive", nine columns, so their readouts are
+sixteen wide (`lut_ValShift` 4) and their labels at most eleven: the gear
+goes by the game's own names, "Opal", "Power" and "White" with their icons
+as the inventory shows them.  Descriptions: Key items by value; each item
+row by value, Incentive and Loose shared and Free the old Free row's text;
+Other items naming its nine; one shared by eight gear rows and the
+Xcalber's own; one per Early flag.
+
+`test_treasures` drives the Free items through the rows, and checks that
+Incentive and Loose give nothing.  `test_rando_options` steps packed rows
+in a byte whose other bits are all set, and reads every key item row with
+only one field set, from the settings and from the save, so two rows that
+alias one field cannot pass.  `test_saveview` scrolls the view through the
+whole section from a save whose fields alternate, against settings that
+differ in every one.
 
 ### Respond rate
 
@@ -929,7 +981,7 @@ Layout, 19 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       6    43 checkbox bits
+    flags       6    checkbox bits; 26-36 spare since format 9
     scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items -- step indices
     respondrate 1    0-based
@@ -942,7 +994,8 @@ battle's two (`OPTBTLSOFT`, `OPTDRINKROW`) at `$6E1E`; `OPTSCRATCH` is
 Two more ranges on the page belong to the randomizer:
 
     $6EC4  pool      4    entropy for the seed; stirred every frame, unchecked
-    $6EC8  new game 14    one byte per RANDOMIZATION row, in the save block's order
+    $6EC8  new game 22    one byte per RANDOMIZATION row, then the key item rows
+                          packed into seven; in the save block's order
     $6EE0  ai       16    the script an enemy is choosing by (OPTAISHADOW)
     $6EF0  gear      8    a blursed weapon or armour record, for the adjusters
     $6EF8  name      8    a blursed item name and its terminator; "None"
@@ -952,11 +1005,12 @@ The new-game bytes are covered by the checksum -- `opt_sum` adds them after the
 block's eighteen -- and cleared by every preset.  The pool is deliberately
 outside it: battery noise on a fresh cartridge is welcome there.
 
-`OPT_FORMAT` is 8.  It went to 3 when the flag word grew its fifth byte, to 4
+`OPT_FORMAT` is 9.  It went to 3 when the flag word grew its fifth byte, to 4
 when the elemental bonus became a dial and needed a fifth scalar, to 5 when
 the checksum took in the new-game bytes, to 6 when Thief hit growth became a
-sixth scalar, to 7 when the starting items took a seventh, and to 8 when the
-flag word grew its sixth byte; each bump
+sixth scalar, to 7 when the starting items took a seventh, to 8 when the
+flag word grew its sixth byte, and to 9 when the Free items left the flag
+word (bits 26-36 are spare) for the key item rows; each bump
 costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic and
 gear bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
@@ -1806,14 +1860,16 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    2239 free   once the descriptions moved out, the None, the
+    BANK_OPT    1168 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
                              Vanilla's four small rules (247), and the
                              Lefein map edits (288), and the Ordeals
-                             pillars' row and hand-on (40)
-    BANK_OPTTEXT 10788 free  the settings screen's descriptions
+                             pillars' row and hand-on (40), and the key
+                             item rows (1071: 20 more rows of 32 bytes, their
+                             readouts and field tables, the field code)
+    BANK_OPTTEXT  9167 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO   9636 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673

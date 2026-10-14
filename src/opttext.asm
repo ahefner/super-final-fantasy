@@ -751,40 +751,200 @@ lut_Desc_50_1:  ; Chests: Shuffle
   FFPAD {"The seven that do hold one"}, 28
   FFPAD {"keep it."}, 28
 
+;  The key item rows (randomization-notes.md section 12).
+lut_Desc_72:  ; KEY ITEMS
+  FFLINES 4
+  FFPAD {"Where the key items are, for"}, 28
+  FFPAD {"the next new game.  A saved"}, 28
+  FFPAD {"game keeps the placement it"}, 28
+  FFPAD {"was started with."}, 28
+
+lut_Desc_73:  ; Key items, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_73_0, lut_Desc_73_1, lut_Desc_73_2
+  .assert * - lut_Desc_73 = 1 + 2 * KEYITEMS_MODES, error, "one Key items description per mode"
+
+lut_Desc_73_0:  ; Key items: Vanilla
+  FFLINES 4
+  FFPAD {"Key items stay where they"}, 28
+  FFPAD {"always are.  Of the rows"}, 28
+  FFPAD {"below, only Free and the"}, 28
+  FFPAD {"Early ones change anything."}, 28
+
+lut_Desc_73_1:  ; Key items: Standard
+  FFLINES 5
+  FFPAD {"Key items move.  Incentives"}, 28
+  FFPAD {"go to the 13 NPCs who give"}, 28
+  FFPAD {"one, the caravan and seven"}, 28
+  FFPAD {"dungeon prize chests, as in"}, 28
+  FFPAD {"FFR's default."}, 28
+
+lut_Desc_73_2:  ; Key items: Wide
+  FFLINES 5
+  FFPAD {"As Standard, and four more"}, 28
+  FFPAD {"prize chests -- the Volcano,"}, 28
+  FFPAD {"Marsh Cave's locked room,"}, 28
+  FFPAD {"Titan's Tunnel and Cardia --"}, 28
+  FFPAD {"Free Enterprise's 25 spots."}, 28
+
+;  Each item row by value: the first two shared, Free the item's own.
+lut_DescItemInc:  ; an item row: Incentive
+  FFLINES 4
+  FFPAD {"Incentive puts it in one of"}, 28
+  FFPAD {"the Key items spots, unless"}, 28
+  FFPAD {"they run out.  Under Vanilla"}, 28
+  FFPAD {"it stays where it always is."}, 28
+
+lut_DescItemLoose:  ; an item row: Loose
+  FFLINES 4
+  FFPAD {"Loose puts it in any chest"}, 28
+  FFPAD {"or with any NPC that gives"}, 28
+  FFPAD {"something.  Under Vanilla it"}, 28
+  FFPAD {"stays where it always is."}, 28
+
+lut_Desc_74:  ; SHIP, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_34
+  .assert * - lut_Desc_74 = 1 + 2 * ITEM_MODES, error, "one SHIP description per value"
+
+lut_Desc_75:  ; AIRSHIP, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_35
+  .assert * - lut_Desc_75 = 1 + 2 * ITEM_MODES, error, "one AIRSHIP description per value"
+
+lut_Desc_76:  ; BRIDGE, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_36
+  .assert * - lut_Desc_76 = 1 + 2 * ITEM_MODES, error, "one BRIDGE description per value"
+
+lut_Desc_77:  ; CANAL, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_37
+  .assert * - lut_Desc_77 = 1 + 2 * ITEM_MODES, error, "one CANAL description per value"
+
+lut_Desc_78:  ; CANOE, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_38
+  .assert * - lut_Desc_78 = 1 + 2 * ITEM_MODES, error, "one CANOE description per value"
+
+lut_Desc_79:  ; KEY, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_39
+  .assert * - lut_Desc_79 = 1 + 2 * ITEM_MODES, error, "one KEY description per value"
+
+lut_Desc_80:  ; CHIME, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_40
+  .assert * - lut_Desc_80 = 1 + 2 * ITEM_MODES, error, "one CHIME description per value"
+
+lut_Desc_81:  ; CROWN, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_41
+  .assert * - lut_Desc_81 = 1 + 2 * ITEM_MODES, error, "one CROWN description per value"
+
+lut_Desc_82:  ; LUTE, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_42
+  .assert * - lut_Desc_82 = 1 + 2 * ITEM_MODES, error, "one LUTE description per value"
+
+lut_Desc_83:  ; TAIL, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_43
+  .assert * - lut_Desc_83 = 1 + 2 * ITEM_MODES, error, "one TAIL description per value"
+
+lut_Desc_84:  ; ROD, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_44
+  .assert * - lut_Desc_84 = 1 + 2 * ITEM_MODES, error, "one ROD description per value"
+
+lut_Desc_85:  ; Other items
+  FFLINES 5
+  FFPAD {"The other nine key items --"}, 28
+  FFPAD {"CRYSTAL, HERB, TNT, ADAMANT,"}, 28
+  FFPAD {"SLAB, RUBY, CUBE, BOTTLE and"}, 28
+  FFPAD {"OXYALE -- as an incentive or"}, 28
+  FFPAD {"loose, like the rows above."}, 28
+
+lut_Desc_86:  ; a gear row
+  FFLINES 5
+  FFPAD {"Incentive puts this piece in"}, 28
+  FFPAD {"a Key items spot when key"}, 28
+  FFPAD {"items move, if one is left."}, 28
+  FFPAD {"Treasure leaves it to the"}, 28
+  FFPAD {"Chests row, like the rest."}, 28
+
+lut_Desc_87:  ; Xcalber
+  FFLINES 5
+  FFPAD {"The Smith's sword for the"}, 28
+  FFPAD {"ADAMANT.  Incentive puts it"}, 28
+  FFPAD {"in a Key items spot, and"}, 28
+  FFPAD {"Treasure among the chests,"}, 28
+  FFPAD {"once key items move."}, 28
+
+lut_Desc_88:  ; Early King
+  FFLINES 3
+  FFPAD {"The King gives his reward"}, 28
+  FFPAD {"without waiting for the"}, 28
+  FFPAD {"princess to be rescued."}, 28
+
+lut_Desc_89:  ; Early Sarda
+  FFLINES 3
+  FFPAD {"Sarda gives his reward"}, 28
+  FFPAD {"without waiting for the"}, 28
+  FFPAD {"Vampire to be beaten."}, 28
+
+lut_Desc_90:  ; Early Sage
+  FFLINES 3
+  FFPAD {"The sage at Crescent Lake"}, 28
+  FFPAD {"gives his reward without"}, 28
+  FFPAD {"waiting for the Earth Orb."}, 28
+
+lut_Desc_91:  ; Early Ordeals
+  FFLINES 3
+  FFPAD {"The thrones in the Castle of"}, 28
+  FFPAD {"Ordeals send the party on"}, 28
+  FFPAD {"without the CROWN."}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
-  .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23
-  .BYTE <lut_Desc_24, <lut_Desc_25, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0
-  .BYTE <lut_DescBlank, <lut_Desc_3, <lut_Desc_4, <lut_Desc_5, <lut_Desc_6
-  .BYTE <lut_Desc_7, <lut_Desc_8, <lut_Desc_9, <lut_Desc_10, <lut_Desc_11
-  .BYTE <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15, <lut_Desc_16
-  .BYTE <lut_Desc_17, <lut_Desc_69, <lut_Desc_70, <lut_DescBlank, <lut_Desc_1, <lut_DescBlank, <lut_Desc_18
-  .BYTE <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65, <lut_Desc_66, <lut_DescBlank, <lut_Desc_2
-  .BYTE <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_27, <lut_Desc_29
-  .BYTE <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64, <lut_Desc_32, <lut_Desc_67, <lut_DescBlank, <lut_Desc_33
-  .BYTE <lut_DescBlank, <lut_Desc_34, <lut_Desc_35, <lut_Desc_36, <lut_Desc_37
-  .BYTE <lut_Desc_38, <lut_Desc_39, <lut_Desc_40, <lut_Desc_41, <lut_Desc_42
-  .BYTE <lut_Desc_43, <lut_Desc_44, <lut_Desc_62, <lut_DescBlank, <lut_Desc_47, <lut_DescBlank
-  .BYTE <lut_Desc_48, <lut_Desc_49, <lut_Desc_50, <lut_Desc_51, <lut_Desc_52
-  .BYTE <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56, <lut_Desc_57
-  .BYTE <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
+  .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24
+  .BYTE <lut_Desc_25, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0, <lut_DescBlank, <lut_Desc_3
+  .BYTE <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8, <lut_Desc_9
+  .BYTE <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15
+  .BYTE <lut_Desc_16, <lut_Desc_17, <lut_Desc_69, <lut_Desc_70, <lut_DescBlank, <lut_Desc_1
+  .BYTE <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65
+  .BYTE <lut_Desc_66, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_26, <lut_Desc_46
+  .BYTE <lut_Desc_27, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64
+  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62
+  .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
+  .BYTE <lut_Desc_51, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
+  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
+  .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_74, <lut_Desc_75
+  .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
+  .BYTE <lut_Desc_82, <lut_Desc_83, <lut_Desc_84, <lut_Desc_85, <lut_DescBlank, <lut_Desc_86
+  .BYTE <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86
+  .BYTE <lut_Desc_86, <lut_Desc_87, <lut_DescBlank, <lut_Desc_88, <lut_Desc_89, <lut_Desc_90
+  .BYTE <lut_Desc_91
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
-  .BYTE >lut_DescBlank, >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23
-  .BYTE >lut_Desc_24, >lut_Desc_25, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0
-  .BYTE >lut_DescBlank, >lut_Desc_3, >lut_Desc_4, >lut_Desc_5, >lut_Desc_6
-  .BYTE >lut_Desc_7, >lut_Desc_8, >lut_Desc_9, >lut_Desc_10, >lut_Desc_11
-  .BYTE >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15, >lut_Desc_16
-  .BYTE >lut_Desc_17, >lut_Desc_69, >lut_Desc_70, >lut_DescBlank, >lut_Desc_1, >lut_DescBlank, >lut_Desc_18
-  .BYTE >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65, >lut_Desc_66, >lut_DescBlank, >lut_Desc_2
-  .BYTE >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_27, >lut_Desc_29
-  .BYTE >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64, >lut_Desc_32, >lut_Desc_67, >lut_DescBlank, >lut_Desc_33
-  .BYTE >lut_DescBlank, >lut_Desc_34, >lut_Desc_35, >lut_Desc_36, >lut_Desc_37
-  .BYTE >lut_Desc_38, >lut_Desc_39, >lut_Desc_40, >lut_Desc_41, >lut_Desc_42
-  .BYTE >lut_Desc_43, >lut_Desc_44, >lut_Desc_62, >lut_DescBlank, >lut_Desc_47, >lut_DescBlank
-  .BYTE >lut_Desc_48, >lut_Desc_49, >lut_Desc_50, >lut_Desc_51, >lut_Desc_52
-  .BYTE >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56, >lut_Desc_57
-  .BYTE >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
+  .BYTE >lut_DescBlank, >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24
+  .BYTE >lut_Desc_25, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0, >lut_DescBlank, >lut_Desc_3
+  .BYTE >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8, >lut_Desc_9
+  .BYTE >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15
+  .BYTE >lut_Desc_16, >lut_Desc_17, >lut_Desc_69, >lut_Desc_70, >lut_DescBlank, >lut_Desc_1
+  .BYTE >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65
+  .BYTE >lut_Desc_66, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_26, >lut_Desc_46
+  .BYTE >lut_Desc_27, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64
+  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62
+  .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
+  .BYTE >lut_Desc_51, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
+  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
+  .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_74, >lut_Desc_75
+  .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
+  .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86
+  .BYTE >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86
+  .BYTE >lut_Desc_86, >lut_Desc_87, >lut_DescBlank, >lut_Desc_88, >lut_Desc_89, >lut_Desc_90
+  .BYTE >lut_Desc_91
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

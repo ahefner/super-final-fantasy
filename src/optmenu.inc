@@ -18,7 +18,7 @@ OPTROW_SEED   = 4               ; the save view's seed; never in lut_OptRows
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 83
+OPTROW_COUNT  = 103
 
 ;  The description pane: five lines of 28 columns.
 DESC_W     = 28
