@@ -31,13 +31,17 @@ the four it builds the graph again and checks that clearing the bits gives the
 same reachability, mask for mask after minimising.
 
 The ship and the airship are FFR's readings (placement.vehicle_edges): the
-ship sails the inner sea once found -- rando_talk moves a found ship to
-Coneria's dock, as Free SHIP does, which this checks is that sea -- and the
-airship, once raised, flies from anywhere.
+ship sails the inner sea once found, and the airship, once raised, flies from
+anywhere.  A found ship is moored at a dock chosen for the map it is found on
+(give_vehicle, lut_ShipDock): the nearest the party can reach from there
+without it (ship_docks).  This proves that reading holds of every choice --
+from every place on the map, in every Early combination, the dock is reached
+with what reached the place -- and that every dock is on the inner sea.
 """
 import itertools
 import os
 import sys
+from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -46,6 +50,7 @@ sys.path.insert(0, WG)
 
 import analysis  # noqa: E402
 import build  # noqa: E402
+import overworld  # noqa: E402
 import placement  # noqa: E402
 import romdata as rd  # noqa: E402
 from model import BIT, REQS  # noqa: E402
@@ -62,12 +67,169 @@ EARLY_BIT = {"king": "PRINCESS", "sarda": "VAMPIRE", "sage": "ORB_EARTH", "ordea
 KIND_CHEST, KIND_NPC, KIND_SHOP, KIND_EVENT = 0, 1, 2, 3
 F_STANDARD, F_WIDE, F_POOL = 0x01, 0x02, 0x04
 FREESHIP = (152, 169)        # snesmap.inc's FREESHIP_X/Y: Coneria's dock
+#  FFR's docks (Items.cs, Dock): the sea tiles a found ship is moored at.
+#  Coneria's first: Free SHIP's, and the dock of a map nothing is found on.
+DOCKS = [("Coneria", (152, 169)), ("Pravoka", (210, 153)), ("Elfland", (141, 211)),
+         ("Dwarf Cave", (121, 139)), ("Matoya's Cave", (158, 142))]
+#  FFR's ShipLocations for the vanilla map (FF1Lib/maps/default.json): the dock
+#  a ship found behind each overworld entrance is moored at; any other entrance,
+#  Coneria's.  Held against ship_docks' choices wherever a dock can be walked to.
+FFR_SHIP_DOCK = {2: 1, 16: 1, 3: 2, 10: 2, 23: 2, 11: 2, 5: 2, 15: 2, 20: 3, 21: 4}
 
 
 def antichains(early):
     g, ow, _, _ = build.build(early=early)
     req = analysis.requirements(g, placement.vehicle_edges(g, ow))
     return g, ow, [analysis.location_requirements(l, req) for l in g.locations]
+
+
+def dock_boards(g, ow):
+    """For each dock, the overworld regions it is boarded from, on foot or by
+    canoe -- and that it is on the inner sea, the one the logic sails."""
+    sx, sy = ow.pos["ship"]
+    sea = ow.slabel[sx | (sy << 8)]
+    out = []
+    for name, (x, y) in DOCKS:
+        i = x | (y << 8)
+        assert ow.slabel[i] == sea, "%s's dock is not on the ship's sea" % name
+        nodes = set()
+        for b in overworld._neighbours(i):
+            if ow.flabel[b] >= 0:
+                nodes.add(ow.fnode[ow.flabel[b]])
+            if ow.rlabel[b] >= 0:
+                nodes.add(ow.rnode[ow.rlabel[b]])
+        assert nodes, "%s's dock is boarded from nowhere" % name
+        out.append(nodes)
+    return out
+
+
+def reach_from(g, ow, adj, nodes, owned):
+    """What is reached from nodes, owning owned, by an adjacency that has the
+    way out of a map: build.py keeps the warps back to where the party came
+    in as g.returns, apart from g.edges, since from the start they reach
+    nothing new.  The airship is FFR's reading, flown from anywhere:
+    placement.vehicle_edges has it from the start, which a walk from
+    elsewhere need never pass through."""
+    seen = set(nodes)
+    if owned & BIT["AIRSHIP"]:
+        seen.add(ow.sky)
+    q = deque(seen)
+    while q:
+        n = q.popleft()
+        for d, r in adj[n]:
+            if d not in seen and not (r & ~owned):
+                seen.add(d)
+                q.append(d)
+    return seen
+
+
+def found_docks(g, ow, idx, masks):
+    """For each map, the docks reached from wherever a ship can be found on it
+    -- every reachable node of every pool location, with each of its masks
+    that does not need the ship -- or None if nothing on it can hold one."""
+    adj = analysis.adjacency(g, placement.vehicle_edges(g, ow))
+    out = analysis.adjacency(g, list(placement.vehicle_edges(g, ow)) + list(g.returns))
+    boards = dock_boards(g, ow)
+    everything = analysis.reach(g, ~0, adj)
+    ok = [None] * rd.MAP_COUNT
+    for c, k in enumerate(idx[:248]):
+        l = g.locations[k]
+        if l.kind == "shop":                    # the caravan sells no ship
+            continue
+        #  No reward NPC stands where nothing reaches: the cart removed the
+        #  one that did, the Ice Cave's void fairy (mkrom, overlay_strays).  A
+        #  chest's sides can be sealed pockets of floor, which nothing does.
+        assert l.kind != "npc" or all(n in everything for n in l.nodes), l.label
+        for m in masks[k]:
+            if m & BIT["SHIP"]:
+                continue
+            seen = analysis.reach(g, m, adj)
+            for n in l.nodes:
+                if n not in seen:               # a pocket, or a way in needing more
+                    continue
+                mp = rd.MAP_NAMES.index(g.nodes[n].where)
+                there = reach_from(g, ow, out, [n], m)
+                docks = {d for d, b in enumerate(boards) if b & there}
+                ok[mp] = docks if ok[mp] is None else ok[mp] & docks
+    return ok
+
+
+def ship_docks(g, ow, idx, masks):
+    """The dock a ship found on each map is moored at (user, 2026-10-14): of
+    those reached from everywhere on it a ship can be found, the nearest --
+    in overworld steps on foot and by canoe from the map's entrances, or,
+    where none of them can be walked to, as the airship flies, the only way
+    the party can have come.  Returns the dock per map, and the maps where
+    that is not FFR's (FFR_SHIP_DOCK)."""
+    ok = found_docks(g, ow, idx, masks)
+    #  Each map's overworld entrances: the dungeon's, for its deeper floors.
+    inside = {}
+    for s, d, r, _ in g.edges:
+        if g.nodes[s].where != "OW" and g.nodes[d].where != "OW":
+            inside.setdefault(s, set()).add(d)
+    ents = [set() for _ in range(rd.MAP_COUNT)]
+    for src, land, m, what in g.entries:
+        if what[0] != "entrance":
+            continue
+        seen, q = set(land), deque(land)
+        while q:
+            n = q.popleft()
+            ents[rd.MAP_NAMES.index(g.nodes[n].where)].add(what[1])
+            for d in inside.get(n, ()):
+                if d not in seen:
+                    seen.add(d)
+                    q.append(d)
+    tiles = {}
+    for eid, src, req, tile in ow.entrances:
+        tiles.setdefault(eid, []).append(tile)
+
+    def walk(starts):
+        dist, q = {t: 0 for t in starts}, deque(starts)
+        while q:
+            i = q.popleft()
+            for b in overworld._neighbours(i):
+                if b not in dist and (ow.flabel[b] >= 0 or ow.rlabel[b] >= 0):
+                    dist[b] = dist[i] + 1
+                    q.append(b)
+        return dist
+
+    def fly(a, b):
+        dx, dy = abs((a & 255) - (b & 255)), abs((a >> 8) - (b >> 8))
+        return min(dx, 256 - dx) + min(dy, 256 - dy)
+
+    out, unlike = [], []
+    for mp in range(rd.MAP_COUNT):
+        if ok[mp] is None:
+            out.append(0)
+            continue
+        assert ok[mp], "%s: no dock is reached from everywhere a ship can be found" % rd.MAP_NAMES[mp]
+        starts = [t for e in sorted(ents[mp]) for t in tiles[e]]
+        dist = walk(starts)
+        steps = {}
+        for d in ok[mp]:
+            x, y = DOCKS[d][1]
+            near = [dist[b] for b in overworld._neighbours(x | (y << 8)) if b in dist]
+            if near:
+                steps[d] = min(near)
+        if steps:
+            dock = min(steps, key=lambda d: (steps[d], d))
+            ffr = {FFR_SHIP_DOCK.get(e, 0) for e in ents[mp]}
+            assert ffr == {dock}, ("%s: walks to %s, FFR has %s" % (rd.MAP_NAMES[mp], DOCKS[dock][0], ffr))
+        else:
+            dock = min(ok[mp], key=lambda d: (min(fly(t, DOCKS[d][1][0] | (DOCKS[d][1][1] << 8))
+                                                  for t in starts), d))
+            if {FFR_SHIP_DOCK.get(e, 0) for e in ents[mp]} != {dock}:
+                unlike.append(mp)
+        out.append(dock)
+    return out, unlike
+
+
+def check_docks(g, ow, idx, masks, docks):
+    """Every map's dock is one reached from everywhere a ship can be found on
+    it: what genlogic proves of each Early combination."""
+    ok = found_docks(g, ow, idx, masks)
+    for mp, d in enumerate(docks):
+        assert ok[mp] is None or d in ok[mp], (rd.MAP_NAMES[mp], DOCKS[d][0], ok[mp])
 
 
 def order(g):
@@ -99,11 +261,11 @@ def main():
     idx, chaos = order(g)
     locs = g.locations
 
-    #  The found ship's sea is the vanilla ship's: Coneria's dock is on it.
-    sx, sy = ow.pos["ship"]
-    i = sx | (sy << 8)
-    j = FREESHIP[0] | (FREESHIP[1] << 8)
-    assert ow.slabel[i] == ow.slabel[j], "Coneria's dock is not on the ship's sea"
+    #  Where a found ship is moored, map by map, and that each is reached
+    #  from where it was found.  Free SHIP's dock is the first.
+    assert DOCKS[0][1] == FREESHIP
+    docks, unlike = ship_docks(g, ow, idx, base)
+    check_docks(g, ow, idx, base, docks)
 
     #  Which Early flag touches which location, and that clearing its bit is
     #  the whole of it, alone and in every combination.
@@ -117,7 +279,8 @@ def main():
                 clears[c] = e
     for n in range(1, len(EARLY) + 1):
         for combo in itertools.combinations(EARLY, n):
-            _, _, got = antichains(combo)
+            eg, eow, got = antichains(combo)
+            check_docks(eg, eow, idx, got, docks)
             for c, k in enumerate(idx + [chaos]):
                 e = clears.get(c)
                 want = sorted(base[k]) if e not in combo else minimise(m & ~BIT[EARLY_BIT[e]] for m in base[k])
@@ -148,17 +311,21 @@ def main():
     assert sum(1 for r in rows if r[2] & F_STANDARD) == 21
     assert sum(1 for r in rows if r[2] & F_WIDE) == 25
 
-    write_py(rows, chaos_masks)
-    write_inc(rows, chaos_masks)
+    write_py(rows, chaos_masks, docks)
+    write_inc(rows, chaos_masks, docks)
     print("%d locations, %d masks, %d Early waivers; Chaos %d masks" % (
         len(rows), sum(len(r[4]) for r in rows), len(clears), len(chaos_masks)))
+    for mp, d in enumerate(docks):
+        if d or mp in unlike:
+            print("  ship found in %-16s -> %s%s" % (rd.MAP_NAMES[mp], DOCKS[d][0],
+                                                     "  (FFR: Coneria)" if mp in unlike else ""))
 
 
 def chaos_early(clears):
     return clears.get(256)
 
 
-def write_py(rows, chaos_masks):
+def write_py(rows, chaos_masks, docks):
     with open(os.path.join(HERE, "logicdata.py"), "w") as f:
         f.write('"""Generated by tools/genlogic.py from ../worldgraph -- do not edit.\n\n'
                 'LOCS: (kind, ident, flags, early, masks, label) per cartridge location.\n'
@@ -173,9 +340,12 @@ def write_py(rows, chaos_masks):
         for r in rows:
             f.write("    %r,\n" % (r,))
         f.write("]\n")
+        f.write("#  The docks a found ship is moored at, and each map's.\n")
+        f.write("DOCKS = %r\n" % (DOCKS,))
+        f.write("SHIP_DOCK = %r\n" % (docks,))
 
 
-def write_inc(rows, chaos_masks):
+def write_inc(rows, chaos_masks, docks):
     masks, offs = [], []
     for r in rows:
         offs.append(len(masks))
@@ -200,6 +370,7 @@ def write_inc(rows, chaos_masks):
         f.write("LOGIC_STANDARD = $%02X\nLOGIC_WIDE   = $%02X\nLOGIC_INPOOL = $%02X\n" % (F_STANDARD, F_WIDE, F_POOL))
         f.write("LOGIC_NSTANDARD = %d\nLOGIC_NWIDE = %d\n\n" % (
             sum(1 for r in rows if r[2] & F_STANDARD), sum(1 for r in rows if r[2] & F_WIDE)))
+        f.write("LOGIC_DOCKS  = %d\n\n" % len(DOCKS))
         f.write(";  The logic's bits, model.py's order.\n")
         for i, n in enumerate(REQS):
             f.write("LBIT_%-10s = %d\n" % (n, i))
@@ -224,6 +395,14 @@ def write_inc(rows, chaos_masks):
         emit(f, "lut_LogicByBit", [c for l in lists for c in l])
         f.write(";  Chaos: reached when every key item placed, the seed is winnable.\n")
         emit(f, "lut_LogicChaos", [b for m in chaos_masks for b in m.to_bytes(4, "little")])
+        f.write(";  The docks a found ship is moored at (FFR's), as the sea tile it sits on.\n")
+        emit(f, "lut_DockX", [xy[0] for _, xy in DOCKS])
+        emit(f, "lut_DockY", [xy[1] for _, xy in DOCKS])
+        f.write(";  Each map's: the dock a ship found on it is moored at (give_vehicle).\n")
+        f.write("lut_ShipDock:\n")
+        for mp, d in enumerate(docks):
+            f.write("  .BYTE %d   ; %s%s\n" % (d, rd.MAP_NAMES[mp], ": " + DOCKS[d][0] if d else ""))
+        f.write("\n")
 
 
 def emit(f, name, data):

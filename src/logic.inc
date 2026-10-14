@@ -13,6 +13,8 @@ LOGIC_INPOOL = $04
 LOGIC_NSTANDARD = 21
 LOGIC_NWIDE = 25
 
+LOGIC_DOCKS  = 5
+
 ;  The logic's bits, model.py's order.
 LBIT_LUTE       = 0
 LBIT_CROWN      = 1

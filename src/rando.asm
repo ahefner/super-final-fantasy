@@ -51,7 +51,7 @@
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
-.export rando_ensure, rando_stale, rando_xs
+.export rando_ensure, rando_stale, rando_xs, give_vehicle
 
 .segment "BANK_RANDO"
 
@@ -1574,12 +1574,14 @@ talk_reward:
     RTS
 
 ;;  Vehicle A (REWARD_SHIP..REWARD_CANOE), given -- by an NPC or, once key
-;;  items are placed, a chest.  A found ship is moored at Coneria's dock, as
-;;  Free SHIP's is: the logic has it sail the inner sea from wherever it was
-;;  found (genlogic.py checks that dock is on it).  Out: A = the id the
-;;  dialogue names it by -- CANOE's own, $11, and the orbs' $12-$14, whose
+;;  items are placed, a chest.  A ship found under placement is moored at the
+;;  dock nearest the map it was found on, of those the party can reach from
+;;  there without it (lut_ShipDock, genlogic.py's ship_docks, which proves each
+;;  is reached and on the inner sea the logic has it sail).  Out: A = the id
+;;  the dialogue names it by -- CANOE's own, $11, and the orbs' $12-$14, whose
 ;;  names are empty and never drawn, for the others (rando_nameptr).  X kept.
 ;;  Emulation mode, the game's data bank.
+.import lut_DockX, lut_DockY, lut_ShipDock
 give_vehicle:
     CMP #REWARD_BRIDGE
     BCC @ship
@@ -1603,10 +1605,15 @@ give_vehicle:
     LDA f:RANDO_PLACEDFAR
     CMP #1
     BNE :+
-    LDA #FREESHIP_X
+    PHX
+    LDX cur_map                 ; where it was found: a chest or an NPC
+    LDA f:LOGICFAR + lut_ShipDock, X
+    TAX
+    LDA f:LOGICFAR + lut_DockX, X
     STA ship_x
-    LDA #FREESHIP_Y
+    LDA f:LOGICFAR + lut_DockY, X
     STA ship_y
+    PLX
 :   LDA #NAME_SHIP
     RTS
 

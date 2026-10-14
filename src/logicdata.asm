@@ -11,6 +11,7 @@
 
 .export lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .export lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
+.export lut_DockX, lut_DockY, lut_ShipDock
 
 .segment "BANK_LOGIC"
 

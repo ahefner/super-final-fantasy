@@ -781,8 +781,8 @@ def test_rando_rewards():
 
 def test_rando_giving():
     """With placement in, the game hands out what the rewards dealt.  A chest
-    holding a vehicle gives it -- a ship moored at Coneria's dock, where the
-    logic sails it from -- opens as a chest opens, and names it.  A reward NPC
+    holding a vehicle gives it -- a ship moored at the dock of the map it is
+    found on (test_rando_shipdock) -- opens as a chest opens, and names it.  A reward NPC
     gives the cache's reward, gold and gear included, with no held test: what
     the party holds proves nothing once items move.  Every key item costs the
     BOTTLE's price, and the caravan stays open."""
@@ -816,6 +816,7 @@ def test_rando_giving():
         s[p:p + K["PLACE_ITEMS"]] = bytes(place)
         s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0xD2, 0x99        # Pravoka, as a new game has it
         bus.wram[K["tileprop"] + 1] = chest
+        bus.wram[K["cur_map"]] = 8                                  # Coneria Castle 1F
         call(cpu, "OpenTreasureChest")
         vis = {0xF0: 0x6000, 0xF1: 0x6008, 0xF2: 0x600C, 0xF3: 0x6012}[code]
         name = {0xF0: 0x12, 0xF1: 0x13, 0xF2: 0x14, 0xF3: 0x11}[code]
@@ -825,7 +826,7 @@ def test_rando_giving():
                bus.wram[K["dlg_itemid"]], cpu.a & 0xFF),
               (1, TCOPEN, 1, name, K["DLGID_TCGET"]))
         if code == 0xF0:
-            check("...the ship moored at Coneria's dock",
+            check("...the ship moored at the castle's dock, Coneria's",
                   (s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), FREESHIP)
 
     #  The NPCs: the cache's rewards, poked as deal_rewards would leave them.
@@ -880,6 +881,49 @@ def test_rando_giving():
     call(cpu, "rando_caravan", bank=RANDO_BANK)
     check("the caravan: shut with the fairy out, open once placement stocks it",
           (shut != 0, cpu.a & 0xFF), (True, 0))
+
+
+def test_rando_shipdock():
+    """A ship found under placement is moored at the dock nearest the map it
+    was found on, of those the party can reach from there without it
+    (lut_ShipDock; genlogic.py proves each reached, and on the inner sea).
+    Held to FFR's ShipLocations (FF1Lib/maps/default.json, by overworld
+    entrance) wherever FFR names a dock, Ice Cave to Pravoka among them; the
+    Temple of Fiends Revisited to Coneria's, since nothing there can hold the
+    ship; every map to one of FFR's five; and without placement, untouched."""
+    SHIP_VIS, SHIP_X, SHIP_Y = 0x6000, 0x6001, 0x6002
+    CONERIA, PRAVOKA, ELFLAND = (152, 169), (210, 153), (141, 211)
+    DWARF, MATOYA = (121, 139), (158, 142)
+    FFR = {1: PRAVOKA,                              # Pravoka (entrance 2)
+           15: PRAVOKA, 37: PRAVOKA, 38: PRAVOKA,   # Ice Cave B1-B3 (16)
+           9: ELFLAND, 10: ELFLAND,                 # Elfland and Northwest Castles (10, 11)
+           27: ELFLAND, 28: ELFLAND,                # Marsh Cave B2, B3 (23)
+           4: ELFLAND,                              # Crescent Lake (5)
+           33: ELFLAND, 35: ELFLAND, 36: ELFLAND,   # Gurgu Volcano B2, B4, B5 (15)
+           19: DWARF,                               # the Dwarf Cave (20)
+           20: MATOYA,                              # Matoya's Cave (21)
+           8: CONERIA, 24: CONERIA, 12: CONERIA}    # Coneria Castle, the Temple: FFR's default
+
+    def give(m, placed=1):
+        bus, cpu = machine()
+        s = bus.sram
+        s[K["RANDO_PLACED"] - 0x6000] = placed
+        s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0x11, 0x22      # decoys
+        bus.wram[K["cur_map"]] = m
+        cpu.a, cpu.x = 0xF0, 0x5A                               # REWARD_SHIP
+        call(cpu, "give_vehicle", bank=RANDO_BANK)
+        return ((s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), s[SHIP_VIS - 0x6000],
+                cpu.a & 0xFF, cpu.x & 0xFF)
+
+    docks = {CONERIA, PRAVOKA, ELFLAND, DWARF, MATOYA}
+    got = {m: give(m) for m in range(61)}
+    check("FFR's docks, map by map", {m: got[m][0] for m in FFR}, FFR)
+    check("the Temple of Fiends Revisited: Coneria's",
+          {got[m][0] for m in range(52, 60)}, {CONERIA})
+    check("every map one of the five docks", [m for m in got if got[m][0] not in docks], [])
+    check("given, named SHIP, X kept, on every map",
+          {got[m][1:] for m in got}, {(1, 0x12, 0x5A)})
+    check("unplaced: the ship left where it is", give(15, placed=0)[:2], ((0x11, 0x22), 1))
 
 
 def ff_decode(body):
@@ -8326,7 +8370,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

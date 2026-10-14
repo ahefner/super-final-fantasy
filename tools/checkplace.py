@@ -8,9 +8,12 @@ randoref.build_placement draws from logicdata.py, the tables genlogic.py
 distilled from ../worldgraph; test_rando_place holds the cartridge to it.
 This checks the other side, without the tables: each placement is put into
 the world graph's own locations, and the game played through on the graph
-from what the party starts with, Early flags and all.  A seed that does not
-reach Chaos is printed.  It needs ../worldgraph, which is why it is not part
-of test_options.py.
+from what the party starts with, Early flags and all.  The ship is where the
+cart moors it -- at the dock of the map it is found on (logicdata.SHIP_DOCK,
+which give_vehicle reads), or Coneria's when it is free -- and is boarded only
+there, not by FFR's reading, the inner sea from anywhere, which placement's
+own logic uses.  A seed that does not reach Chaos is printed.  It needs
+../worldgraph, which is why it is not part of test_options.py.
 """
 import os
 import sys
@@ -23,10 +26,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "worldgr
 
 import randoref as R  # noqa: E402
 import genlogic as G  # noqa: E402
+import logicdata as LD  # noqa: E402
 import analysis  # noqa: E402
 import build  # noqa: E402
 import placement  # noqa: E402
+import romdata as rd  # noqa: E402
 from model import BIT  # noqa: E402
+
+SHIP_ITEM = [n for n, _ in R.PLACE_ITEMS].index("SHIP")
 
 #  name: (Key items, item row bytes, gear bytes, Early flags), as
 #  test_rando_place has them.
@@ -41,13 +48,25 @@ CONFIGS = {
 }
 
 
-def world(early):
+def world(early, dock):
+    """The graph with the ship starting at a dock: build boards it there and
+    nowhere else.  The airship is FFR's reading, flown from anywhere."""
     names = tuple(n for k, n in enumerate(G.EARLY) if early >> k & 1)
-    g, ow, _, _ = build.build(early=names)
+    pos = dict(rd.VANILLA_POS, ship=LD.DOCKS[dock][1])
+    g, ow, _, _ = build.build(pos=pos, early=names)
     idx, _ = G.order(g)
-    adj = analysis.adjacency(g, placement.vehicle_edges(g, ow))
+    adj = analysis.adjacency(g, [e for e in placement.vehicle_edges(g, ow) if e[2] != BIT["SHIP"]])
     vanilla = {k: g.locations[k].reward for k in idx[:248]}
     return g, idx, adj, vanilla
+
+
+def ship_docks(g, idx, out):
+    """Where the cart moors the ship this placement gives: the dock of each
+    map its location stands on, or Coneria's if it is not placed (free)."""
+    c = out[SHIP_ITEM]
+    if c == 0xFF:
+        return {0}
+    return {LD.SHIP_DOCK[rd.MAP_NAMES.index(g.nodes[n].where)] for n in g.locations[idx[c]].nodes}
 
 
 def winnable(g, adj, free):
@@ -68,32 +87,42 @@ def main():
     worlds = {}
     t0 = time.time()
     lost = 0
+    def get(early, dock):
+        if (early, dock) not in worlds:
+            worlds[(early, dock)] = world(early, dock)
+        return worlds[(early, dock)]
+
     for name, cfg in CONFIGS.items():
         early = cfg[3]
-        if early not in worlds:
-            worlds[early] = world(early)
-        g, idx, adj, vanilla = worlds[early]
         free = R.place_setup(*cfg)[0]
-        stats = Counter()
+        stats, moored = Counter(), Counter()
         for seed in range(1, seeds + 1):
             out = R.build_placement(seed, *cfg)
             if out is None:
                 stats["unplaced"] += 1
                 continue
-            for k in idx[:248]:
-                g.locations[k].reward = None
-            for i, c in enumerate(out):
-                if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
-                    g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
-            if winnable(g, adj, free):
+            g0, idx0, _, _ = get(early, 0)
+            won = True
+            for dock in sorted(ship_docks(g0, idx0, out)):
+                moored[LD.DOCKS[dock][0]] += 1
+                g, idx, adj, vanilla = get(early, dock)
+                for k in idx[:248]:
+                    g.locations[k].reward = None
+                for i, c in enumerate(out):
+                    if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
+                        g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
+                if not winnable(g, adj, free):
+                    print("  %s seed %d, ship at %s: Chaos out of reach" % (name, seed, LD.DOCKS[dock][0]))
+                    won = False
+                for k, r in vanilla.items():
+                    g.locations[k].reward = r
+            if won:
                 stats["won"] += 1
             else:
-                print("  %s seed %d: Chaos out of reach" % (name, seed))
                 lost += 1
-            for k, r in vanilla.items():
-                g.locations[k].reward = r
-        print("%-11s %d seeds: %d winnable, %d with no placement" % (
-            name, seeds, stats["won"], stats["unplaced"]))
+        print("%-11s %d seeds: %d winnable, %d with no placement; ship at %s" % (
+            name, seeds, stats["won"], stats["unplaced"],
+            ", ".join("%s %d" % kv for kv in moored.most_common())))
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
 

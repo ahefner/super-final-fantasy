@@ -269,3 +269,74 @@ lut_LogicByBit:
 lut_LogicChaos:
   .BYTE $11, $00, $00, $0F
 
+;  The docks a found ship is moored at (FFR's), as the sea tile it sits on.
+lut_DockX:
+  .BYTE $98, $D2, $8D, $79, $9E
+
+lut_DockY:
+  .BYTE $A9, $99, $D3, $8B, $8E
+
+;  Each map's: the dock a ship found on it is moored at (give_vehicle).
+lut_ShipDock:
+  .BYTE 0   ; ConeriaTown
+  .BYTE 1   ; Pravoka: Pravoka
+  .BYTE 0   ; Elfland
+  .BYTE 0   ; Melmond
+  .BYTE 2   ; CrescentLake: Elfland
+  .BYTE 1   ; Gaia: Pravoka
+  .BYTE 0   ; Onrac
+  .BYTE 1   ; Lefein: Pravoka
+  .BYTE 0   ; ConeriaCastle1F
+  .BYTE 2   ; ElflandCastle: Elfland
+  .BYTE 2   ; NorthwestCastle: Elfland
+  .BYTE 0   ; CastleOrdeals1F
+  .BYTE 0   ; TempleOfFiends
+  .BYTE 2   ; EarthCaveB1: Elfland
+  .BYTE 0   ; GurguVolcanoB1
+  .BYTE 1   ; IceCaveB1: Pravoka
+  .BYTE 3   ; Cardia: Dwarf Cave
+  .BYTE 0   ; BahamutCaveB1
+  .BYTE 2   ; Waterfall: Elfland
+  .BYTE 3   ; DwarfCave: Dwarf Cave
+  .BYTE 4   ; MatoyasCave: Matoya's Cave
+  .BYTE 1   ; SardasCave: Pravoka
+  .BYTE 0   ; MarshCaveB1
+  .BYTE 1   ; MirageTower1F: Pravoka
+  .BYTE 0   ; ConeriaCastle2F
+  .BYTE 2   ; CastleOrdeals2F: Elfland
+  .BYTE 2   ; CastleOrdeals3F: Elfland
+  .BYTE 2   ; MarshCaveB2: Elfland
+  .BYTE 2   ; MarshCaveB3: Elfland
+  .BYTE 2   ; EarthCaveB2: Elfland
+  .BYTE 2   ; EarthCaveB3: Elfland
+  .BYTE 2   ; EarthCaveB4: Elfland
+  .BYTE 0   ; EarthCaveB5
+  .BYTE 2   ; GurguVolcanoB2: Elfland
+  .BYTE 0   ; GurguVolcanoB3
+  .BYTE 2   ; GurguVolcanoB4: Elfland
+  .BYTE 2   ; GurguVolcanoB5: Elfland
+  .BYTE 1   ; IceCaveB2: Pravoka
+  .BYTE 1   ; IceCaveB3: Pravoka
+  .BYTE 0   ; BahamutCaveB2
+  .BYTE 1   ; MirageTower2F: Pravoka
+  .BYTE 0   ; MirageTower3F
+  .BYTE 0   ; SeaShrineB5
+  .BYTE 3   ; SeaShrineB4: Dwarf Cave
+  .BYTE 3   ; SeaShrineB3: Dwarf Cave
+  .BYTE 3   ; SeaShrineB2: Dwarf Cave
+  .BYTE 3   ; SeaShrineB1: Dwarf Cave
+  .BYTE 1   ; SkyPalace1F: Pravoka
+  .BYTE 1   ; SkyPalace2F: Pravoka
+  .BYTE 1   ; SkyPalace3F: Pravoka
+  .BYTE 0   ; SkyPalace4F
+  .BYTE 0   ; SkyPalace5F
+  .BYTE 0   ; ToFR1F
+  .BYTE 0   ; ToFR2F
+  .BYTE 0   ; ToFR3F
+  .BYTE 0   ; ToFREarth
+  .BYTE 0   ; ToFRFire
+  .BYTE 0   ; ToFRWater
+  .BYTE 0   ; ToFRAir
+  .BYTE 0   ; ToFRChaos
+  .BYTE 1   ; TitansTunnel: Pravoka
+

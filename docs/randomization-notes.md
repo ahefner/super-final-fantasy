@@ -814,9 +814,9 @@ until the rewards change.
     waive one bit of a few locations (the King's PRINCESS, Sarda's VAMPIRE,
     the Sage's ORB_EARTH, the CROWN of the nine past the Ordeals' thrones),
     and the script proves that reading exact for all sixteen combinations.
-    It also checks that Coneria's dock, where a found ship will be moved as
-    Free SHIP moves it, is on the vanilla ship's sea, so FFR's "the ship
-    sails the inner sea once found" holds.  The tables are in git:
+    It also chooses, map by map, the dock a ship found there is moored at,
+    and proves FFR's "the ship sails the inner sea once found" holds of each
+    (below, under Giving).  The tables are in git:
     `src/logic.inc` (constants), `src/logicdata.inc` in a chunk of their own,
     `CHUNK_LOGIC` (3.7KB), and `tools/logicdata.py`.
   - **The algorithm** is FFR's `PredictivePlacement` as `placement.py`
@@ -887,12 +887,38 @@ shuffled.
     held test is off: once items move, what the party holds proves nothing.
     A vehicle can now be in a chest, which no chest code gives, so
     `rando_chest` gives it and opens the chest itself, and
-    `OpenTreasureChest` returns at once (`BCC`/`RTS`, three bytes).  A found
-    ship is moored at Coneria's dock, where the logic sails it from.  The
+    `OpenTreasureChest` returns at once (`BCC`/`RTS`, three bytes).  The
     dialogue names a vehicle by `$12-$14` (CANOE by its own `$11`): the
     orbs' ids, whose names are empty and never drawn -- `$F0-$F3`, the
     vehicles' reward codes, are the class names, which party creation draws
     through the same lookup.
+  - **Where a found ship is moored** (user, 2026-10-14; built, not yet
+    played).  It was always Coneria's dock, as Free SHIP's is: sound, since
+    Coneria is always reached, but a ship found in the Ice Cave meant the
+    walk back across two continents.  Now it is the dock nearest the map it
+    is found on, of those the party can reach from there without it:
+    `give_vehicle` reads `cur_map` into `lut_ShipDock`, which genlogic.py
+    writes (`ship_docks`).  The docks are FFR's five: Coneria, Pravoka,
+    Elfland, the Dwarf Cave and Matoya's Cave.  Nearest is overworld steps on
+    foot and by canoe from the map's entrances, and wherever a dock can be
+    walked to that is exactly FFR's `ShipLocations` (genlogic asserts it):
+    Pravoka and the Ice Cave to Pravoka's; Matoya's Cave and the Dwarf Cave
+    to their own; Elfland, its castle, the Marsh Cave, Northwest Castle,
+    Crescent Lake and the Volcano to Elfland's; Coneria's otherwise.  Where
+    none can be walked to, the party came by airship, and it is the nearest
+    as the airship flies.  **That is the one difference from FFR**, which
+    has Coneria's for all of them: the Earth Cave, Waterfall and Ordeals go
+    to Elfland's; Sarda, Titan's Tunnel, Gaia, Lefein, Mirage and the Sky
+    Palace to Pravoka's; the Sea Shrine and Cardia to the Dwarf Cave's.
+    The proof, in genlogic for all sixteen Early combinations: from every
+    node of every place on the map a ship can be found at, with each of its
+    requirement sets that does not need the ship, the dock is reached --
+    walking back out through the warps the graph keeps as `g.returns` -- and
+    every dock is on the inner sea.  `checkplace.py` plays each placement
+    with the ship boarded only at its dock: 2,100 of 2,100 winnable -- and,
+    as a control, not one placed ship's seed with every ship forced to
+    Elfland's.  `test_rando_shipdock` holds
+    the cart to FFR's docks map by map.
 
   - **Dialogue.**  Under placement an NPC says FFR's line for it, ending
     "Received" and the gift's name, instead of its vanilla one -- which
