@@ -6,3 +6,6 @@
     ;  From the randomizer's cache rather than lut_Treasure: the contents as
     ;  the cartridge has them, or shuffled when the save says so.  X is kept.
     JSL rando_chest + RANDOFAR
+    BCC :+
+    RTS                      ; a vehicle: given far, A the dialogue
+:

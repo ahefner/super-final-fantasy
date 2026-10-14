@@ -48,6 +48,7 @@
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
+.export rando_price
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs
 
@@ -691,6 +692,12 @@ build:
 
   @chests:
     JSR copy_chests
+    LDA f:RANDO_PLACEDFAR       ; key items placed: the rewards deal it all
+    CMP #1
+    BNE @tier1
+    JSR deal_rewards
+    BRA @magic
+  @tier1:
     LDA f:RANDO_SAVEFAR + (RANDO_CHESTS - RANDO_SAVE)
     BEQ @magic                  ; CHESTS_OFF
     CMP #CHESTS_MODES
@@ -1227,9 +1234,14 @@ REWARD_BRIDGE = $F1
 REWARD_CANAL  = $F2
 REWARD_CANOE  = $F3
 REWARD_XCALBER = TCITYPE_WEPSTART - 1 + WPNID_XCALBUR
+;  The ids the dialogue names a vehicle by (give_vehicle, rando_nameptr).
+NAME_CANOE    = $11       ; the game's own CANOE
+NAME_SHIP     = $12       ; the orbs' ids: empty names, never drawn
+NAME_BRIDGE   = $13
+NAME_CANAL    = $14
 
 .import Talk_norm, Talk_CoOGuy
-.import FindEmptyWeaponSlot, FindEmptyArmorSlot, ShowMapObject, OptCallFar
+.import FindEmptyWeaponSlot, FindEmptyArmorSlot, ShowMapObject, OptCallFar, AddGPToParty
 .include "optcall.inc"
 
 rando_talk:
@@ -1348,7 +1360,10 @@ talk_npc:
     LDA tmp+6
     AND #TALKF_HELD
     BEQ @items
-    LDA f:RANDOFAR + lut_TalkReward, X
+    LDA f:RANDO_PLACEDFAR       ; placed: what the party holds came from
+    CMP #1                      ;   anywhere, and proves nothing
+    BEQ @items
+    JSR talk_reward
     JSR talk_holds
     BNE @said
 
@@ -1371,7 +1386,7 @@ talk_npc:
     JMP talk_line
 
   @give:
-    LDA f:RANDOFAR + lut_TalkReward, X
+    JSR talk_reward
     JSR talk_give
     LDX tmp+4
     BCC @gave
@@ -1517,7 +1532,7 @@ talk_give:
     RTS
   @armor:
     CMP #TCITYPE_GPSTART
-    BCS @full                   ; gold: not yet a reward
+    BCS @gold
     SEC
     SBC #TCITYPE_ARMSTART - 1   ; the 1-based id a slot holds
     PHA
@@ -1529,25 +1544,144 @@ talk_give:
     SEC
     RTS
   @vehicle:
-    BNE :+
-    INC ship_vis                ; REWARD_SHIP
+    JSR give_vehicle
     CLC
     RTS
-:   CMP #REWARD_CANAL
-    BCC @bridge
+  @gold:
+    JSR give_gold
+    CLC
+    RTS
+
+
+;;  Entry X's reward: placement's (the cache's) once it is in, the table's
+;;  when it is not.  X kept.
+talk_reward:
+    LDA f:RANDO_PLACEDFAR
+    CMP #1
+    BNE :+
+    LDA f:RW_TALKREW, X
+    RTS
+:   LDA f:RANDOFAR + lut_TalkReward, X
+    RTS
+
+;;  Vehicle A (REWARD_SHIP..REWARD_CANOE), given -- by an NPC or, once key
+;;  items are placed, a chest.  A found ship is moored at Coneria's dock, as
+;;  Free SHIP's is: the logic has it sail the inner sea from wherever it was
+;;  found (genlogic.py checks that dock is on it).  Out: A = the id the
+;;  dialogue names it by -- CANOE's own, $11, and the orbs' $12-$14, whose
+;;  names are empty and never drawn, for the others (rando_nameptr).  X kept.
+;;  Emulation mode, the game's data bank.
+give_vehicle:
+    CMP #REWARD_BRIDGE
+    BCC @ship
+    BEQ @bridge
+    CMP #REWARD_CANAL
     BEQ @canal
     INC has_canoe               ; REWARD_CANOE
-    CLC
+    LDA #NAME_CANOE
     RTS
   @bridge:
     INC bridge_vis
-    CLC
+    LDA #NAME_BRIDGE
     RTS
   @canal:
     LDA #0                      ; Nerrick's work: the canal is the land he blasts
     STA canal_vis
-    CLC
+    LDA #NAME_CANAL
     RTS
+  @ship:
+    INC ship_vis
+    LDA f:RANDO_PLACEDFAR
+    CMP #1
+    BNE :+
+    LDA #FREESHIP_X
+    STA ship_x
+    LDA #FREESHIP_Y
+    STA ship_y
+:   LDA #NAME_SHIP
+    RTS
+
+;;  Gold A ($6C-$AF), given as a chest gives it: its price added with the
+;;  game's AddGPToParty, which takes the amount in tmp..tmp+2 -- the talk
+;;  data, kept round it.  X clobbered.
+give_gold:
+    ASL A
+    TAX
+    LDA tmp
+    PHA
+    LDA tmp+1
+    PHA
+    LDA tmp+2
+    PHA
+    BCS @hi
+    LDA f:BANK0DFAR + lut_ItemPrices, X
+    STA tmp
+    LDA f:BANK0DFAR + lut_ItemPrices + 1, X
+    BRA @have
+  @hi:
+    LDA f:BANK0DFAR + lut_ItemPrices + $100, X
+    STA tmp
+    LDA f:BANK0DFAR + lut_ItemPrices + $101, X
+  @have:
+    STA tmp+1
+    LDA #0
+    STA tmp+2
+    JSR AddGPToParty
+    PLA
+    STA tmp+2
+    PLA
+    STA tmp+1
+    PLA
+    STA tmp
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_price -- LoadPrice
+;;
+;;  The game read an item's price out of bank $0D's lut_ItemPrices; this
+;;  reads it the same way, except that every key item costs what the BOTTLE
+;;  does.  That is FFR's ScalePrices, and it is what keeps whatever placement
+;;  stocks the caravan with from being free: the table has them all at 0.
+;;  Vanilla never sells a key item but the BOTTLE, at its own price.
+;;
+;;  In: A = the item.  Out: tmp, tmp+1 = the price, tmp+2 = 0, tmp+3 and Y as
+;;  the game's left them; X kept.  Emulation mode.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_price:
+    .a8
+    .i8
+    PHX
+    PHA
+    ASL A                       ; the game's pointer's high byte, kept in tmp+3
+    LDA #>(lut_ItemPrices >> 1)
+    ROL A
+    STA tmp+3
+    PLA
+    CMP #$01
+    BCC :+
+    CMP #item_qty_start - items
+    BCS :+
+    LDA #item_bottle - items    ; a key item: the BOTTLE's price
+:   ASL A
+    TAX
+    BCS @hi
+    LDA f:BANK0DFAR + lut_ItemPrices, X
+    STA tmp
+    LDA f:BANK0DFAR + lut_ItemPrices + 1, X
+    BRA @have
+  @hi:
+    LDA f:BANK0DFAR + lut_ItemPrices + $100, X
+    STA tmp
+    LDA f:BANK0DFAR + lut_ItemPrices + $101, X
+  @have:
+    STA tmp+1
+    LDA #0
+    STA tmp+2
+    LDY #1
+    PLX
+    RTL
 
 ;  The table, one column per field, entries in RANDO_GIVEN's order.
 lut_TalkObj:
@@ -1608,6 +1742,13 @@ lut_TalkGiven:
 .assert lut_TalkReq - lut_TalkObj = TALK_COUNT, error, "lut_TalkObj is not TALK_COUNT long"
 lut_Bit8:
   .BYTE $01, $02, $04, $08, $10, $20, $40, $80
+
+;  The vehicles' names, for NAME_SHIP, NAME_BRIDGE and NAME_CANAL, eight bytes
+;  each: the letters, the terminator, padding.
+lut_VehicleNames:
+  .BYTE $9C, $91, $92, $99, $00, $00, $00, $00   ; SHIP
+  .BYTE $8B, $9B, $92, $8D, $90, $8E, $00, $00   ; BRIDGE
+  .BYTE $8C, $8A, $97, $8A, $95, $00, $00, $00   ; CANAL
 
 
 ;;  Is the tile at X a trap -- one FFR's Trap Tiles may move?
@@ -1889,7 +2030,13 @@ deal_type:
     STA a:wQ                    ; the shop_id
     JSR is_used
     BCC @gnext
-    LDY a:wNSHOPS
+    LDA a:wQ                    ; the caravan, when placement stocks it, is
+    CMP #SHOP_CARAVAN           ;   not dealt: deal_rewards gives its row
+    BNE :+
+    LDA f:RANDO_PLACEDFAR
+    CMP #1
+    BEQ @gnext
+:   LDY a:wNSHOPS
     LDA a:wQ
     STA a:wSHOPID, Y
     INC a:wNSHOPS
@@ -2160,10 +2307,14 @@ FAIRYFLAG = CHUNK0 * $10000 + game_flags + OBJID_FAIRY
 rando_caravan:
     .a8
     .i8
+    LDA f:RANDO_PLACEDFAR       ; placement stocks it: open, or its one item
+    CMP #1                      ;   could be shut away with the fairy out
+    BEQ @open
     LDA f:RANDO_SAVEFAR + (RANDO_SHOPS - RANDO_SAVE)
     BEQ @game                   ; SHOPS_OFF
     CMP #SHOPS_MODES
     BCS @game                   ; a mode this build does not know: as off
+  @open:
     LDA #$00                    ; open
     RTL
   @game:
@@ -2232,23 +2383,7 @@ deal_chests:
 
     ;  A flag per chest id for the unused ones, so the walk below is a load
     ;  rather than a search of the list for each of 256 ids.
-    LDX #$0000
-  @clear:
-    STZ a:wUNUSED, X
-    INX
-    CPX #256
-    BCC @clear
-    LDY #$0000
-  @mark:
-    TYX
-    LDA f:RANDOFAR + lut_UnusedChests, X   ; this chunk's: a label's bank is not known
-    STA a:wT2
-    LDX a:wT2
-    LDA #$01
-    STA a:wUNUSED, X
-    INY
-    CPY #UNUSED_CHESTS
-    BCC @mark
+    JSR mark_unused
 
     ;  The chests that move, in id order, and what is in them.
     LDX #$0000
@@ -2330,7 +2465,29 @@ rando_chest:
     JSR ensure                  ; leaves eight-bit registers
     PLX
     LDA a:wCHESTS, X
-    JMP leave
+    CMP #REWARD_SHIP
+    BCS @vehicle
+    JMP leave                   ; C clear: OpenTreasureChest goes on
+
+    ;  A vehicle, which only placement puts in a chest and no chest code
+    ;  gives: given here, in the game's mode and data bank, and the chest
+    ;  opened as the game opens one, with a key item's fanfare.  C set: the
+    ;  chest is done, and A is the dialogue.
+  @vehicle:
+    SEP #$30
+    SEC
+    XCE
+    PLB
+    JSR give_vehicle
+    STA dlg_itemid
+    LDA game_flags, X
+    ORA #GMFLG_TCOPEN
+    STA game_flags, X
+    LDA #1
+    STA dlgsfx
+    LDA #DLGID_TCGET
+    SEC
+    RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2977,6 +3134,41 @@ rando_nameptr:
     STA a:wNAMEPTR
     SEP #$20
     .a8
+    ;  A vehicle given (give_vehicle) is named by $12-$14, the orbs' ids,
+    ;  whose own names are empty and never drawn: its name, into the buffer.
+    LDA a:wNAMEID
+    CMP #NAME_SHIP
+    BCC @notvehicle
+    CMP #NAME_CANAL + 1
+    BCS @notvehicle
+    SEC
+    SBC #NAME_SHIP
+    ASL A
+    ASL A
+    ASL A                       ; eight bytes a name
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDY #$0000
+  @vname:
+    LDA f:RANDOFAR + lut_VehicleNames, X
+    PHX
+    TYX
+    STA f:NAMEBUFFAR, X
+    PLX
+    INX
+    INY
+    CPY #8
+    BCC @vname
+    LDA #<OPTNAMEBUF
+    STA a:wNAMEPTR
+    LDA #>OPTNAMEBUF
+    STA a:wNAMEPTR + 1
+    JMP @rom
+  @notvehicle:
     LDA a:wNAMEID
     SEC
     SBC #TCITYPE_WEPSTART
@@ -4891,3 +5083,4 @@ rando_steprng:
 
 
 .include "place.inc"
+.include "rewards.inc"

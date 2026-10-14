@@ -169,7 +169,8 @@ class CPU:
 
     def a_sr(self):
         """sr,S -- an offset from the stack pointer, in bank 0.  The settings
-        screen's field store (opt_field_put) merges a field it pushed."""
+        screen's field store (opt_field_put) merges a field it pushed, and the
+        rewards deal reads back an index it pushed."""
         return (0, (self.s + self.fetch()) & 0xFFFF)
 
     def a_dpx(self):
@@ -292,6 +293,7 @@ class CPU:
         elif op == 0xBD: v = self.load(self.a_absx(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xB9: v = self.load(self.a_absy(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xA5: v = self.load(self.a_dp(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
+        elif op == 0xA3: v = self.load(self.a_sr(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xB5: v = self.load(self.a_dpx(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xAF: v = self.load(self.a_long(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xBF: v = self.load(self.a_longx(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)

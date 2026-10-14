@@ -843,6 +843,48 @@ Enterprise), and checks each whole.  `tools/checkplace.py` puts the
 reference's placements into the world graph's own locations and plays them
 through: 2,100 of 2,100 winnable.
 
+### 4.8 Built: the rewards (2026-10-14; not yet played)
+
+What chests, reward NPCs and the caravan give once placement is in:
+`deal_rewards` (`rewards.inc`) in the cache build, in place of Tier 1's
+`deal_chests`, and `randoref.build_rewards`, which `test_rando_rewards`
+holds it to under every setting with Chests and Shops each off and
+shuffled.
+
+  - **255 slots**: the 241 chests a map places, the 13 reward NPCs, the
+    caravan.  A placed item takes its place.  Every item placement moved,
+    and every Free item, leaves its vanilla home (a gear piece's, the first
+    chest holding it); a Free item's home becomes one of FFR's spare gold
+    amounts (`ItemLists.UnusedGoldItems`) -- the user's rule (§11), where FFR
+    pads with CABINs.
+  - **Chests Shuffle**: every slot not placed is dealt from all the rest,
+    NPCs and the caravan among them.  **Off**: only the slots placement
+    touched change -- what a placed item pushed out, and the gold, are dealt
+    into the homes it left.  The Chests row's descriptions say so (user).
+  - **The caravan** sells its one item: placement's (§4.7), or, left to
+    treasure, a random one of what is dealt that a shop can sell, else a
+    CABIN.  It is left out of the shop deal, which would otherwise deal its
+    BOTTLE into a town as well, and stays open with the fairy out, as FFR's
+    PermanentCaravan, so its item cannot be shut away.  Every key item costs
+    the BOTTLE's price (FFR's `ScalePrices`): `LoadPrice` is now
+    `rando_price`, which reads the table as the game did, with that change;
+    the table has the other key items at 0, and vanilla sells none of them.
+  - **Giving.**  The NPCs give the cache's rewards (`talk_reward`), gold
+    through the game's `AddGPToParty` and gear by the chest's rules, and the
+    held test is off: once items move, what the party holds proves nothing.
+    A vehicle can now be in a chest, which no chest code gives, so
+    `rando_chest` gives it and opens the chest itself, and
+    `OpenTreasureChest` returns at once (`BCC`/`RTS`, three bytes).  A found
+    ship is moored at Coneria's dock, where the logic sails it from.  The
+    dialogue names a vehicle by `$12-$14` (CANOE by its own `$11`): the
+    orbs' ids, whose names are empty and never drawn -- `$F0-$F3`, the
+    vehicles' reward codes, are the class names, which party creation draws
+    through the same lookup.
+
+Not yet: NPC dialogue.  An NPC still says its vanilla giving line -- the
+Princess offering her LUTE as she hands over a SHIP -- until the lines are
+replaced.
+
 ## 5. Shops
 
 `lut_ShopData` (`$0E` `$8300`) is a pointer table and zero-terminated lists.

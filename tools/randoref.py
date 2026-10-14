@@ -208,10 +208,12 @@ def row_list(row):
     return out
 
 
-def deal_type(rows, rng, first, rom):
+def deal_type(rows, rng, first, rom, caravan_fixed=False):
     """FFR's ShuffleShopType for the ten shop_ids from first.  Returns how many
-    attempts it took."""
-    shops = [s for s in range(first, first + 10) if shop_ptr(rom, s) != shop_ptr(rom, 0)]
+    attempts it took.  With placement in, the caravan is not dealt: its one
+    item is placement's (build_rewards)."""
+    shops = [s for s in range(first, first + 10) if shop_ptr(rom, s) != shop_ptr(rom, 0)
+             and not (caravan_fixed and s == SHOP_CARAVAN)]
     orig = [x for s in shops for x in row_list(rows[s * 8:s * 8 + 8])]
     attempts = 0
     while True:
@@ -240,16 +242,22 @@ def deal_type(rows, rng, first, rom):
     return attempts
 
 
-def build_shops(rom, seed, shops, attempts=None):
+SHOP_CARAVAN = 70
+
+
+def build_shops(rom, seed, shops, attempts=None, caravan=None):
     """Every shop's row as the cache holds them: 71 rows of 8 bytes.  If
-    attempts is a list, each type's attempt count is appended to it."""
+    attempts is a list, each type's attempt count is appended to it.  With
+    caravan, placement's item for it, the caravan sells that alone."""
     rows = rom_shoprows(rom)
     if 0 < shops < SHOPS_MODES:
         rng = Stream(seed, STREAM_SHOPS)
         for first in SHOP_TYPES:
-            n = deal_type(rows, rng, first, rom)
+            n = deal_type(rows, rng, first, rom, caravan is not None)
             if attempts is not None:
                 attempts.append(n)
+    if caravan is not None:
+        rows[SHOP_CARAVAN * 8:SHOP_CARAVAN * 8 + 5] = bytes([caravan, 0, 0, 0, 0])
     return bytes(rows)
 
 
@@ -1140,6 +1148,95 @@ def build_placement(seed, keyitems, items3, gear2, early):
                     out[i] = c
             return out
     return None
+
+
+# --- rewards from placement ---------------------------------------------------------
+#  What every chest, reward NPC and the caravan gives once placement has put the
+#  key items: 255 slots, the 241 chests a map places, the thirteen NPCs and the
+#  caravan.  A placed item takes its place.  Every item placement moves, and
+#  every Free item, leaves its vanilla home; a Free item's home becomes gold,
+#  one of FFR's spare amounts (ItemLists.UnusedGoldItems) -- the user's rule,
+#  where FFR pads with CABINs.  The rest of the contents then go where the
+#  Chests row sends them:
+#    - Shuffle: every slot not placed is dealt from them all, as Tier 1 dealt
+#      the chests, NPCs and caravan now among them;
+#    - Off: only the slots placement touched change -- the contents a placed
+#      item pushed out, and the gold, are dealt into the homes left empty.
+#  The caravan is a shop: if placement left it to treasure, it is stocked
+#  first, with a random one of what is dealt that a shop can sell.
+STREAM_GOLD = 0x474F4C44        # "GOLD"
+SLOT_NPC, SLOT_CARAVAN = 256, 269
+#  rando_talk's vanilla rewards (lut_TalkReward), and the four vehicles' codes.
+REWARD_SHIP, REWARD_BRIDGE, REWARD_CANAL, REWARD_CANOE = 0xF0, 0xF1, 0xF2, 0xF3
+TALK_REWARD = [REWARD_BRIDGE, 0x01, REWARD_SHIP, 0x05, 0x03, 0x04, REWARD_CANAL, 0x42, 0x0A,
+               REWARD_CANOE, 0x0E, 0x10, 0x0C]
+#  What each PLACE_ITEMS item is, given: its chest code, or a vehicle's.
+PLACE_CODE = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0E, 0x0F,
+              0x10, REWARD_CANOE, REWARD_SHIP, REWARD_BRIDGE, REWARD_CANAL, 0x0D,
+              0x43, 0x41, 0x3D, 0x3B, 0x51, 0x69, 0x52, 0x63, 0x42]
+SPARE_GOLD = [0x6E, 0x6F, 0x70, 0x71, 0x72, 0x74, 0x78, 0x79, 0x7A, 0x7C, 0x7D, 0x7F, 0x84, 0x9E,
+              0xA5, 0xA6, 0xA7, 0xA8, 0xAA, 0xAB, 0xAC]
+
+
+def reward_slots():
+    """The slots, in order: chest ids a map places, NPCs, the caravan."""
+    return [c for c in range(256) if c not in UNUSED_CHESTS] + \
+        list(range(SLOT_NPC, SLOT_NPC + 13)) + [SLOT_CARAVAN]
+
+
+def loc_slot(c):
+    kind, ident = _L.LOCS[c][0], _L.LOCS[c][1]
+    return ident if kind == 0 else SLOT_NPC + ident if kind == 1 else SLOT_CARAVAN
+
+
+def sellable(code):
+    return 0 < code < 0x1C
+
+
+def build_rewards(rom, seed, chests, place, items3):
+    """(256 chest bytes, 13 NPC rewards, the caravan's item) once placement is
+    in; place is RANDO_PLACE, items3 RANDO_ITEMS."""
+    vanilla = {s: v for s, v in zip(range(256), rom_chests(rom))}
+    for n, v in enumerate(TALK_REWARD):
+        vanilla[SLOT_NPC + n] = v
+    vanilla[SLOT_CARAVAN] = 0x0F
+    slots = reward_slots()
+
+    def home(code):
+        return next(s for s in slots if vanilla[s] == code)
+
+    placed = {loc_slot(c): PLACE_CODE[i] for i, c in enumerate(place) if c != 0xFF}
+    rows = item_rows(items3)
+    free = [ITEMROW_ITEM[k] for k in range(11) if rows[k] == ITEM_FREE]
+    homes = [home(PLACE_CODE[i]) for i, c in enumerate(place) if c != 0xFF] + \
+        [home(PLACE_CODE[_NAME.index(n)]) for n in free]
+    gold_rng = Stream(seed, STREAM_GOLD)
+    golds = [SPARE_GOLD[gold_rng.below(len(SPARE_GOLD))] for _ in free]
+    out = dict(vanilla)
+    out.update(placed)
+    rng = Stream(seed, STREAM_CHESTS)
+    if 0 < chests < CHESTS_MODES:
+        pool = [vanilla[s] for s in slots if s not in homes] + golds
+        dest = [s for s in slots if s not in placed]
+    else:
+        pool = [vanilla[s] for s in slots if s in placed and s not in homes] + golds
+        dest = [s for s in slots if s in homes and s not in placed]
+    assert len(pool) == len(dest)
+    if SLOT_CARAVAN in dest:
+        sell = [k for k, v in enumerate(pool) if sellable(v)]
+        if sell:
+            out[SLOT_CARAVAN] = pool.pop(sell[rng.below(len(sell))])
+        else:
+            out[SLOT_CARAVAN] = 0x17            # a CABIN, and the last left over
+            pool.pop()
+        dest.remove(SLOT_CARAVAN)
+    for i in range(len(pool) - 1, 0, -1):
+        j = rng.below(i + 1)
+        pool[i], pool[j] = pool[j], pool[i]
+    for s, v in zip(dest, pool):
+        out[s] = v
+    table = bytes(out[c] for c in range(256))
+    return table, bytes(out[SLOT_NPC + n] for n in range(13)), out[SLOT_CARAVAN]
 
 
 # --- magic levels ----------------------------------------------------------------

@@ -775,11 +775,13 @@ and shown by the save view with them:
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
     Early King, Sarda, Sage, Ordeals   Off / On
 
-What works today is Free, which `opt_freestuff` now reads from the save
-`rando_newgame` has just written (`opt_isfree`) rather than from flag bits,
-and the Early flags (built 2026-10-14, not yet played).  Key items,
-Incentive, Loose and the gear rows mean nothing until placement lands; under
-Key items Vanilla only Free and the Early rows ever will.
+All of it works now (built 2026-10-14, not yet played): Free, which
+`opt_freestuff` reads from the save `rando_newgame` has just written
+(`opt_isfree`) rather than from flag bits; the Early flags; and under Key
+items Standard or Wide, placement and the rewards it deals
+(`randomization-notes.md` sections 4.7 and 4.8).  Under Key items Vanilla
+only Free and the Early rows mean anything.  The Chests row's descriptions
+say what each value does once key items move.
 
 **The Early flags** are FFR's, under Key items Vanilla too.  Early King,
 Sarda and Sage waive what that NPC waits for in `rando_talk`'s table
@@ -1845,8 +1847,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   196 free    the scarce one; stamped into every chunk.  7
-                             declared, and 189 at the end: the randomizer's
+    BANK_FIXED   217 free    the scarce one; stamped into every chunk.  7
+                             declared, and 210 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1857,7 +1859,10 @@ text region in the game references.
                              DrawDrinkBox gave back 89; the map-edit hook
                              took 4; the teleport landing, now asked of
                              rando_teledest, gave back 16; the talk funnel,
-                             its Guillotine moved to rando_talk, gave back 31
+                             its Guillotine moved to rando_talk, gave back 31;
+                             LoadPrice, its table read moved to rando_price,
+                             gave back 24, and the chest's exit for a vehicle
+                             took 3
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1871,7 +1876,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    1168 free   once the descriptions moved out, the None, the
+    BANK_OPT    1161 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -1880,11 +1885,15 @@ text region in the game references.
                              pillars' row and hand-on (40), and the key
                              item rows (1071: 20 more rows of 32 bytes, their
                              readouts and field tables, the field code)
-    BANK_OPTTEXT  9167 free  the settings screen's descriptions
+    BANK_OPTTEXT  4702 free  the settings screen's descriptions (measured
+                             2026-10-14 from ld65's map: the 10788 here
+                             before dated from 10-09 and was not kept up as
+                             descriptions were added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   6787 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   5555 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
-                             Early flags 58, placement's code 2791
+                             Early flags 58, placement's code 2791, the
+                             rewards and their giving 1232
     BANK_LOGIC  12670 free  the vanilla world's logic for placement (3714),
                              generated; data only
     HALCODE     ~6200 free   not available; see below

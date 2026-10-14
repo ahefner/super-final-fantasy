@@ -734,6 +734,154 @@ def test_rando_place():
     check("Key items Vanilla: no placement", flag, 0)
 
 
+def rewards_cart(job):
+    """The cache built from a save that holds randoref's placement: the chests,
+    the NPC rewards, the caravan, and every shop row."""
+    seed, cfg, chests, shops = job
+    keyitems, items3, gear2, early = cfg
+    place = R.build_placement(seed, *cfg)
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_CHESTS"] - 0x6000] = chests
+    s[K["RANDO_SHOPS"] - 0x6000] = shops
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_PLACED"] - 0x6000] = 1
+    p = K["RANDO_PLACE"] - 0x6000
+    s[p:p + K["PLACE_ITEMS"]] = bytes(place)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    w = lambda name, n: bytes(bus.wram[rw(name):rw(name) + n])
+    return place, w("RW_CHESTS", 256), w("RW_TALKREW", 13), w("RW_CARAVAN", 1)[0], w("RW_SHOPS", 71 * 8)
+
+
+def test_rando_rewards():
+    """Once placement is in, the cache's chests, reward NPCs, caravan and
+    shops are randoref.build_rewards' and build_shops', for each setting,
+    with the Chests and Shops rows off and shuffled: a placed item where it
+    was placed, every moved or Free item's home dealt into or turned to gold,
+    the caravan selling one item and left out of the shop deal."""
+    jobs = [(seed * 104729 + 7, cfg, chests, shops)
+            for cfg in PLACE_CONFIGS.values() for seed in range(3)
+            for chests in (0, 1) for shops in (0, 1)]
+    res = pmap(rewards_cart, jobs)
+    bad = []
+    for (seed, cfg, chests, shops), (place, got_c, got_t, got_v, got_s) in zip(jobs, res):
+        want_c, want_t, want_v = R.build_rewards(ROMDATA, seed, chests, place, cfg[1])
+        want_s = R.build_shops(ROMDATA, seed, shops, caravan=want_v)
+        for what, got, want in (("chests", got_c, want_c), ("NPCs", got_t, want_t),
+                                ("caravan", got_v, want_v), ("shops", got_s, want_s)):
+            if got != want:
+                bad.append((seed, cfg, chests, shops, what))
+    check("the cache's rewards are randoref's", bad[:3], [])
+
+
+def test_rando_giving():
+    """With placement in, the game hands out what the rewards dealt.  A chest
+    holding a vehicle gives it -- a ship moored at Coneria's dock, where the
+    logic sails it from -- opens as a chest opens, and names it.  A reward NPC
+    gives the cache's reward, gold and gear included, with no held test: what
+    the party holds proves nothing once items move.  Every key item costs the
+    BOTTLE's price, and the caravan stays open."""
+    SHIP_VIS, SHIP_X, SHIP_Y = 0x6000, 0x6001, 0x6002
+    FREESHIP = (K["FREESHIP_X"], K["FREESHIP_Y"])
+    TCOPEN = 0x04
+    #  A vehicle in a chest, from a placement where one landed in a chest.
+    cfg = PLACE_CONFIGS["all-loose"]
+    found = None
+    for seed in range(1, 200):
+        place = R.build_placement(seed, *cfg)
+        table, _, _ = R.build_rewards(ROMDATA, seed, 0, place, cfg[1])
+        for c in range(256):
+            if table[c] in (0xF0, 0xF1, 0xF2, 0xF3) and c not in R.UNUSED_CHESTS:
+                found = (seed, place, c, table[c])
+                break
+        if found:
+            break
+    check("a seed puts a vehicle in a chest", found is not None, True)
+    if found:
+        seed, place, chest, code = found
+        bus, cpu = machine()
+        s = bus.sram
+        at = K["RANDO_SAVE"] - 0x6000
+        s[at:at + 4] = seed.to_bytes(4, "little")
+        s[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+        s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+        s[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+        s[K["RANDO_PLACED"] - 0x6000] = 1
+        p = K["RANDO_PLACE"] - 0x6000
+        s[p:p + K["PLACE_ITEMS"]] = bytes(place)
+        s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0xD2, 0x99        # Pravoka, as a new game has it
+        bus.wram[K["tileprop"] + 1] = chest
+        call(cpu, "OpenTreasureChest")
+        vis = {0xF0: 0x6000, 0xF1: 0x6008, 0xF2: 0x600C, 0xF3: 0x6012}[code]
+        name = {0xF0: 0x12, 0xF1: 0x13, 0xF2: 0x14, 0xF3: 0x11}[code]
+        check("chest $%02X's vehicle $%02X: given, opened, fanfare, named, the found line" % (chest, code),
+              (s[vis - 0x6000] if code != 0xF2 else 1 - s[vis - 0x6000],
+               s[0x6200 - 0x6000 + chest] & TCOPEN, bus.wram[K["dlgsfx"]],
+               bus.wram[K["dlg_itemid"]], cpu.a & 0xFF),
+              (1, TCOPEN, 1, name, K["DLGID_TCGET"]))
+        if code == 0xF0:
+            check("...the ship moored at Coneria's dock",
+                  (s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), FREESHIP)
+
+    #  The NPCs: the cache's rewards, poked as deal_rewards would leave them.
+    def npc(name, reward, setup=None):
+        obj, _ = TALK_NPCS[name]
+        bus, cpu = machine()
+        s = bus.sram
+        SLOT = 0x10
+        s[0x6F00 - 0x6000 + SLOT] = obj
+        s[GAME_FLAGS - 0x6000 + obj] = 1
+        s[GAME_FLAGS - 0x6000 + 0x12] = 1            # the Princess rescued
+        s[K["RANDO_TALK"] - 0x6000] = 1
+        s[K["RANDO_PLACED"] - 0x6000] = 1
+        bus.wram[rw("RW_TALKREW") + TALK_ENTRY[name]] = reward
+        if setup:
+            setup(s)
+        cpu.x = SLOT
+        call(cpu, "TalkToObject", bank=0xAF, dbr=0xAF)
+        return bus, cpu, s
+    bus, cpu, s = npc("King", 0x6E)                      # 25 G, one of the spare amounts
+    check("the King's gold", (int.from_bytes(s[0x601C - 0x6000:0x601F - 0x6000], "little"),
+                              bus.wram[TMP:TMP + 4] == bytes([0, 1, 2, 3])), (25, True))
+    bus, cpu, s = npc("Princess", 0xF0, lambda s: s.__setitem__(SHIP_X - 0x6000, 0xD2))
+    check("the Princess gives the ship, moored at Coneria's dock",
+          (s[SHIP_VIS - 0x6000], s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), (1,) + FREESHIP)
+    bus, cpu, s = npc("CubeBot", 0x41)                   # a Katana
+    check("CubeBot gives a Katana, in the first weapon slot",
+          s[0x6118 - 0x6000], 0x41 - 0x1B)
+    bus, cpu, s = npc("Fairy", 0x01, lambda s: s.__setitem__(ITEMS + 1 - 0x6000, 1))
+    check("the Fairy gives a LUTE though one is held: no held test once placed",
+          s[ITEMS + 1 - 0x6000], 2)
+
+    #  Prices: every key item the BOTTLE's, the rest the table's.
+    pb = (1 + 0x0D) * 0x10000 + 0xBC00
+    price = lambda i: ROMDATA[pb + 2 * i] | ROMDATA[pb + 2 * i + 1] << 8
+    got, want = [], []
+    for item in list(range(0x00, 0x1C)) + [0x41, 0x6E, 0xAC]:
+        bus, cpu = machine()
+        cpu.a, cpu.x = item, 0x5A
+        call(cpu, "LoadPrice")
+        got.append((item, bus.wram[TMP] | bus.wram[TMP + 1] << 8, bus.wram[TMP + 2],
+                    cpu.y & 0xFF, cpu.x & 0xFF))
+        want.append((item, price(0x0F) if 0x01 <= item < 0x16 else price(item), 0, 1, 0x5A))
+    check("LoadPrice: key items at the BOTTLE's price, X kept", got, want)
+
+    #  The caravan, open with the fairy out.
+    bus, cpu = machine()
+    bus.sram[GAME_FLAGS - 0x6000 + 0x13] = 1             # the fairy out
+    call(cpu, "rando_caravan", bank=RANDO_BANK)
+    shut = cpu.a & 0xFF
+    bus.sram[K["RANDO_PLACED"] - 0x6000] = 1
+    call(cpu, "rando_caravan", bank=RANDO_BANK)
+    check("the caravan: shut with the fairy out, open once placement stocks it",
+          (shut != 0, cpu.a & 0xFF), (True, 0))
+
+
 MSGROWS_TOTAL = 12
 
 
@@ -7765,7 +7913,7 @@ def test_rando_namelazy():
     setgear(bus, 0x0BADF00D, 5, 5)
     got, want = [], []
     for item in range(256):
-        if 0x1C <= item < 0x6C:
+        if 0x1C <= item < 0x6C or 0x12 <= item <= 0x14:
             continue
         s0 = cpu.steps
         cpu.a = item
@@ -7773,6 +7921,21 @@ def test_rando_namelazy():
         got.append((item, (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bus.wram[tag], cpu.steps - s0 < 200))
         want.append((item, ROMDATA[b0a + 0xB700 + 2 * item] | ROMDATA[b0a + 0xB701 + 2 * item] << 8, 0, True))
     check("every name but gear's: the ROM's pointer, the cache not built, cheaply", got, want)
+    #  $12-$14 are the orbs' ids, whose names are empty and never drawn; a
+    #  vehicle given is named by them (give_vehicle), so they come back as the
+    #  vehicle's name, built in the buffer -- cheaply, and the cache unbuilt.
+    for item, name in ((0x12, "SHIP"), (0x13, "BRIDGE"), (0x14, "CANAL")):
+        bus, cpu = machine()
+        s0 = cpu.steps
+        cpu.a = item
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        at = K["OPTNAMEBUF"] - 0x6000
+        check("$%02X: the vehicle's name" % item,
+              ((cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bytes(bus.sram[at:at + 8]).split(b"\0")[0] != b"",
+               bus.wram[tag], cpu.steps - s0 < 200),
+              (K["OPTNAMEBUF"], True, 0, True))
+        check("$%02X reads %s" % (item, name), "".join(
+            _decode(b) or "" for b in bytes(bus.sram[at:at + 8]).split(b"\0")[0]), name)
     for item in (0x1C, 0x6B):
         bus, cpu = machine()
         setgear(bus, 0x0BADF00D, 5, 5)
@@ -7912,7 +8075,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

@@ -1218,6 +1218,7 @@ h_t8            = HAL_VARS+$60  ; 2 bytes: nt_attr's per-row "quadrant changed"
 BANK00FAR       = (CHUNK0 + $00) * $10000
 BANK0BFAR       = (CHUNK0 + $0B) * $10000
 BANK0CFAR       = (CHUNK0 + $0C) * $10000
+BANK0DFAR       = (CHUNK0 + $0D) * $10000
 ;  The item names, lut_ItemNamePtrTbl and what it points at: BANK_ITEMS.
 BANK0AFAR       = (CHUNK0 + $0A) * $10000
 ;  The equip permission words live in bank $0E, reached the same way.
@@ -1736,6 +1737,28 @@ RW_GRP          = RANDOWRAM+$2FC0 ; the group's script ids, in order
 RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
 RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
 RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
+RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
+RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
+
+;  deal_rewards' working memory, in placement's: the two never run together.
+;  A slot is a chest id, 256 + a reward NPC's entry, or SLOT_CARAVAN.
+RV_VAN          = RP_BASE+$1000   ; 270: each slot's vanilla contents
+RV_OUT          = RP_BASE+$1200   ; 270: and what it gives now
+RV_PM           = RP_BASE+$1400   ; 270: set if placement put something there
+RV_HM           = RP_BASE+$1600   ; 270: set if its vanilla contents left (a home)
+RV_POOL         = RP_BASE+$1800   ; 255: the contents to deal
+RV_DEST         = RP_BASE+$1A00   ; 255 words: the slots they go to
+RV_GOLD         = RP_BASE+$1C00   ; 11: the Free items' gold, row order
+RV_NPOOL        = RP_BASE+$1C10
+RV_NDEST        = RP_BASE+$1C12
+RV_NGOLD        = RP_BASE+$1C14
+RV_S            = RP_BASE+$1C16   ; a slot
+RV_K            = RP_BASE+$1C18
+RV_CODE         = RP_BASE+$1C1A
+SLOT_NPC        = 256
+SLOT_CARAVAN    = 269
+SLOTS           = 270
+SHOP_CARAVAN    = 70
 
 ;  Incentive placement's working memory (place.inc).  It runs once, at New
 ;  Game, before the cache is built, so nothing here outlives it; the result

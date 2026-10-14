@@ -490,9 +490,12 @@ lut_Desc_50:  ; Chests, by value
   .assert * - lut_Desc_50 = 1 + 2 * CHESTS_MODES, error, "one chest description per mode"
 
 lut_Desc_50_0:  ; Chests: Off
-  FFLINES 2
+  FFLINES 5
   FFPAD {"Every chest holds what it"}, 28
-  FFPAD {"always has."}, 28
+  FFPAD {"always has -- unless Key"}, 28
+  FFPAD {"items moves things.  Then"}, 28
+  FFPAD {"what they push out fills the"}, 28
+  FFPAD {"places they left."}, 28
 
 lut_Desc_51:  ; Magic levels, by value
   .BYTE DESC_BYVALUE
@@ -745,11 +748,12 @@ lut_Desc_61_1:  ; RNG tables: Shuffle
   FFPAD {"same, the order does not."}, 28
 
 lut_Desc_50_1:  ; Chests: Shuffle
-  FFLINES 4
+  FFLINES 5
   FFPAD {"The 234 chests that hold no"}, 28
-  FFPAD {"key item trade contents."}, 28
-  FFPAD {"The seven that do hold one"}, 28
-  FFPAD {"keep it."}, 28
+  FFPAD {"key item trade contents, and"}, 28
+  FFPAD {"the seven keep theirs.  If"}, 28
+  FFPAD {"Key items moves them, NPCs"}, 28
+  FFPAD {"join the trade as well."}, 28
 
 ;  The key item rows (randomization-notes.md section 12).
 lut_Desc_72:  ; KEY ITEMS

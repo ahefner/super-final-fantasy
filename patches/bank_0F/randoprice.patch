@@ -1,0 +1,34 @@
+--- OLD
+LoadPrice:
+    ASL A        ; double item index (2 bytes per price)
+    STA tmp+2    ; store low byte in $12
+
+    LDA #>(lut_ItemPrices>>1)  ; high byte of pointer, but load it right-shifted by 1
+    ROL A                      ; and rotate it left by 1 in order to catch carry from above shifting
+    STA tmp+3                  ; store as high byte of pointer at tmp+3
+
+    LDA #BANK_ITEMPRICES
+    JSR SwapPRG_L  ; swap to bank D (for item prices)
+
+    LDY #0         ; zero Y (our source index)
+    LDA (tmp+2), Y ; get low byte of price
+    STA tmp
+    INY
+    LDA (tmp+2), Y ; and high byte
+    STA tmp+1
+
+    LDA #0
+    STA tmp+2       ; 3rd byte is always 0 (no item costs more that 65535)
+
+    LDA #BANK_MENUS ; swap back to bank E
+    JMP SwapPRG_L   ; and return
+--- NEW
+.import rando_price
+LoadPrice:
+    ;  rando_price reads the price as this did, out of bank $0D with a long
+    ;  address, and with every key item at the BOTTLE's price (FFR's
+    ;  ScalePrices).  The swap back to bank E stays, as the game left it.
+    JSL rando_price + RANDOFAR
+
+    LDA #BANK_MENUS ; swap back to bank E
+    JMP SwapPRG_L   ; and return

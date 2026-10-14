@@ -2,9 +2,9 @@
 FindEmptyWeaponSlot:
     LDY #0             ; Y is our loop counter
 --- NEW
-;  rando_talk gives gear by the chest's own rules.  It runs in the randomizer's
+;  rando_talk gives gear, and gold, by the chest's own rules.  It runs in the randomizer's
 ;  chunk, which carries the fixed bank at $C000 as every chunk does, so these
 ;  are a plain JSR away.
-.export FindEmptyWeaponSlot, FindEmptyArmorSlot
+.export FindEmptyWeaponSlot, FindEmptyArmorSlot, AddGPToParty
 FindEmptyWeaponSlot:
     LDY #0             ; Y is our loop counter
