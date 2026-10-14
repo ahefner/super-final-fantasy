@@ -107,6 +107,8 @@ What the bytes hold before anything writes them:
     game reads them from ROM at `lut_ClassStartingStats` (`$B040`,
     `bank_0F.asm:1837`), never from here.  These bytes are free, but they
     hold junk rather than zero until something writes them.
+  - **`$60F0-$60F2` is `rando_talk`'s** (§3): the marker that a game runs its
+    reward NPCs from the table, and their given bits.
   - **`$60FD-$60FF` must not be used.**  In the saved copy they are
     `sram_checksum` and the two assert bytes.  `SaveGame` overwrites them
     after its copy, and Continue copies them back.
@@ -480,6 +482,41 @@ Two more, from the incentive rows (§12):
 The far routine reaches `CheckGameEventFlag`, `HideThisMapObject` and the
 battle starters through `CALL0E`.  Bikke and Astos combine a reward with a
 fight and a hide, so their scripts are reproduced, not generalised.
+
+**Built (2026-10-13; not yet played), with the vanilla rewards: `rando_talk`.**  The
+fixed bank's funnel is `JSL rando_talk / BCC / RTS / JMP (tmp+6)`, 31 bytes
+less than the Guillotine it held, which moved far with it.  The thirteen
+NPCs (the caravan is a shop, §5) are one table in the randomizer's chunk:
+object, what it waits for (nothing, an object shown or gone, an event flag, an
+item held or traded), its reward, flags for Bikke's fight, Astos's and
+Nerrick's leaving, Astos's battle and the Smith's "Don't be greedy", and which
+of its three lines it says waiting, giving and given.  Rewards are chest
+codes, with `$F0-$F3` for the four vehicles; gear goes by the chest's rules,
+and gold is not a reward yet (its `LoadPrice` swaps banks and writes `tmp`).
+The game flags and items it touches are its own work, a few instructions
+each, except `ShowMapObject` through `CALL0E`.
+
+  - **Engaged by a marker, not a version.**  `rando_newgame` sets
+    `RANDO_TALK` (`$60F0`) and clears `RANDO_GIVEN` (`$60F1-$60F2`, a bit per
+    entry).  Every save made before reads zero there (§1.1), so it keeps the
+    vanilla handlers and no NPC state is read two ways; no SAVEVER bump.
+    Both lie outside `RANDO_SAVE`, so the cache's tag never sees them change.
+  - **The order of tests is the vanilla handlers'**: given; the event it
+    waits for; whether the party already holds the reward (`TALKF_HELD`);
+    the item it wants.  The held test is what keeps a Free LUTE from bringing
+    a second, as the vanilla Princess's check does.  Nerrick, Astos and the
+    Smith never asked, so they have no `TALKF_HELD`.  Under the shuffle the
+    held test goes, since a free item is no longer in the pool.
+  - **What differs from vanilla, unseen:** the Smith's event flag is left
+    clear (his bit records the Xcalber instead; no other object's dialogue
+    reads that flag), and Matoya, from a state no game reaches (the Elf
+    Prince awake while the CRYSTAL is still held), says her waiting line
+    rather than her done one.
+  - **`test_rando_talk`** talks to each NPC three times from every
+    combination of the state its handler reads, under each, through the real
+    `TalkToObject`, and requires the same dialogue, fanfare, battle and all
+    of SRAM but the table's own bytes.  Eighteen mutations, from a line off
+    by one to the held test moved ahead of the event, are all caught.
 
 
 ## 4. Placement and validation
@@ -1466,7 +1503,8 @@ any seed, and each has a small forced-scenario test (§13).
 vanilla world, then key items across chests, then NPC rewards and their
 dialogue.  The rows are settled (§12).  The order of work (2026-10-13): the
 generic NPC talk routine (§3) first, giving the vanilla rewards, so it can
-be played on its own with nothing changed; then the rows and placement.  This is the core of the project and the one tier whose
+be played on its own with nothing changed (built, 2026-10-13); then the rows
+and placement.  This is the core of the project and the one tier whose
 correctness cannot come from playing.  It has to come from the oracle.
 
 **Free items leave the pool as a random chest of gold (user, 2026-10-07).**

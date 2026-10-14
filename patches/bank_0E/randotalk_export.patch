@@ -1,0 +1,9 @@
+--- OLD
+ShowMapObject:
+    STY tmp               ; back up the object ID
+--- NEW
+;  For rando_talk, through OptCallFar: Bikke's terrorized townsfolk reappear
+;  when he gives up his reward.
+.export ShowMapObject
+ShowMapObject:
+    STY tmp               ; back up the object ID

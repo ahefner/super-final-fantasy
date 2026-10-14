@@ -1426,6 +1426,20 @@ RANDO_SAVE_SIZE = $13
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
+;  The reward NPCs (rando_talk).  Kept apart from RANDO_SAVE, so the cache's
+;  tag never sees them: the given bits change as the game is played.  Zero in
+;  every save made before them, which keeps that save on the vanilla talk
+;  routines: rando_newgame sets RANDO_TALK, so only a game begun since runs its
+;  reward NPCs from the table.  Each NPC's own record of having given, whatever
+;  it gives, is its bit in RANDO_GIVEN, not the vanilla "does the party hold
+;  the item": once rewards move, the Princess may be holding the SHIP.
+RANDO_TALK      = $60F0     ; nonzero: the reward NPCs run from rando_talk's table
+RANDO_GIVEN     = $60F1     ; 2 bytes: bit n set once table entry n has given
+RANDO_TALKFAR   = (CHUNK0 * $10000) + RANDO_TALK
+RANDO_GIVENFAR  = (CHUNK0 * $10000) + RANDO_GIVEN
+.assert RANDO_SAVE + RANDO_SAVE_SIZE <= RANDO_TALK, error, "rando block runs into RANDO_TALK"
+.assert RANDO_GIVEN + 2 <= $60FD, error, "RANDO_GIVEN runs into the checksum"
+
 ;  The settings screen's copy: one byte per setting, in the same order as the
 ;  save block's from RANDO_TRAPS on, so starting a game is a straight copy.
 ;  Above the scratch the screens use, below nothing; opt_sum covers it, which

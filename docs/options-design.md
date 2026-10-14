@@ -1098,7 +1098,10 @@ what swatting means.  The hook is in `TalkToObject`
 `JMP (tmp+6)`, substitute `Talk_CoOGuy` for `Talk_norm` when the flag is on.
 About 15 bytes.  FFR protects LutePlate and RodPlate, which are `Talk_norm`
 objects whose removal breaks progression; the object ID is still in hand at
-that point, so the same two exceptions are cheap.
+that point, so the same two exceptions are cheap.  *Since 2026-10-13* the
+substitution is `rando_talk`'s, in the randomizer's chunk: the funnel in the
+fixed bank (still `OptGuillotine`) is now a JSL and a jump, and `rando_talk`
+also runs the reward NPCs (`randomization-notes.md` §3).
 
 **Use the SNES hardware multiplier.**  `$4202` x `$4203` -> `$4216/$4217` is an
 8x8 -> 16 multiply ready in 8 cycles.  Nothing in the port references these
@@ -1777,8 +1780,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   165 free    the scarce one; stamped into every chunk.  7
-                             declared, and 158 at the end: the randomizer's
+    BANK_FIXED   196 free    the scarce one; stamped into every chunk.  7
+                             declared, and 189 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1788,7 +1791,8 @@ text region in the game references.
                              stack fix's JSL 4; SOFT in battle's loop in
                              DrawDrinkBox gave back 89; the map-edit hook
                              took 4; the teleport landing, now asked of
-                             rando_teledest, gave back 16
+                             rando_teledest, gave back 16; the talk funnel,
+                             its Guillotine moved to rando_talk, gave back 31
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 28 bytes of
                              padding inside routines the randomizer took
@@ -1811,7 +1815,8 @@ text region in the game references.
                              pillars' row and hand-on (40)
     BANK_OPTTEXT 10788 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO  10309 free  the randomizer; the Ordeals pillars took 622
+    BANK_RANDO   9636 free  the randomizer; the Ordeals pillars took 622,
+                             the reward NPCs' table and routine 673
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

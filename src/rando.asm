@@ -47,7 +47,7 @@
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
-.export rando_steprng, rando_mapedits, rando_teledest
+.export rando_steprng, rando_mapedits, rando_teledest, rando_talk
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs
 
@@ -522,6 +522,12 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
+    ;  This game's reward NPCs run from rando_talk's table, and none has given.
+    LDA #1
+    STA f:RANDO_TALKFAR
+    LDA #0
+    STA f:RANDO_GIVENFAR
+    STA f:RANDO_GIVENFAR + 1
     PLX
     PLP
     RTL
@@ -1143,6 +1149,427 @@ rando_teledest:
     SBC #7
     AND #$3F
     RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_talk -- the reward NPCs, and NPC Guillotine
+;;
+;;  From OptGuillotine, the funnel every talk dispatch in bank $0E ends in.
+;;  The thirteen NPCs that give a key item, a vehicle or the Xcalber are run
+;;  here from a table -- what each wants first, what it gives, which of its
+;;  three lines it says when -- once a new game has set RANDO_TALK.  The table
+;;  holds the vanilla rewards for now; it is what incentive placement will
+;;  change (randomization-notes.md section 3).  A save from before RANDO_TALK
+;;  keeps the vanilla handlers, so its NPCs' state is never read two ways.
+;;
+;;  Every other object goes on to its handler, which NPC Guillotine may first
+;;  swap: Talk_norm for Talk_CoOGuy when the option is on, except for the two
+;;  plates, which hold the Rod and the Lute's way forward.
+;;
+;;  The order of the tests reproduces every vanilla handler, Free items
+;;  included: given before, then the event the NPC waits for, then whether the
+;;  party already holds what it gives (the vanilla handlers' own test, which
+;;  is what keeps a Free LUTE from bringing a second one), then the item it
+;;  wants.  Nerrick, Astos and the Smith never asked what the party holds, so
+;;  they have no TALKF_HELD.
+;;
+;;  DBR is the caller's, a game bank, so the game's variables are plain
+;;  absolute here as in bank $0E's routines; the tables are long.
+;;
+;;  In: X = the map object's offset in mapobj, tmp..tmp+3 its talk data,
+;;      (tmp+6) the handler TalkToObject resolved.  Emulation mode.
+;;  Out: C set and A = the dialogue id, the NPC handled here; or C clear, and
+;;       the funnel jumps to (tmp+6).  X kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The reward NPCs.  RANDO_GIVEN's bit n is entry n.
+TALK_COUNT    = 13
+
+;  What an NPC waits for (lut_TalkReq), with lut_TalkArg as its operand.
+TREQ_NONE     = 0         ; nothing
+TREQ_VISIBLE  = 1         ; object Arg shown: the King, the rescued Princess
+TREQ_HIDDEN   = 2         ; object Arg gone: Sarda, the Vampire beaten
+TREQ_EVENT    = 3         ; object Arg's event flag: the Elf Prince awake; Unne
+TREQ_HAVE     = 4         ; the party holds item Arg: Astos, the CROWN
+TREQ_TRADE    = 5         ; as TREQ_HAVE, and the item is taken in exchange
+
+;  lut_TalkFlags.
+TALKF_FIGHT   = $01       ; Bikke: the first talk fights (lut_TalkBattle) and
+                          ;   sets his event flag; the reward is the next, and
+                          ;   shows the townsfolk his pirates were terrorizing
+TALKF_HIDE    = $02       ; gone once it has given: Astos, Nerrick
+TALKF_BATTLE  = $04       ; and fights lut_TalkBattle as it gives: Astos
+TALKF_GREEDY  = $08       ; a full bag is "Don't be greedy": the Smith
+TALKF_HELD    = $10       ; holding the reward already counts as given
+
+;  Rewards: what a chest holds ($01-$1B items, $1C-$43 weapons, $44-$6B
+;  armor), and the vehicles, which no chest holds.
+REWARD_SHIP   = $F0
+REWARD_BRIDGE = $F1
+REWARD_CANAL  = $F2
+REWARD_CANOE  = $F3
+REWARD_XCALBER = TCITYPE_WEPSTART - 1 + WPNID_XCALBUR
+
+.import Talk_norm, Talk_CoOGuy
+.import FindEmptyWeaponSlot, FindEmptyArmorSlot, ShowMapObject, OptCallFar
+.include "optcall.inc"
+
+rando_talk:
+    .a8
+    .i8
+    PHX
+    LDA f:RANDO_TALKFAR
+    BEQ @other
+    LDA mapobj_id, X
+    LDX #TALK_COUNT - 1
+  @find:
+    CMP f:RANDOFAR + lut_TalkObj, X
+    BEQ @ours
+    DEX
+    BPL @find
+  @other:
+    PLX
+    ;  NPC Guillotine.  The id is mapobj_id's, not temp RAM's: tmp..tmp+3 is
+    ;  the talk data, and TalkToObject's backup of the id in tmp+6 is already
+    ;  the handler (test_guillotine puts a decoy in tmp).
+    LDA OPTFB_GUILLOTINE
+    AND #OPTFM_GUILLOTINE
+    BEQ @dispatch
+    LDA mapobj_id, X
+    CMP #OBJID_RODPLATE
+    BEQ @dispatch
+    CMP #OBJID_LUTEPLATE
+    BEQ @dispatch
+    LDA tmp+6
+    CMP #<Talk_norm
+    BNE @dispatch
+    LDA tmp+7
+    CMP #>Talk_norm
+    BNE @dispatch
+    LDA #<Talk_CoOGuy
+    STA tmp+6
+    LDA #>Talk_CoOGuy
+    STA tmp+7
+  @dispatch:
+    CLC
+    RTL
+  @ours:
+    PLA                         ; the map object, kept where talk_npc wants it
+    PHA
+    STA tmp+5
+    JSR talk_npc
+    PLX
+    SEC
+    RTL
+
+
+;  One reward NPC.  In: X = its entry, tmp+5 = its map object.  Out: A = the
+;  dialogue id.  tmp+4 holds the entry and tmp+6 its flags throughout; neither
+;  is anything to the funnel once the NPC is handled here.
+talk_npc:
+    STX tmp+4
+    LDA f:RANDOFAR + lut_TalkFlags, X
+    STA tmp+6
+    LDA f:RANDOFAR + lut_TalkObj, X
+    TAY
+    LDA tmp+6
+    AND #TALKF_FIGHT
+    BEQ @given
+    LDA game_flags, Y           ; Bikke, the first time: mark him fought, fight
+    AND #GMFLG_EVENT
+    BNE @given
+    LDA game_flags, Y
+    ORA #GMFLG_EVENT
+    STA game_flags, Y
+    LDA f:RANDOFAR + lut_TalkBattle, X
+    JSR talk_battle
+    LDA tmp+1
+    RTS
+
+  @given:
+    JSR talk_bit                ; Y = its byte, A = its bit
+    AND RANDO_GIVEN, Y
+    BNE @said
+
+    ;  What it waits for, the events first.
+    LDA f:RANDOFAR + lut_TalkArg, X
+    TAY
+    LDA f:RANDOFAR + lut_TalkReq, X
+    CMP #TREQ_VISIBLE
+    BEQ @visible
+    CMP #TREQ_HIDDEN
+    BEQ @hidden
+    CMP #TREQ_EVENT
+    BNE @held
+    LDA game_flags, Y
+    AND #GMFLG_EVENT
+    BNE @held
+    BEQ @notyet
+  @visible:
+    LDA game_flags, Y
+    LSR A
+    BCS @held
+    BCC @notyet
+  @hidden:
+    LDA game_flags, Y
+    LSR A
+    BCS @notyet
+
+  @held:
+    LDA tmp+6
+    AND #TALKF_HELD
+    BEQ @items
+    LDA f:RANDOFAR + lut_TalkReward, X
+    JSR talk_holds
+    BNE @said
+
+  @items:
+    LDA f:RANDOFAR + lut_TalkReq, X
+    CMP #TREQ_HAVE
+    BCC @give
+    LDA f:RANDOFAR + lut_TalkArg, X
+    TAY
+    LDA items, Y
+    BNE @give
+  @notyet:
+    LDA f:RANDOFAR + lut_TalkNotYet, X
+    JMP talk_line
+
+  @said:
+    LDA f:RANDOFAR + lut_TalkGiven, X
+    JMP talk_line
+
+  @give:
+    LDA f:RANDOFAR + lut_TalkReward, X
+    JSR talk_give
+    LDX tmp+4
+    BCC @gave
+    LDA tmp+6                   ; it does not fit: nothing taken, nothing given
+    AND #TALKF_GREEDY
+    BEQ :+
+    LDA #DLGID_DONTBEGREEDY
+    RTS
+:   LDA #DLGID_CANTCARRY
+    RTS
+
+  @gave:
+    LDA f:RANDOFAR + lut_TalkReq, X
+    CMP #TREQ_TRADE
+    BNE :+
+    LDA f:RANDOFAR + lut_TalkArg, X
+    TAY
+    LDA items, Y                ; the exchange: what it wanted is taken
+    SEC
+    SBC #1
+    STA items, Y
+:   JSR talk_bit
+    ORA RANDO_GIVEN, Y
+    STA RANDO_GIVEN, Y
+
+    LDA tmp+6
+    AND #TALKF_HIDE
+    BEQ :+
+    LDA f:RANDOFAR + lut_TalkObj, X
+    TAY                         ; HideThisMapObject's work
+    LDA game_flags, Y
+    AND #<~GMFLG_OBJVISIBLE
+    STA game_flags, Y
+    LDX tmp+5
+    LDA #0
+    STA mapobj_id, X
+    LDX tmp+4
+:   LDA tmp+6
+    AND #TALKF_BATTLE
+    BEQ :+
+    LDA f:RANDOFAR + lut_TalkBattle, X
+    JSR talk_battle
+:   LDA tmp+6
+    AND #TALKF_FIGHT
+    BEQ :+
+    LDY #OBJID_PIRATETERR_1     ; ShowMapObject writes tmp, not tmp+1..3
+    CALL0E ShowMapObject
+    LDY #OBJID_PIRATETERR_2
+    CALL0E ShowMapObject
+    LDY #OBJID_PIRATETERR_3
+    CALL0E ShowMapObject
+    LDX tmp+4
+:   INC dlgsfx                  ; the fanfare
+    LDA f:RANDOFAR + lut_TalkGiving, X
+    ;  fall through
+
+;  A = which of the talk data's lines (1-3); out A = that line's dialogue id.
+talk_line:
+    TAY
+    LDA tmp, Y
+    RTS
+
+;  TalkBattle's work: the battle in A, fought once the dialogue box closes.
+talk_battle:
+    STA btlformation
+    LDA #TP_BATTLEMARKER
+    STA tileprop
+    RTS
+
+;  Entry X's bit in RANDO_GIVEN: Y = its byte, A = the bit.  X kept.
+talk_bit:
+    TXA
+    LSR A
+    LSR A
+    LSR A
+    TAY
+    TXA
+    PHX
+    AND #$07
+    TAX
+    LDA f:RANDOFAR + lut_Bit8, X
+    PLX
+    RTS
+
+;  Does the party hold reward A?  Out: Z clear if so.  Y clobbered.
+talk_holds:
+    CMP #REWARD_SHIP
+    BEQ @ship
+    CMP #REWARD_BRIDGE
+    BEQ @bridge
+    CMP #REWARD_CANOE
+    BEQ @canoe
+    CMP #REWARD_CANAL
+    BEQ @canal
+    CMP #TCITYPE_WEPSTART
+    BCS @no                     ; gear: two Xcalbers would be no harm
+    TAY
+    LDA items, Y
+    RTS
+  @ship:
+    LDA ship_vis
+    RTS
+  @bridge:
+    LDA bridge_vis
+    RTS
+  @canoe:
+    LDA has_canoe
+    RTS
+  @canal:
+    LDA canal_vis               ; held once it is gone
+    EOR #$01
+    RTS
+  @no:
+    LDA #0
+    RTS
+
+;  Give reward A.  Out: C set if it does not fit, and then nothing is given.
+;  X and Y clobbered.  The chest's own rules (OpenTreasureChest): an item
+;  stops at 99, gear wants an empty slot.  No reward is gold yet.
+talk_give:
+    CMP #REWARD_SHIP
+    BCS @vehicle
+    CMP #TCITYPE_WEPSTART
+    BCS @gear
+    TAY
+    LDA items, Y
+    CMP #99
+    BCS @full
+    ADC #1                      ; C is clear
+    STA items, Y
+    RTS
+  @gear:
+    CMP #TCITYPE_ARMSTART
+    BCS @armor
+    SBC #TCITYPE_WEPSTART - 2   ; C is clear: less $1B, the 1-based id a slot holds
+    PHA
+    JSR FindEmptyWeaponSlot
+    BCS @nofit
+  @put:
+    PLA
+    STA ch_stats, X
+    CLC
+    RTS
+  @armor:
+    CMP #TCITYPE_GPSTART
+    BCS @full                   ; gold: not yet a reward
+    SEC
+    SBC #TCITYPE_ARMSTART - 1   ; the 1-based id a slot holds
+    PHA
+    JSR FindEmptyArmorSlot
+    BCC @put
+  @nofit:
+    PLA
+  @full:
+    SEC
+    RTS
+  @vehicle:
+    BNE :+
+    INC ship_vis                ; REWARD_SHIP
+    CLC
+    RTS
+:   CMP #REWARD_CANAL
+    BCC @bridge
+    BEQ @canal
+    INC has_canoe               ; REWARD_CANOE
+    CLC
+    RTS
+  @bridge:
+    INC bridge_vis
+    CLC
+    RTS
+  @canal:
+    LDA #0                      ; Nerrick's work: the canal is the land he blasts
+    STA canal_vis
+    CLC
+    RTS
+
+;  The table, one column per field, entries in RANDO_GIVEN's order.
+lut_TalkObj:
+  .BYTE $01, OBJID_PRINCESS_2, OBJID_BIKKE, OBJID_ELFPRINCE, OBJID_ASTOS
+  .BYTE OBJID_MATOYA, OBJID_NERRICK, OBJID_SMITH, OBJID_SARDA, $15
+  .BYTE $11, OBJID_FAIRY, $BB
+  ;     King, Princess, Bikke, Elf Prince, Astos, Matoya, Nerrick, Smith,
+  ;     Sarda, Canoe Sage, CubeBot, Fairy, Lefein's Chime
+lut_TalkReq:
+  .BYTE TREQ_VISIBLE, TREQ_NONE, TREQ_NONE, TREQ_EVENT, TREQ_HAVE
+  .BYTE TREQ_TRADE, TREQ_TRADE, TREQ_TRADE, TREQ_HIDDEN, TREQ_HAVE
+  .BYTE TREQ_NONE, TREQ_NONE, TREQ_EVENT
+lut_TalkArg:
+  .BYTE OBJID_PRINCESS_2, 0, 0, OBJID_ELFPRINCE, item_crown - items
+  .BYTE item_crystal - items, item_tnt - items, item_adamant - items, OBJID_VAMPIRE, orb_earth - items
+  .BYTE 0, 0, OBJID_UNNE
+lut_TalkReward:
+  .BYTE REWARD_BRIDGE, item_lute - items, REWARD_SHIP, item_mystickey - items, item_crystal - items
+  .BYTE item_herb - items, REWARD_CANAL, REWARD_XCALBER, item_rod - items, REWARD_CANOE
+  .BYTE item_cube - items, item_oxyale - items, item_chime - items
+lut_TalkFlags:
+  .BYTE TALKF_HELD, TALKF_HELD, TALKF_FIGHT | TALKF_HELD, TALKF_HELD, TALKF_HIDE | TALKF_BATTLE
+  .BYTE TALKF_HELD, TALKF_HIDE, TALKF_GREEDY, TALKF_HELD, TALKF_HELD
+  .BYTE TALKF_HELD, TALKF_HELD, TALKF_HELD
+lut_TalkBattle:
+  .BYTE 0, 0, BTL_BIKKE, 0, BTL_ASTOS
+  .BYTE 0, 0, 0, 0, 0
+  .BYTE 0, 0, 0
+;  Which line each says: waiting, giving, and once given (or holding it).
+;  The line for a state the NPC cannot be in is the given one.
+lut_TalkNotYet:
+  .BYTE 1, 2, 1, 3, 1
+  .BYTE 1, 1, 1, 2, 2
+  .BYTE 2, 2, 3
+lut_TalkGiving:
+  .BYTE 2, 1, 2, 1, 2
+  .BYTE 2, 2, 2, 1, 1
+  .BYTE 1, 1, 1
+lut_TalkGiven:
+  .BYTE 3, 2, 3, 2, 2
+  .BYTE 3, 2, 3, 2, 2
+  .BYTE 2, 2, 2
+.assert * - lut_TalkGiven = TALK_COUNT, error, "lut_TalkGiven is not TALK_COUNT long"
+.assert lut_TalkGiven - lut_TalkGiving = TALK_COUNT, error, "lut_TalkGiving is not TALK_COUNT long"
+.assert lut_TalkGiving - lut_TalkNotYet = TALK_COUNT, error, "lut_TalkNotYet is not TALK_COUNT long"
+.assert lut_TalkNotYet - lut_TalkBattle = TALK_COUNT, error, "lut_TalkBattle is not TALK_COUNT long"
+.assert lut_TalkBattle - lut_TalkFlags = TALK_COUNT, error, "lut_TalkFlags is not TALK_COUNT long"
+.assert lut_TalkFlags - lut_TalkReward = TALK_COUNT, error, "lut_TalkReward is not TALK_COUNT long"
+.assert lut_TalkReward - lut_TalkArg = TALK_COUNT, error, "lut_TalkArg is not TALK_COUNT long"
+.assert lut_TalkArg - lut_TalkReq = TALK_COUNT, error, "lut_TalkReq is not TALK_COUNT long"
+.assert lut_TalkReq - lut_TalkObj = TALK_COUNT, error, "lut_TalkObj is not TALK_COUNT long"
+lut_Bit8:
+  .BYTE $01, $02, $04, $08, $10, $20, $40, $80
 
 
 ;;  Is the tile at X a trap -- one FFR's Trap Tiles may move?

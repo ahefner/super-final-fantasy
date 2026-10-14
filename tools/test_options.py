@@ -470,6 +470,146 @@ def test_guillotine():
               % (flag, objid, decoy, handler), "$%04X" % cpu.pc, "$%04X" % want)
 
 
+#  The thirteen reward NPCs: object id, then the state each one's handler reads,
+#  as (address, value when "on", value when "off").  An object's visibility is
+#  bit 0 of game_flags[id] and its event flag bit 1.
+GAME_FLAGS = 0x6200
+ITEMS = 0x6020
+SHIP_VIS, BRIDGE_VIS, CANAL_VIS, HAS_CANOE = 0x6000, 0x6008, 0x600C, 0x6012
+CH_WEAPONS = 0x6118
+I_LUTE, I_CROWN, I_CRYSTAL, I_HERB, I_KEY, I_TNT, I_ADAMANT = range(1, 8)
+I_ROD, I_CHIME, I_CUBE, I_OXYALE, I_ORB_EARTH = 0x0A, 0x0C, 0x0E, 0x10, 0x15
+
+
+def vis(obj):
+    return ("vis", obj)
+
+
+def event(obj):
+    return ("event", obj)
+
+
+def item(i):
+    return ("byte", ITEMS + i)
+
+
+TALK_NPCS = {
+    #  name: (object id, the state its handler reads)
+    "King":       (0x01, [vis(0x12), ("byte", BRIDGE_VIS)]),
+    "Princess":   (0x12, [item(I_LUTE)]),
+    "Bikke":      (0x04, [event(0x04), ("byte", SHIP_VIS)]),
+    "Elf Prince": (0x06, [event(0x06), item(I_KEY)]),
+    "Astos":      (0x07, [item(I_CROWN), item(I_CRYSTAL)]),
+    "Matoya":     (0x0A, [item(I_CRYSTAL), item(I_HERB), event(0x06)]),
+    "Nerrick":    (0x08, [item(I_TNT), ("canal",)]),
+    "Smith":      (0x09, [item(I_ADAMANT), ("full",)]),
+    "Sarda":      (0x0D, [vis(0x0C), item(I_ROD)]),
+    "Canoe Sage": (0x15, [item(I_ORB_EARTH), ("byte", HAS_CANOE)]),
+    "CubeBot":    (0x11, [item(I_CUBE)]),
+    "Fairy":      (0x13, [item(I_OXYALE)]),
+    "Chime":      (0xBB, [event(0x0B), item(I_CHIME)]),
+}
+#  RANDO_GIVEN's bit n is the table's entry n, in TALK_NPCS's order.
+TALK_ENTRY = {name: n for n, name in enumerate(TALK_NPCS)}
+#  A state only a gift explains: the Elf Prince wakes on the HERB, and the HERB
+#  is Matoya's.  Under the table such a game has her bit set already.
+TALK_IMPLIES_GIVEN = {"Matoya": 2}
+#  States no game reaches, left out: there is one CRYSTAL, and the HERB that
+#  woke the Prince was bought with it, so he cannot be awake while it is held.
+TALK_UNREACHABLE = {"Matoya": lambda bits: bits & 4 and bits & 1}
+
+
+def talk_sequence(job):
+    """Talk to one reward NPC three times from one starting state, under the
+    vanilla handlers (RANDO_TALK clear) or rando_talk's table (set).  Returns,
+    per talk, everything the game could see afterwards."""
+    name, bits, generic = job
+    obj, state = TALK_NPCS[name]
+    bus, cpu = machine()
+    s = bus.sram
+    SLOT = 0x10
+    s[0x6F00 - 0x6000 + SLOT] = obj              # mapobj_id
+    s[0x6F01 - 0x6000 + SLOT] = obj              # mapobj_rawid
+    s[GAME_FLAGS - 0x6000 + obj] = 1             # the NPC itself is there
+    s[CANAL_VIS - 0x6000] = 1                    # the canal is there until Nerrick
+    for k, var in enumerate(state):
+        on = bits >> k & 1
+        if var[0] == "vis":
+            s[GAME_FLAGS - 0x6000 + var[1]] = (s[GAME_FLAGS - 0x6000 + var[1]] & ~1) | on
+        elif var[0] == "event":
+            s[GAME_FLAGS - 0x6000 + var[1]] = (s[GAME_FLAGS - 0x6000 + var[1]] & ~2) | on << 1
+        elif var[0] == "byte":
+            s[var[1] - 0x6000] = on
+        elif var[0] == "canal":                  # Free CANAL: already gone
+            s[CANAL_VIS - 0x6000] = 1 - on
+        elif var[0] == "full":
+            for c in range(4):
+                for w in range(4):
+                    s[CH_WEAPONS - 0x6000 + c * 0x40 + w] = 1 if on else 0
+    s[K["RANDO_TALK"] - 0x6000] = 1 if generic else 0
+    if generic and name in TALK_IMPLIES_GIVEN and bits >> TALK_IMPLIES_GIVEN[name] & 1:
+        n = TALK_ENTRY[name]
+        s[K["RANDO_GIVEN"] - 0x6000 + n // 8] |= 1 << n % 8
+    out = []
+    for _ in range(3):
+        for a in (0x7D, 0x44, 0x45, 0x6A):       # dlgsfx, tileprop, btlformation
+            bus.wram[a] = 0
+        cpu.x = SLOT
+        cpu.a = 0
+        #  DBR as SwapPRG leaves it: TalkToObject reads its jump table absolute.
+        call(cpu, "TalkToObject", bank=0xAF, dbr=0xAF)
+        snap = bytearray(s[0:0x2000])
+        for a in range(K["RANDO_TALK"], K["RANDO_GIVEN"] + 2):
+            snap[a - 0x6000] = 0
+        #  The Smith's event flag: his handler's record of the Xcalber made,
+        #  which no other object's dialogue reads; the table records it in
+        #  RANDO_GIVEN like every other NPC's.
+        snap[GAME_FLAGS - 0x6000 + 0x09] &= ~2
+        out.append((cpu.a & 0xFF, bus.wram[0x7D], bus.wram[0x44], bus.wram[0x45],
+                    bus.wram[0x6A], bytes(bus.wram[TMP:TMP + 4]), bytes(snap),
+                    int.from_bytes(s[K["RANDO_GIVEN"] - 0x6000:][:2], "little")))
+    return out
+
+
+def test_rando_talk():
+    """The reward NPCs run from rando_talk's table say and do exactly what the
+    vanilla handlers do.  Each NPC is talked to three times from every
+    combination of the state its handler reads -- the event it waits for, what
+    it wants, whether the party already holds what it gives (a Free item), a
+    full bag for the Smith -- once under each, and every talk must leave the
+    same dialogue, fanfare, battle, items, flags and map objects behind, all
+    of SRAM but the table's own bytes.  Three talks take each from waiting
+    through giving to given."""
+    jobs = []
+    for name, (obj, state) in TALK_NPCS.items():
+        for bits in range(1 << len(state)):
+            if name in TALK_UNREACHABLE and TALK_UNREACHABLE[name](bits):
+                continue
+            jobs.append((name, bits, False))
+            jobs.append((name, bits, True))
+    res = dict(zip(jobs, pmap(talk_sequence, jobs)))
+    gave = set()
+    for name, (obj, state) in TALK_NPCS.items():
+        for bits in range(1 << len(state)):
+            if (name, bits, False) not in res:
+                continue
+            van, gen = res[(name, bits, False)], res[(name, bits, True)]
+            for t in range(3):
+                check("talk: %s from state %d, talk %d" % (name, bits, t + 1),
+                      gen[t][:7], van[t][:7])
+            #  The fanfare is something given; the bit given is the NPC's own.
+            given = any(v[1] for v in van) or (
+                name in TALK_IMPLIES_GIVEN and bits >> TALK_IMPLIES_GIVEN[name] & 1)
+            if any(v[1] for v in van):
+                gave.add(name)
+            check("talk: %s from state %d, the given bits" % (name, bits),
+                  "%04X" % gen[2][7], "%04X" % ((1 << TALK_ENTRY[name]) if given else 0))
+    #  Wiring: every one of the thirteen gives from some state.  A table entry
+    #  that never matched its object would fall through to the vanilla handler
+    #  and pass every comparison above.
+    check("talk: every reward NPC gives from some state", sorted(gave), sorted(TALK_NPCS))
+
+
 MSGROWS_TOTAL = 12
 
 
@@ -4887,6 +5027,16 @@ def test_rando_newgame():
     check("new game: the chests row copied", bus.sram[K["RANDO_CHESTS"] - 0x6000], 1)
     check("new game: the magic row copied", bus.sram[K["RANDO_MAGIC"] - 0x6000], 1)
     check("new game: X kept", cpu.x, 0x42)
+    #  rando_talk's table from now on, and none of its NPCs has given -- even
+    #  when the save in SRAM before was a game whose NPCs had.
+    bus, cpu = machine()
+    bus.sram[K["RANDO_GIVEN"] - 0x6000] = 0xFF
+    bus.sram[K["RANDO_GIVEN"] - 0x6000 + 1] = 0x1F
+    call(cpu, "rando_newgame", bank=RANDO_BANK)
+    check("new game: the reward NPCs run from the table",
+          bus.sram[K["RANDO_TALK"] - 0x6000], 1)
+    check("new game: no reward NPC has given",
+          bytes(bus.sram[K["RANDO_GIVEN"] - 0x6000:][:2]), b"\0\0")
 
     #  ...and the hook is wired: opt_freestuff is what New Game calls.
     bus, cpu = machine()
@@ -7506,7 +7656,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
