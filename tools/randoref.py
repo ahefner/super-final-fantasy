@@ -124,7 +124,14 @@ ASIDE = [f for f in range(0x01, 0x73) if f != 0x56]     # all but WarMECH
 BSIDE = list(range(0x80, 0xF3)) + [0xFF]
 
 
-def build_props(rom, seed, traps):
+#  FFR's Early Ordeals (EnableEarlyOrdeals): the Castle tileset's two thrones,
+#  the only crown tiles, lose their special code and are plain teleports.
+EARLY_ORDEALS = 0x08
+TS_CASTLE = 1
+THRONE_TILES = (0x61, 0x62)
+
+
+def build_props(rom, seed, traps, early=0):
     """The eight property tables as the cache holds them."""
     src = rom_props(rom)
     out = bytearray(src)
@@ -132,6 +139,9 @@ def build_props(rom, seed, traps):
     for i in range(0, PROPS_SIZE, 2):
         if out[i] == TP_SPEC_BATTLE and out[i + 1] & 0x80:
             out[i + 1] = 0
+    if early & EARLY_ORDEALS:
+        for t in THRONE_TILES:
+            out[TS_CASTLE * 256 + t * 2] &= ~TP_SPEC_MASK & 0xFF
     if not (0 < traps < TRAPS_MODES):
         return bytes(out)
 

@@ -368,6 +368,10 @@ EARLY_SARDA     = $02
 EARLY_SAGE      = $04
 EARLY_ORDEALS   = $08
 EARLY_MODES     = 2               ; each a row, Off / On
+;  Early Ordeals' two tiles: the thrones, in the Castle tileset.
+TS_CASTLE       = 1
+THRONE_TILE1    = $61
+THRONE_TILE2    = $62
 MAP_ORDEALS2F   = 25
 ORD_ROOMS       = 9             ; the start room and the eight it shuffles
 ORD_PADS        = 15

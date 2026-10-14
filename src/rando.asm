@@ -659,6 +659,19 @@ build:
 
     SEP #$20
     .a8
+    ;  Early Ordeals: FFR's EnableEarlyOrdeals clears the special code of the
+    ;  Castle tileset's two thrones, the only crown tiles, so each is a plain
+    ;  teleport and the CROWN is not asked for.
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #EARLY_ORDEALS
+    BEQ @traps
+    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
+    AND #<~TP_SPEC_MASK
+    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
+    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
+    AND #<~TP_SPEC_MASK
+    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
+  @traps:
     LDA f:RANDO_SAVEFAR + (RANDO_TRAPS - RANDO_SAVE)
     BEQ @shops                  ; TRAPS_OFF
     CMP #TRAPS_MODES
@@ -1201,6 +1214,8 @@ TALKF_HIDE    = $02       ; gone once it has given: Astos, Nerrick
 TALKF_BATTLE  = $04       ; and fights lut_TalkBattle as it gives: Astos
 TALKF_GREEDY  = $08       ; a full bag is "Don't be greedy": the Smith
 TALKF_HELD    = $10       ; holding the reward already counts as given
+TALKF_WAIVED  = $80       ; not in the table: an Early flag has waived what it
+                          ;   waits for, this talk (tmp+6 only)
 
 ;  Rewards: what a chest holds ($01-$1B items, $1C-$43 weapons, $44-$6B
 ;  armor), and the vehicles, which no chest holds.
@@ -1291,7 +1306,18 @@ talk_npc:
     AND RANDO_GIVEN, Y
     BNE @said
 
+    ;  An Early flag waives what the King, Sarda or the Canoe Sage waits for:
+    ;  straight to the held test, and past the item it would want.
+    LDA f:RANDOFAR + lut_TalkEarly, X
+    AND RANDO_EARLY
+    BEQ @waits
+    LDA tmp+6
+    ORA #TALKF_WAIVED
+    STA tmp+6
+    BNE @held                   ; always
+
     ;  What it waits for, the events first.
+  @waits:
     LDA f:RANDOFAR + lut_TalkArg, X
     TAY
     LDA f:RANDOFAR + lut_TalkReq, X
@@ -1324,6 +1350,8 @@ talk_npc:
     BNE @said
 
   @items:
+    BIT tmp+6
+    BMI @give                   ; TALKF_WAIVED
     LDA f:RANDOFAR + lut_TalkReq, X
     CMP #TREQ_HAVE
     BCC @give
@@ -1545,6 +1573,12 @@ lut_TalkBattle:
   .BYTE 0, 0, BTL_BIKKE, 0, BTL_ASTOS
   .BYTE 0, 0, 0, 0, 0
   .BYTE 0, 0, 0
+;  The RANDO_EARLY bit that waives what it waits for: FFR's Early King, Sarda
+;  and Sage.  (Early Ordeals is a tile change, in build.)
+lut_TalkEarly:
+  .BYTE EARLY_KING, 0, 0, 0, 0
+  .BYTE 0, 0, 0, EARLY_SARDA, EARLY_SAGE
+  .BYTE 0, 0, 0
 ;  Which line each says: waiting, giving, and once given (or holding it).
 ;  The line for a state the NPC cannot be in is the given one.
 lut_TalkNotYet:
@@ -1562,7 +1596,8 @@ lut_TalkGiven:
 .assert * - lut_TalkGiven = TALK_COUNT, error, "lut_TalkGiven is not TALK_COUNT long"
 .assert lut_TalkGiven - lut_TalkGiving = TALK_COUNT, error, "lut_TalkGiving is not TALK_COUNT long"
 .assert lut_TalkGiving - lut_TalkNotYet = TALK_COUNT, error, "lut_TalkNotYet is not TALK_COUNT long"
-.assert lut_TalkNotYet - lut_TalkBattle = TALK_COUNT, error, "lut_TalkBattle is not TALK_COUNT long"
+.assert lut_TalkNotYet - lut_TalkEarly = TALK_COUNT, error, "lut_TalkEarly is not TALK_COUNT long"
+.assert lut_TalkEarly - lut_TalkBattle = TALK_COUNT, error, "lut_TalkBattle is not TALK_COUNT long"
 .assert lut_TalkBattle - lut_TalkFlags = TALK_COUNT, error, "lut_TalkFlags is not TALK_COUNT long"
 .assert lut_TalkFlags - lut_TalkReward = TALK_COUNT, error, "lut_TalkReward is not TALK_COUNT long"
 .assert lut_TalkReward - lut_TalkArg = TALK_COUNT, error, "lut_TalkArg is not TALK_COUNT long"

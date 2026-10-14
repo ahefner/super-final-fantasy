@@ -776,10 +776,21 @@ and shown by the save view with them:
     Early King, Sarda, Sage, Ordeals   Off / On
 
 What works today is Free, which `opt_freestuff` now reads from the save
-`rando_newgame` has just written (`opt_isfree`) rather than from flag bits.
-Key items, Incentive, Loose and the gear rows mean nothing until placement
-lands, and the Early flags until their own change; under Key items Vanilla
-only Free and the Early rows ever will.
+`rando_newgame` has just written (`opt_isfree`) rather than from flag bits,
+and the Early flags (built 2026-10-14, not yet played).  Key items,
+Incentive, Loose and the gear rows mean nothing until placement lands; under
+Key items Vanilla only Free and the Early rows ever will.
+
+**The Early flags** are FFR's, under Key items Vanilla too.  Early King,
+Sarda and Sage waive what that NPC waits for in `rando_talk`'s table
+(`lut_TalkEarly`, `TALKF_WAIVED`): the Princess rescued, the Vampire beaten,
+the Earth Orb lit.  The held test still runs, so a Free BRIDGE, ROD or CANOE
+is not given twice.  Early Ordeals is FFR's `EnableEarlyOrdeals`, in the
+cache build: the Castle tileset's two thrones, `$61` and `$62`, the only
+crown tiles, lose their special code and are plain teleports.  The NPCs say
+their vanilla giving lines -- the King's thanks the party for the Princess
+-- until the dialogue change replaces them.  `test_rando_early` holds the
+three waivers to their own NPC and the thrones to the reference.
 
 **Packed: the option page had nine bytes left and these are 26 rows.**  Each
 row is a field of a byte -- two bits for a three- or two-value item row, one
@@ -1871,8 +1882,9 @@ text region in the game references.
                              readouts and field tables, the field code)
     BANK_OPTTEXT  9167 free  the settings screen's descriptions
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   9636 free  the randomizer; the Ordeals pillars took 622,
-                             the reward NPCs' table and routine 673
+    BANK_RANDO   9578 free  the randomizer; the Ordeals pillars took 622,
+                             the reward NPCs' table and routine 673, the
+                             Early flags 58
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

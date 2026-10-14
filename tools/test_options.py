@@ -523,7 +523,8 @@ def talk_sequence(job):
     """Talk to one reward NPC three times from one starting state, under the
     vanilla handlers (RANDO_TALK clear) or rando_talk's table (set).  Returns,
     per talk, everything the game could see afterwards."""
-    name, bits, generic = job
+    name, bits, generic = job[:3]
+    early = job[3] if len(job) > 3 else 0
     obj, state = TALK_NPCS[name]
     bus, cpu = machine()
     s = bus.sram
@@ -547,6 +548,7 @@ def talk_sequence(job):
                 for w in range(4):
                     s[CH_WEAPONS - 0x6000 + c * 0x40 + w] = 1 if on else 0
     s[K["RANDO_TALK"] - 0x6000] = 1 if generic else 0
+    s[K["RANDO_EARLY"] - 0x6000] = early
     if generic and name in TALK_IMPLIES_GIVEN and bits >> TALK_IMPLIES_GIVEN[name] & 1:
         n = TALK_ENTRY[name]
         s[K["RANDO_GIVEN"] - 0x6000 + n // 8] |= 1 << n % 8
@@ -561,6 +563,7 @@ def talk_sequence(job):
         snap = bytearray(s[0:0x2000])
         for a in range(K["RANDO_TALK"], K["RANDO_GIVEN"] + 2):
             snap[a - 0x6000] = 0
+        snap[K["RANDO_EARLY"] - 0x6000] = 0       # a setting, not something done
         #  The Smith's event flag: his handler's record of the Xcalber made,
         #  which no other object's dialogue reads; the table records it in
         #  RANDO_GIVEN like every other NPC's.
@@ -608,6 +611,58 @@ def test_rando_talk():
     #  that never matched its object would fall through to the vanilla handler
     #  and pass every comparison above.
     check("talk: every reward NPC gives from some state", sorted(gave), sorted(TALK_NPCS))
+
+
+def test_rando_early():
+    """FFR's Early flags.  Early King, Sarda and Sage waive what each of those
+    NPCs waits for in rando_talk's table, and nothing else; Early Ordeals is a
+    tile change in the cache, the Castle tileset's two thrones losing their
+    special code as the reference has it."""
+    EK, ES, EG, EO = K["EARLY_KING"], K["EARLY_SARDA"], K["EARLY_SAGE"], K["EARLY_ORDEALS"]
+    #  Each waits for something its state 0 lacks: the Princess not rescued,
+    #  the Vampire alive, the Earth Orb dark.  Sarda's state 1 is the Vampire
+    #  shown, i.e. alive.
+    for name, bits, own, line, gift in (("King", 0, EK, 2, (BRIDGE_VIS, 1)),
+                                        ("Sarda", 1, ES, 1, (ITEMS + I_ROD, 1)),
+                                        ("Canoe Sage", 0, EG, 1, (HAS_CANOE, 1))):
+        plain = talk_sequence((name, bits, True, 0))
+        early = talk_sequence((name, bits, True, own))
+        others = talk_sequence((name, bits, True, 0x0F & ~own))
+        obj, _ = TALK_NPCS[name]
+        tmp_line = early[0][5][line]
+        check("%s waits without its Early flag" % name, plain[0][1], 0)
+        check("%s, Early: gives at once, its giving line and the fanfare" % name,
+              (early[0][0], early[0][1], early[0][6][gift[0] - 0x6000]), (tmp_line, 1, gift[1]))
+        check("%s, Early: the given line after" % name,
+              early[1][0], early[1][5][{"King": 3}.get(name, 2)])
+        check("%s: the other Early flags change nothing" % name, others, plain)
+
+    #  Waived is not given twice: with the reward already held -- a Free
+    #  BRIDGE, ROD or CANOE -- the Early NPC says its given line, as it would
+    #  once its event had come.  King state 2: the bridge built, the
+    #  Princess not rescued.
+    for name, bits, own, line in (("King", 2, EK, 3), ("Sarda", 3, ES, 2), ("Canoe Sage", 2, EG, 2)):
+        got = talk_sequence((name, bits, True, own))
+        check("%s, Early, the reward held: its given line, nothing given" % name,
+              (got[0][0], got[0][1], got[0][7]), (got[0][5][line], 0, 0))
+
+    #  Early Ordeals, in the cache and the reference alike.
+    save = K["RANDO_SAVE"] - 0x6000
+    for early in (0, EO, 0x0F, 0x07):
+        bus, cpu = machine()
+        bus.sram[save:save + 4] = (0xC0FFEE11).to_bytes(4, "little")
+        bus.sram[K["RANDO_TRAPS"] - 0x6000] = 1
+        bus.sram[K["RANDO_EARLY"] - 0x6000] = early
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("Early $%02X: the cache's properties are the reference's" % early,
+              cache_props(bus), R.build_props(ROMDATA, 0xC0FFEE11, 1, early))
+    off, on = R.build_props(ROMDATA, 0, 0, 0), R.build_props(ROMDATA, 0, 0, EO)
+    diff = [i for i in range(len(off)) if off[i] != on[i]]
+    check("Early Ordeals changes the two thrones and nothing else", diff,
+          [K["TS_CASTLE"] * 256 + K["THRONE_TILE1"] * 2, K["TS_CASTLE"] * 256 + K["THRONE_TILE2"] * 2])
+    check("...each a crown tile and a teleport, and a plain teleport after",
+          [(off[i] & 0x1E, on[i] & 0x1E, on[i] & 0xC0 == off[i] & 0xC0 != 0) for i in diff],
+          [(0x0E, 0, True)] * 2)
 
 
 MSGROWS_TOTAL = 12
@@ -7788,7 +7843,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

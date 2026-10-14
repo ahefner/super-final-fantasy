@@ -1650,9 +1650,10 @@ Settled in review 1:
         the pool only when key items move; under Vanilla the Smith keeps it,
         as FFR greys its box out unless fetch quests shuffle.
       - **Early King, Early Sarda, Early Sage, Early Ordeals**: four
-        checkboxes, selectable (user) rather than implied by the shuffle,
-        as in FFR, where they are independent of it.  Placement's logic
-        reads them, so they are fixed at New Game.
+        rows, selectable (user) rather than implied by the shuffle, as in
+        FFR, where they are independent of it.  Placement's logic reads
+        them, so they are fixed at New Game.  Built 2026-10-14, not yet
+        played (`options-design.md`, Key items).
     **FFR's rules when the counts differ** (user: a flag set that unbalances
     them does so on purpose).  More incentive items than spots sends a
     random choice of them loose, key items and gear alike; fewer leaves the
