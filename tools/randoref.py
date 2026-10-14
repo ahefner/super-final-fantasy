@@ -995,6 +995,18 @@ def _bins(cands, b0, b1, b2, b3, red, cycle, access, key, lo, hi):
     return out
 
 
+#  The caravan: the one location a shop, so it can sell an item and nothing
+#  else -- no vehicle, no gear.  FFR stocks it first, before the loop
+#  (SelectVendorItem): a random one of the incentives a shop can sell, or, with
+#  none, ordinary treasure, which the rewards deal.  Either way the loop never
+#  places there.  CARAVAN_TREASURE marks the second.
+CARAVAN = 247
+CARAVAN_TREASURE = 0xFE
+_SHOPPABLE = [_NAME.index(n) for n in ("LUTE", "CROWN", "CRYSTAL", "HERB", "KEY", "TNT", "ADAMANT",
+                                       "SLAB", "RUBY", "ROD", "FLOATER", "CHIME", "CUBE", "BOTTLE",
+                                       "OXYALE", "TAIL")]
+
+
 def _attempt(rng, free, items, inc0, inclocs, masks):
     incentives = set(inc0)
     n_inc_pool = len(inclocs)
@@ -1004,6 +1016,16 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
     remaining = list(items)
     keys = [i for i in remaining if i < PLACE_KEYS]
     placed = {}
+    assert CARAVAN in inclocs and _L.LOCS[CARAVAN][0] == 2
+    shoppable = [i for i in sorted(incentives) if i in _SHOPPABLE]
+    if shoppable:
+        item = shoppable[rng.below(len(shoppable))]
+        placed[CARAVAN] = item
+        remaining.remove(item)
+        if item in keys:
+            keys.remove(item)
+    else:
+        placed[CARAVAN] = CARAVAN_TREASURE
     state = "normal"
     SHIP, CANAL = _NAME.index("SHIP"), _NAME.index("CANAL")
     for cycle in range(1, 101):
@@ -1114,7 +1136,8 @@ def build_placement(seed, keyitems, items3, gear2, early):
         if placed is not None:
             out = [0xFF] * len(PLACE_ITEMS)
             for c, i in placed.items():
-                out[i] = c
+                if i != CARAVAN_TREASURE:
+                    out[i] = c
             return out
     return None
 

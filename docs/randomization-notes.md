@@ -814,6 +814,13 @@ until the rewards change.
     stay where they are.  It uses FFR's safe tables, as FFR does on its own
     map without Entrance shuffle, and its BRIDGE at 2.0, which FFR sets for
     that map -- the prototype had the unsafe ones, built for the shuffle.
+  - **The caravan is stocked first**, as FFR's `SelectVendorItem` does
+    (2026-10-14): it is a shop, so it can sell an item and not a vehicle or
+    gear.  Before the loop, a random one of the incentives a shop can sell
+    -- the key items that are items, and the TAIL -- goes there; with none,
+    it is ordinary treasure, which the rewards deal.  The loop never places
+    there.  The prototype had it as any other location, and the first port
+    with it, which could have put the SHIP in a shop.
   - **Asked incrementally.**  The plain fixpoint the reference uses is a
     median 155,000 mask tests a placement, two to five seconds on the
     65816.  The cart keeps what the placed items reach, and a bit gained asks

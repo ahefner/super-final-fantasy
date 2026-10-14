@@ -89,6 +89,11 @@ SAFE_INC       = 3
 PI_CANOE       = 15            ; PLACE_ITEMS indices the loop names
 PI_SHIP        = 16
 PI_CANAL       = 18
+;  The caravan, the last pool location; and what a shop can sell: key items
+;  that are items, and the TAIL -- PLACE_ITEMS 0-14 and 19.
+CARAVAN        = 247
+CARAVAN_TREASURE = $FE
+SHOPPABLE      = $00087FFF
 
 .include "logic.inc"
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
@@ -379,6 +384,7 @@ pl_attempt:
     INX
     CPX #256
     BCC @clear
+    JSR pl_vendor
     STZ a:pGEN
     STZ a:pINCSRC
     STZ a:pNONSRC
@@ -783,6 +789,61 @@ pl_attempt:
     SEC
     RTS
 
+
+;;  FFR's SelectVendorItem: the caravan stocked before the loop, which never
+;;  places there -- a random one of the incentives a shop can sell, or, with
+;;  none of those, ordinary treasure, which the rewards deal.
+pl_vendor:
+    LDA a:pINC
+    AND #.LOWORD(SHOPPABLE)
+    STA a:pSAVE
+    LDA a:pINC + 2
+    AND #.HIWORD(SHOPPABLE)
+    STA a:pSAVE + 2
+    LDX #pSAVE
+    JSR pl_count
+    BNE @stock
+    SEP #$20
+    .a8
+    LDA #CARAVAN_TREASURE
+    STA a:pPLACED + CARAVAN
+    REP #$20
+    .a16
+    RTS
+  @stock:
+    SEP #$20
+    .a8
+    JSR rando_below
+    REP #$20
+    .a16
+    AND #$00FF
+    STA a:pT                    ; the A'th of them, in item order
+    STZ a:pBIT
+  @bit:
+    LDA a:pBIT
+    JSR pl_bitword
+    AND a:pSAVE, Y
+    BEQ @next
+    LDA a:pT
+    BEQ @found
+    DEC a:pT
+  @next:
+    INC a:pBIT
+    BRA @bit
+  @found:
+    LDA a:pBIT
+    SEP #$20
+    .a8
+    STA a:pPLACED + CARAVAN
+    REP #$20
+    .a16
+    DEC a:pNREM
+    LDA a:pBIT
+    JSR pl_bitword
+    EOR #$FFFF
+    AND a:pREM, Y
+    STA a:pREM, Y
+    RTS
 
 ;;  Item A's own place, out of what it would open: an incentive spot if it is
 ;;  one, another place if not.
@@ -1400,8 +1461,8 @@ pl_store:
     LDX #$0000
   @loc:
     LDA a:pPLACED, X
-    CMP #$FF
-    BEQ :+
+    CMP #PLACE_ITEMS
+    BCS :+                      ; nothing, or the caravan's ordinary treasure
     PHX
     REP #$20
     .a16

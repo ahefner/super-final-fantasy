@@ -700,7 +700,8 @@ def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
     randoref.build_placement does, for every setting and seed tried, and every
     placement is whole -- each item to place once, in the pool, an incentive
-    in a spot unless the spots ran out, nothing else in one.  (That each is
+    in a spot unless the spots ran out, nothing else in one, and the caravan,
+    a shop, selling an item if anything.  (That each is
     winnable on the world graph itself is tools/checkplace.py's, which needs
     ../worldgraph.)"""
     jobs = [(seed * 7919 + 13, cfg) for cfg in PLACE_CONFIGS.values() for seed in range(12)]
@@ -724,7 +725,8 @@ def test_rando_place():
         if (sorted(placed.values()) != items or len(placed) != len(items)
                 or any(c >= 248 for c in placed)
                 or sum(1 for c, i in placed.items() if i in inc and c not in inclocs) != over
-                or any(i not in inc and c in inclocs for c, i in placed.items())):
+                or any(i not in inc and c in inclocs for c, i in placed.items())
+                or any(c == R.CARAVAN and i not in R._SHOPPABLE for c, i in placed.items())):
             whole.append((seed, cfg))
     check("rando_place lands where randoref does", bad[:2], [])
     check("...and every placement is whole", whole[:2], [])
