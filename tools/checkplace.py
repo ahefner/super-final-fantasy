@@ -45,6 +45,9 @@ CONFIGS = {
     "wide-bare":  (2, [0x00, 0x00, 0x00], [0x00, 0x00], 0x0F),
     "all-loose":  (1, [0x65, 0x55, 0x55], [0x00, 0x00], 0x0F),
     "free-ent":   (2, [0xAA, 0x02, 0x08], [0xFE, 0x01], 0x0F),
+    #  The first playtest's (seed D1625106): Wide, every key item loose but
+    #  the free BRIDGE and KEY, four gear incentives, Early King.
+    "wide-loose": (2, [0x65, 0x59, 0x55], [0x39, 0x00], 0x01),
 }
 
 
@@ -67,6 +70,28 @@ def ship_docks(g, idx, out):
     if c == 0xFF:
         return {0}
     return {LD.SHIP_DOCK[rd.MAP_NAMES.index(g.nodes[n].where)] for n in g.locations[idx[c]].nodes}
+
+
+def loose_spheres(cfg, out):
+    """The playthrough sphere of each loose key item's place: 0 reached from
+    the start, then one more for each round of collecting everything
+    reached.  What forward placement moves later (randoref._forward)."""
+    free, items, inc, inclocs, masks = R.place_setup(*cfg)
+    placed = {c: i for i, c in enumerate(out) if c != 0xFF}
+    owned, sph, s = free, {}, 0
+    while True:
+        new = [c for c, ms in enumerate(masks) if c not in sph and any(m & ~owned == 0 for m in ms)]
+        if not new:
+            break
+        for c in new:
+            sph[c] = s
+            kind, ident = LD.LOCS[c][0], LD.LOCS[c][1]
+            if kind == 3:
+                owned |= 1 << ident
+            elif c in placed and placed[c] < R.PLACE_KEYS:
+                owned |= R._BIT[R._NAME[placed[c]]]
+        s += 1
+    return [sph[c] for c, i in placed.items() if i < R.PLACE_KEYS and c not in inclocs]
 
 
 def winnable(g, adj, free):
@@ -95,12 +120,13 @@ def main():
     for name, cfg in CONFIGS.items():
         early = cfg[3]
         free = R.place_setup(*cfg)[0]
-        stats, moored = Counter(), Counter()
+        stats, moored, spheres = Counter(), Counter(), Counter()
         for seed in range(1, seeds + 1):
             out = R.build_placement(seed, *cfg)
             if out is None:
                 stats["unplaced"] += 1
                 continue
+            spheres.update(loose_spheres(cfg, out))
             g0, idx0, _, _ = get(early, 0)
             won = True
             for dock in sorted(ship_docks(g0, idx0, out)):
@@ -123,6 +149,10 @@ def main():
         print("%-11s %d seeds: %d winnable, %d with no placement; ship at %s" % (
             name, seeds, stats["won"], stats["unplaced"],
             ", ".join("%s %d" % kv for kv in moored.most_common())))
+        n = sum(spheres.values())
+        if n:
+            print("%-11s loose key items by sphere: %s" % ("", " ".join(
+                "%d:%.0f%%" % (k, 100 * spheres[k] / n) for k in sorted(spheres))))
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
 

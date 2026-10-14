@@ -815,7 +815,9 @@ say what each value does once key items move.  A ship found under placement
 is moored at the dock nearest the map it is found on -- FFR's
 `ShipLocations` wherever a dock can be walked to, Ice Cave to Pravoka's
 (built 2026-10-14 after the first run, where it was always Coneria's; not
-yet played): section 4.8 there.
+yet played): section 4.8 there.  Loose items are placed forward (section 4.7;
+built 2026-10-14, not yet played): places reached early lose weight with
+every draw, so loose items stop piling up where the party begins.
 
 **The Early flags** are FFR's, under Key items Vanilla too.  Early King,
 Sarda and Sage waive what that NPC waits for in `rando_talk`'s table
@@ -1930,11 +1932,12 @@ text region in the game references.
                              before dated from 10-09 and was not kept up as
                              descriptions were added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   4448 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   4283 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
-                             NPCs' lines 1094, the ship's dock 13
+                             NPCs' lines 1094, the ship's dock 13, forward
+                             placement 165
     BANK_LOGIC  12599 free  the vanilla world's logic for placement (3714)
                              and each map's ship dock (71), generated; data
                              only

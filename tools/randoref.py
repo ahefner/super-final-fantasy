@@ -879,7 +879,8 @@ def chest_floors(rom):
 #  which changes nothing about the odds; up to PLACE_ATTEMPTS tries before
 #  giving up, where FFR stops at three, and then key items stay where they
 #  are.  FFR's safe tables, as it uses on its own map without Entrance
-#  shuffle, and its BRIDGE at 2.0, which it sets for that map.
+#  shuffle, and its BRIDGE at 2.0, which it sets for that map.  And forward
+#  placement, always, without FFR's spread placement (_forward).
 import logicdata as _L
 
 PLACE_ATTEMPTS = 32
@@ -1015,6 +1016,39 @@ _SHOPPABLE = [_NAME.index(n) for n in ("LUTE", "CROWN", "CRYSTAL", "HERB", "KEY"
                                        "OXYALE", "TAIL")]
 
 
+#  Forward placement (user, 2026-10-14): an item that is not an incentive goes
+#  to a place drawn by weight, and every place that could have taken it then
+#  has its weight halved.  A place reached from the start has lost most of its
+#  weight by the time a new area opens, so the new area's places are the
+#  likelier, and loose items stop piling up where the party begins.  It is
+#  FFR's LooseItemsForwardPlacement (RewardSourcePicker.Pick), which FFR only
+#  applies with its spread placement on too; here it stands alone, since the
+#  user wanted no spreading within a dungeon.  The weights are whole numbers,
+#  FWD_ONE at the start of an attempt and halving down to 1, where FFR's
+#  doubles halve forever.  Incentives are drawn as before, uniformly, as FFR
+#  draws them with forward placement off.
+FWD_ONE = 256
+
+
+def _forward(rng, where, fwd):
+    """The place, of `where` (ascending), drawn by its weight in `fwd`; then
+    every one of them halved, to no less than 1."""
+    total = sum(fwd[c] for c in where)
+    assert 0 < total < 0x10000
+    r = rng.below16(total)
+    pick = None
+    for c in where:
+        w = fwd[c]
+        if pick is None:
+            if r < w:
+                pick = c
+            else:
+                r -= w
+        if w > 1:
+            fwd[c] = w >> 1
+    return pick
+
+
 def _attempt(rng, free, items, inc0, inclocs, masks):
     incentives = set(inc0)
     n_inc_pool = len(inclocs)
@@ -1024,6 +1058,7 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
     remaining = list(items)
     keys = [i for i in remaining if i < PLACE_KEYS]
     placed = {}
+    fwd = [FWD_ONE] * 248
     assert CARAVAN in inclocs and _L.LOCS[CARAVAN][0] == 2
     shoppable = [i for i in sorted(incentives) if i in _SHOPPABLE]
     if shoppable:
@@ -1116,7 +1151,10 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
         where = sorted(inc_src if item in incentives else non_src)
         if not where:
             continue
-        placed[where[rng.below(len(where))]] = item
+        if item in incentives:
+            placed[where[rng.below(len(where))]] = item
+        else:
+            placed[_forward(rng, where, fwd)] = item
         remaining.remove(item)
         if item in keys:
             keys.remove(item)

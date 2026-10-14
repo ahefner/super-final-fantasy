@@ -79,8 +79,10 @@ pWANT    = .LOWORD(RP_WANT)
 pCLR0    = .LOWORD(RP_CLR0)
 pCLR2    = .LOWORD(RP_CLR2)
 pMOFF    = .LOWORD(RP_MOFF)
+pFWD     = .LOWORD(RP_FWD)
 
 W1             = 1024          ; a weight of 1.0
+FWD_ONE        = 256           ; a place's forward weight, new (pl_forward)
 NONKEY_MIN_CYCLE = 10
 CRIT_NON       = 5
 SAFE_NON       = 20
@@ -384,6 +386,14 @@ pl_attempt:
     INX
     CPX #256
     BCC @clear
+    LDA #FWD_ONE                ; every place's forward weight, new
+    LDX #$0000
+  @fwd:
+    STA a:pFWD, X
+    INX
+    INX
+    CPX #LOGIC_POOL * 2
+    BCC @fwd
     JSR pl_vendor
     STZ a:pGEN
     STZ a:pINCSRC
@@ -701,7 +711,12 @@ pl_attempt:
   @where:
     BNE :+
     JMP @nextcycle              ; nowhere: the cycle is spent
-:
+:   LDA a:pWANT
+    BNE @uniform
+    JSR pl_forward              ; not an incentive: forward placement's draw
+    BRA @found
+  @uniform:                     ; an incentive: any spot alike
+    LDA a:pINCSRC               ; the bound, which pWANT's test took from A
     SEP #$20
     .a8
     JSR rando_below
@@ -1129,6 +1144,87 @@ pl_isspot:
     BEQ :+
     LDA #1
 :   RTS
+
+;;  Forward placement (user, 2026-10-14; randoref.py's _forward): an item
+;;  that is not an incentive goes to a place drawn by weight, and every place
+;;  that could have taken it then has its weight halved, to no less than 1.
+;;  A place reached from the start has lost most of its weight by the time a
+;;  new area opens, so the new area's places are the likelier.  FFR's
+;;  LooseItemsForwardPlacement, without the spread placement FFR only ever
+;;  gives it with.  The weights start each attempt at FWD_ONE; 248 of them
+;;  come to under $10000, so one word holds the sum.
+;;
+;;  Out: X = the place.  pTOTAL, pK and pW clobbered: the item's draw is done.
+pl_forward:
+    STZ a:pTOTAL
+    LDX #$0000
+  @sum:
+    JSR pl_fwdok
+    BCC :+
+    TXA
+    ASL A
+    TAY
+    LDA a:pFWD, Y
+    CLC
+    ADC a:pTOTAL
+    STA a:pTOTAL
+:   INX
+    CPX #LOGIC_POOL
+    BCC @sum
+    LDA a:pTOTAL
+    JSR rando_below16
+    STA a:pK                    ; how far into the weights the draw lands
+    LDA #$FFFF
+    STA a:pLOC                  ; nowhere yet
+    LDX #$0000
+  @walk:
+    JSR pl_fwdok
+    BCC @next
+    TXA
+    ASL A
+    TAY
+    LDA a:pFWD, Y
+    STA a:pW
+    LDA a:pLOC
+    BPL @halve                  ; drawn already: only the halving
+    LDA a:pK
+    CMP a:pW
+    BCS @past
+    STX a:pLOC                  ; the draw lands here
+    BRA @halve
+  @past:
+    SBC a:pW                    ; C set
+    STA a:pK
+  @halve:
+    LDA a:pW
+    CMP #2
+    BCC @next                   ; 1 stays 1
+    LSR A
+    STA a:pFWD, Y
+  @next:
+    INX
+    CPX #LOGIC_POOL
+    BCC @walk
+    LDX a:pLOC
+    RTS
+
+;;  Is place X one forward placement draws from: reached, empty, and not an
+;;  incentive spot?  C set if so.  X kept.
+pl_fwdok:
+    LDA a:pREACH, X
+    AND #$00FF
+    BEQ @no
+    LDA a:pPLACED, X
+    AND #$00FF
+    CMP #$00FF
+    BNE @no
+    JSR pl_isspot
+    BNE @no
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
 
 ;;  Is item A still to place?  Z clear if so.  X kept.
 pl_inrem:

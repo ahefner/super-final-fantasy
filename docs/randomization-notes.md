@@ -827,6 +827,26 @@ until the rewards change.
     stay where they are.  It uses FFR's safe tables, as FFR does on its own
     map without Entrance shuffle, and its BRIDGE at 2.0, which FFR sets for
     that map -- the prototype had the unsafe ones, built for the shuffle.
+  - **Forward placement** (user, 2026-10-14; built, not yet played).  The
+    first playtest's seed (D1625106: Wide, every key item loose but the free
+    BRIDGE and KEY, four gear incentives) put nine loose items in places
+    reached from the start -- Coneria Castle, the Temple, Matoya's Cave --
+    and seven more in the Ice Cave.  A loose item went to any empty place
+    reached, alike, and the places reached from the start are reached for
+    every draw.  Now each place has a weight, 256 at the start of an
+    attempt; a loose item's place is drawn by weight, and every place that
+    could have taken it is halved, to no less than 1 (`randoref._forward`,
+    `pl_forward`).  By the time a new area opens, the old places have lost
+    most of theirs, so its places are the likelier.  It is FFR's
+    `LooseItemsForwardPlacement`, off in every FFR preset, which FFR only
+    applies with its spread placement on as well (`RewardSourcePicker.Pick`,
+    `if (spread && forward)`); here it stands alone -- the user wanted no
+    spreading within a dungeon -- with whole numbers where FFR's doubles
+    halve forever.  Incentives are drawn as before, any spot alike.  On its
+    own it moves loose items in sphere 0 (reached from the start) from 45%
+    to 35% under that seed's settings, over 300 seeds; the rest of the pile
+    is the order items are placed in, not where (progression first, next).
+    About 120K more instructions on a loose-heavy seed: a median 710K.
   - **The caravan is stocked first**, as FFR's `SelectVendorItem` does
     (2026-10-14): it is a shop, so it can sell an item and not a vehicle or
     gear.  Before the loop, a random one of the incentives a shop can sell
@@ -850,11 +870,12 @@ until the rewards change.
     sets it.  Working memory is `$7FC000` up, above the cache.
 
 `test_rando_place` holds the cart to the reference, placement for placement,
-over seven settings (Beginner, the Early flags off, the BRIDGE placed,
+over eight settings (Beginner, the Early flags off, the BRIDGE placed,
 everything incentivised, Wide with nothing free, all loose, Free
-Enterprise), and checks each whole.  `tools/checkplace.py` puts the
-reference's placements into the world graph's own locations and plays them
-through: 2,100 of 2,100 winnable.
+Enterprise, and the first playtest's), and checks each whole.
+`tools/checkplace.py` puts the reference's placements into the world graph's
+own locations and plays them through, the ship boarded only at its dock:
+2,400 of 2,400 winnable.  It reports where loose key items land by sphere.
 
 ### 4.8 Built: the rewards (2026-10-14; played once the same day)
 
