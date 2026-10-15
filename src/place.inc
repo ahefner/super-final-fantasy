@@ -80,6 +80,7 @@ pCLR0    = .LOWORD(RP_CLR0)
 pCLR2    = .LOWORD(RP_CLR2)
 pMOFF    = .LOWORD(RP_MOFF)
 pFWD     = .LOWORD(RP_FWD)
+pGRP     = .LOWORD(RP_GRP)
 
 W1             = 1024          ; a weight of 1.0
 FWD_ONE        = 256           ; a place's forward weight, new (pl_forward)
@@ -100,6 +101,7 @@ SHOPPABLE      = $00087FFF
 .include "logic.inc"
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .import lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
+.import lut_LogicGroup
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_place -- place the key items for the new game in the save
@@ -1205,10 +1207,12 @@ pl_opens:
 ;;  that is not an incentive goes to a place drawn by weight, and every place
 ;;  that could have taken it then has its weight halved, to no less than 1.
 ;;  A place reached from the start has lost most of its weight by the time a
-;;  new area opens, so the new area's places are the likelier.  FFR's
-;;  LooseItemsForwardPlacement, without the spread placement FFR only ever
-;;  gives it with.  The weights start each attempt at FWD_ONE; 248 of them
-;;  come to under $10000, so one word holds the sum.
+;;  new area opens, so the new area's places are the likelier.  Then the
+;;  chests in the drawn one's spread group -- one dungeon, one set of
+;;  requirements (lut_LogicGroup) -- are quartered, to no less than 1, so the
+;;  next item likelier goes to another dungeon.  FFR's forward and spread
+;;  placement.  The weights start each attempt at FWD_ONE; 248 of them come
+;;  to under $10000, so one word holds the sum.
 ;;
 ;;  Out: X = the place.  pTOTAL, pK and pW clobbered: the item's draw is done.
 pl_forward:
@@ -1261,6 +1265,34 @@ pl_forward:
     INX
     CPX #LOGIC_POOL
     BCC @walk
+    LDX a:pLOC                  ; spread: its group, quartered
+    LDA f:LOGICFAR + lut_LogicGroup, X
+    AND #$00FF
+    CMP #LOGIC_NOGROUP
+    BEQ @done
+    STA a:pGRP
+    LDX #$0000
+  @spread:
+    JSR pl_fwdok
+    BCC @snext
+    LDA f:LOGICFAR + lut_LogicGroup, X
+    AND #$00FF
+    CMP a:pGRP
+    BNE @snext
+    TXA
+    ASL A
+    TAY
+    LDA a:pFWD, Y
+    LSR A
+    LSR A
+    BNE :+
+    LDA #1                      ; no less than 1
+:   STA a:pFWD, Y
+  @snext:
+    INX
+    CPX #LOGIC_POOL
+    BCC @spread
+  @done:
     LDX a:pLOC
     RTS
 

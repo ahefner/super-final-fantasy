@@ -14,6 +14,7 @@ LOGIC_NSTANDARD = 21
 LOGIC_NWIDE = 25
 
 LOGIC_DOCKS  = 5
+LOGIC_NOGROUP = $FF
 
 ;  The logic's bits, model.py's order.
 LBIT_LUTE       = 0

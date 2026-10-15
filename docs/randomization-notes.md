@@ -840,9 +840,9 @@ until the rewards change.
     most of theirs, so its places are the likelier.  It is FFR's
     `LooseItemsForwardPlacement`, off in every FFR preset, which FFR only
     applies with its spread placement on as well (`RewardSourcePicker.Pick`,
-    `if (spread && forward)`); here it stands alone -- the user wanted no
-    spreading within a dungeon -- with whole numbers where FFR's doubles
-    halve forever.  Incentives are drawn as before, any spot alike.  On its
+    `if (spread && forward)`), as here (below), with whole numbers where
+    FFR's doubles halve forever.  Incentives are drawn as before, any spot
+    alike.  On its
     own it moves loose items in sphere 0 (reached from the start) from 45%
     to 35% under that seed's settings, over 300 seeds; the rest of the pile
     is the order items are placed in, not where (progression first, below).
@@ -868,8 +868,22 @@ until the rewards change.
     550K instructions, since the held-back items cost no cycles of asking.
     What it does not do: once an area opens, forward placement favours it,
     so a newly opened dungeon can take several loose items -- the most in one
-    dungeon is a mean of 4.4, four or more in 84% of seeds, where FFR's
-    spread placement (not wanted) would make that 3.7 and 55%.
+    dungeon a mean of 4.4, four or more in 84% of seeds.
+  - **Spread placement** (user, 2026-10-14; built, not yet played).  FFR's
+    `LooseItemsSpreadPlacement`, off in every FFR preset: once a chest is
+    drawn, the chests in the same dungeon behind the same requirements are
+    quartered, to no less than 1, after the forward halving -- so the next
+    item likelier goes to another dungeon (it spreads items across
+    dungeons, not within one).  The groups are genlogic's
+    (`lut_LogicGroup`, 24 of them): chests reached from the same overworld
+    entrances, a chest's own nodes' rather than its map's so Cardia's
+    islands are apart, with the same requirements -- FFR's
+    `GetNearRewardSources`, a dungeon and a `BitFlagSet`.  FFR spreads
+    incentives too, but no two incentive chests share a group under
+    Standard or Wide (genlogic asserts it), so that is nothing here.  The
+    playtest's settings, 300 seeds: the most loose items in one dungeon goes
+    from a mean of 4.4 to 3.6, four or more in one from 84% of seeds to
+    51%; by sphere, unchanged.
   - **The caravan is stocked first**, as FFR's `SelectVendorItem` does
     (2026-10-14): it is a shop, so it can sell an item and not a vehicle or
     gear.  Before the loop, a random one of the incentives a shop can sell

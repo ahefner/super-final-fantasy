@@ -1834,6 +1834,7 @@ RP_WANT         = RP_BASE+$0B6E   ; 1: an incentive spot wanted
 RP_CLR0         = RP_BASE+$0B70   ; an Early waiver: what of each word to keep
 RP_CLR2         = RP_BASE+$0B72
 RP_WORDSEND     = RP_BASE+$0B74
+RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)
 .assert RP_B3 + 32 <= RP_OWNED, error, "RP_B3 runs into RP_OWNED"

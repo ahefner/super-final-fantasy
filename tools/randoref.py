@@ -1021,19 +1021,23 @@ _SHOPPABLE = [_NAME.index(n) for n in ("LUTE", "CROWN", "CRYSTAL", "HERB", "KEY"
 #  to a place drawn by weight, and every place that could have taken it then
 #  has its weight halved.  A place reached from the start has lost most of its
 #  weight by the time a new area opens, so the new area's places are the
-#  likelier, and loose items stop piling up where the party begins.  It is
-#  FFR's LooseItemsForwardPlacement (RewardSourcePicker.Pick), which FFR only
-#  applies with its spread placement on too; here it stands alone, since the
-#  user wanted no spreading within a dungeon.  The weights are whole numbers,
-#  FWD_ONE at the start of an attempt and halving down to 1, where FFR's
-#  doubles halve forever.  Incentives are drawn as before, uniformly, as FFR
-#  draws them with forward placement off.
+#  likelier, and loose items stop piling up where the party begins.  Then
+#  spread placement (user, 2026-10-14): the chests in the same dungeon behind
+#  the same requirements as the one drawn (logicdata.SPREAD) are quartered,
+#  so the next item likelier goes to another dungeon than piles into this one.
+#  Both are FFR's, LooseItemsForwardPlacement and LooseItemsSpreadPlacement
+#  (RewardSourcePicker.Pick), off in every FFR preset.  The weights are whole
+#  numbers, FWD_ONE at the start of an attempt and falling to no less than 1,
+#  where FFR's doubles fall forever.  Incentives are drawn as before,
+#  uniformly: FFR spreads them too, but no two incentive chests share a group
+#  (genlogic.py asserts it), so that is nothing here.
 FWD_ONE = 256
 
 
 def _forward(rng, where, fwd):
     """The place, of `where` (ascending), drawn by its weight in `fwd`; then
-    every one of them halved, to no less than 1."""
+    every one of them halved, and those in its spread group quartered, each to
+    no less than 1."""
     total = sum(fwd[c] for c in where)
     assert 0 < total < 0x10000
     r = rng.below16(total)
@@ -1047,6 +1051,11 @@ def _forward(rng, where, fwd):
                 r -= w
         if w > 1:
             fwd[c] = w >> 1
+    group = _L.SPREAD[pick]
+    if group != 0xFF:
+        for c in where:
+            if _L.SPREAD[c] == group:
+                fwd[c] = max(1, fwd[c] >> 2)
     return pick
 
 
