@@ -1798,7 +1798,11 @@ Where it departs from the plan below or from §1:
     played).**  The pause made entertaining.  While `rando_newgame` works,
     the screen shows one of the game's map sprites scaled up eight times --
     every pixel a character cell, 128 pixels square on the window blue --
-    walking in place, the seed choosing which: every creature a map stands
+    walking in place, the seed choosing which -- its halves XORed and
+    scaled to the choices, each 1724 or 1725 of the 65536 (2026-10-15: the
+    four bytes summed in a byte, modulo the choices, had given the last ten,
+    mostly classes, six chances in 256 to the others' seven); a Continue
+    shows its save's own, every time: every creature a map stands
     up and the twelve classes' mapmen, 38 (user: "all those NPCs plus the
     player mapmen"), from the game's own banks by `tools/genroll.py`.  Left
     out: the Black Orb and the plates, not creatures, and Bahamut (user,

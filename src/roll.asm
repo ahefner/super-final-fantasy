@@ -45,7 +45,7 @@
 
 .export roll_begin, roll_tick, roll_end
 ;  For tools/test_options.py.
-.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx
+.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick
 
 .import CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
@@ -139,23 +139,40 @@ roll_begin:
     RTL
 
 
-;;  The seed's picture: its four bytes summed in a byte, modulo the choices.
-;;  Native, A8.
+;;  The seed's picture: its halves XORed, a sixteen-bit v, scaled to the
+;;  choices -- (v * ROLL_SPRITES) >> 16, from two 8x8 products, the high
+;;  byte's plus the carry out of the low byte's -- so each is 1724 or 1725 of
+;;  the 65536.  (The four bytes summed in a byte, modulo the choices, gave
+;;  the first 28 seven chances in 256 and the last ten six.)  Native, A8,
+;;  DBR this chunk, whose low half is the I/O map.
+SEEDFAR = RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
 roll_pick:
     .a8
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    LDA f:SEEDFAR
+    EOR f:SEEDFAR + 2
+    STA a:WRMPYA                ; v's low byte...
+    LDA #ROLL_SPRITES
+    STA a:WRMPYB                ; ...times the choices
+    NOP
+    NOP
+    NOP
+    NOP                         ; eight cycles
+    LDA a:RDMPYH
+    STA f:ROLL_PICK             ; what it carries
+    LDA f:SEEDFAR + 1
+    EOR f:SEEDFAR + 3
+    STA a:WRMPYA                ; v's high byte...
+    LDA #ROLL_SPRITES
+    STA a:WRMPYB
+    NOP
+    NOP
+    NOP
+    NOP
+    LDA a:RDMPYL
     CLC
-    ADC f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 1
-    CLC
-    ADC f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
-    CLC
-    ADC f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 3
-  @mod:
-    CMP #ROLL_SPRITES
-    BCC @done
-    SBC #ROLL_SPRITES
-    BRA @mod
-  @done:
+    ADC f:ROLL_PICK             ; ...its product, the carry added...
+    LDA a:RDMPYH
+    ADC #0                      ; ...and the top byte the pick
     STA f:ROLL_PICK
     RTS
 

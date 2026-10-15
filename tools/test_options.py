@@ -6253,10 +6253,31 @@ def test_roll():
         cpu.run(ROLL_BANK, SYM["roll_begin"])
         return bus, cpu
 
+    #  The pick: the seed's halves XORed, v, scaled -- (v * n) >> 16 -- so
+    #  every choice is 1724 or 1725 of the 65536.  The cart's at every
+    #  boundary, v from either half of the seed.
+    pick_of = lambda seed: (((seed & 0xFFFF) ^ (seed >> 16)) * n) >> 16
+    seed_for = lambda k: (k * 65536 + n - 1) // n
+    sizes = [sum(1 for v in range(65536) if (v * n) >> 16 == k) for k in range(n)]
+    check("the picks even: each 1724 or 1725 of the 65536", sorted(set(sizes)), [1724, 1725])
     bad = []
-    for seed in list(range(n)) + [0x01020304, 0xDEADBEEF, 0xFFFFFFFF]:
+    for k in range(1, n):
+        b = seed_for(k)
+        for seed, expect in ((b - 1, k - 1), (b, k), ((b - 1) << 16, k - 1), (b << 16 | 0x5A5A, pick_of(b << 16 | 0x5A5A)),
+                             ((b ^ 0x1234) | 0x1234 << 16, k)):
+            bus, cpu = machine()
+            bus.sram[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+            cpu.e = False
+            cpu.dbr = ROLL_BANK
+            cpu.run(ROLL_BANK, SYM["roll_pick"])
+            if bus.wram[rw("ROLL_PICK")] != expect or expect != pick_of(seed):
+                bad.append((hex(seed), bus.wram[rw("ROLL_PICK")], expect))
+    check("...the cart's pick, at every boundary", bad[:4], [])
+
+    bad = []
+    for seed in [seed_for(k) for k in range(n)] + [0x01020304, 0xDEADBEEF, 0xFFFFFFFF]:
         bus, cpu = begin(seed)
-        pick = (sum(seed.to_bytes(4, "little")) & 0xFF) % n      # summed in a byte
+        pick = pick_of(seed)
         if bus.wram[rw("ROLL_PICK")] != pick:
             bad.append(("pick", seed))
             continue
@@ -6286,7 +6307,7 @@ def test_roll():
     #  triangle wave on its channels -- the Elf Prince's half as fast and half
     #  as bright.
     def ticks(pick, count):
-        bus, cpu = begin(pick)
+        bus, cpu = begin(seed_for(pick))
         log = []
         write = bus.write
 
