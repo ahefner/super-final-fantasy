@@ -511,7 +511,7 @@ avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshole Kraken, Ruse
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Ruse
 Staff.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
@@ -526,8 +526,9 @@ and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
 sixth flag byte, which the flag word grew for it (format 8) -- and grew
 for the critical hit count too, until that became unconditional.
 
-**Asshole Kraken** (user, 2026-10-14, for fun; played the same day, both fights) is
-not FFR's, and is off in every preset.  Kraken and Kraken 2 (enemies `$7B`
+**Asshat Octopus** (user, 2026-10-14, for fun; played the same day, both fights;
+named Asshole Kraken until 2026-10-15, user) is not FFR's, and is off in
+every preset.  Kraken and Kraken 2 (enemies `$7B`
 and `$7C`) spend every turn hitting a White Mage or White Wizard with their
 eight-hit melee attack, while one is neither dead nor stone: no INK, and no
 LIT2 from the second.  With nobody to hit the turn is the enemy's own, and
@@ -1976,8 +1977,8 @@ text region in the game references.
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 16 bytes of
                              padding inside routines the randomizer took
-                             over -- 9 never executed in Enemy_DoAi (Asshole
-                             Kraken's hook took 12 of 21), 7 NOPs
+                             over -- 9 never executed in Enemy_DoAi (Asshat
+                             Octopus's hook took 12 of 21), 7 NOPs
                              in the enemy attack setup -- and 33 never
                              executed where the DRINK choice used to be
     BANK_0D      212 free
@@ -1996,7 +1997,7 @@ text region in the game references.
                              pillars' row and hand-on (40), and the key
                              item rows (1071: 20 more rows of 32 bytes, their
                              readouts and field tables, the field code), and
-                             Asshole Kraken (138: its row and opt_kraken),
+                             Asshat Octopus (138: its row and opt_kraken),
                              and Map shuffle (87: its row, readouts and
                              scalar), and the Ruse Staff (78: its row,
                              opt_itemspell and opt_weapbyte's answer)

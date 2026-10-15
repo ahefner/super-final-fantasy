@@ -2776,7 +2776,7 @@ opt_harmundead:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Asshole Kraken
+;;  Asshat Octopus
 ;;
 ;;  At the head of Enemy_DoAi, before the enemy's script is read.  With the
 ;;  flag, Kraken and Kraken 2 skip their scripts -- no INK, and no LIT2 from

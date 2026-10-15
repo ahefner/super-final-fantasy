@@ -310,7 +310,7 @@ OPTFM_TRANCE    = $01    ; bit 40
 ATTACK_TRANCE   = $51
 ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 
-;  Asshole Kraken (user, 2026-10-14; not FFR's): Kraken and Kraken 2 spend
+;  Asshat Octopus (user, 2026-10-14; not FFR's): Kraken and Kraken 2 spend
 ;  every turn hitting a White Mage or White Wizard, while one can be hit
 ;  (opt_kraken).  Bit 43, in the sixth byte after the Lefein edits; no build
 ;  has set it before, so every saved block reads off.

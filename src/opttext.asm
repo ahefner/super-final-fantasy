@@ -257,7 +257,7 @@ lut_Desc_95:  ; Ruse Staff
   FFPAD {"when used in battle like the"}, 28
   FFPAD {"Defense sword."}, 28
 
-lut_Desc_92:  ; Asshole Kraken
+lut_Desc_92:  ; Asshat Octopus
   FFLINES 3
   FFPAD {"Kraken always targets your"}, 28
   FFPAD {"White Mage or White Wizard"}, 28

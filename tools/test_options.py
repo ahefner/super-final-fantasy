@@ -4276,7 +4276,7 @@ def kraken_turn(base, rngstate):
 
 
 def test_kraken():
-    """Asshole Kraken: Kraken and Kraken 2 spend every turn on a White Mage or
+    """Asshat Octopus: Kraken and Kraken 2 spend every turn on a White Mage or
     White Wizard while one can be hit -- the melee attack, no INK, no LIT2.
     The real Enemy_DoAi, from all 256 battle RNG states, to where the turn is
     decided.  Off, and on with nothing to hit, the turn is the enemy's own,

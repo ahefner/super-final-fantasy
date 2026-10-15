@@ -6,7 +6,7 @@
 --- NEW
 .import opt_kraken
 .export Enemy_DoAi, EnemyAttackPlayer_Physical, Enemy_DoMagicEffect   ; for the harness
-    ;  Asshole Kraken first: Kraken or Kraken 2 with a White Mage or Wizard
+    ;  Asshat Octopus first: Kraken or Kraken 2 with a White Mage or Wizard
     ;  to hit skips its script and attacks the party slot in A, as
     ;  ChooseAndAttackPlayer would.  It edits randoai.patch's NEW, so its name
     ;  sorts after that one.
