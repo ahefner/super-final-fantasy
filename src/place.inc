@@ -178,6 +178,7 @@ rando_place:
   @try:
     JSR pl_attempt
     BCS @won
+    JSR pl_yelp
     DEC a:pATT
     BNE @try
     JMP leave                   ; none: key items stay where they are
@@ -206,8 +207,10 @@ pl_shuffled:
     CMP #ES_ATTEMPTS
     BCS @none
     JSL es_build + WORLDFAR
-    BCS @next
-    LDA a:pESK
+    BCC :+
+    JSR pl_yelp                 ; a wiring refused
+    BRA @next
+:   LDA a:pESK
     CLC
     ADC #.LOWORD(STREAM_KEYS)
     EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
@@ -222,6 +225,7 @@ pl_shuffled:
   @try:
     JSR pl_attempt
     BCS @won
+    JSR pl_yelp
     DEC a:pATT
     BNE @try
   @next:
@@ -269,6 +273,7 @@ pl_shuffled:
   @offtry:
     JSR pl_attempt
     BCS :+
+    JSR pl_yelp
     DEC a:pATT
     BNE @offtry
     JMP leave
@@ -518,7 +523,16 @@ pl_rowval:
 
 
 ;;  One attempt.  Out: C set if every item was placed and the seed is won.
+;;  The roll screen's yelp (roll.asm): something thrown away.  A16.
+pl_yelp:
+    .a16
+    LDA #1
+    STA f:ROLL_YREQ
+    RTS
+
 pl_attempt:
+    LDA #ROLLSTAGE_PLACE        ; the roll screen's tune
+    STA f:ROLL_STAGE
     LDA a:pINC0
     STA a:pINC
     LDA a:pINC0 + 2
@@ -594,6 +608,7 @@ pl_attempt:
     STA a:pCYCLE
 
   @cycle:
+    JSR rando_yield             ; the roll screen's tick, if due
     LDA a:pINCSRC
     CLC
     ADC a:pNONSRC
@@ -1783,6 +1798,7 @@ pl_propagate:
 ;;  What the bits in RP_PEND would open: pCI new incentive places, pCN others.
 ;;  Owned is as it was afterwards, and nothing marked in RP_REACH.
 pl_ask:
+    JSR rando_yield             ; the roll screen's tick, if due
     INC a:pGEN
     LDA a:pGEN
     CMP #$0100

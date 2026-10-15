@@ -53,8 +53,10 @@
 .import es_tables
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
-.export rando_ensure, rando_stale, rando_xs, give_vehicle
-.export rando_belowfar, rando_warmfar
+.export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
+.export rando_belowfar, rando_warmfar, rando_yieldfar
+;  New Game's roll screen (roll.asm), up while rando_newgame works.
+.import roll_begin, roll_tick, roll_end
 
 .segment "BANK_RANDO"
 
@@ -374,6 +376,7 @@ rando_warm:
 ;;  In: A8 = the bound, 1..255; DBR = $7F.  Out: A8 = the number.
 rando_below:
     .a8
+    JSR rando_yield             ; every draw: the roll screen's tick, if due
     STA a:wBOUND
     DEC A
     STA a:wMASK
@@ -408,6 +411,31 @@ rando_belowfar:
     .a8
     JSR rando_below
     RTL
+
+;;  New Game's roll screen ticks from here (roll.asm): called often -- every
+;;  draw, every ask the logic makes, every visit of entrance shuffle's
+;;  fixpoint -- it ticks the screen when the screen is up and a vblank has
+;;  begun since the last tick, which RDNMI latches; otherwise it is nine
+;;  instructions.  ROLL_ON is zero but while the screen is up, so the cache
+;;  build at @Begin, and the harness, never tick.  Native, any widths;
+;;  everything kept.
+rando_yield:
+    PHP
+    SEP #$20
+    .a8
+    PHA
+    LDA f:ROLL_ON
+    BEQ @out
+    LDA f:RDNMI
+    BPL @out
+    JSL roll_tick + ROLLFAR
+  @out:
+    PLA
+    PLP
+    RTS
+rando_yieldfar:
+    JSR rando_yield
+    RTL
 rando_warmfar:
     .a16
     JSR rando_warm
@@ -421,6 +449,7 @@ rando_warmfar:
 ;;  Y are not touched.
 rando_below16:
     .a16
+    JSR rando_yield             ; every draw: the roll screen's tick, if due
     STA a:wB16
     DEC A
     STA a:wM16
@@ -554,10 +583,14 @@ rando_newgame:
     LDA #0
     STA f:RANDO_GIVENFAR
     STA f:RANDO_GIVENFAR + 1
+    ;  The roll screen comes up for the work, the seed choosing its picture.
+    JSL roll_begin + ROLLFAR
     ;  ...and where its key items are, under Key items Standard or Wide.
     JSL rando_place + RANDOFAR
     ;  ...and the world itself, now rather than at @Begin.
     JSL rando_ensure + RANDOFAR
+    ;  The fanfare, the fade, and the PPU back to the HAL.
+    JSL roll_end + ROLLFAR
     PLX
     PLP
     RTL
@@ -649,6 +682,8 @@ build:
     REP #$30
     .a16
     .i16
+    LDA #ROLLSTAGE_BUILD        ; the roll screen's tune, while New Game's
+    STA f:ROLL_STAGE
 
     ;  The deals' counters are words read whole into X and Y and only ever
     ;  stored a byte at a time, so their high bytes are zeroed here, once.

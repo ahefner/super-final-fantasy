@@ -20,6 +20,7 @@ python3 tools/genspc.py
 python3 tools/genspellnames.py
 python3 tools/genbeam.py
 python3 tools/gencrawl.py
+python3 tools/genroll.py
 python3 tools/convert.py
 
 #  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged
@@ -99,6 +100,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 opttext.asm -o ../out/bank_OPTTEXT.o
            $CA65 logicdata.asm -o ../out/bank_LOGIC.o
            $CA65 -I ../gen world.asm -o ../out/bank_WORLD.o
+           $CA65 -I ../gen roll.asm -o ../out/bank_ROLL.o
            $CA65 hal.asm    -o ../out/hal.o
            $CA65 header.asm -o ../out/header.o )
 
@@ -107,7 +109,7 @@ ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
     out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_NONES.o out/bank_CREDITS.o out/bank_RANDO.o \
-    out/bank_OPTTEXT.o out/bank_LOGIC.o out/bank_WORLD.o
+    out/bank_OPTTEXT.o out/bank_LOGIC.o out/bank_WORLD.o out/bank_ROLL.o
 
 #  HAL_VARS is hand-allocated, so two names can land on one byte and assemble
 #  without complaint.  Two branches each taking the same free offset is the

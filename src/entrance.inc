@@ -607,6 +607,7 @@ es_gather:
     STZ a:esN
     STZ a:esN + 1
   @each:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     CPY a:esE
     BCS @done
     REP #$20
@@ -1204,6 +1205,7 @@ es_fixpoint:
     LDA #1
     STA a:esTAIL
   @visit:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     LDA a:esHEAD
     CMP a:esTAIL
     BNE :+
@@ -1564,6 +1566,7 @@ es_locmasks:
     STZ a:esTOT
     STZ a:esLOC
   @loc:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     LDX a:esLOC
     LDA f:LOGICFAR + lut_GrLocReq, X
     JSR es_reqmask
@@ -1735,6 +1738,7 @@ es_bybit:
     STZ a:esTOT                 ; entries so far
     STZ a:esBIT
   @bit:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     LDA a:esBIT
     ASL A
     TAX
@@ -1903,6 +1907,7 @@ es_roots:
     BCC @clr
     STZ a:esEI
   @ent:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     LDA a:esEI
     CMP #GR_ENTIDS
     BCC :+
@@ -2106,6 +2111,7 @@ es_groups:
     STZ a:esNT                  ; groups so far
     STZ a:esLOC
   @loc:
+    JSL rando_yieldfar + RANDOFAR   ; the roll screen's tick, if due
     LDX a:esLOC
     LDA f:LOGICFAR + lut_LogicKind, X
     AND #$00FF
@@ -2454,6 +2460,10 @@ rando_esdock:
 es_build:
     .a16
     .i16
+    PHA
+    LDA #ROLLSTAGE_WIRING       ; the roll screen's tune
+    STA f:ROLL_STAGE
+    PLA                         ; the attempt, es_start's
     JSR es_start
     SEP #$20
     .a8
@@ -2462,6 +2472,8 @@ es_build:
     REP #$20
     .a16
     BCS @out
+    LDA #ROLLSTAGE_LOGIC
+    STA f:ROLL_STAGE
     LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
     AND #$00FF
     JSR es_fixpoint

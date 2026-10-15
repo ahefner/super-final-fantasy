@@ -44,7 +44,7 @@
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
-.export hal_vblaudio, hal_ppureclaim
+.export hal_vblaudio, hal_ppureclaim, hal_audioframe
 
 .import OnReset
 
@@ -1344,6 +1344,27 @@ hal_vblaudio:
     lda a:HVBJOY
     bpl @wait
     lda a:RDNMI                 ; consume the latch, as the flush paths do
+    ENTER16
+    inc a:h_frame
+    LEAVE16
+    ply
+    plx
+    pla
+    plp
+    rtl
+
+;;  hal_audioframe is hal_vblaudio's first half alone: one frame of sound,
+;;  sent now, with no wait.  For a screen with no frame loop to wait in --
+;;  New Game's roll (roll.asm) calls it from a tick, while the randomizer
+;;  works, when a vblank has begun since the last one.  Emulation mode.
+hal_audioframe:
+    php
+    pha
+    phx
+    phy
+    lda #1
+    sta a:h_apufull
+    jsr hal_apu_frame
     ENTER16
     inc a:h_frame
     LEAVE16

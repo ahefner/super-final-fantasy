@@ -77,6 +77,7 @@ deal_rewards:
     ;  What placement put where, and the homes those items left.
     LDX #$0000
   @placed:
+    JSR rando_yield             ; the roll screen's tick, if due
     LDA f:RANDO_PLACEFAR, X
     CMP #LOGIC_POOL
     BCS @pnext
@@ -166,6 +167,7 @@ deal_rewards:
     .a8
     LDX #$0000
   @gather:
+    JSR rando_yield             ; the roll screen's tick, if due
     JSR rv_valid
     BCC @gnext
     LDA f:RANDO_SAVEFAR + (RANDO_CHESTS - RANDO_SAVE)

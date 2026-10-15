@@ -1975,7 +1975,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3608 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3519 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -1988,14 +1988,18 @@ text region in the game references.
                              Princess's warp 15, FFR's unsafe tables and
                              their choice 94; New Game building the
                              cache, and its mute, 7; a draw with nowhere
-                             to go, and the counts reused, 33
+                             to go, and the counts reused, 33; the roll
+                             screen's yields, stages and yelps 89
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only
-    BANK_WORLD  11954 free  entrance shuffle's code (4430): the wiring, the
+    BANK_WORLD  11914 free  entrance shuffle's code (4430): the wiring, the
                              seed's logic, roots, groups, the dock, and the
-                             landing tables
+                             landing tables; the roll screen's yields 40
+    BANK_ROLL   12321 free  New Game's roll screen (4063): its code, and
+                             38 pictures' tiles and colours (2888, from
+                             tools/genroll.py)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

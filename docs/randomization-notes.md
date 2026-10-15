@@ -1793,13 +1793,37 @@ Where it departs from the plan below or from §1:
     classes (user) -- and `@Begin` after party creation only compares the
     tag.  Party creation touches neither page 0 nor the cache, and turns
     the channels back on itself as it starts.  `@Begin` still builds for a
-    Continue whose cache is cold.  **To come (user, 2026-10-14): make the
-    pause entertaining** -- triangle-channel bleep-bloops and a cute graphic
-    while New Game works, rather than a frozen title and silence.  It will
-    need something to run each frame while the randomizer computes (the NMI,
-    or the randomizer calling out every so often), since nothing calls the
-    music driver meanwhile.  With it, how long a New Game takes matters
-    less (user).
+    Continue whose cache is cold.
+  - **The roll screen (user, 2026-10-14; built 2026-10-15, not yet
+    played).**  The pause made entertaining.  While `rando_newgame` works,
+    the screen shows one of the game's map sprites scaled up eight times --
+    every pixel a character cell, 128 pixels square on the window blue --
+    walking in place, the seed choosing which: every creature a map stands
+    up and the twelve classes' mapmen, 38 (user: "all those NPCs plus the
+    player mapmen"), from the game's own banks by `tools/genroll.py`.  The
+    triangle plays a tune the roll writes: each stage its own scale --
+    placing key items whole-tone, dealing the doors a high pentatonic,
+    working out the logic a low one, building the world a G major arpeggio
+    -- each note a step of a walk two bits of the PRNG's state choose; and
+    the first pulse yelps, falling, whenever a placement attempt or a wiring
+    is thrown away (user).  When the roll is done the sprite walks on
+    through the key item fanfare (track $54) -- the screen's least time up,
+    however quick the roll (user) -- fades, the title's music starts again
+    for party creation, and the PPU goes back to the HAL dark.
+    **How it ticks without interrupts** (`roll.asm`): the randomizer yields
+    -- every draw, every ask the logic makes, every placement cycle, the
+    outer loops of entrance shuffle's logic and the reward deal -- and a
+    yield ticks the screen when a vblank has begun since the last, which
+    RDNMI latches: sixty a second while no stretch between yields passes a
+    frame; the longest measured is about two.  A tick changes only what is
+    safe mid-picture: the brightness, and the scroll -- both frames sit side
+    by side in one 64x32 tilemap, and the step is BG1HOFS -- and sends a
+    frame of sound (`hal_audioframe`, new: `hal_vblaudio` without the wait).
+    It reads the PRNG's state but never draws, so the world is the same
+    ticked or not (`test_roll` rolls one ticking at every yield and one
+    never ticking).  A yield with the screen down is nine instructions, so
+    Continue's cache build at `@Begin` never ticks.  The harness gained a
+    frame clock and VRAM and CGRAM capture to test it.
   - **The read-only view on Continue, built 2026-10-09** (Select on
     Continue; `options-design.md`, "Save view"): the saved game's seed and
     RANDOMIZATION rows.  The rest of item 1's minimum UI -- seed entry, and

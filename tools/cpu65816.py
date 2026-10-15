@@ -23,6 +23,25 @@ class Bus:
         self.io = {}                        # $2000-$5FFF, recorded not emulated
         self.mul_a = 0
         self.mul_b = 0
+        self.clock = None                   # see frames()
+        self.vram = None                    # see ppu()
+
+    def frames(self, every=50):
+        """A frame clock, for code that waits on one: HVBJOY's vblank bit
+        alternates read by read, so a wait for it to clear and then set
+        passes in two reads, and RDNMI's latch reads set once in every
+        `every` reads -- a vblank every so many of a polling loop's looks.
+        Time is still not modelled; this only lets the waits finish."""
+        self.clock = [0, every, 0]
+
+    def ppu(self):
+        """VRAM and CGRAM as the CPU's ports write them: $2115-$2119 with the
+        step after the high byte (VMAIN bit 7) or the low, $2121-$2122.  DMA
+        is not run, so only what code writes itself lands here."""
+        self.vram = bytearray(0x10000)
+        self.cgram = bytearray(0x200)
+        self.vaddr = 0
+        self.caddr = 0
 
     def _rom(self, bank, addr):
         image = bank & 0x1F                 # 2MB, so the bank number wraps at 32
@@ -39,6 +58,12 @@ class Bus:
         if 0x4216 <= addr <= 0x4217:
             p = (self.mul_a * self.mul_b) & 0xFFFF
             return p & 0xFF if addr == 0x4216 else p >> 8
+        if self.clock is not None and addr == 0x4212:
+            self.clock[0] ^= 0x80
+            return self.clock[0]
+        if self.clock is not None and addr == 0x4210:
+            self.clock[2] += 1
+            return 0x80 if self.clock[2] % self.clock[1] == 0 else 0x00
         if addr < 0x6000:
             return self.io.get(addr, 0)
         if addr < 0x8000:
@@ -61,6 +86,8 @@ class Bus:
         if addr == 0x4203:
             self.mul_b = val
             return
+        if self.vram is not None and 0x2115 <= addr <= 0x2122:
+            self._ppu_write(addr, val)
         if addr < 0x6000:
             self.io[addr] = val
             return
@@ -68,6 +95,23 @@ class Bus:
             self.sram[addr - 0x6000] = val
             return
         raise RuntimeError("write to ROM at $%02X:%04X" % (bank, addr))
+
+
+    def _ppu_write(self, addr, val):
+        if addr == 0x2116:
+            self.vaddr = (self.vaddr & 0xFF00) | val
+        elif addr == 0x2117:
+            self.vaddr = (self.vaddr & 0x00FF) | (val << 8)
+        elif addr in (0x2118, 0x2119):
+            self.vram[(self.vaddr * 2 + (addr - 0x2118)) & 0xFFFF] = val
+            step = self.io.get(0x2115, 0) & 0x80
+            if (addr == 0x2119) == bool(step):
+                self.vaddr = (self.vaddr + 1) & 0x7FFF
+        elif addr == 0x2121:
+            self.caddr = val * 2
+        elif addr == 0x2122:
+            self.cgram[self.caddr & 0x1FF] = val
+            self.caddr += 1
 
 
 N, V, M, X, D, I, Z, C = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01

@@ -13,7 +13,7 @@
 .include "snesmap.inc"
 .include "logic.inc"
 
-.import rando_belowfar, rando_warmfar
+.import rando_belowfar, rando_warmfar, rando_yieldfar
 .import lut_LogicKind, lut_LogicFlags
 ;  For tools/test_options.py.
 .export es_build, es_dockfar, es_tables

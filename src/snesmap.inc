@@ -52,6 +52,8 @@ CHUNK_LOGIC     = $15           ; the vanilla world's logic, for placement; data
 LOGICFAR        = (CHUNK0 + CHUNK_LOGIC) * $10000
 CHUNK_WORLD     = $16           ; entrance shuffle: the shuffle and the seed's logic
 WORLDFAR        = (CHUNK0 + CHUNK_WORLD) * $10000
+CHUNK_ROLL      = $17           ; New Game's roll screen: picture, bleeps, fanfare
+ROLLFAR         = (CHUNK0 + CHUNK_ROLL) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -1779,6 +1781,41 @@ RW_NORMMAP      = RANDOWRAM+$3320
 RW_EXITX        = RANDOWRAM+$3360 ; 16: each exit's overworld x and y
 RW_EXITY        = RANDOWRAM+$3370
 .assert RW_EXITY + 16 <= RP_BASE, error, "the teleport tables run into placement's memory"
+
+;  New Game's roll screen (roll.asm): up while rando_newgame works, ticked from
+;  the randomizer's yields (rando_yield).  Beside the cache, which never
+;  writes here, so ROLL_ON is zero but while the screen is up: power-on
+;  zeroes it and roll_end clears it.  Two bytes a variable, so a store from
+;  sixteen-bit code cannot reach the next.  The randomizer writes ROLL_STAGE
+;  and ROLL_YREQ; the rest is the screen's.
+ROLL_ON         = RANDOWRAM+$3380 ; 1: the roll screen is up and ticking
+ROLL_T          = RANDOWRAM+$3382 ; ticks since it came up
+ROLL_FRAME      = RANDOWRAM+$3384 ; the step shown: 0 or 1
+ROLL_BRIGHT     = RANDOWRAM+$3386 ; INIDISP's brightness, fading in
+ROLL_STAGE      = RANDOWRAM+$3388 ; ROLLSTAGE_*: whose pitches the notes take
+ROLL_NEXT       = RANDOWRAM+$338A ; ticks to the next note
+ROLL_GATE       = RANDOWRAM+$338C ; ticks the note sounds yet
+ROLL_IDX        = RANDOWRAM+$338E ; the note, 0-7 in its stage's scale
+ROLL_YELP       = RANDOWRAM+$3390 ; ticks of the yelp left
+ROLL_YPER       = RANDOWRAM+$3392 ; the yelp's period, falling
+ROLL_YREQ       = RANDOWRAM+$3394 ; 1: something was thrown away, yelp
+ROLL_PICK       = RANDOWRAM+$3396 ; which picture
+ROLL_BUF        = RANDOWRAM+$33A0 ; 16 words: a row of the picture, being built
+ROLL_ROW        = RANDOWRAM+$33C0 ; roll_row's: the row...
+ROLL_PALHI      = RANDOWRAM+$33C2 ; ...its half's palette, as the word's high byte
+ROLL_OFF        = RANDOWRAM+$33C4 ; ...the tile's row, in lut_RollChr
+ROLL_P0         = RANDOWRAM+$33C6 ; ...its two planes, shifting out
+ROLL_P1         = RANDOWRAM+$33C7
+ROLL_HI         = RANDOWRAM+$33C8 ; ...a pixel's plane 1 bit, as the colour's 2
+ROLL_N          = RANDOWRAM+$33C9 ; ...pixels left of the half
+ROLL_CGOFF      = RANDOWRAM+$33CA ; roll_build's: the pick's colours, in lut_RollPal
+ROLL_END        = RANDOWRAM+$33CC
+.assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
+.assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
+ROLLSTAGE_PLACE   = 0           ; placing the key items (and before)
+ROLLSTAGE_WIRING  = 1           ; entrance shuffle: dealing the doors
+ROLLSTAGE_LOGIC   = 2           ; ...and working out what they open
+ROLLSTAGE_BUILD   = 3           ; building the world: the cache
 
 ;  deal_rewards' working memory, in placement's: the two never run together.
 ;  A slot is a chest id, 256 + a reward NPC's entry, or SLOT_CARAVAN.
