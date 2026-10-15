@@ -568,7 +568,12 @@ roll_sound:
     AND #$FE
     STA a:APUSHADOW + $15
     BRA @gate
-:   ASL A                       ; louder the earlier: 14 down to 2
+:   STA f:ROLL_HI               ; louder the earlier, 11 down to 2: (3 *
+    ASL A                       ;   the ticks left + 1) / 2 -- 14 was a touch
+    CLC                         ;   loud (user, 2026-10-15)
+    ADC f:ROLL_HI
+    INC A
+    LSR A
     ORA #$70                    ; a quarter duty, held, constant volume
     STA a:APUSHADOW + 0
     LDA #$08

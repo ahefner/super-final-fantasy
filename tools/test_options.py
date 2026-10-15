@@ -6375,7 +6375,7 @@ def test_roll():
         per.append(per[-1] + (per[-1] >> 2))
     check("the yelp: the first pulse falling a quarter a tick, quieter, then off",
           [x[:3] for x in seen[:8]],
-          [(0x70 | v * 2, p, 1) for v, p in zip(range(7, 0, -1), per)] + [(seen[6][0], per[-1], 0)])
+          [(0x70 | (3 * v + 1) // 2, p, 1) for v, p in zip(range(7, 0, -1), per)] + [(seen[6][0], per[-1], 0)])
     check("...the step every eight ticks, the fade in over fifteen",
           ([x[3] for x in seen], [x[4] for x in seen]),
           ([0] * 7 + [1] * 5, list(range(1, 13))))
