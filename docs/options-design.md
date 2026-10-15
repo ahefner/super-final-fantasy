@@ -751,7 +751,7 @@ does not; known manipulation routes stop working, while a seed's own table
 can still be learned (`randoref.py --rng` prints it) and L+X still keeps
 `battlestep`.  `BattleStepRNG` reads the cache through `rando_steprng`, which
 ensures like every consumer; `BattleRNG` reads it directly, since
-`@Begin` has built the cache before any game code runs and every battle
+New Game or `@Begin` has built the cache before any game code runs and every battle
 comes through `rando_formdata` besides; `GetBattleFormation` already read
 through the cache.  The minigame's puzzle shuffle keeps the
 ROM table.  **Declined (user, 2026-10-09):** Fix Missing Battle RNG Entry,
@@ -1348,12 +1348,20 @@ covered part of it.  Nothing built is waiting on a playtest.
         during a build, so the SPC700 held its last note through it, and the
         overworld track `PrepOverworld` starts next turns the channels back
         on.  A match costs 116 instructions and leaves the music alone.  L+X
-        and L+Y keep WRAM, so the soft resets do not rebuild.  Consumers still `ensure`, as a safety net,
+        and L+Y keep WRAM, so the soft resets do not rebuild.  Since
+        2026-10-14 New Game builds the cache itself, at the end of
+        `rando_newgame`, after placement and before party creation (user:
+        one pause, and all the randomization done before the party-select
+        screen, which a future class flag will need); it silences the music
+        first, and party creation turns it back on.  `@Begin` then only
+        compares the tag, and builds for a cold Continue.  Consumers still
+        `ensure`, as a safety net,
         except that `rando_nameptr` ensures only for gear ($1C-$6B).  It is
         the game's one table of short names, and party creation draws its
         class names through it after New Game has written a new seed:
         ensuring there built the world on that screen, a pause under its
-        music (playtest, 2026-10-09).
+        music (playtest, 2026-10-09).  New Game now builds first, so that
+        screen would find the cache whole either way.
       - **Trap Tiles.**  The cache holds all eight tile property tables, 2KB.
         Every random-encounter tile's `$80` becomes `$00`, and the 34 traps
         are dealt per FFR's `ShuffleTrapTiles`.  `LoadSMTilesetData`'s

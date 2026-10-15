@@ -6003,6 +6003,42 @@ def test_rando_newgame():
     check("opt_freestuff seeds the save", bytes(bus.sram[save:save + 10]),
           (0x0F1E2D3C).to_bytes(4, "little") + b"\x02\x01\x01\x01\x04\x03")
 
+    #  ...and builds the world there, before the party is rolled, so that
+    #  @Begin after it finds the cache whole: one pause, not two.  The title's
+    #  music silenced before any of the work.  Entrance shuffle on, so the
+    #  cache has to read the attempt the placement just kept.
+    seed = 0x0BADF00D
+    keyitems, items3, gear2, early = PLACE_CONFIGS["beginner"]
+
+    def newgame():
+        bus, cpu = machine()
+        bus.sram[pool:pool + 4] = seed.to_bytes(4, "little")
+        for name, v in (("OPT_NG_KEYITEMS", keyitems), ("OPT_NG_EARLY", early),
+                        ("OPT_NG_ENTRANCES", R.ENTRANCES_FLOORS), ("OPT_NG_RNG", 1)):
+            bus.sram[K[name] - 0x6000] = v
+        bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
+        bus.sram[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
+        bus.wram[APUSHADOW + 0x15] = 0x0F                # the title's music
+        bus.wram[APUSHADOW:APUSHADOW + 16:4] = bytes([0xBF, 0xBF, 0xFF, 0x3F])
+        return bus, cpu
+
+    bus, cpu = newgame()
+    check("New Game silences the music before placing",
+          cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=SYM["rando_place"]), True)
+    check("...all four channels", (bus.wram[APUSHADOW + 0x15], bytes(bus.wram[APUSHADOW:APUSHADOW + 16:4])),
+          (0, bytes([0x30] * 4)))
+    bus, cpu = newgame()
+    cpu.run(RANDO_BANK, SYM["rando_newgame"], limit=60_000_000)
+    k = bus.sram[K["RANDO_ESK"] - 0x6000]
+    entrance = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), R.ENTRANCES_FLOORS)[0]
+    check("...and leaves the cache built from the save it made",
+          (bus.sram[K["RANDO_PLACED"] - 0x6000], bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"],
+           rng_cache(bus) == R.build_rng(seed, 1),
+           list(bus.wram[rw("RW_ENTRMAP"):rw("RW_ENTRMAP") + 32]) == [c[0] for c in entrance]),
+          (1, True, True, True))
+    call(cpu, "rando_stale", bank=RANDO_BANK)
+    check("...so @Begin will not build it again", bool(cpu.p & 1), False)
+
 
 def test_rando_stir():
     pool = K["RANDO_POOL"] - 0x6000

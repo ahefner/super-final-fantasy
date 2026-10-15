@@ -505,16 +505,24 @@ rando_stir:
 ;;  Called from opt_freestuff, at the top of NewGamePartyGeneration, after
 ;;  page 0 of unsram has been filled from lut_InitUnsramFirstPage.  Takes the
 ;;  seed from the pool (or from FFSEED, in a debug build) and copies the
-;;  settings screen's new-game rows in beside it.  The cache is rebuilt at
-;;  GameStart's @Begin, which follows party creation: its tag no longer
-;;  matches the save.
+;;  settings screen's new-game rows in beside it, places the key items, and
+;;  builds the cache: all of New Game's work in one pause, before the party
+;;  is rolled.  Party creation touches neither page 0 nor the cache, so
+;;  GameStart's @Begin, which follows it, finds the cache whole and only
+;;  compares the tag.
+;;
+;;  Nothing calls the music driver meanwhile, and the SPC700 would hold the
+;;  title's last note through it: silence first, as @Begin does.  Party
+;;  creation turns the channels back on as it starts (its LDA #$0F, $4015).
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+.import DisableAPU
 rando_newgame:
     PHP
     PHX
+    JSR DisableAPU              ; the fixed bank's, stamped into this chunk
 .ifdef FORCE_SEED
     ;  FFSEED=xxxxxxxx ./build.sh: every new game gets this seed, so a world
     ;  can be reproduced on a console without a battery file.
@@ -548,6 +556,8 @@ rando_newgame:
     STA f:RANDO_GIVENFAR + 1
     ;  ...and where its key items are, under Key items Standard or Wide.
     JSL rando_place + RANDOFAR
+    ;  ...and the world itself, now rather than at @Begin.
+    JSL rando_ensure + RANDOFAR
     PLX
     PLP
     RTL
@@ -562,8 +572,8 @@ rando_newgame:
 ;;  *last*, so a reset pressed mid-build leaves a cache that reads as invalid
 ;;  rather than as finished.
 ;;
-;;  rando_ensure is the JSL entry for @Begin and the harness; consumers JSR
-;;  ensure.  rando_stale asks without building: @Begin silences the music
+;;  rando_ensure is the JSL entry for New Game, @Begin and the harness;
+;;  consumers JSR ensure.  rando_stale asks without building: @Begin silences the music
 ;;  first when the answer is yes, since nothing calls the driver during a
 ;;  build.  Out: C set if ensure would build.  A is zero, X is clobbered.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

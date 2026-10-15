@@ -1737,6 +1737,16 @@ Where it departs from the plan below or from §1:
     and keeps its music.  Still to come, as the playtester put it: the build
     after party creation and flag selection on a black screen, and a
     "thinking" sound if it grows much longer.
+  - **New Game builds it before party creation (user, 2026-10-14).**  With
+    placement at New Game and the cache at `@Begin`, a new game paused on
+    both sides of the party roll.  `rando_newgame` now silences the music,
+    places, and builds the cache (`JSL rando_ensure`), so all of a new
+    game's randomization happens together between the settings and the
+    party-select screen -- where it has to be once a flag randomizes the
+    classes (user) -- and `@Begin` after party creation only compares the
+    tag.  Party creation touches neither page 0 nor the cache, and turns
+    the channels back on itself as it starts.  `@Begin` still builds for a
+    Continue whose cache is cold.
   - **The read-only view on Continue, built 2026-10-09** (Select on
     Continue; `options-design.md`, "Save view"): the saved game's seed and
     RANDOMIZATION rows.  The rest of item 1's minimum UI -- seed entry, and
