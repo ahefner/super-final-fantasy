@@ -86,6 +86,7 @@ pNCHAOS  = .LOWORD(RP_NCHAOS)
 pGROUP   = .LOWORD(RP_GROUP)
 pFWD     = .LOWORD(RP_FWD)
 pESK     = .LOWORD(RP_ESK)
+pTUNE    = .LOWORD(RP_TUNE)
 pGRP     = .LOWORD(RP_GRP)
 
 W1             = 1024          ; a weight of 1.0
@@ -197,6 +198,8 @@ pl_shuffled:
     .a16
     JSR pl_items
     STZ a:pESK
+    LDA #TUNE_LOOSE             ; FFR's unsafe tables, as under its Entrances
+    STA a:pTUNE
   @world:
     LDA a:pESK
     CMP #ES_ATTEMPTS
@@ -249,6 +252,7 @@ pl_shuffled:
     STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     REP #$20
     .a16
+    STZ a:pTUNE                 ; the vanilla world's: the safe tables
     JSR pl_masks
     JSR pl_vanilla
     JSR pl_items
@@ -1224,10 +1228,13 @@ pl_mine:
 
 ;;  Item pK's weight at bin weight A: none before its cycle or with too few
 ;;  places reached; the TAIL and gear at half, from cycle ten; a key item at
-;;  its share, in quarters.
+;;  its share, in quarters.  From the tables pTUNE picks.  X clobbered.
 pl_weight:
     STA a:pT
-    LDX a:pK
+    LDA a:pK
+    CLC
+    ADC a:pTUNE
+    TAX
     LDA f:RANDOFAR + lut_PlaceMinAccess, X
     AND #$00FF
     STA a:pT2
@@ -1240,7 +1247,8 @@ pl_weight:
     LDA a:pCYCLE
     CMP a:pT2
     BCC @none
-    CPX #PLACE_KEYS
+    LDA a:pK
+    CMP #PLACE_KEYS
     BCS @nonkey
     LDA f:RANDOFAR + lut_PlaceQ, X
     AND #$00FF
@@ -1841,6 +1849,22 @@ lut_PlaceMinCycle:              ; FFR's safe minimum cycles
 lut_PlaceMinAccess:             ; ...and fewest places reached
   .BYTE 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 75, 0, 50, 0, 0, 0, 0
   .BYTE 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+;  FFR's unsafe tables, which it uses whenever Entrances is on, so here under
+;  Map shuffle (pTUNE; randoref.py's TUNE_LOOSE): on a shuffled world the
+;  CHIME, CUBE and OXYALE can open somewhere early, so they lose their late
+;  limits and the CHIME and OXYALE weigh more; the LUTE, which opens the end
+;  however the doors fall, waits for cycle ten.  BRIDGE 2.0 still.
+lut_PlaceQLoose:
+  .BYTE 1, 3, 3, 3, 1, 3, 3, 3, 4, 4, 1, 5, 4, 3, 5, 3, 4, 8, 4
+lut_PlaceMinCycleLoose:
+  .BYTE 10, 0, 0, 0, 5, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 3, 2, 0, 0
+  .BYTE 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+lut_PlaceMinAccessLoose:
+  .BYTE 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 5, 0, 0, 0, 0
+  .BYTE 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+TUNE_LOOSE = lut_PlaceQLoose - lut_PlaceQ
+.assert lut_PlaceMinCycleLoose - lut_PlaceMinCycle = TUNE_LOOSE, error, "the loose tables one offset from the safe"
+.assert lut_PlaceMinAccessLoose - lut_PlaceMinAccess = TUNE_LOOSE, error, "the loose tables one offset from the safe"
 .assert lut_PlaceQ - lut_PlaceLBit = PLACE_KEYS, error, "lut_PlaceLBit: one per key item"
 .assert lut_PlaceMinCycle - lut_PlaceQ = PLACE_KEYS, error, "lut_PlaceQ: one per key item"
 .assert lut_PlaceMinAccess - lut_PlaceMinCycle = PLACE_ITEMS, error, "lut_PlaceMinCycle: one per item"

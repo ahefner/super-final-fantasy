@@ -827,6 +827,8 @@ until the rewards change.
     stay where they are.  It uses FFR's safe tables, as FFR does on its own
     map without Entrance shuffle, and its BRIDGE at 2.0, which FFR sets for
     that map -- the prototype had the unsafe ones, built for the shuffle.
+    Under Map shuffle it uses the unsafe ones, as FFR does whenever
+    Entrances is on (§9.3, "Placement's tables"); the BRIDGE stays at 2.0.
   - **Forward placement** (user, 2026-10-14; built, early places spot-checked the same day, not yet played).  The
     first playtest's seed (D1625106: Wide, every key item loose but the free
     BRIDGE and KEY, four gear incentives) put nine loose items in places
@@ -1681,6 +1683,20 @@ reference byte for byte by `test_options.py`:
     its Continue costs nothing new.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
+  - **Placement's tables** (`pTUNE`, `lut_Place*Loose`; `TUNE_LOOSE`;
+    user, 2026-10-14, tied to the mode rather than a row of its own, to keep
+    FFR's flags down): under the shuffle, FFR's unsafe tables, which FFR
+    takes whenever Entrances is on (`PredictivePlacement.cs`).  On a
+    shuffled world the CHIME, CUBE and OXYALE can open somewhere early, so
+    they lose their late limits -- the CUBE no longer waits for 75 places
+    reached, nor the CHIME for 60 or the OXYALE for 50 (5 each), and none
+    for a cycle -- and the CHIME and OXYALE weigh 1.25 where they weighed
+    0.25, the CUBE 1.0; the LUTE, which opens the end however the doors
+    fall, now waits for cycle 10.  Measured over 250 seeds of five settings
+    in each mode, it changes neither how many placement attempts fail nor
+    how many wirings New Game tries, within a few points either way, and no
+    seed went without a world under either.  The fallback to the vanilla
+    world puts the safe tables back (`test_es_place` forces it).
   - **No Princess warp** (`rando_princesswarp`, `randoprincess.patch`;
     `test_rando_princess`; user, 2026-10-14): under the shuffle, rescuing
     the Princess no longer teleports the party to Coneria Castle 2F

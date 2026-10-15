@@ -947,6 +947,35 @@ def test_es_place():
     check("Key items Vanilla: no placement, and the entrances stay put",
           (cart[0], cart[2], cart[3], cart[4]), (0, 0, 0, R.ENTRANCES_OFF))
 
+    #  ...and the fallback, which no seed tried has needed: a cart whose
+    #  New Game has no attempts places the vanilla world's way, on FFR's safe
+    #  tables -- the shuffle's loose ones put back -- and clears the mode.
+    rom = bytearray(ROMDATA)
+    esk = K["RP_ESK"] & 0xFFFF
+    at = (RANDO_BANK - 0xA0) * 0x10000
+    op = bytes([0xAD, esk & 0xFF, esk >> 8, 0xC9, R.ES_ATTEMPTS, 0x00, 0xB0])
+    i = bytes(rom[at + 0x8000:at + 0xC000]).find(op)
+    check("pl_shuffled's attempt count found", i >= 0, True)
+    rom[at + 0x8000 + i + 4] = 0                        # CMP #0: no attempts
+    cfg = PLACE_CONFIGS["beginner"]
+    bus = Bus(bytes(rom))
+    cpu = CPU(bus)
+    cpu.dbr = 0xA7
+    sv = bus.sram
+    seed = 3
+    sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+    sv[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+    sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+    sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+    sv[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+    sv[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
+    p = K["RANDO_PLACE"] - 0x6000
+    check("...the safe tables' placement, not the loose ones' (which differ here)",
+          (list(sv[p:p + K["PLACE_ITEMS"]]) == R.build_placement(seed, *cfg),
+           R.build_placement(seed, *cfg) != R.build_placement(seed, *cfg, tune=R.TUNE_LOOSE),
+           sv[K["RANDO_ENTRANCES"] - 0x6000]), (True, True, R.ENTRANCES_OFF))
+
 def test_es_tables():
     """The teleport tables the game reads come from the cache: bank $00's own
     with entrance shuffle off, the save's wiring -- attempt RANDO_ESK in its

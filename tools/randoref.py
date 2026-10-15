@@ -1156,7 +1156,9 @@ def es_dock(c, masks, req, roots):
 #  which changes nothing about the odds; up to PLACE_ATTEMPTS tries before
 #  giving up, where FFR stops at three, and then key items stay where they
 #  are.  FFR's safe tables, as it uses on its own map without Entrance
-#  shuffle, and its BRIDGE at 2.0, which it sets for that map.  And forward
+#  shuffle, and its unsafe ones under Map shuffle, as it does under
+#  Entrances (TUNE_LOOSE); its BRIDGE at 2.0 in both, which it sets for the
+#  vanilla overworld.  And forward
 #  placement, always, without FFR's spread placement (_forward); and
 #  progression first, which FFR has not (_first).
 import logicdata as _L
@@ -1178,6 +1180,16 @@ PLACE_TAIL = 19
 PLACE_GEAR = 20
 MIN_CYCLE = {"KEY": 5, "SHIP": 2, "CANOE": 3, "FLOATER": 10, "CHIME": 5, "CUBE": 7, "OXYALE": 5}
 MIN_ACCESS = {"CHIME": 60, "CUBE": 75, "OXYALE": 50}
+#  FFR's unsafe tables, which it uses whenever Entrances is on
+#  (PredictivePlacement.cs): on a shuffled world the CHIME, CUBE and OXYALE
+#  can open somewhere early, so they lose their late limits and the CHIME and
+#  OXYALE weigh more; the LUTE, which opens the end however the doors fall,
+#  waits for cycle ten.  The BRIDGE stays at 2.0, the vanilla overworld's.
+LOOSE_Q = {"CHIME": 5, "CUBE": 4, "OXYALE": 5}
+MIN_CYCLE_LOOSE = {"KEY": 5, "SHIP": 2, "CANOE": 3, "FLOATER": 10, "LUTE": 10}
+MIN_ACCESS_LOOSE = {"CHIME": 5, "CUBE": 5, "OXYALE": 5}
+TUNE_SAFE = ({}, MIN_CYCLE, MIN_ACCESS)
+TUNE_LOOSE = (LOOSE_Q, MIN_CYCLE_LOOSE, MIN_ACCESS_LOOSE)
 NONKEY_MIN_CYCLE = 10
 CRIT_NON, SAFE_NON, CRIT_INC, SAFE_INC = 5, 20, 2, 3
 W1 = 1024                       # a weight of 1.0
@@ -1256,28 +1268,30 @@ def place_accessible(masks, placed, owned):
         owned |= gained
 
 
-def _weight(i, w, cycle, access):
+def _weight(i, w, cycle, access, tune):
     name, q = PLACE_ITEMS[i]
-    if access < MIN_ACCESS.get(name, 0) or cycle < MIN_CYCLE.get(name, 0):
+    qs, min_cycle, min_access = tune
+    q = qs.get(name, q)
+    if access < min_access.get(name, 0) or cycle < min_cycle.get(name, 0):
         return 0
     if i >= PLACE_KEYS:
         return 0 if cycle < NONKEY_MIN_CYCLE else w >> 1
     return (w * q) >> 2
 
 
-def _bins(cands, b0, b1, b2, b3, red, cycle, access, key, lo, hi):
+def _bins(cands, b0, b1, b2, b3, red, cycle, access, key, lo, hi, tune):
     out = []
     for i, cnt in cands:
         c = cnt[key]
         if c < 0:
-            out.append((_weight(i, b0, cycle, access), i))
+            out.append((_weight(i, b0, cycle, access, tune), i))
         elif c < lo:
-            out.append((_weight(i, b1, cycle, access), i))
+            out.append((_weight(i, b1, cycle, access, tune), i))
         elif c < hi:
-            out.append((_weight(i, b2, cycle, access), i))
+            out.append((_weight(i, b2, cycle, access, tune), i))
     w = b3
     for i, cnt in sorted((x for x in cands if x[1][key] >= hi), key=lambda x: (x[1][key], x[0])):
-        out.append((_weight(i, w, cycle, access), i))
+        out.append((_weight(i, w, cycle, access, tune), i))
         w >>= red
     return out
 
@@ -1350,7 +1364,7 @@ def _first(wc, cs):
     return keep if sum(w for w, _ in keep) else wc
 
 
-def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None):
+def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tune=TUNE_SAFE):
     incentives = set(inc0)
     n_inc_pool = len(inclocs)
     while len(incentives) > n_inc_pool:
@@ -1410,13 +1424,13 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None):
             nonkey = [i for i in remaining if i >= PLACE_KEYS and i in incentives]
             n = len(inc_src)
             if n <= 1 or (n <= CRIT_INC and SHIP in keys and CANAL in keys):
-                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "inc", 1, 2)
+                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "inc", 1, 2, tune)
             elif n <= SAFE_INC:
-                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "inc", 1, 2)
-                wc += [(_weight(i, W1 // 2, cycle, access), i) for i in nonkey]
+                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "inc", 1, 2, tune)
+                wc += [(_weight(i, W1 // 2, cycle, access, tune), i) for i in nonkey]
             else:
-                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "inc", 1, 2)
-                wc += [(_weight(i, W1, cycle, access), i) for i in nonkey]
+                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "inc", 1, 2, tune)
+                wc += [(_weight(i, W1, cycle, access, tune), i) for i in nonkey]
             if sum(w for w, _ in wc) == 0 and len(inc_items) <= n:
                 wc += [(W1, i) for i in inc_items]
             if sum(w for w, _ in wc) == 0:
@@ -1429,13 +1443,13 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None):
             nonkey = [i for i in remaining if i >= PLACE_KEYS and i not in incentives]
             n = len(non_src)
             if n <= CRIT_NON:
-                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "non", 5, 20)
+                wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "non", 5, 20, tune)
             elif n <= SAFE_NON:
-                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "non", 5, 20)
-                wc += [(_weight(i, W1 // 2, cycle, access), i) for i in nonkey]
+                wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "non", 5, 20, tune)
+                wc += [(_weight(i, W1 // 2, cycle, access, tune), i) for i in nonkey]
             else:
-                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "non", 5, 20)
-                wc += [(_weight(i, W1, cycle, access), i) for i in nonkey]
+                wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "non", 5, 20, tune)
+                wc += [(_weight(i, W1, cycle, access, tune), i) for i in nonkey]
             wc = _first(wc, cs)
             if sum(w for w, _ in wc) == 0:
                 if cycle >= 15 and state != "normal":
@@ -1472,7 +1486,7 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None):
 
 
 def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STREAM_KEYS,
-                    attempts=PLACE_ATTEMPTS):
+                    attempts=PLACE_ATTEMPTS, tune=None):
     """Where each item goes: a list in PLACE_ITEMS order of cartridge location
     indices, $FF for an item not placed (free, or gear left as Treasure);
     None under Key items Vanilla, and None too if every attempt failed."""
@@ -1483,9 +1497,11 @@ def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STR
         masks, chaos, spread = world
     else:
         chaos = spread = None
+    if tune is None:
+        tune = TUNE_SAFE if world is None else TUNE_LOOSE
     rng = Stream(seed, stream)
     for _ in range(attempts):
-        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread)
+        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune)
         if placed is not None:
             out = [0xFF] * len(PLACE_ITEMS)
             for c, i in placed.items():
@@ -1506,7 +1522,7 @@ ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
 
 
-def build_world(seed, keyitems, items3, gear2, early, entrances):
+def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE) or entrances == ENTRANCES_OFF:
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
@@ -1524,7 +1540,7 @@ def build_world(seed, keyitems, items3, gear2, early, entrances):
             continue
         out = build_placement(seed, keyitems, items3, gear2, early,
                               world=(masks, chaos, groups), stream=STREAM_KEYS + k,
-                              attempts=ES_PLACE_ATTEMPTS)
+                              attempts=ES_PLACE_ATTEMPTS, tune=tune)
         if out is None:
             continue
         dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots)
