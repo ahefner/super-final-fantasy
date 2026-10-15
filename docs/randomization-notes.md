@@ -1794,8 +1794,8 @@ Where it departs from the plan below or from §1:
     tag.  Party creation touches neither page 0 nor the cache, and turns
     the channels back on itself as it starts.  `@Begin` still builds for a
     Continue whose cache is cold.
-  - **The roll screen (user, 2026-10-14; built 2026-10-15, not yet
-    played).**  The pause made entertaining.  While `rando_newgame` works,
+  - **The roll screen (user, 2026-10-14; built and played
+    2026-10-15, its pictures and sounds tuned by ear over the day).**  The pause made entertaining.  While `rando_newgame` works,
     the screen shows one of the game's map sprites scaled up eight times --
     every pixel a character cell, 128 pixels square on the window blue --
     walking in place, the seed choosing which -- its halves XORed and
