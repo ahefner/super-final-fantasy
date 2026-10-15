@@ -62,6 +62,62 @@ ON_BLACK = {0x12,              # Garland
             0x1D}              # the Vampire
 THROB = {0x1A: BLUE | FX_THROB | FX_SLOW}       # the Elf Prince, asleep
 COLOURS_FROM = {0x05: 20}      # Matoya: her cave's palette, not Gaia's
+#  Each sprite's voice: the step, 0 deepest to 7 highest, of the stage's
+#  scale its answer to the triangle starts on (roll.asm).  Big things low,
+#  small things high.  Trial values, to tune by ear.
+VOICE = {0x00: 6,  # the Princess
+         0x01: 3, 0x02: 5, 0x03: 4,
+         0x05: 5,  # Matoya
+         0x07: 2, 0x08: 3, 0x09: 4, 0x0A: 3, 0x0B: 2,
+         0x0C: 1,  # dwarves
+         0x0D: 7,  # the mermaid
+         0x0E: 3,
+         0x0F: 1,  # Astos, and the King
+         0x10: 6,  # Matoya's brooms
+         0x11: 7,  # bats
+         0x12: 0,  # Garland
+         0x13: 2,  # Bikke
+         0x14: 7,  # the fairy
+         0x15: 0,  # the robot
+         0x16: 1,  # the dragon
+         0x18: 5, 0x19: 5,  # elves
+         0x1A: 4,  # the Elf Prince
+         0x1C: 0,  # Titan
+         0x1D: 1}  # the Vampire
+CLASS_VOICE = [2, 4, 3, 4, 6, 5, 1, 5, 2, 4, 6, 5]   # Fighter .. Black Wizard
+
+#  The triangle's scales, one a stage (ROLLSTAGE_*), low to high: placing key
+#  items whole-tone, dealing the doors a C major pentatonic, the logic an A
+#  minor pentatonic below it, building the world a G major arpeggio.  As
+#  periods, 1789773 / (32 f) - 1; the pulse's answer plays the same periods,
+#  an octave above.  Each step's reach: how many steps up and down stay
+#  within a perfect fifth (seven semitones), the answer's widest leap (user).
+SCALES = ["D4 E4 F#4 G#4 A#4 C5 D5 E5",
+          "C5 D5 E5 G5 A5 C6 D6 E6",
+          "A3 C4 D4 E4 G4 A4 C5 D5",
+          "G4 B4 D5 G5 B5 D6 G6 B6"]
+FIFTH = 7
+
+
+def midi(note):
+    return 12 * (int(note[-1]) + 1) + ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
+                                       "B"].index(note[:-1])
+
+
+def tri_period(m):
+    return round(1789773 / (32 * 440 * 2 ** ((m - 69) / 12))) - 1
+
+
+def scales():
+    pitch, reach = [], []
+    for sc in SCALES:
+        ms = [midi(n) for n in sc.split()]
+        for i in range(8):
+            up = max(k for k in range(8 - i) if ms[i + k] - ms[i] <= FIFTH)
+            down = max(k for k in range(i + 1) if ms[i] - ms[i - k] <= FIFTH)
+            pitch.append(tri_period(ms[i]))
+            reach.append(up << 4 | down)
+    return pitch, reach
 
 #  The game's 2x2 tables, as (tile, attributes) for UL, DL, UR, DR, two
 #  frames each: lut_2x2MapObj_Down (lut_PlayerMapmanSprTbl's is the same but
@@ -113,7 +169,7 @@ def choices():
         fr = frames(b2[MAPOBJCHR + g * 0x100:][:256], LEFT if g == BAT else DOWN)
         out.append(("graphic $%02X (map %d)" % (g, COLOURS_FROM.get(g, first[g])), fr,
                     [col[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [col[p[0x1C + i] & 0x3F] for i in (1, 2, 3)],
-                    effect(g, fr)))
+                    effect(g, fr), VOICE[g]))
     ow = pal(0)
     for c in range(CLASSES):
         top, bot = list(ow[0x10:0x14]), list(ow[0x14:0x18])
@@ -121,7 +177,7 @@ def choices():
         fr = frames(b2[MAPMANCHR + c * 0x100:][:256], DOWN)
         out.append(("class %d" % c, fr,
                     [col[top[i] & 0x3F] for i in (1, 2, 3)] + [col[bot[i] & 0x3F] for i in (1, 2, 3)],
-                    effect(None, fr)))
+                    effect(None, fr), CLASS_VOICE[c]))
     return out
 
 
@@ -132,17 +188,30 @@ def main():
          "", "ROLL_SPRITES = %d" % len(cs), "",
          ";  Each: two frames of four tiles, UL UR DL DR, mirrored already; NES 2bpp.",
          "lut_RollChr:"]
-    for name, fr, _, _ in cs:
+    for name, fr, _, _, _ in cs:
         o.append("  ; " + name)
         for t in range(8):
             o.append("  .byte " + ", ".join("$%02X" % b for b in fr[t * 16:t * 16 + 16]))
     o += ["", ";  Each: the top half's colours 1-3, then the legs', SNES BGR.", "lut_RollPal:"]
-    for name, _, c, _ in cs:
+    for name, _, c, _, _ in cs:
         o.append("  .word " + ", ".join("$%04X" % v for v in c) + "   ; " + name)
     o += ["", ";  Each: 0 walks, 1 hops (its frames the same), or 2 the backdrop throbs:",
           ";  COLDATA's channels with it, and 1 for slow; $10 a black backdrop.", "lut_RollFx:"]
-    for name, _, _, fx in cs:
+    for name, _, _, fx, _ in cs:
         o.append("  .byte $%02X   ; %s" % (fx, name))
+    o += ["", ";  Each: its voice, the step 0-7 of the stage's scale its answer starts on.",
+          "lut_RollVoice:"]
+    for name, _, _, _, v in cs:
+        o.append("  .byte %d   ; %s" % (v, name))
+    pitch, reach = scales()
+    o += ["", ";  The triangle's scales, a stage each, as periods: " + "; ".join(SCALES) + ".",
+          "lut_RollPitch:"]
+    for k in range(4):
+        o.append("  .word " + ", ".join("$%03X" % v for v in pitch[k * 8:k * 8 + 8]))
+    o += ["", ";  Each step's reach within a fifth: steps up in the high nibble, down in the low.",
+          "lut_RollReach:"]
+    for k in range(4):
+        o.append("  .byte " + ", ".join("$%02X" % v for v in reach[k * 8:k * 8 + 8]))
     open(DST, "w").write("\n".join(o) + "\n")
 
 

@@ -2000,9 +2000,10 @@ text region in the game references.
     BANK_WORLD  11914 free  entrance shuffle's code (4430): the wiring, the
                              seed's logic, roots, groups, the dock, and the
                              landing tables; the roll screen's yields 40
-    BANK_ROLL    9745 free  New Game's roll screen (6639): its code, and
-                             38 pictures' resolved frames, colours and
-                             effects (5358, from tools/genroll.py)
+    BANK_ROLL    9233 free  New Game's roll screen (7151): its code, and
+                             38 pictures' resolved frames, colours,
+                             effects and voices, the scales and their
+                             reach (from tools/genroll.py)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

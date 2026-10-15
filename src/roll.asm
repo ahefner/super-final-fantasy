@@ -5,8 +5,8 @@
 ;  cache -- the screen shows one of the game's map sprites scaled up eight
 ;  times, every pixel a character cell, walking in place, and the triangle
 ;  plays a little tune the roll itself writes: each stage its own scale, each
-;  note a step of a walk the seed's draws choose, and a yelp from the first
-;  pulse whenever a placement or a wiring is thrown away.  When the roll is
+;  note a step of a walk the seed's draws choose, and the first pulse answers
+;  it, two notes in its key, whenever a placement or a wiring is thrown away.  When the roll is
 ;  done the sprite goes on walking through the key item fanfare, fades, and
 ;  party creation follows (user, 2026-10-14).  The seed picks the sprite, from
 ;  every creature a map stands up and the twelve classes (tools/genroll.py).
@@ -45,7 +45,8 @@
 
 .export roll_begin, roll_tick, roll_end
 ;  For tools/test_options.py.
-.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick
+.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick, lut_RollReach, lut_RollVoice
+.export lut_RollEnv, lut_PhraseLen, lut_PhraseEnv
 
 .import CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
@@ -61,7 +62,19 @@ ROLL_LEFT       = 8
 ROLL_STEPTICKS  = 8             ; a step every eight frames
 ROLL_NOTETICKS  = 6             ; a note every six...
 ROLL_GATETICKS  = 4             ; ...sounding for four
-ROLL_YELPTICKS  = 6             ; five ticks heard, then off
+;  The pulse's answer to the triangle (user, 2026-10-15), whenever something
+;  is thrown away -- a placement attempt, a wiring: a phrase in the stage's
+;  own scale, an octave above the triangle, starting with the tune's next
+;  note.  The first and second are a pair of notes at half the tune's tempo,
+;  two beats each: the sprite's step of the scale (lut_RollVoice), then a
+;  step or more up or down from it, within a fifth (lut_RollReach).  The
+;  third is a run of four at twice that speed, a beat each, the last held
+;  three, a step or two at a time one way through the scale.  Then round
+;  again.  Which way and how far, bits of the PRNG's state choose.  Asked
+;  for while one waits or plays, it is dropped: nothing queues, so none goes
+;  on after the failures stop.  Every note starts on a beat.
+PHRASE_PAIR     = 0
+PHRASE_RUN      = 1
 ROLL_BACKDROP   = NESCOL_01     ; the game's window blue
 FANFARE         = $54           ; the key item fanfare (DialogueBox_Sfx's)
 MUSIC_DONE      = $81           ; music_track once a fanfare has finished
@@ -547,79 +560,72 @@ roll_frame:
 roll_sound:
     .a8
     .i8
-    ;  A yelp asked for starts now -- unless one is still playing, which is
-    ;  not cut short: the request is dropped, so a cluster of them is heard
-    ;  whole, note by note, where each had cut the last short and they ran
-    ;  together; and nothing queues, so none plays on after the failures
-    ;  stop (user, 2026-10-15).
+    ;  An answer asked for waits for the tune's next note -- unless one is
+    ;  waiting or playing already, when the asking is dropped.
     LDA f:ROLL_YREQ
-    BEQ @yelping
+    BEQ @armed
     LDA #0
     STA f:ROLL_YREQ
     LDA f:ROLL_YELP
-    BNE @yelping
-    LDA #ROLL_YELPTICKS
-    STA f:ROLL_YELP
-    ;  Its note: the next of the stage's own scale, climbing, two octaves
-    ;  above the triangle's -- its period halved, a pulse being an octave
-    ;  above a triangle at the same one -- so the yelps are in the tune's key
-    ;  (user: from the triangle's notes).
-    LDA f:ROLL_STAGE
-    AND #$03
-    ASL A
-    ASL A
-    ASL A
-    STA f:ROLL_HI
-    LDA f:ROLL_YNUM
-    INC A
-    STA f:ROLL_YNUM
-    DEC A
-    AND #$07
-    ORA f:ROLL_HI
-    ASL A
-    TAX
-    REP #$20
-    .a16
-    LDA lut_RollPitch, X
-    DEC A
-    LSR A                       ; (t - 1) / 2
-    STA f:ROLL_YPER
-    SEP #$20
-    .a8
-  @yelping:
+    ORA f:ROLL_YARM
+    BNE @armed
+    LDA #1
+    STA f:ROLL_YARM
+  @armed:
+    LDA f:ROLL_YARM
+    BEQ :+
+    LDA f:ROLL_NEXT
+    BEQ @start                  ; at 0 the tune's next note is this tick's
+:   JMP @answering
+  @start:
+    JSR roll_phrase
+  @answering:
     LDA f:ROLL_YELP
-    BEQ @gate
-    DEC A
-    STA f:ROLL_YELP
     BNE :+
-    LDA a:APUSHADOW + $15       ; done: the first pulse off
+    LDA a:APUSHADOW + $15       ; none: the first pulse off
     AND #$FE
     STA a:APUSHADOW + $15
-    BRA @gate
-:   ASL A                       ; louder the earlier: 9, 7, 5, 3, 1 (user:
-    DEC A                       ;   quieter than it was, twice)
-    ORA #$70                    ; a quarter duty, held, constant volume
+    JMP @gate
+:   LDA f:ROLL_YK               ; this note's envelope, at this tick...
+    ASL A
+    ASL A
+    ORA f:ROLL_YI
+    TAX
+    LDA lut_PhraseLen, X
+    STA f:ROLL_YSTEP
+    LDA lut_PhraseEnv, X
+    CLC
+    ADC f:ROLL_YT
+    TAY
+    LDA lut_RollEnv, Y
+    ORA #$B0                    ; half duty, held, constant volume
     STA a:APUSHADOW + 0
     LDA #$08
-    STA a:APUSHADOW + 1         ; no sweep: the tick falls it
-    LDA f:ROLL_YPER
+    STA a:APUSHADOW + 1         ; no sweep
+    LDA f:ROLL_YI               ; ...its note
+    TAX
+    LDA f:ROLL_YNOTES, X
+    ASL A
+    TAX
+    LDA lut_RollPitch, X
     STA a:APUSHADOW + 2
-    LDA f:ROLL_YPER + 1
+    LDA lut_RollPitch + 1, X
     STA a:APUSHADOW + 3
-    REP #$20
-    .a16
-    LDA f:ROLL_YPER             ; an eighth longer each tick: the pitch falls,
-    LSR A                       ;   about an octave over the yelp, so its
-    LSR A                       ;   note is still heard
-    LSR A
-    CLC
-    ADC f:ROLL_YPER
-    STA f:ROLL_YPER
-    SEP #$20
-    .a8
     LDA a:APUSHADOW + $15
     ORA #$01
     STA a:APUSHADOW + $15
+    LDA f:ROLL_YT               ; and on: the next tick, or the next note
+    INC A
+    CMP f:ROLL_YSTEP
+    BCC :+
+    LDA f:ROLL_YI
+    INC A
+    STA f:ROLL_YI
+    LDA f:ROLL_YELP
+    DEC A
+    STA f:ROLL_YELP
+    LDA #0
+:   STA f:ROLL_YT
 
   @gate:
     LDA f:ROLL_GATE
@@ -683,15 +689,166 @@ roll_sound:
 lut_RollWalk:
   .byte <-2, <-1, 1, 2
 
+;;  A new answer, on the beat: its phrase -- the pair twice, then the run --
+;;  and its notes, as steps of lut_RollPitch.  A8 X8.
+roll_phrase:
+    .a8
+    .i8
+    LDA #0
+    STA f:ROLL_YARM
+    STA f:ROLL_YT
+    STA f:ROLL_YI
+    LDA f:ROLL_YNUM
+    CMP #2
+    LDA #0
+    ROL A                       ; the third: the run
+    STA f:ROLL_YK
+    TAX
+    LDA lut_PhraseNotes, X
+    STA f:ROLL_YELP
+    LDA f:ROLL_YNUM
+    INC A
+    CMP #3
+    BCC :+
+    LDA #0
+:   STA f:ROLL_YNUM
+    ;  The first note: the sprite's step of the stage's scale.
+    LDA f:ROLL_PICK
+    TAX
+    LDA lut_RollVoice, X
+    STA f:ROLL_HI
+    LDA f:ROLL_STAGE
+    AND #$03
+    ASL A
+    ASL A
+    ASL A
+    ORA f:ROLL_HI
+    TAX                         ; stage * 8 + step
+    STA f:ROLL_YNOTES
+    LDA f:RW_RNG + 1            ; which way: a bit of the PRNG's state
+    AND #$01
+    STA f:ROLL_YDIR
+    LDA f:ROLL_YK
+    BNE @run
+    ;  The pair's second: 1 to as many steps as there is room for within a
+    ;  fifth, the state's third byte choosing.
+    JSR roll_room
+    STA f:ROLL_YSTEP
+    LDA f:RW_RNG + 2
+:   CMP f:ROLL_YSTEP
+    BCC :+
+    SBC f:ROLL_YSTEP
+    BRA :-
+:   INC A
+    JSR roll_move
+    TXA
+    STA f:ROLL_YNOTES + 1
+    RTS
+  @run:
+    ;  The run's: a step or two each, a bit of the third byte apiece, as
+    ;  room allows.
+    LDA f:RW_RNG + 2
+    STA f:ROLL_HI
+    JSR @step
+    STA f:ROLL_YNOTES + 1
+    JSR @step
+    STA f:ROLL_YNOTES + 2
+    JSR @step
+    STA f:ROLL_YNOTES + 3
+    RTS
+  @step:
+    JSR roll_room
+    STA f:ROLL_YSTEP
+    LDA f:ROLL_HI
+    LSR A
+    STA f:ROLL_HI
+    LDA #0
+    ROL A
+    INC A                       ; 1 or 2...
+    CMP f:ROLL_YSTEP
+    BCC :+
+    LDA f:ROLL_YSTEP            ; ...if there is room
+:   JSR roll_move
+    TXA
+    RTS
 
-;;  Each stage's scale, as triangle periods (1789773 / (32 f) - 1), low to
-;;  high: ROLLSTAGE_PLACE whole-tone D4-E5, _WIRING C major pentatonic C5-E6,
-;;  _LOGIC A minor pentatonic A3-D5, _BUILD a G major arpeggio G4-B6.
-lut_RollPitch:
-  .word $0BD, $0A9, $096, $086, $077, $06A, $05E, $054
-  .word $06A, $05E, $054, $046, $03F, $034, $02F, $029
-  .word $0FD, $0D5, $0BD, $0A9, $08E, $07E, $06A, $05E
-  .word $08E, $070, $05E, $046, $038, $02F, $023, $01B
+;;  The room from step X (stage * 8 + step) the answer's way, ROLL_YDIR,
+;;  within a fifth -- turning about where there is none.  Out: A = 1 to 3.
+;;  X kept.
+roll_room:
+    LDA lut_RollReach, X
+    STA f:ROLL_YSTEP
+    LDA f:ROLL_YDIR
+    BEQ @down
+    LDA f:ROLL_YSTEP
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    BNE @out
+    LDA #0
+    STA f:ROLL_YDIR             ; no room up: down
+    LDA f:ROLL_YSTEP
+    AND #$0F
+    RTS
+  @down:
+    LDA f:ROLL_YSTEP
+    AND #$0F
+    BNE @out
+    LDA #1
+    STA f:ROLL_YDIR             ; no room down: up
+    LDA f:ROLL_YSTEP
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+  @out:
+    RTS
+
+;;  X moved A steps the answer's way.
+roll_move:
+    STA f:ROLL_YSTEP
+    LDA f:ROLL_YDIR
+    BEQ :+
+    TXA
+    CLC
+    ADC f:ROLL_YSTEP
+    TAX
+    RTS
+:   TXA
+    SEC
+    SBC f:ROLL_YSTEP
+    TAX
+    RTS
+
+;;  The phrases: how many notes; each note's length in ticks and its
+;;  envelope, an offset into lut_RollEnv -- the pair's two beats each, the
+;;  run's one beat each and the last held three.  Every length a whole
+;;  number of beats, so every note starts on one.
+lut_PhraseNotes:
+  .byte 2, 4
+lut_PhraseLen:
+  .byte 2 * ROLL_NOTETICKS, 2 * ROLL_NOTETICKS, 0, 0
+  .byte ROLL_NOTETICKS, ROLL_NOTETICKS, ROLL_NOTETICKS, 3 * ROLL_NOTETICKS
+lut_PhraseEnv:
+  .byte ENV_ON, ENV_LAST, 0, 0
+  .byte ENV_SHORT, ENV_SHORT, ENV_SHORT, ENV_HOLD
+
+;;  The volumes, tick by tick: each note fades from 8; one with another after
+;;  it stops early, so the next is a note of its own.
+lut_RollEnv:
+ENV_ON = * - lut_RollEnv
+  .byte 8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 0, 0
+ENV_LAST = * - lut_RollEnv
+  .byte 8, 8, 7, 7, 6, 6, 5, 5, 4, 3, 2, 1
+ENV_SHORT = * - lut_RollEnv
+  .byte 8, 7, 6, 5, 4, 0
+ENV_HOLD = * - lut_RollEnv
+  .byte 8, 8, 8, 7, 7, 7, 6, 6, 6, 5, 5, 5, 4, 4, 3, 3, 2, 1
+  .assert ENV_LAST - ENV_ON = 2 * ROLL_NOTETICKS, error, "the pair's notes two beats long"
+  .assert ENV_SHORT - ENV_LAST = 2 * ROLL_NOTETICKS, error, "the pair's notes two beats long"
+  .assert ENV_HOLD - ENV_SHORT = ROLL_NOTETICKS, error, "the run's notes a beat long"
+  .assert * - lut_RollEnv - ENV_HOLD = 3 * ROLL_NOTETICKS, error, "the run's last held three beats"
 
 
 ;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the

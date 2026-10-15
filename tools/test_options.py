@@ -6362,43 +6362,109 @@ def test_roll():
            [0x06A, 0x05E, 0x054, 0x046, 0x03F, 0x034, 0x02F, 0x029],
            [0x0FD, 0x0D5, 0x0BD, 0x0A9, 0x08E, 0x07E, 0x06A, 0x05E],
            [0x08E, 0x070, 0x05E, 0x046, 0x038, 0x02F, 0x023, 0x01B]])
-    #  The yelps, against a model: one asked for starts at once, unless one is
-    #  still playing -- then the asking is dropped, not queued; its note the
-    #  next of the stage's scale, climbing, two octaves above the triangle's --
-    #  the period (t - 1) / 2 -- heard five ticks, 9 7 5 3 1, an eighth longer
-    #  each tick, then off.
-    def model(stage, asks, count):
-        yelp, num, per, out = 0, 0, 0, []
+    #  The pulse's answer, against a model.  Asked for, it waits for the
+    #  triangle's next note -- every six ticks, from the first -- and starts
+    #  with it; asked for while one waits or plays, the asking is dropped.
+    #  Its phrase in turn: a pair, a pair, a run, round again.  A pair is two
+    #  notes of two beats: the sprite's step, then 1 + the PRNG state's third
+    #  byte modulo the room within a fifth, up as its second byte's low bit
+    #  says unless there is no room that way.  A run is four notes, a beat
+    #  each and the last held three, each a step or two (a bit of the third
+    #  byte apiece) the same way, as room allows, turning where there is
+    #  none.  The notes at the triangle's periods; each fades from 8, one
+    #  with another after it ending early.
+    roll_rd = lambda a, n: ROMDATA[roll + a:roll + a + n]
+    reach = list(roll_rd(SYM["lut_RollReach"], 32))
+    voice = list(roll_rd(SYM["lut_RollVoice"], n))
+    ON, LAST = [8, 8, 7, 7, 6, 6, 5, 5, 4, 4, 0, 0], [8, 8, 7, 7, 6, 6, 5, 5, 4, 3, 2, 1]
+    SHORT, HOLD = [8, 7, 6, 5, 4, 0], [8, 8, 8, 7, 7, 7, 6, 6, 6, 5, 5, 5, 4, 4, 3, 3, 2, 1]
+    ENVS = ([ON, LAST], [SHORT, SHORT, SHORT, HOLD])
+
+    def room(x, up):
+        u, d = reach[x] >> 4, reach[x] & 15
+        if up:
+            return (u, True) if u else (d, False)
+        return (d, False) if d else (u, True)
+
+    def phrase(stage, pick, r1, r2, run):
+        x = stage * 8 + voice[pick]
+        notes, up = [x], bool(r1 & 1)
+        if not run:
+            rm, up = room(x, up)
+            return notes + [x + (1 + r2 % rm) * (1 if up else -1)]
+        bits = r2
+        for _ in range(3):
+            rm, up = room(x, up)
+            x += min(1 + (bits & 1), rm) * (1 if up else -1)
+            bits >>= 1
+            notes.append(x)
+        return notes
+
+    def model(stage, pick, r1, r2, asks, count):
+        armed, left, num, out = False, 0, 0, []
         for t in range(count):
-            if t in asks and yelp == 0:
-                yelp = 6
-                per = (pitch[stage * 8 + (num & 7)] - 1) >> 1
-                num += 1
-            if yelp:
-                yelp -= 1
-                if yelp:
-                    out.append((0x70 | (2 * yelp - 1), per, 1))
-                    per += per >> 3
-                    continue
-            out.append(None)
+            if t in asks and not armed and not left:
+                armed = True
+            if armed and t % 6 == 0:
+                run = num == 2
+                num = (num + 1) % 3
+                armed, env, notes, k, tt = False, ENVS[run], phrase(stage, pick, r1, r2, run), 0, 0
+                left = len(notes)
+            if left:
+                out.append((0xB0 | env[k][tt], pitch[notes[k]], 1))
+                tt += 1
+                if tt == len(env[k]):
+                    k, tt, left = k + 1, 0, left - 1
+            else:
+                out.append(None)
         return out
 
-    for stage, asks in ((0, set(range(30))), (3, {0, 2, 4, 9, 20})):
+    by_voice = {v: voice.index(v) for v in range(8)}
+    for stage, pick, r1, r2, asks in ((0, by_voice[0], 0x01, 2, set(range(130))),
+                                      (3, by_voice[7], 0x00, 5, {2, 9, 31, 33, 50, 75, 100})):
         bus, cpu = machine()
         bus.wram[rw("ROLL_STAGE")] = stage
+        bus.wram[rw("ROLL_PICK")] = pick
+        bus.wram[rw("RW_RNG") + 1], bus.wram[rw("RW_RNG") + 2] = r1, r2
         cpu.e = False
         seen, notes = [], []
-        for t in range(30):
+        for t in range(130):
             if t in asks:
                 bus.wram[rw("ROLL_YREQ")] = 1
             cpu.run(ROLL_BANK, SYM["roll_tick"])
             sh = bus.wram[0x900:0x916]
             seen.append((sh[0], sh[2] | sh[3] << 8, 1) if sh[0x15] & 1 else None)
             notes.append(bus.wram[rw("ROLL_GATE")])
-        check("stage %d: each yelp heard whole, climbing its scale; none asked for while one plays" % stage,
-              seen, model(stage, asks, 30))
+        check("stage %d: pair, pair, run, each with the tune's next note; none asked for while one plays"
+              % stage, seen, model(stage, pick, r1, r2, asks, 130))
+
+    #  Every phrase's notes, every stage, voice and choice: in the scale, and
+    #  no leap more than a fifth -- a frequency ratio within 1.5, give or take
+    #  the periods' rounding (frequency goes as 1 / (period + 1); A5 to E6 is
+    #  1.524) where a minor sixth would be 1.587.
+    bad = []
+    for stage in range(4):
+        for v in range(8):
+            for r1 in (0, 1):
+                for r2 in range(8):
+                    for num, run in ((0, False), (2, True)):
+                        bus, cpu = machine()
+                        bus.wram[rw("ROLL_STAGE")] = stage
+                        bus.wram[rw("ROLL_PICK")] = by_voice[v]
+                        bus.wram[rw("RW_RNG") + 1], bus.wram[rw("RW_RNG") + 2] = r1, r2
+                        bus.wram[rw("ROLL_YNUM")] = num
+                        bus.wram[rw("ROLL_YREQ")] = 1
+                        cpu.e = False
+                        cpu.run(ROLL_BANK, SYM["roll_tick"])
+                        got = list(bus.wram[rw("ROLL_YNOTES"):rw("ROLL_YNOTES") + (4 if run else 2)])
+                        ps = [pitch[x] for x in got]
+                        if got != phrase(stage, by_voice[v], r1, r2, run) or \
+                                any(not stage * 8 <= x < stage * 8 + 8 for x in got) or \
+                                any(a == b or (max(a, b) + 1) / (min(a, b) + 1) > 1.53 for a, b in zip(ps, ps[1:])):
+                            bad.append((stage, v, r1, r2, run, got))
+    check("...every phrase's notes in its scale, no leap past a fifth", bad[:4], [])
     check("...a note every six ticks (it was seven), sounding four",
-          [t for t, g in enumerate(notes) if g == 4], [0, 6, 12, 18, 24])
+          [t for t, g in enumerate(notes) if g == 4], list(range(0, 130, 6)))
     bus, cpu = machine()
     cpu.e = False
     seen = []
@@ -6450,8 +6516,8 @@ def test_roll():
     unique = [{0x096, 0x086, 0x077}, {0x03F, 0x034, 0x029}, {0x0FD, 0x0D5, 0x07E}, {0x070, 0x038, 0x023, 0x01B}]
     check("the tune: every note from a scale, every stage's scale heard",
           (periods <= set(pitch), [bool(u & periods) for u in unique]), (True, [True] * 4))
-    check("...a yelp among it (this seed throws six wirings away)",
-          any(a == 0x900 and val & 0xF0 == 0x70 for a, val, _ in roll_only(log)), True)
+    check("...an answer among it (this seed throws six wirings away)",
+          any(a == 0x900 and val & 0xF0 == 0xB0 for a, val, _ in roll_only(log)), True)
     mus = [val for a, val, _ in log if a == K["music_track"]]
     check("...the key item fanfare, played out, then the title's music again",
           (mus[0], MUSIC_DONE in mus, mus[-1], bus.wram[K["music_track"]], bus.wram[rw("ROLL_ON")]),

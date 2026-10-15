@@ -1828,18 +1828,26 @@ Where it departs from the plan below or from §1:
     by `rando_coldbuild`; no track after it, the overworld starting its
     own.  A soft reset's Continue still only compares the tag.  The
     triangle plays a tune the roll writes: each stage its own scale --
-    placing key items whole-tone, dealing the doors a high pentatonic,
-    working out the logic a low one, building the world a G major arpeggio
-    -- each note a step of a walk two bits of the PRNG's state choose; and
-    the first pulse yelps, falling, whenever a placement attempt or a wiring
-    is thrown away (user).  They come in clusters, and each had cut the last
-    short, so a cluster ran together; now one asked for while another plays
-    is dropped -- not queued, so none plays on after the failures stop --
-    and each is heard whole, five ticks fading 9 to 1, falling an eighth a
-    tick so its note still sounds, the next of the stage's own scale two
-    octaves above the triangle: a cluster climbs in the tune's key (user,
-    2026-10-15).  The tune's beat is six ticks; a reload of six counted
-    down to zero inclusive had made it seven.  When the roll is done the sprite walks on
+    placing key items whole-tone (D4-E5), dealing the doors a C major
+    pentatonic (C5-E6), working out the logic its relative A minor below
+    (A3-D5), building the world a G major arpeggio (G4-B6), all note names
+    in `genroll.py` -- a note every six ticks, each a step of a walk two
+    bits of the PRNG's state choose.  **The pulse answers it** whenever a
+    placement attempt or a wiring is thrown away (user, 2026-10-15, after a
+    falling "yelp", then five trial sounds side by side, of which "uh-oh"
+    won): a phrase in the same scale an octave above, starting with the
+    tune's next note, so every note of it lands on a beat.  The first and
+    second answers are a pair at half the tune's tempo, two beats a note:
+    the sprite's own step of the scale -- its voice, low for Garland, the
+    robots and Titan, high for the fairy, the bats and the mermaid -- then a
+    step or more up or down, never past a fifth (`lut_RollReach`, from the
+    note names).  The third is a run of four at twice that, a beat a note,
+    a step or two at a time one way and the last held three beats; then
+    round again.  Each note fades from 8, one with another after it ending
+    early so the next is heard as its own.  An answer asked for while one
+    waits or plays is dropped -- nothing queues, so none plays on after the
+    failures stop (user).  The tune's beat was seven ticks at first: a
+    reload of six counted down to zero inclusive.  When the roll is done the sprite walks on
     through the key item fanfare (track $54) -- the screen's least time up,
     however quick the roll (user) -- fades, the title's music starts again
     for party creation, and the PPU goes back to the HAL dark.
