@@ -339,10 +339,13 @@ ORDEALS_MODES   = 2
 KEYITEMS_VANILLA  = 0
 KEYITEMS_STANDARD = 1
 KEYITEMS_WIDE     = 2
-ENTRANCES_OFF   = 0               ; the Entrances row: vanilla wiring
+KEYITEMS_MODES    = 3
+;  Map shuffle (RANDO_ENTRANCES), under Key items Standard or Wide only, as in
+;  FFR: rando_place clears it under Vanilla, or when no wiring places.
+ENTRANCES_OFF   = 0               ; vanilla wiring
 ENTRANCES_ONLY  = 1               ; FFR's entrance shuffle, floors kept
 ENTRANCES_FLOORS = 2              ; ...and its floor shuffle
-KEYITEMS_MODES    = 3
+ENTRANCES_MODES = 3
 ;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
 ;  Other items, the nine with no Free, has the first two only.
 ITEM_INCENTIVE  = 0
@@ -1551,6 +1554,7 @@ OPT_NG_KEYITEMS = OPT_NG + (RANDO_KEYITEMS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_ITEMS    = OPT_NG + (RANDO_ITEMS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_GEAR     = OPT_NG + (RANDO_GEAR - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_EARLY    = OPT_NG + (RANDO_EARLY - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_ENTRANCES = OPT_NG + (RANDO_ENTRANCES - RANDO_SAVE) - RANDO_NGOFF
 
 ;  "None", a party slot left empty (nones.asm): the class byte of slots 2-4
 ;  may be this, with the character dead from the start.  FFR's value.

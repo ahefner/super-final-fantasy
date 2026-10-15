@@ -797,6 +797,33 @@ lut_Desc_73_2:  ; Key items: Wide
   FFPAD {"Titan's Tunnel and Cardia --"}, 28
   FFPAD {"Free Enterprise's 25 spots."}, 28
 
+lut_Desc_93:  ; Map shuffle, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_93_0, lut_Desc_93_1, lut_Desc_93_2
+  .assert * - lut_Desc_93 = 1 + 2 * ENTRANCES_MODES, error, "one Map shuffle description per mode"
+
+lut_Desc_93_0:  ; Map shuffle: Off
+  FFLINES 3
+  FFPAD {"Every entrance, stair and"}, 28
+  FFPAD {"teleport leads where it"}, 28
+  FFPAD {"always does."}, 28
+
+lut_Desc_93_1:  ; Map shuffle: Entrances
+  FFLINES 5
+  FFPAD {"The overworld's dungeon and"}, 28
+  FFPAD {"castle entrances lead into"}, 28
+  FFPAD {"other ones.  Towns stay put."}, 28
+  FFPAD {"Only with Key items Standard"}, 28
+  FFPAD {"or Wide.  FFR's."}, 28
+
+lut_Desc_93_2:  ; Map shuffle: Entrances+floors
+  FFLINES 5
+  FFPAD {"As Entrances, and the stairs"}, 28
+  FFPAD {"and teleports inside lead to"}, 28
+  FFPAD {"other floors.  Only with Key"}, 28
+  FFPAD {"items Standard or Wide."}, 28
+  FFPAD {"FFR's."}, 28
+
 ;  Each item row by value: the first two shared, Free the item's own.
 lut_DescItemInc:  ; an item row: Incentive
   FFLINES 4
@@ -929,7 +956,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
   .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
-  .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_74, <lut_Desc_75
+  .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_93, <lut_Desc_74, <lut_Desc_75
   .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
   .BYTE <lut_Desc_82, <lut_Desc_83, <lut_Desc_84, <lut_Desc_85, <lut_DescBlank, <lut_Desc_86
   .BYTE <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86
@@ -950,7 +977,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
-  .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_74, >lut_Desc_75
+  .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
   .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86
   .BYTE >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86

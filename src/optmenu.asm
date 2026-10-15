@@ -1700,6 +1700,8 @@ lut_OptRowRando:   ; the save view's rows are found from here
   FFPAD "", 30
   .BYTE $02, 22    ; Key items   (scalar 22)
   OPTLABEL {"Key items"}
+  .BYTE $02, 48    ; Map shuffle   (scalar 48)
+  OPTLABEL {"Map shuffle"}
   .BYTE $02, 23    ; SHIP   (scalar 23)
   OPTLABEL {"SHIP"}
   .BYTE $02, 24    ; AIRSHIP   (scalar 24)
@@ -1978,6 +1980,12 @@ lut_ValKeyItems:
   FFPAD "Standard", 8           ; KEYITEMS_STANDARD
   FFPAD "    Wide", 8           ; KEYITEMS_WIDE
 
+;  Map shuffle: which of the teleports a seed rewires.  Sixteen wide.
+lut_ValMapShuffle:
+  FFPAD "             Off", 16   ; ENTRANCES_OFF
+  FFPAD "       Entrances", 16   ; ENTRANCES_ONLY
+  FFPAD "Entrances+floors", 16   ; ENTRANCES_FLOORS
+
 ;  The item rows, and Other items, which stops at Loose.
 lut_ValIncentive:
   FFPAD "       Incentive", 16   ; ITEM_INCENTIVE
@@ -2012,6 +2020,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .REPEAT 4
               .BYTE <lut_ValOnOff
               .ENDREP
+              .BYTE <lut_ValMapShuffle
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2028,6 +2037,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .REPEAT 4
               .BYTE >lut_ValOnOff
               .ENDREP
+              .BYTE >lut_ValMapShuffle
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2044,11 +2054,13 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .REPEAT 4
               .BYTE EARLY_MODES
               .ENDREP
+              .BYTE ENTRANCES_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
               .RES ITEMROWS + GEARROWS, 4                     ; sixteen: "Incentive"
               .RES 4, 2                                       ; the Early flags
+              .BYTE 4                                         ; Map shuffle
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2068,6 +2080,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <(OPT_NG_GEAR + g / 8)
               .ENDREP
               .RES 4, <OPT_NG_EARLY
+              .BYTE <OPT_NG_ENTRANCES
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2079,6 +2092,7 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE g .MOD 8
               .ENDREP
               .BYTE 0, 1, 2, 3                                ; EARLY_KING..EARLY_ORDEALS
+              .BYTE 0                                         ; Map shuffle
 lut_ValMask:  .RES 23, $FF
               .REPEAT ITEMROWS, k
               .BYTE $03 << (2 * (k .MOD 4))
@@ -2087,7 +2101,8 @@ lut_ValMask:  .RES 23, $FF
               .BYTE $01 << (g .MOD 8)
               .ENDREP
               .BYTE EARLY_KING, EARLY_SARDA, EARLY_SAGE, EARLY_ORDEALS
-VALSCALARS = 48
+              .BYTE $FF                                       ; Map shuffle
+VALSCALARS = 49
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
 .assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"

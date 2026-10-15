@@ -801,6 +801,7 @@ KEY ITEMS heading of their own, saved with the game like the rows above it
 and shown by the save view with them:
 
     Key items        Vanilla / Standard / Wide
+    Map shuffle      Off / Entrances / Entrances+floors   (below)
     SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows
     Other items      Incentive / Loose            the nine with no Free
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
@@ -866,6 +867,25 @@ only one field set, from the settings and from the save, so two rows that
 alias one field cannot pass.  `test_saveview` scrolls the view through the
 whole section from a save whose fields alternate, against settings that
 differ in every one.
+
+### Map shuffle
+
+**Built 2026-10-14; not yet played.**  FFR's Entrance Shuffle and Entrance
+and Floor Shuffle as one row under Key items (user: three values, not two
+rows), saved with the game: Off; Entrances, every overworld dungeon and
+castle entrance leading into another's; Entrances+floors, and the stairs and
+teleports inside too.  Towns stay put, as FFR's preset has them.  Only under
+Key items Standard or Wide, as in FFR: `rando_place` clears it under Vanilla,
+and when no wiring of the seed's 16 places, so the save -- and the save view
+-- says Off whenever the world is vanilla.  How it works is
+`randomization-notes.md` §9.3.
+
+The row is a whole byte appended to the new-game settings (`RANDO_ENTRANCES`,
+`OPT_NG_ENTRANCES`), so zero is Off in every older option block and save;
+`OPT_FORMAT` and `SAVEVER` stay.  "Entrances+floors" is sixteen columns, so
+its readouts are the item rows' width and its label at most eleven; one
+description per value.  `test_rando_options` steps it and reads it alone,
+from the settings and from the save; `test_saveview` shows it.
 
 ### Respond rate
 
@@ -1069,8 +1089,8 @@ the checksum took in the new-game bytes, to 6 when Thief hit growth became a
 sixth scalar, to 7 when the starting items took a seventh, to 8 when the
 flag word grew its sixth byte, and to 9 when the Free items left the flag
 word (bits 26-36 are spare) for the key item rows; each bump
-costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic and
-gear bytes did not bump it:
+costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic,
+gear and Map shuffle bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
 anything else there fails the checksum and resets to a preset.
 
@@ -1925,7 +1945,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    1023 free   once the descriptions moved out, the None, the
+    BANK_OPT     936 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -1934,11 +1954,14 @@ text region in the game references.
                              pillars' row and hand-on (40), and the key
                              item rows (1071: 20 more rows of 32 bytes, their
                              readouts and field tables, the field code), and
-                             Asshole Kraken (138: its row and opt_kraken)
-    BANK_OPTTEXT  4587 free  the settings screen's descriptions (measured
-                             2026-10-14 from ld65's map: the 10788 here
-                             before dated from 10-09 and was not kept up as
-                             descriptions were added)
+                             Asshole Kraken (138: its row and opt_kraken),
+                             and Map shuffle (87: its row, readouts and
+                             scalar)
+    BANK_OPTTEXT  4239 free  the settings screen's descriptions; Map
+                             shuffle's took 376 (measured 2026-10-14 from
+                             ld65's map: the 10788 here before dated from
+                             10-09 and was not kept up as descriptions were
+                             added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
     BANK_RANDO   3757 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the

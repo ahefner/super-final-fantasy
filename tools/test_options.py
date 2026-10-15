@@ -6116,7 +6116,8 @@ def test_rando_options():
             ("Masmune", "OPT_NG_GEAR", 0, 1, 2),
             ("Ribbon", "OPT_NG_GEAR", 7, 1, 2),
             ("Xcalber", "OPT_NG_GEAR", 0, 1, 2),         # the second gear byte
-            ("Early Ordeals", "OPT_NG_EARLY", 3, 1, 2)):
+            ("Early Ordeals", "OPT_NG_EARLY", 3, 1, 2),
+            ("Map shuffle", "OPT_NG_ENTRANCES", 0, 8, 3)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
         row = optrow(name)
@@ -6146,6 +6147,7 @@ def test_rando_options():
         spec[35 + g] = ("OPT_NG_GEAR", g // 8, g % 8, 2)
     for e in range(4):
         spec[44 + e] = ("OPT_NG_EARLY", 0, e, 2)
+    spec[48] = ("OPT_NG_ENTRANCES", 0, 0, 3)
     view_at = 0x6400 - 0x6000 + (K["RANDO_SAVE"] - 0x6000) + K["RANDO_NGOFF"]
     ng0 = K["OPT_NG"] - 0x6000
     bad = []
@@ -6159,7 +6161,7 @@ def test_rando_options():
                 call(vcpu, "opt_menu_valbyte", dbr=CHUNK_OPT_BANK)
                 if (vcpu.a & 0xFF) != (count - 1 if u == s else 0):
                     bad.append((view, s, u, vcpu.a & 0xFF))
-    check("each key item row reads its own field alone", bad[:4], [])
+    check("each key item row, and Map shuffle, reads its own field alone", bad[:4], [])
 
     ngat = K["OPT_NG"] - 0x6000
     check("...and leaves the block sealed", blk(bus, OPT_CKSUM),
@@ -6442,6 +6444,8 @@ def test_menudesc():
                  "Just Tents gives", "Explorer Pack gives", "Real Estate gives",
                  "Warrior's Standard gives", "Royal Packmule gives",
                  "Duckling Boon gives"))]
+    cases += [(optrow("Map shuffle"), K["OPT_NG_ENTRANCES"], v, phrase) for v, phrase in enumerate((
+                 "leads where it always does", "Towns stay put", "As Entrances, and the stairs"))]
     seen = {}
     for row, byte, value, phrase in cases:
         bus, cpu = machine()

@@ -1591,8 +1591,8 @@ can be skipped.
 Effort is medium-high, almost entirely in the logic and FFR's rules rather
 than the hooks.
 
-**Built in the reference (2026-10-14; not yet on the cart).**  One row, Off /
-Entrances / Entrances + floors (user), FFR's two modes with its Entrance and
+**Built in the reference (2026-10-14), then on the cart (below).**  One row,
+Map shuffle: Off / Entrances / Entrances+floors (user), FFR's two modes with its Entrance and
 Floor Shuffle preset's other settings: towns fixed, dead ends dealt,
 Coneria's start safe.  Entrances alone keeps every floor's links but the Sea
 Shrine's from Onrac, as FFR does; the prototype now has that mode, and over
@@ -1642,7 +1642,7 @@ the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
     960 shuffled worlds, eight settings in both modes, all winnable; at most
     six wirings tried for one.
 
-**On the cart (2026-10-14; built, not yet played; the row is next).**  Its
+**On the cart (2026-10-14; built, not yet played).**  Its
 own chunk, WORLD (`src/world.asm` including `src/entrance.inc`), with the
 graph's tables in LOGIC (`src/graphdata.inc`, from gengraph.py) and the PRNG
 lent by RANDO (`rando_belowfar`, `rando_warmfar`).  Each stage is held to the
@@ -1679,9 +1679,11 @@ reference byte for byte by `test_options.py`:
     its Continue costs nothing new.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
+  - **The row**: Map shuffle, Off / Entrances / Entrances+floors, under Key
+    items, saved with the game and shown by the save view
+    (`options-design.md`, "Map shuffle").
 
-Not yet: the row and its save view, FFR's Titan's Tunnel preference (§9.3
-above), and the comparison of the reference shuffle's statistics with FFR's
+Not yet: FFR's Titan's Tunnel preference (§9.3 above), and the comparison of the reference shuffle's statistics with FFR's
 beyond the prototype's.
 
 
@@ -1813,7 +1815,8 @@ no vanilla chest uses, an obvious place to draw from.
 
   5. **Preset overworld edits**, minimap fix first.  This needs the edits
      screen.
-  6. **Entrance and floor shuffle.**
+  6. **Entrance and floor shuffle.**  *Built 2026-10-14, not yet played*
+     (§9.3), ahead of 5: it needs no screen beyond its row.
 
 **Tier 4: alternate maps**, with the map-select screen.  Each map adds a
 logic table set and a metadata block, and nothing in code beyond Tier 3.
