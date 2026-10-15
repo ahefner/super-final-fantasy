@@ -1661,8 +1661,10 @@ reference byte for byte by `test_options.py`:
   - **New Game** (`pl_shuffled`; `test_es_place`): build_world's attempt,
     placement and dock, kept in the save (`RANDO_ESK`, `RANDO_SHIPDOCK`).
     With no world in 16 attempts it places Off's and clears the mode, and
-    Key items Vanilla clears it too.  About 1.1 million instructions when
-    the first wiring places.
+    Key items Vanilla clears it too.  Its cost, over 16 seeds of three
+    settings: a median of 1.0 to 1.4 million instructions in either mode,
+    against 0.5 to 0.6 million with it Off, and at most 4 million (a second
+    wiring); no seed fell back.
   - **The game's teleports** (`es_tables`; `test_es_tables`): the cache
     build deals the save's wiring again -- attempt `RANDO_ESK`, without
     placing -- and writes the landing tables the game reads, 32 entrances,
