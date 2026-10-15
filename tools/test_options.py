@@ -6362,37 +6362,54 @@ def test_roll():
            [0x06A, 0x05E, 0x054, 0x046, 0x03F, 0x034, 0x02F, 0x029],
            [0x0FD, 0x0D5, 0x0BD, 0x0A9, 0x08E, 0x07E, 0x06A, 0x05E],
            [0x08E, 0x070, 0x05E, 0x046, 0x038, 0x02F, 0x023, 0x01B]])
+    #  The yelps, against a model: one asked for starts at once, unless one is
+    #  still playing -- then the asking is dropped, not queued; its note the
+    #  next of the stage's scale, climbing, two octaves above the triangle's --
+    #  the period (t - 1) / 2 -- heard five ticks, 9 7 5 3 1, an eighth longer
+    #  each tick, then off.
+    def model(stage, asks, count):
+        yelp, num, per, out = 0, 0, 0, []
+        for t in range(count):
+            if t in asks and yelp == 0:
+                yelp = 6
+                per = (pitch[stage * 8 + (num & 7)] - 1) >> 1
+                num += 1
+            if yelp:
+                yelp -= 1
+                if yelp:
+                    out.append((0x70 | (2 * yelp - 1), per, 1))
+                    per += per >> 3
+                    continue
+            out.append(None)
+        return out
+
+    for stage, asks in ((0, set(range(30))), (3, {0, 2, 4, 9, 20})):
+        bus, cpu = machine()
+        bus.wram[rw("ROLL_STAGE")] = stage
+        cpu.e = False
+        seen, notes = [], []
+        for t in range(30):
+            if t in asks:
+                bus.wram[rw("ROLL_YREQ")] = 1
+            cpu.run(ROLL_BANK, SYM["roll_tick"])
+            sh = bus.wram[0x900:0x916]
+            seen.append((sh[0], sh[2] | sh[3] << 8, 1) if sh[0x15] & 1 else None)
+            notes.append(bus.wram[rw("ROLL_GATE")])
+        check("stage %d: each yelp heard whole, climbing its scale; none asked for while one plays" % stage,
+              seen, model(stage, asks, 30))
+    check("...a note every six ticks (it was seven), sounding four",
+          [t for t, g in enumerate(notes) if g == 4], [0, 6, 12, 18, 24])
     bus, cpu = machine()
-    bus.wram[rw("ROLL_YREQ")] = 1
     cpu.e = False
     seen = []
     for t in range(12):
         cpu.run(ROLL_BANK, SYM["roll_tick"])
-        sh = bus.wram[0x900:0x916]
-        seen.append((sh[0], sh[2] | sh[3] << 8, sh[0x15] & 1, bus.wram[rw("ROLL_FRAME")], bus.wram[rw("ROLL_BRIGHT")]))
-    #  The yelps start on a rising pentatonic in turn, E6 to A7, on the first
-    #  pulse: 1789773 / (16 f) - 1.
-    note = lambda n: round(1789773 / (16 * 440 * 2 ** ((n - 69) / 12))) - 1
-    starts = [note(n) for n in (88, 91, 93, 96, 98, 100, 103, 105)]
-    yelp_tbl = [rd(SYM["lut_RollYelp"] + i * 2, 2)[0] | rd(SYM["lut_RollYelp"] + i * 2, 2)[1] << 8 for i in range(8)]
-    check("the yelps' notes: E G A C D E G A, two octaves", yelp_tbl, starts)
-    per = [starts[0]]
-    for _ in range(6):
-        per.append(per[-1] + (per[-1] >> 2))
-    check("the yelp: the first pulse falling a quarter a tick, quieter, then off",
-          [x[:3] for x in seen[:8]],
-          [(0x70 | (3 * v + 1) // 2, p, 1) for v, p in zip(range(7, 0, -1), per)] + [(seen[6][0], per[-1], 0)])
+        seen.append((bus.wram[rw("ROLL_FRAME")], bus.wram[rw("ROLL_BRIGHT")]))
     check("...the step every eight ticks, the fade in over fifteen",
-          ([x[3] for x in seen], [x[4] for x in seen]),
+          ([x[0] for x in seen], [x[1] for x in seen]),
           ([0] * 7 + [1] * 5, list(range(1, 13))))
-    first = []
-    for k in range(10):                 # a cluster: each yelp the next note
-        bus.wram[rw("ROLL_YREQ")] = 1
-        cpu.run(ROLL_BANK, SYM["roll_tick"])
-        first.append(bus.wram[0x902] | bus.wram[0x903] << 8)
-    check("...and a cluster of them climbs the notes in turn, round again", first, starts[1:] + starts[:3])
     check("...and every tick a frame of sound sent (hal_audioframe)",
-          bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 22)
+          bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 12)
 
     #  The world rolled is the same ticked at every yield as never ticked; and
     #  the tune heard, a yelp among it, and the fanfare after, then the title's

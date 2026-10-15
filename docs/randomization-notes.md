@@ -1832,9 +1832,14 @@ Where it departs from the plan below or from §1:
     working out the logic a low one, building the world a G major arpeggio
     -- each note a step of a walk two bits of the PRNG's state choose; and
     the first pulse yelps, falling, whenever a placement attempt or a wiring
-    is thrown away (user) -- each yelp from the next note of a rising
-    pentatonic, E6 to A7, since they come in clusters and a cluster should
-    sound like music (user, 2026-10-15).  When the roll is done the sprite walks on
+    is thrown away (user).  They come in clusters, and each had cut the last
+    short, so a cluster ran together; now one asked for while another plays
+    is dropped -- not queued, so none plays on after the failures stop --
+    and each is heard whole, five ticks fading 9 to 1, falling an eighth a
+    tick so its note still sounds, the next of the stage's own scale two
+    octaves above the triangle: a cluster climbs in the tune's key (user,
+    2026-10-15).  The tune's beat is six ticks; a reload of six counted
+    down to zero inclusive had made it seven.  When the roll is done the sprite walks on
     through the key item fanfare (track $54) -- the screen's least time up,
     however quick the roll (user) -- fades, the title's music starts again
     for party creation, and the PPU goes back to the HAL dark.

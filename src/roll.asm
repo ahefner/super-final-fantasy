@@ -45,7 +45,7 @@
 
 .export roll_begin, roll_tick, roll_end
 ;  For tools/test_options.py.
-.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick, lut_RollYelp
+.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick
 
 .import CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
@@ -61,7 +61,7 @@ ROLL_LEFT       = 8
 ROLL_STEPTICKS  = 8             ; a step every eight frames
 ROLL_NOTETICKS  = 6             ; a note every six...
 ROLL_GATETICKS  = 4             ; ...sounding for four
-ROLL_YELPTICKS  = 8
+ROLL_YELPTICKS  = 6             ; five ticks heard, then off
 ROLL_BACKDROP   = NESCOL_01     ; the game's window blue
 FANFARE         = $54           ; the key item fanfare (DialogueBox_Sfx's)
 MUSIC_DONE      = $81           ; music_track once a fanfare has finished
@@ -547,26 +547,46 @@ roll_frame:
 roll_sound:
     .a8
     .i8
+    ;  A yelp asked for starts now -- unless one is still playing, which is
+    ;  not cut short: the request is dropped, so a cluster of them is heard
+    ;  whole, note by note, where each had cut the last short and they ran
+    ;  together; and nothing queues, so none plays on after the failures
+    ;  stop (user, 2026-10-15).
     LDA f:ROLL_YREQ
-    BEQ @noreq
+    BEQ @yelping
     LDA #0
     STA f:ROLL_YREQ
+    LDA f:ROLL_YELP
+    BNE @yelping
     LDA #ROLL_YELPTICKS
     STA f:ROLL_YELP
-    ;  Each yelp starts on the next note of a rising pentatonic, so the
-    ;  clusters they come in climb (user, 2026-10-15), and falls from there.
-    LDA f:ROLL_YNUM
-    AND #7
+    ;  Its note: the next of the stage's own scale, climbing, two octaves
+    ;  above the triangle's -- its period halved, a pulse being an octave
+    ;  above a triangle at the same one -- so the yelps are in the tune's key
+    ;  (user: from the triangle's notes).
+    LDA f:ROLL_STAGE
+    AND #$03
     ASL A
-    TAX
-    LDA lut_RollYelp, X
-    STA f:ROLL_YPER
-    LDA lut_RollYelp + 1, X
-    STA f:ROLL_YPER + 1
+    ASL A
+    ASL A
+    STA f:ROLL_HI
     LDA f:ROLL_YNUM
     INC A
     STA f:ROLL_YNUM
-  @noreq:
+    DEC A
+    AND #$07
+    ORA f:ROLL_HI
+    ASL A
+    TAX
+    REP #$20
+    .a16
+    LDA lut_RollPitch, X
+    DEC A
+    LSR A                       ; (t - 1) / 2
+    STA f:ROLL_YPER
+    SEP #$20
+    .a8
+  @yelping:
     LDA f:ROLL_YELP
     BEQ @gate
     DEC A
@@ -576,12 +596,8 @@ roll_sound:
     AND #$FE
     STA a:APUSHADOW + $15
     BRA @gate
-:   STA f:ROLL_HI               ; louder the earlier, 11 down to 2: (3 *
-    ASL A                       ;   the ticks left + 1) / 2 -- 14 was a touch
-    CLC                         ;   loud (user, 2026-10-15)
-    ADC f:ROLL_HI
-    INC A
-    LSR A
+:   ASL A                       ; louder the earlier: 9, 7, 5, 3, 1 (user:
+    DEC A                       ;   quieter than it was, twice)
     ORA #$70                    ; a quarter duty, held, constant volume
     STA a:APUSHADOW + 0
     LDA #$08
@@ -592,8 +608,9 @@ roll_sound:
     STA a:APUSHADOW + 3
     REP #$20
     .a16
-    LDA f:ROLL_YPER             ; a quarter longer each tick: the pitch falls
-    LSR A
+    LDA f:ROLL_YPER             ; an eighth longer each tick: the pitch falls,
+    LSR A                       ;   about an octave over the yelp, so its
+    LSR A                       ;   note is still heard
     LSR A
     CLC
     ADC f:ROLL_YPER
@@ -620,8 +637,8 @@ roll_sound:
     STA f:ROLL_NEXT
     RTS
   @note:
-    LDA #ROLL_NOTETICKS
-    STA f:ROLL_NEXT
+    LDA #ROLL_NOTETICKS - 1     ; counted down to 0 inclusive: a note every
+    STA f:ROLL_NEXT             ;   ROLL_NOTETICKS
     LDA #ROLL_GATETICKS
     STA f:ROLL_GATE
     ;  A step of the walk, two of the PRNG's state's bits choosing it -- so
@@ -666,10 +683,6 @@ roll_sound:
 lut_RollWalk:
   .byte <-2, <-1, 1, 2
 
-;;  Where each yelp starts, in turn: E6 G6 A6 C7 D7 E7 G7 A7, as the first
-;;  pulse's periods (1789773 / (16 f) - 1).
-lut_RollYelp:
-  .word $054, $046, $03F, $034, $02F, $029, $023, $01F
 
 ;;  Each stage's scale, as triangle periods (1789773 / (32 f) - 1), low to
 ;;  high: ROLLSTAGE_PLACE whole-tone D4-E5, _WIRING C major pentatonic C5-E6,
