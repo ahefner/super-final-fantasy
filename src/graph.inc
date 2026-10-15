@@ -8,6 +8,7 @@ GR_LANDINGS      = 95
 GR_EXITXY        = 31
 GR_LOCS          = 257
 GR_DOCKS         = 5
+GR_ENTIDS        = 30
 ES_RECORDS       = 72
 ES_LOCATIONS     = 69
 ES_UNUSED1       = 30
@@ -27,11 +28,11 @@ ES_VANILLA_SM_N  = 40
 .global lut_GrLandX, lut_GrLandY, lut_GrLandMap, lut_GrLandOff
 .global lut_GrLandNodes, lut_GrExitX, lut_GrExitY, lut_GrExitOff
 .global lut_GrExitNodes, lut_GrLocOff, lut_GrLocNodes, lut_GrLocReq
-.global lut_GrOwNode, lut_GrDockOff, lut_GrDockNodes, lut_GrEntWalk
-.global lut_GrEntFly, lut_EsRecLoc, lut_EsRecLand, lut_EsRecExit
-.global lut_EsRecFlags, lut_EsRecTeleOff, lut_EsRecTeles, lut_EsEnter
-.global lut_EsTele, lut_EsTowns, lut_EsTop, lut_EsFreeOw
-.global lut_EsFreeSm, lut_EsIcecaveLoop, lut_EsVanillaOw, lut_EsVanillaSm
-.global lut_EsOwCoord, lut_EsStarter, lut_EsSafe, lut_EsConnected
-.global lut_EsStarting, lut_EsDanger, lut_EsVanEnt, lut_EsVanNorm
-.global lut_EsVanExit
+.global lut_GrEntIds, lut_GrOwNode, lut_GrDockOff, lut_GrDockNodes
+.global lut_GrEntWalk, lut_GrEntFly, lut_EsRecLoc, lut_EsRecLand
+.global lut_EsRecExit, lut_EsRecFlags, lut_EsRecTeleOff, lut_EsRecTeles
+.global lut_EsEnter, lut_EsTele, lut_EsTowns, lut_EsTop
+.global lut_EsFreeOw, lut_EsFreeSm, lut_EsIcecaveLoop, lut_EsVanillaOw
+.global lut_EsVanillaSm, lut_EsOwCoord, lut_EsStarter, lut_EsSafe
+.global lut_EsConnected, lut_EsStarting, lut_EsDanger, lut_EsVanEnt
+.global lut_EsVanNorm, lut_EsVanExit

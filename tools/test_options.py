@@ -751,7 +751,7 @@ def es_cart_wiring(seed, mode, k):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     cpu.a, cpu.x = mode, k
-    call(cpu, "rando_eswire", bank=RANDO_BANK)
+    call(cpu, "rando_eswire", bank=WORLD_BANK)
     failed = bus.wram[rw("ES_VARS") + 0x0D]
     e, n, x = rw("ES_ENT"), rw("ES_NORM"), rw("ES_EXIT")
     return failed, list(bus.wram[e:e + 32]), list(bus.wram[n:n + 64]), list(bus.wram[x:x + 16])
@@ -790,7 +790,7 @@ def es_cart_masks(job):
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
     cpu.a, cpu.x, cpu.y = mode, k, early
-    call(cpu, "rando_esmasks", bank=RANDO_BANK)
+    call(cpu, "rando_esmasks", bank=WORLD_BANK)
     stage = bus.wram[rw("ES_VARS") + 0x0D]
     if stage:
         return stage, None, None, None
@@ -842,6 +842,62 @@ def test_es_masks():
             bad.append((seed, mode, k, early, "locations %s" % which if which else
                         "Chaos" if cart[2] != chaos else "the index"))
     check("es_masks on the cart", bad[:4], [])
+
+def es_cart_world(job):
+    """rando_esmasks then rando_esdock for each pool location: (stage refused,
+    each region's roots, the groups, each location's dock)."""
+    seed, mode, k, early = job
+    bus, cpu = machine()
+    at = K["RANDO_SAVE"] - 0x6000
+    bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    cpu.a, cpu.x, cpu.y = mode, k, early
+    call(cpu, "rando_esmasks", bank=WORLD_BANK)
+    stage = bus.wram[rw("ES_VARS") + 0x0D]
+    if stage:
+        return stage, None, None, None
+    import graphdata as GD
+    ro = rw("ES_ROOTS")
+    roots = [int.from_bytes(bus.wram[ro + 4 * n:ro + 4 * n + 4], "little") for n in range(GD.NODES)]
+    gr = rw("RP_GROUP")
+    groups = list(bus.wram[gr:gr + 248])
+    docks = []
+    for c in range(248):
+        cpu.a = c
+        call(cpu, "rando_esdock", bank=WORLD_BANK)
+        docks.append(bus.wram[rw("ES_VARS") + 0x0D])
+    return 0, roots, groups, docks
+
+
+def test_es_world():
+    """es_roots, es_groups and es_dock give randoref's: each region's
+    entrances, the spread groups (logicdata's on the vanilla wiring), and for
+    a ship at each pool location, its dock."""
+    import graphdata as GD
+    jobs = [(1, R.ENTRANCES_OFF, 0, 0)]
+    jobs += [(seed, mode, 0, e) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+             for seed in (1, 2, 0xD1625106) for e in (0, 0x0F)]
+    got = pmap(es_cart_world, jobs)
+    bad = []
+    for (seed, mode, k, early), cart in zip(jobs, got):
+        if mode == R.ENTRANCES_OFF:
+            w = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
+        else:
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
+        masks, chaos, req = R.es_masks(w[0], w[1], w[2], early)
+        roots = R.es_roots(w[0], w[1])
+        groups = R.es_groups(roots, masks)
+        if cart[0]:
+            bad.append((seed, mode, early, "refused at stage %d" % cart[0]))
+            continue
+        if cart[1] != roots:
+            bad.append((seed, mode, early, "roots", [n for n in range(GD.NODES) if cart[1][n] != roots[n]][:3]))
+        if cart[2] != groups:
+            bad.append((seed, mode, early, "groups", [c for c in range(248) if cart[2][c] != groups[c]][:3]))
+        docks = [R.es_dock(c, masks, req, roots) for c in range(248)]
+        if cart[3] != docks:
+            bad.append((seed, mode, early, "docks", [c for c in range(248) if cart[3][c] != docks[c]][:3]))
+    check("es_roots, es_groups and es_dock on the cart", bad[:4], [])
+    check("the vanilla wiring's groups are logicdata's", got[0][2] == R._L.SPREAD, True)
 
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
@@ -5453,6 +5509,7 @@ def source_consts():
 
 K = source_consts()
 RANDO_BANK = 0xA1 + K["CHUNK_RANDO"]
+WORLD_BANK = 0xA1 + K["CHUNK_WORLD"]
 RW_BASE = 0x7E0000                       # bus.wram index 0 is $7E:0000
 
 
@@ -8519,7 +8576,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

@@ -50,6 +50,8 @@ RANDOFAR        = (CHUNK0 + CHUNK_RANDO) * $10000
 CHUNK_OPTTEXT   = $14           ; the settings screen's descriptions; data only
 CHUNK_LOGIC     = $15           ; the vanilla world's logic, for placement; data only
 LOGICFAR        = (CHUNK0 + CHUNK_LOGIC) * $10000
+CHUNK_WORLD     = $16           ; entrance shuffle: the shuffle and the seed's logic
+WORLDFAR        = (CHUNK0 + CHUNK_WORLD) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -1868,6 +1870,9 @@ ES_DEAD         = RP_BASE+$2F00   ; 32: ...and the dead ends set aside from them
 ES_ORDER        = RP_BASE+$2F20   ; 32: the entrances, in the order they are filled
 ES_PEND         = RP_BASE+$2F40   ; 32: teleports still to fill
 ES_TMP          = RP_BASE+$2A80   ; 32 masks: a set being merged
+ES_GREP         = RP_BASE+$2D00   ; ES_GROUPMAX: each spread group's first chest (over the shuffle's)
+ES_GENTS        = RP_BASE+$2D40   ; ES_GROUPMAX x 4: its entrances
+ES_GROUPMAX     = 64
 ES_TMPMAX       = 32
 ES_VARS         = RP_BASE+$2F80   ; the words below
 ES_WORDSEND     = RP_BASE+$3000

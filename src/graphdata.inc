@@ -286,6 +286,11 @@ lut_GrLocReq:
   .BYTE $12, $13, $14, $15, $00, $16, $17, $00, $00, $00, $18, $00, $00, $00, $00, $19
   .BYTE $00
 
+;  The entrances the overworld has, in order (es_roots).
+lut_GrEntIds:
+  .BYTE $00, $01, $02, $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C, $0D, $0E, $0F
+  .BYTE $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $1A, $1B, $1C, $1D
+
 ;  1 for a region of the overworld.
 lut_GrOwNode:
   .BYTE $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01

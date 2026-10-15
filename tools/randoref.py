@@ -1097,6 +1097,9 @@ def es_roots(entrance, normal):
 #  dungeon (the same entrances) behind the same requirements sharing one, in
 #  the order the chests come; $FF for an NPC or the caravan.  On the vanilla
 #  wiring with no Early flag, logicdata.SPREAD (tools/checkentrance.py).
+ES_GROUPMAX = 64                # the cartridge's room; 800 wirings needed 30
+
+
 def es_groups(roots, masks):
     keys, out = {}, []
     for c in range(248):
@@ -1107,7 +1110,8 @@ def es_groups(roots, masks):
         for n in _GD.LOC_NODES[c]:
             ents |= roots[n]
         out.append(keys.setdefault((ents, tuple(masks[c])), len(keys)))
-    assert len(keys) < 0xFF
+    if len(keys) > ES_GROUPMAX:
+        return None
     return out
 
 
@@ -1515,9 +1519,11 @@ def build_world(seed, keyitems, items3, gear2, early, entrances):
             continue
         masks, chaos, req = mm
         roots = es_roots(w[0], w[1])
-        free, items, inc, inclocs, _ = place_setup(keyitems, items3, gear2, early)
+        groups = es_groups(roots, masks)
+        if groups is None:
+            continue
         out = build_placement(seed, keyitems, items3, gear2, early,
-                              world=(masks, chaos, es_groups(roots, masks)), stream=STREAM_KEYS + k,
+                              world=(masks, chaos, groups), stream=STREAM_KEYS + k,
                               attempts=ES_PLACE_ATTEMPTS)
         if out is None:
             continue

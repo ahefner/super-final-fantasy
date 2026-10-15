@@ -52,7 +52,7 @@
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle
-.export es_wiring, es_vanilla, rando_eswire, rando_esmasks
+.export rando_belowfar, rando_warmfar
 
 .segment "BANK_RANDO"
 
@@ -398,6 +398,18 @@ rando_below:
     CMP a:wBOUND
     BCS @draw
     RTS
+
+
+;;  The PRNG for entrance shuffle's chunk (world.asm), as long calls: the
+;;  same draws, from one copy of the code.  DBR = $7F, as within this chunk.
+rando_belowfar:
+    .a8
+    JSR rando_below
+    RTL
+rando_warmfar:
+    .a16
+    JSR rando_warm
+    RTL
 
 
 ;;  rando_below for bounds past 255: the same mask-and-reject, sixteen bits
@@ -5100,6 +5112,5 @@ rando_steprng:
 
 
 .include "place.inc"
-.include "entrance.inc"
 .include "rewards.inc"
 .include "dlgtext.inc"

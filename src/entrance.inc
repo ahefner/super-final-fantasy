@@ -1,7 +1,8 @@
 ; ---------------------------------------------------------------------------
 ;  entrance.inc -- entrance shuffle on the cart
 ;
-;  Included by rando.asm, in its chunk.  tools/randoref.py's es_* routines are
+;  Included by world.asm, in a chunk of its own (CHUNK_WORLD); the PRNG is
+;  the randomizer's, by long calls.  tools/randoref.py's es_* routines are
 ;  the same in Python, and the tests hold the two to the same result: the
 ;  shuffle (es_shuffle -> es_wiring), the seed's requirement masks (es_masks
 ;  -> es_fixpoint and es_locmasks), placement's index of them, the spread
@@ -93,6 +94,11 @@ eCHAOS  = .LOWORD(RP_CHAOS)
 eNCHAOS = .LOWORD(RP_NCHAOS)
 eBYOFF  = .LOWORD(RP_BYBITOFF)
 eBYBIT  = .LOWORD(RP_BYBIT)
+eROOTS  = .LOWORD(ES_ROOTS)
+eGREP   = .LOWORD(ES_GREP)
+eGENTS  = .LOWORD(ES_GENTS)
+eGROUP  = .LOWORD(RP_GROUP)
+.assert ES_ROOTS + GR_NODES * 4 <= ES_TMP, error, "ES_ROOTS runs into ES_TMP"
 .assert ES_REQ + GR_NODES * ES_NODEMAX * 4 <= ES_NREQ, error, "ES_REQ runs into ES_NREQ"
 .assert GR_NODES <= 256, error, "a region is a byte"
 eNORM   = .LOWORD(ES_NORM)
@@ -119,7 +125,8 @@ es_start:
     ADC #0
     EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
     STA a:wRNG+2
-    JMP rando_warm
+    JSL rando_warmfar + RANDOFAR
+    RTS
 
 ;;  For the harness: es_wiring from a JSL in emulation mode.  In: A = the
 ;;  mode, X = the attempt k.  Out: the tables, and esTRY's high byte 1 if the
@@ -583,7 +590,7 @@ es_locbit:
     TAX
     SEP #$20
     .a8
-    LDA f:RANDOFAR + lut_Bit8, X
+    LDA f:WORLDFAR + esBit8, X
     PLX
     RTS
 
@@ -751,7 +758,7 @@ es_fy:
   @each:
     LDA a:esIDX
     INC A
-    JSR rando_below
+    JSL rando_belowfar + RANDOFAR
     REP #$20
     .a16
     AND #$00FF
@@ -877,7 +884,7 @@ es_fill:
   @teleport:
     LDA a:esNPEND
     BEQ @filled
-    JSR rando_below
+    JSL rando_belowfar + RANDOFAR
     REP #$20
     .a16
     AND #$00FF
@@ -1152,7 +1159,7 @@ es_entbit:
     TAX
     SEP #$20
     .a8
-    LDA f:RANDOFAR + lut_Bit8, X
+    LDA f:WORLDFAR + esBit8, X
     AND a:esN
     RTS
 
@@ -1580,16 +1587,16 @@ es_locmasks:
     BCS @own                    ; Ordeals: in the graph
     TAX
     LDA a:esEARLY
-    AND f:RANDOFAR + lut_Bit8, X
+    AND f:WORLDFAR + esBit8, X
     AND #$00FF
     BEQ @own
-    LDA f:RANDOFAR + lut_EarlyLBit, X
+    LDA f:WORLDFAR + esEarlyLBit, X
     AND #$00FF
     CMP #16
     BCS @hi
     ASL A
     TAX
-    LDA f:RANDOFAR + lut_Bit16, X
+    LDA f:WORLDFAR + esBit16, X
     EOR #$FFFF
     AND a:esOWN
     STA a:esOWN
@@ -1599,7 +1606,7 @@ es_locmasks:
     SBC #16
     ASL A
     TAX
-    LDA f:RANDOFAR + lut_Bit16, X
+    LDA f:WORLDFAR + esBit16, X
     EOR #$FFFF
     AND a:esOWN + 2
     STA a:esOWN + 2
@@ -1741,7 +1748,7 @@ es_bybit:
 :   AND #$000F
     ASL A
     TAX
-    LDA f:RANDOFAR + lut_Bit16, X
+    LDA f:WORLDFAR + esBit16, X
     STA a:esC                   ; the bit, in its word
     LDA a:esBIT
     AND #$0010
@@ -1798,7 +1805,7 @@ es_bybit:
 ;;  For the harness: the wiring and then the logic, from a JSL in emulation
 ;;  mode.  In: A = the mode (ENTRANCES_OFF: the vanilla wiring), X = k, Y =
 ;;  RANDO_EARLY.  Out: esTRY's high byte: 0, or the stage that refused --
-;;  1 the shuffle, 2 the fixpoint, 3 the masks, 4 the index.
+;;  1 the shuffle, 2 the fixpoint, 3 the masks, 4 the index, 5 the groups.
 rando_esmasks:
     .a8
     .i8
@@ -1858,6 +1865,14 @@ rando_esmasks:
     .a8
     LDA #4
     BCS @out2
+    REP #$20
+    .a16
+    JSR es_roots
+    JSR es_groups
+    SEP #$20
+    .a8
+    LDA #5
+    BCS @out2
     LDA #0
     BRA @out2
   @out:
@@ -1865,5 +1880,565 @@ rando_esmasks:
     PLA                         ; the early byte, unread (A8: one byte)
     JMP leave
   @out2:
+    STA a:esTRY + 1
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_roots -- each region's entrances: those whose landing reaches it
+;;  without leaving the maps (randoref.es_roots), a bit each in ES_ROOTS.  A
+;;  walk from each entrance's landing over the edges between regions of the
+;;  maps, static and wired teleports alike.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_roots:
+    .a16
+    .i16
+    LDX #$0000
+  @clr:
+    STZ a:eROOTS, X
+    INX
+    INX
+    CPX #GR_NODES * 4
+    BCC @clr
+    STZ a:esEI
+  @ent:
+    LDA a:esEI
+    CMP #GR_ENTIDS
+    BCC :+
+    RTS
+:   TAX
+    LDA f:LOGICFAR + lut_GrEntIds, X
+    AND #$00FF
+    STA a:esBIT
+    AND #$000F                  ; its bit: esC low word, esC+2 high
+    ASL A
+    TAX
+    LDA f:WORLDFAR + esBit16, X
+    STZ a:esC
+    STZ a:esC + 2
+    LDX a:esBIT
+    CPX #16
+    BCS :+
+    STA a:esC
+    BRA :++
+:   STA a:esC + 2
+:   STZ a:esK                   ; the walk's stack, in ES_QUEUE
+    LDA a:eENT, X               ; its landing's regions
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrLandOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrLandOff, X
+    STA a:esLI
+  @land:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @walk
+    TAX
+    LDA f:LOGICFAR + lut_GrLandNodes, X
+    AND #$00FF
+    JSR es_rootmark
+    INC a:esLI
+    BRA @land
+  @walk:
+    LDA a:esK
+    BNE :+
+    INC a:esEI
+    BRA @ent
+:   DEC a:esK
+    LDX a:esK
+    LDA a:eQUEUE, X
+    AND #$00FF
+    STA a:esNODE
+    TAX
+    LDA f:LOGICFAR + lut_GrOwNode, X
+    AND #$00FF
+    BNE @walk                   ; the overworld: no way on from here
+    TXA
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrEdgeOff + 2, X
+    STA a:esSE
+    LDA f:LOGICFAR + lut_GrEdgeOff, X
+    STA a:esSI                  ; (the edge index; esEI is the entrance's)
+  @edge:
+    LDA a:esSI
+    CMP a:esSE
+    BCS @tele
+    TAX
+    LDA f:LOGICFAR + lut_GrEdgeDst, X
+    AND #$00FF
+    JSR es_rootinside
+    INC a:esSI
+    BRA @edge
+  @tele:
+    LDA a:esNODE
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrSrcOff + 2, X
+    STA a:esSE
+    LDA f:LOGICFAR + lut_GrSrcOff, X
+    STA a:esSI
+  @src:
+    LDA a:esSI
+    CMP a:esSE
+    BCC :+
+    JMP @walk
+:   TAX
+    LDA f:LOGICFAR + lut_GrSrcKind, X
+    AND #$0003
+    CMP #1
+    BNE @nextsrc
+    LDA f:LOGICFAR + lut_GrSrcId, X
+    AND #$00FF
+    TAX
+    LDA a:eNORM, X
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrLandOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrLandOff, X
+    STA a:esLI
+  @to:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @nextsrc
+    TAX
+    LDA f:LOGICFAR + lut_GrLandNodes, X
+    AND #$00FF
+    JSR es_rootinside
+    INC a:esLI
+    BRA @to
+  @nextsrc:
+    INC a:esSI
+    BRA @src
+
+;;  Region A, reached inside the maps: marked, unless it is the overworld's.
+es_rootinside:
+    .a16
+    TAX
+    LDA f:LOGICFAR + lut_GrOwNode, X
+    AND #$00FF
+    BEQ :+
+    RTS
+:   TXA
+    ;  fall through
+
+;;  Region A: esC's bit set in its roots, and onto the stack, unless it was.
+es_rootmark:
+    .a16
+    STA a:esD
+    ASL A
+    ASL A
+    TAX
+    LDA a:eROOTS, X
+    AND a:esC
+    BNE @had
+    LDA a:eROOTS + 2, X
+    AND a:esC + 2
+    BNE @had
+    LDA a:eROOTS, X
+    ORA a:esC
+    STA a:eROOTS, X
+    LDA a:eROOTS + 2, X
+    ORA a:esC + 2
+    STA a:eROOTS + 2, X
+    LDX a:esK
+    SEP #$20
+    .a8
+    LDA a:esD
+    STA a:eQUEUE, X
+    REP #$20
+    .a16
+    INC a:esK
+  @had:
+    RTS
+
+
+;;  Location esLOC's entrances: its regions' roots together, in esRM.
+es_locents:
+    .a16
+    STZ a:esRM
+    STZ a:esRM + 2
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrLocOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrLocOff, X
+  @node:
+    CMP a:esLE
+    BCS @done
+    PHA
+    TAX
+    LDA f:LOGICFAR + lut_GrLocNodes, X
+    AND #$00FF
+    ASL A
+    ASL A
+    TAX
+    LDA a:eROOTS, X
+    ORA a:esRM
+    STA a:esRM
+    LDA a:eROOTS + 2, X
+    ORA a:esRM + 2
+    STA a:esRM + 2
+    PLA
+    INC A
+    BRA @node
+  @done:
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_groups -- the spread groups (randoref.es_groups): a number per pool
+;;  chest, the chests with the same entrances and the same masks sharing one,
+;;  numbered as they first come; $FF for an NPC or the caravan.  Each group's
+;;  first chest and entrances are kept to compare against.  Out: C set if
+;;  there are more than ES_GROUPMAX.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_groups:
+    .a16
+    .i16
+    STZ a:esNT                  ; groups so far
+    STZ a:esLOC
+  @loc:
+    LDX a:esLOC
+    LDA f:LOGICFAR + lut_LogicKind, X
+    AND #$00FF
+    BEQ @chest
+    LDA #$00FF
+    BRA @set
+  @chest:
+    JSR es_locents
+    STZ a:esK
+  @group:
+    LDA a:esK
+    CMP a:esNT
+    BCS @new
+    ASL A
+    ASL A
+    TAX
+    LDA a:eGENTS, X
+    CMP a:esRM
+    BNE @other
+    LDA a:eGENTS + 2, X
+    CMP a:esRM + 2
+    BNE @other
+    LDX a:esK
+    LDA a:eGREP, X
+    AND #$00FF
+    JSR es_samemasks
+    BCC @other
+    LDA a:esK
+    BRA @set
+  @other:
+    INC a:esK
+    BRA @group
+  @new:
+    CMP #ES_GROUPMAX
+    BCC :+
+    RTS                         ; too many: C set
+:   TAX
+    SEP #$20
+    .a8
+    LDA a:esLOC
+    STA a:eGREP, X
+    REP #$20
+    .a16
+    TXA
+    ASL A
+    ASL A
+    TAX
+    LDA a:esRM
+    STA a:eGENTS, X
+    LDA a:esRM + 2
+    STA a:eGENTS + 2, X
+    LDA a:esNT
+    INC a:esNT
+  @set:
+    LDX a:esLOC
+    SEP #$20
+    .a8
+    STA a:eGROUP, X
+    REP #$20
+    .a16
+    INC a:esLOC
+    LDA a:esLOC
+    CMP #LOGIC_POOL
+    BCS :+
+    JMP @loc
+:   CLC
+    RTS
+
+;;  Have location esLOC and location A the same masks?  C set if so.  Each
+;;  is an antichain with no mask twice, so the same count and each of
+;;  esLOC's among A's will do.
+es_samemasks:
+    .a16
+    ASL A
+    TAX
+    LDA a:eMOFF, X
+    STA a:esLI                  ; A's first mask...
+    LDA a:eMOFF + 2, X
+    STA a:esLE                  ; ...and end
+    SEC
+    SBC a:esLI
+    STA a:esQ                   ; its bytes
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA a:eMOFF + 2, X
+    STA a:esSE
+    SEC
+    SBC a:eMOFF, X
+    CMP a:esQ
+    BNE @no
+    LDA a:eMOFF, X
+    STA a:esSI
+  @mine:
+    LDA a:esSI
+    CMP a:esSE
+    BCS @yes
+    TAY
+    LDX a:esLI
+  @theirs:
+    CPX a:esLE
+    BCS @no
+    LDA a:eMASK, X
+    CMP a:eMASK, Y
+    BNE :+
+    LDA a:eMASK + 2, X
+    CMP a:eMASK + 2, Y
+    BEQ @found
+:   INX
+    INX
+    INX
+    INX
+    BRA @theirs
+  @found:
+    LDA a:esSI
+    CLC
+    ADC #4
+    STA a:esSI
+    BRA @mine
+  @yes:
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_dock -- where a ship found at location A is moored, on a shuffled
+;;  wiring (randoref.es_dock): of FFR's five docks, those the party reaches
+;;  whenever it reaches A -- each of A's masks that does not need the ship
+;;  covers a mask of a boarding region's -- the nearest to A's entrances,
+;;  walking if any can be walked to, else flying.  Coneria's always counts.
+;;  In: A16 = the location.  Out: A16 = the dock.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_dock:
+    .a16
+    .i16
+    STA a:esLOC
+    JSR es_locents              ; esRM: its entrances
+    LDA #$FFFF                  ; the best so far: kind (0 walk, 1 fly), its
+    STA a:esOWN                 ;   distance, the dock
+    STA a:esOWN + 2
+    STZ a:esBIT                 ; the best dock
+    STZ a:esD                   ; the dock asked about
+  @dock:
+    LDA a:esD
+    CMP #GR_DOCKS
+    BCC :+
+    LDA a:esBIT
+    RTS
+:   JSR es_dockok
+    BCS :+
+    JMP @next
+:   ;  Its distance: the least walk from any of the entrances, else the
+    ;  least flight.
+    LDA #$FFFF
+    STA a:esC                   ; walk
+    LDA #$7FFF
+    STA a:esC + 2               ; fly
+    STZ a:esK                   ; the entrance
+  @ent:
+    LDA a:esK
+    CMP #32
+    BCS @have
+    CMP #16
+    BCS @hi
+    ASL A
+    TAX
+    LDA f:WORLDFAR + esBit16, X
+    AND a:esRM
+    BRA :+
+  @hi:
+    SEC
+    SBC #16
+    ASL A
+    TAX
+    LDA f:WORLDFAR + esBit16, X
+    AND a:esRM + 2
+:   BEQ @nextent
+    LDA a:esK                   ; entrance * GR_DOCKS + dock, in words
+    ASL A
+    ASL A
+    CLC
+    ADC a:esK
+    CLC
+    ADC a:esD
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrEntWalk, X
+    CMP a:esC
+    BCS :+
+    STA a:esC
+:   LDA f:LOGICFAR + lut_GrEntFly, X
+    CMP a:esC + 2
+    BCS @nextent
+    STA a:esC + 2
+  @nextent:
+    INC a:esK
+    BRA @ent
+  @have:
+    LDA a:esC                   ; (kind, distance): walking if any walk
+    CMP #$FFFF
+    BEQ @fly
+    LDY #0
+    BRA @key
+  @fly:
+    LDA a:esC + 2
+    LDY #1
+  @key:
+    STA a:esQ
+    CPY a:esOWN                 ; better than the best?  Kind first...
+    BCC @better
+    BNE @next
+    LDA a:esQ                   ; ...then distance; the lower dock on a tie
+    CMP a:esOWN + 2
+    BCS @next
+  @better:
+    STY a:esOWN
+    LDA a:esQ
+    STA a:esOWN + 2
+    LDA a:esD
+    STA a:esBIT
+  @next:
+    INC a:esD
+    JMP @dock
+
+;;  Does dock esD qualify for location esLOC: does each of its masks without
+;;  the ship cover some mask of one of the dock's boarding regions?  C set if
+;;  so.
+es_dockok:
+    .a16
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA a:eMOFF + 2, X
+    STA a:esLE
+    LDA a:eMOFF, X
+    STA a:esLI
+  @mask:
+    LDA a:esLI
+    CMP a:esLE
+    BCC :+
+    SEC                         ; every one covered
+    RTS
+:   TAX
+    LDA a:eMASK + (LBIT_SHIP / 16) * 2, X
+    AND #1 << (LBIT_SHIP .MOD 16)
+    BNE @nextmask               ; it needs the ship: no matter
+    LDA a:eMASK, X
+    STA a:esC
+    LDA a:eMASK + 2, X
+    STA a:esC + 2
+    JSR es_boardcovers
+    BCS @nextmask
+    CLC
+    RTS
+  @nextmask:
+    LDA a:esLI
+    CLC
+    ADC #4
+    STA a:esLI
+    BRA @mask
+
+;;  Is some mask of dock esD's boarding regions within esC?  C set if so.
+es_boardcovers:
+    .a16
+    LDA a:esD
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrDockOff + 2, X
+    STA a:esSE
+    LDA f:LOGICFAR + lut_GrDockOff, X
+    STA a:esSI
+  @node:
+    LDA a:esSI
+    CMP a:esSE
+    BCC :+
+    CLC
+    RTS
+:   TAX
+    LDA f:LOGICFAR + lut_GrDockNodes, X
+    AND #$00FF
+    TAX
+    LDA a:eNREQ, X
+    AND #$00FF
+    STA a:esNT
+    TXA
+    JSR es_reqaddr
+    TAX
+  @req:
+    LDA a:esNT
+    BEQ @nextnode
+    DEC a:esNT
+    LDA a:esC                   ; b & ~C == 0
+    EOR #$FFFF
+    AND a:0, X
+    BNE :+
+    LDA a:esC + 2
+    EOR #$FFFF
+    AND a:2, X
+    BNE :+
+    SEC
+    RTS
+:   INX
+    INX
+    INX
+    INX
+    BRA @req
+  @nextnode:
+    INC a:esSI
+    BRA @node
+
+
+;;  For the harness, after rando_esmasks: the dock for a ship at location A.
+;;  Out: esTRY's high byte.
+rando_esdock:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    REP #$10
+    .i16
+    SEP #$20
+    .a8
+    PLA
+    REP #$20
+    .a16
+    AND #$00FF
+    JSR es_dock
+    SEP #$20
+    .a8
     STA a:esTRY + 1
     JMP leave
