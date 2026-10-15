@@ -659,6 +659,7 @@ pl_attempt:
     LDA #W1
     JSR pl_nonkey
   @nontotal:
+    JSR pl_first
     JSR pl_total
     BNE @draw
     LDA #PSTATE_INCENTIVE
@@ -1144,6 +1145,61 @@ pl_isspot:
     BEQ :+
     LDA #1
 :   RTS
+
+;;  Progression first (user, 2026-10-14; randoref.py's _first): in the
+;;  loose draw, while any loose key item that weighs something would open a
+;;  place -- pNN 0 or more, its own place taken off -- the entries that would
+;;  open none, and loose gear, are made to weigh nothing.  Held back, they are
+;;  placed once nothing would open anything, rather than filling the few
+;;  places reached at the start.  Not FFR's.
+pl_first:
+    LDX #$0000
+  @any:
+    CPX a:pWN
+    BCS @out                    ; nothing opens anything: the draw as it is
+    JSR pl_opens
+    BCC @next
+    TXA
+    ASL A
+    TAY
+    LDA a:pWW, Y
+    BNE @hold
+  @next:
+    INX
+    BRA @any
+  @hold:
+    LDX #$0000
+  @each:
+    CPX a:pWN
+    BCS @out
+    JSR pl_opens
+    BCS :+
+    TXA
+    ASL A
+    TAY
+    LDA #0
+    STA a:pWW, Y
+:   INX
+    BRA @each
+  @out:
+    RTS
+
+;;  Does draw entry X's item open a place: a key item whose pNN is 0 or more?
+;;  C set if so.  X kept.
+pl_opens:
+    LDA a:pWI, X
+    AND #$00FF
+    CMP #PLACE_KEYS
+    BCS @no                     ; gear opens nothing
+    ASL A
+    TAY
+    LDA a:pNN, Y
+    BMI @no
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
 
 ;;  Forward placement (user, 2026-10-14; randoref.py's _forward): an item
 ;;  that is not an incentive goes to a place drawn by weight, and every place

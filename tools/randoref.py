@@ -880,7 +880,8 @@ def chest_floors(rom):
 #  giving up, where FFR stops at three, and then key items stay where they
 #  are.  FFR's safe tables, as it uses on its own map without Entrance
 #  shuffle, and its BRIDGE at 2.0, which it sets for that map.  And forward
-#  placement, always, without FFR's spread placement (_forward).
+#  placement, always, without FFR's spread placement (_forward); and
+#  progression first, which FFR has not (_first).
 import logicdata as _L
 
 PLACE_ATTEMPTS = 32
@@ -1049,6 +1050,19 @@ def _forward(rng, where, fwd):
     return pick
 
 
+#  Progression first (user, 2026-10-14; not FFR's): in the loose draw, while
+#  any loose key item would open a place -- a count of 0 or more, the item's
+#  own place taken off -- those that would open none, and loose gear, weigh
+#  nothing.  FFR draws them alike once enough places are reached, so early on,
+#  while those are only the start's few, they fill them.  Held back, they are
+#  placed once nothing would open anything, or nothing else can be, and the
+#  world has opened by then; forward placement then favours what opened last.
+def _first(wc, cs):
+    prog = {i for i, cnt in cs if cnt["non"] >= 0}
+    keep = [(w, i) for w, i in wc if i in prog]
+    return keep if sum(w for w, _ in keep) else wc
+
+
 def _attempt(rng, free, items, inc0, inclocs, masks):
     incentives = set(inc0)
     n_inc_pool = len(inclocs)
@@ -1135,6 +1149,7 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
             else:
                 wc = _bins(cs, W1, W1, W1, W1 // 4, 2, cycle, access, "non", 5, 20)
                 wc += [(_weight(i, W1, cycle, access), i) for i in nonkey]
+            wc = _first(wc, cs)
             if sum(w for w, _ in wc) == 0:
                 if cycle >= 15 and state != "normal":
                     return None
