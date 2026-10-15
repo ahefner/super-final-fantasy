@@ -947,6 +947,47 @@ def test_es_place():
     check("Key items Vanilla: no placement, and the entrances stay put",
           (cart[0], cart[2], cart[3], cart[4]), (0, 0, 0, R.ENTRANCES_OFF))
 
+    #  A wiring whose start reaches no incentive spot, with every item an
+    #  incentive, can place nothing: each attempt gives up as stuck at cycle
+    #  15, its wasted cycles reusing their counts -- not drawing an incentive
+    #  with nowhere to put it to cycle 100 (13 million instructions for this
+    #  New Game before).  The placement is the same either way -- the next
+    #  wiring has a stream of its own -- so only the cost can tell.
+    cfg = PLACE_CONFIGS["wide-bare"]
+    check("wide-bare seed 23762, Entrances: its first wiring places nothing",
+          R.build_world(23762, *cfg, R.ENTRANCES_ONLY)[0], 1)
+    bus, cpu = machine()
+    sv = bus.sram
+    sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = (23762).to_bytes(4, "little")
+    sv[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+    sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+    sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+    sv[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+    sv[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_ONLY
+    n0 = cpu.steps
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
+    check("...so its four attempts cost next to nothing (New Game under 3M instructions)",
+          (sv[K["RANDO_ESK"] - 0x6000], cpu.steps - n0 < 3_000_000), (1, True))
+    #  And a cycle that places nothing reuses the last one's counts: Key items
+    #  Standard with no Early flags, seed 158397, whose New Game gives up as
+    #  stuck at cycle 15 on six wirings before the seventh places (15.4 million
+    #  instructions when every cycle counted afresh; 7.5 since).
+    cfg = PLACE_CONFIGS["late"]
+    check("late seed 158397, Entrances: the seventh wiring places",
+          R.build_world(158397, *cfg, R.ENTRANCES_ONLY)[0], 6)
+    bus, cpu = machine()
+    sv = bus.sram
+    sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = (158397).to_bytes(4, "little")
+    sv[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+    sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+    sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+    sv[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+    sv[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_ONLY
+    n0 = cpu.steps
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
+    check("...its wasted cycles reusing their counts (New Game under 10M instructions)",
+          (sv[K["RANDO_ESK"] - 0x6000], cpu.steps - n0 < 10_000_000), (6, True))
+
     #  ...and the fallback, which no seed tried has needed: a cart whose
     #  New Game has no attempts places the vanilla world's way, on FFR's safe
     #  tables -- the shuffle's loose ones put back -- and clears the mode.

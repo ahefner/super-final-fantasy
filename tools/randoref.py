@@ -1158,9 +1158,11 @@ def es_dock(c, masks, req, roots):
 #  are.  FFR's safe tables, as it uses on its own map without Entrance
 #  shuffle, and its unsafe ones under Map shuffle, as it does under
 #  Entrances (TUNE_LOOSE); its BRIDGE at 2.0 in both, which it sets for the
-#  vanilla overworld.  And forward
-#  placement, always, without FFR's spread placement (_forward); and
-#  progression first, which FFR has not (_first).
+#  vanilla overworld.  A draw with nowhere to go -- no incentive spot reached,
+#  or no other place -- weighs nothing, where FFR draws anyway ("can't happen")
+#  and can spin to cycle 100.  And forward placement, always, without FFR's
+#  spread placement (_forward); and progression first, which FFR has not
+#  (_first).
 import logicdata as _L
 
 PLACE_ATTEMPTS = 32
@@ -1423,7 +1425,13 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
             cs = [c for c in cands if c[0] in incentives]
             nonkey = [i for i in remaining if i >= PLACE_KEYS and i in incentives]
             n = len(inc_src)
-            if n <= 1 or (n <= CRIT_INC and SHIP in keys and CANAL in keys):
+            if n == 0:
+                #  No incentive spot: nothing to weigh, so the other draw next
+                #  cycle, or give up as stuck.  FFR draws anyway ("can't
+                #  happen"), finds nowhere, and keeps its state -- in the
+                #  incentive state, drawing the same way to cycle 100.
+                wc = []
+            elif n <= 1 or (n <= CRIT_INC and SHIP in keys and CANAL in keys):
                 wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "inc", 1, 2, tune)
             elif n <= SAFE_INC:
                 wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "inc", 1, 2, tune)
@@ -1442,7 +1450,9 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
             cs = [c for c in cands if c[0] not in incentives]
             nonkey = [i for i in remaining if i >= PLACE_KEYS and i not in incentives]
             n = len(non_src)
-            if n <= CRIT_NON:
+            if n == 0:
+                wc = []                 # likewise, with no other place
+            elif n <= CRIT_NON:
                 wc = _bins(cs, 0, W1 // 2, W1, W1, 1, cycle, access, "non", 5, 20, tune)
             elif n <= SAFE_NON:
                 wc = _bins(cs, W1 // 2, W1 // 2, W1, W1 // 2, 2, cycle, access, "non", 5, 20, tune)

@@ -87,6 +87,7 @@ pGROUP   = .LOWORD(RP_GROUP)
 pFWD     = .LOWORD(RP_FWD)
 pESK     = .LOWORD(RP_ESK)
 pTUNE    = .LOWORD(RP_TUNE)
+pFRESH   = .LOWORD(RP_FRESH)
 pGRP     = .LOWORD(RP_GRP)
 
 W1             = 1024          ; a weight of 1.0
@@ -565,6 +566,7 @@ pl_attempt:
     BCC @fwd
     JSR pl_vendor
     STZ a:pGEN
+    STZ a:pFRESH
     STZ a:pINCSRC
     STZ a:pNONSRC
     STZ a:pMODE
@@ -596,6 +598,15 @@ pl_attempt:
     CLC
     ADC a:pNONSRC
     STA a:pACCESS
+    ;  What each item would open depends only on what is placed, so a cycle
+    ;  after one that placed nothing has the counts already -- the waits for
+    ;  a cycle limit, and FFR's alternation before it gives up as stuck at
+    ;  cycle 15, cost next to nothing.  (The reference counts afresh; the
+    ;  numbers are the same.)
+    LDA a:pFRESH
+    BEQ :+
+    JMP @counted
+:
 
     ;  What each key item still to place would open: its new incentive and
     ;  other places, less the one it would take itself.
@@ -659,6 +670,9 @@ pl_attempt:
     LDX #PI_CANAL * 2
     JSR pl_raise
   @noboth:
+    LDA #1
+    STA a:pFRESH
+  @counted:
 
     ;  Incentives still to place.
     LDA a:pREM
@@ -693,8 +707,13 @@ pl_attempt:
     LDA #1
     STA a:pBRANCH
     STZ a:pWN
+    ;  No incentive spot: nothing to weigh, so the other draw next cycle, or
+    ;  give up as stuck.  FFR draws anyway ("can't happen"), finds nowhere,
+    ;  and keeps its state -- in the incentive state, to cycle 100.
     LDA a:pINCSRC
-    CMP #2
+    BNE :+
+    JMP @incnone
+:   CMP #2
     BCC @inccrit                ; one place or none
     BNE @incmore
     LDA #PI_SHIP                ; two, and both the ship and the canal to come
@@ -782,7 +801,10 @@ pl_attempt:
     STZ a:pBRANCH
     STZ a:pWN
     LDA a:pNONSRC
-    CMP #CRIT_NON + 1
+    BNE :+
+    LDA #PSTATE_INCENTIVE       ; likewise, with no other place
+    JMP @stuck
+:   CMP #CRIT_NON + 1
     BCS @nonmore
     LDA #0
     LDX #W1 / 2
@@ -941,6 +963,7 @@ pl_attempt:
     JSR pl_propagate
 :   LDA #PSTATE_NORMAL
     STA a:pSTATE
+    STZ a:pFRESH                ; placed: count again
     LDA a:pNREM
     BEQ @placed
 

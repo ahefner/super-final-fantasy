@@ -829,6 +829,24 @@ until the rewards change.
     that map -- the prototype had the unsafe ones, built for the shuffle.
     Under Map shuffle it uses the unsafe ones, as FFR does whenever
     Entrances is on (§9.3, "Placement's tables"); the BRIDGE stays at 2.0.
+  - **A draw with nowhere to go weighs nothing** (2026-10-14, after the user
+    asked why some settings reroll so much).  FFR draws an incentive with no
+    incentive spot reached -- "can't happen per definition", its comment
+    says -- finds nowhere, skips the cycle and keeps its state; in the
+    incentive state it draws the same way every cycle to 100, never reaching
+    its own give-up at cycle 15.  It does happen: a shuffled world whose
+    start reaches no incentive spot, or one whose incentive spots are all
+    taken.  Here such a draw weighs nothing, so the other draw comes next,
+    or the attempt gives up as stuck at 15 as FFR means it to; likewise a
+    loose draw with no other place, which no seed tried has reached (960
+    runs; held by reading).  Every placement is still checked, and played
+    (`checkplace.py`: 1,600 on the vanilla world and 1,920 shuffled, all
+    winnable).  And the cart counts what each item would open only after a
+    cycle that placed something: those counts depend on nothing else, so
+    the waits for a cycle limit cost next to nothing (the reference counts
+    every cycle; the numbers are the same).  New Game under the settings
+    that reroll most, `bridge` and `wide-bare`: at worst 78 and 60 million
+    instructions before, 6 and 5 million after; `late` 15 to 7.5.
   - **Forward placement** (user, 2026-10-14; built, early places spot-checked the same day, not yet played).  The
     first playtest's seed (D1625106: Wide, every key item loose but the free
     BRIDGE and KEY, four gear incentives) put nine loose items in places
@@ -1666,7 +1684,10 @@ reference byte for byte by `test_options.py`:
     Key items Vanilla clears it too.  Its cost, over 16 seeds of three
     settings: a median of 1.0 to 1.4 million instructions in either mode,
     against 0.5 to 0.6 million with it Off, and at most 4 million (a second
-    wiring); no seed fell back.
+    wiring); no seed fell back.  Over 24 seeds of the settings that reroll
+    most -- `beginner`, `late`, `bridge`, `wide-bare` -- a median of 1.0 to
+    1.4 million and at most 7.5 (seven wirings), since a draw with nowhere
+    to go weighs nothing (§4.7); 78 million at worst before.
   - **The game's teleports** (`es_tables`; `test_es_tables`): the cache
     build deals the save's wiring again -- attempt `RANDO_ESK`, without
     placing -- and writes the landing tables the game reads, 32 entrances,
