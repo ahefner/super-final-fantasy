@@ -1696,7 +1696,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 26
+RANDO_SAVE_SIZE = 0x1D       # snesmap.inc: the settings, then entrance shuffle's k and dock
 
 
 def block_from_srm(srm):

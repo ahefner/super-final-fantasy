@@ -1482,7 +1482,16 @@ RANDO_ITEMS     = RANDO_SAVE+$14  ; 3 bytes, two bits per row, ITEM_* below, row
                                   ;   order from bit 0 of the first byte
 RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in order: set, an incentive
 RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
-RANDO_SAVE_SIZE = $1A
+RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
+;  What New Game made of the settings, under entrance shuffle (rando_place):
+;  which attempt's wiring the game has, so the cache can draw it again, and
+;  where a found ship is moored.  In the block, so the cache's tag sees them;
+;  after the settings, so the settings screen's copy leaves them alone.  Zero
+;  in every save made before them.
+RANDO_ESK       = RANDO_SAVE+$1B  ; the attempt k whose wiring placed
+RANDO_SHIPDOCK  = RANDO_SAVE+$1C  ; the ship's dock, 0..4 (es_dock)
+RANDO_SETTINGS_SIZE = $1B
+RANDO_SAVE_SIZE = $1D
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1521,7 +1530,7 @@ RANDO_GIVENFAR  = (CHUNK0 * $10000) + RANDO_GIVEN
 ;  is what took OPT_FORMAT to 5.
 OPT_NG          = OPTBLOCK+$C8
 RANDO_NGOFF     = RANDO_TRAPS - RANDO_SAVE  ; where the settings start in the save
-OPT_NG_SIZE     = RANDO_SAVE_SIZE - RANDO_NGOFF
+OPT_NG_SIZE     = RANDO_SETTINGS_SIZE - RANDO_NGOFF
 OPT_NGFAR       = (CHUNK0 * $10000) + OPT_NG
 OPT_NG_TRAPS    = OPT_NG + (RANDO_TRAPS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_SHOPS    = OPT_NG + (RANDO_SHOPS - RANDO_SAVE) - RANDO_NGOFF
@@ -1840,7 +1849,8 @@ RP_BESTI        = RP_BASE+$0B6C   ; ...and its item
 RP_WANT         = RP_BASE+$0B6E   ; 1: an incentive spot wanted
 RP_CLR0         = RP_BASE+$0B70   ; an Early waiver: what of each word to keep
 RP_CLR2         = RP_BASE+$0B72
-RP_WORDSEND     = RP_BASE+$0B74
+RP_ESK          = RP_BASE+$0B74   ; entrance shuffle: the attempt being tried
+RP_WORDSEND     = RP_BASE+$0B76
 RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)

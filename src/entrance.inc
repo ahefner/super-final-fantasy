@@ -2442,3 +2442,42 @@ rando_esdock:
     .a8
     STA a:esTRY + 1
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_build -- attempt k's world, for placement (place.inc, pl_shuffled):
+;;  the wiring in the save's mode, its masks under the save's Early flags,
+;;  placement's index of them, the roots and the spread groups.  In: A16 = k;
+;;  native, DBR = $7F, from a JSL.  Out: C set if the attempt is refused.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_build:
+    .a16
+    .i16
+    JSR es_start
+    SEP #$20
+    .a8
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    JSR es_wiring
+    REP #$20
+    .a16
+    BCS @out
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #$00FF
+    JSR es_fixpoint
+    BCS @out
+    JSR es_locmasks
+    BCS @out
+    JSR es_bybit
+    BCS @out
+    JSR es_roots
+    JSR es_groups
+  @out:
+    RTL
+
+;;  es_dock from a JSL: A16 = the location, out A16 = the dock.
+es_dockfar:
+    .a16
+    .i16
+    JSR es_dock
+    RTL

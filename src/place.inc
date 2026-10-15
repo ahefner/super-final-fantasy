@@ -85,6 +85,7 @@ pCHAOS   = .LOWORD(RP_CHAOS)
 pNCHAOS  = .LOWORD(RP_NCHAOS)
 pGROUP   = .LOWORD(RP_GROUP)
 pFWD     = .LOWORD(RP_FWD)
+pESK     = .LOWORD(RP_ESK)
 pGRP     = .LOWORD(RP_GRP)
 
 W1             = 1024          ; a weight of 1.0
@@ -136,6 +137,8 @@ rando_place:
     .a8
     LDA #$00
     STA f:RANDO_PLACEDFAR
+    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
     LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
     LDX #LOGIC_STANDARD
     LDY #LOGIC_NSTANDARD
@@ -151,6 +154,11 @@ rando_place:
     .a16
     STX a:pSPOT
     STY a:pNINCPOOL
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    AND #$00FF
+    BEQ @off
+    JMP pl_shuffled
+  @off:
     JSR pl_masks
     JSR pl_vanilla
     JSR pl_items
@@ -171,6 +179,93 @@ rando_place:
     JMP leave                   ; none: key items stay where they are
   @won:
     JSR pl_store
+    JMP leave
+
+
+;;  Under entrance shuffle (randoref.build_world): for each attempt k, the
+;;  wiring and its logic from entrance shuffle's chunk (es_build), then
+;;  ES_PLACE_ATTEMPTS tries at placement on stream STREAM_KEYS + k -- a
+;;  wiring that will not place often needs more than 32, and the next is
+;;  cheaper.  The first that places is the game's: k and the ship's dock go
+;;  in the save beside it.  With none in ES_ATTEMPTS, the game is Off's.
+ES_ATTEMPTS = 16
+ES_PLACE_ATTEMPTS = 4
+.import es_build, es_dockfar
+pl_shuffled:
+    .a16
+    JSR pl_items
+    STZ a:pESK
+  @world:
+    LDA a:pESK
+    CMP #ES_ATTEMPTS
+    BCS @none
+    JSL es_build + WORLDFAR
+    BCS @next
+    LDA a:pESK
+    CLC
+    ADC #.LOWORD(STREAM_KEYS)
+    EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    STA a:wRNG
+    LDA #.HIWORD(STREAM_KEYS)
+    ADC #0
+    EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #ES_PLACE_ATTEMPTS
+    STA a:pATT
+  @try:
+    JSR pl_attempt
+    BCS @won
+    DEC a:pATT
+    BNE @try
+  @next:
+    INC a:pESK
+    BRA @world
+  @won:
+    JSR pl_store
+    SEP #$20
+    .a8
+    LDA a:pESK
+    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    LDA #0
+    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+    LDA f:RANDO_PLACEFAR + PI_SHIP
+    CMP #$FF
+    BEQ :+                      ; a free ship: Coneria's
+    REP #$20
+    .a16
+    AND #$00FF
+    JSL es_dockfar + WORLDFAR
+    SEP #$20
+    .a8
+    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+:   JMP leave
+  @none:
+    SEP #$20
+    .a8
+    LDA #ENTRANCES_OFF
+    STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    REP #$20
+    .a16
+    JSR pl_masks
+    JSR pl_vanilla
+    JSR pl_items
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_KEYS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_KEYS)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #PLACE_ATTEMPTS
+    STA a:pATT
+  @offtry:
+    JSR pl_attempt
+    BCS :+
+    DEC a:pATT
+    BNE @offtry
+    JMP leave
+:   JSR pl_store
     JMP leave
 
 

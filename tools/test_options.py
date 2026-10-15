@@ -899,6 +899,51 @@ def test_es_world():
     check("es_roots, es_groups and es_dock on the cart", bad[:4], [])
     check("the vanilla wiring's groups are logicdata's", got[0][2] == R._L.SPREAD, True)
 
+def es_place_cart(job):
+    """rando_place with entrance shuffle: (placed, placement, k, dock, the
+    mode the save is left with)."""
+    seed, (keyitems, items3, gear2, early), mode = job
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_ENTRANCES"] - 0x6000] = mode
+    s[K["RANDO_ESK"] - 0x6000] = 0x55              # decoys
+    s[K["RANDO_SHIPDOCK"] - 0x6000] = 0x66
+    #  Several wirings and their placements can run past call()'s limit.
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
+    p = K["RANDO_PLACE"] - 0x6000
+    return (s[K["RANDO_PLACED"] - 0x6000], list(s[p:p + K["PLACE_ITEMS"]]),
+            s[K["RANDO_ESK"] - 0x6000], s[K["RANDO_SHIPDOCK"] - 0x6000], s[K["RANDO_ENTRANCES"] - 0x6000])
+
+
+def test_es_place():
+    """New Game under entrance shuffle: rando_place takes randoref.build_world's
+    attempt, placement and dock, and keeps them in the save; with no world it
+    falls back to Off's placement and clears the mode."""
+    cfgs = [PLACE_CONFIGS[n] for n in ("beginner", "wide-loose", "bridge", "all-loose")]
+    jobs = [(seed * 7919 + 13, cfg, mode) for cfg in cfgs for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+            for seed in range(3)]
+    jobs += [(0xD1625106, PLACE_CONFIGS["wide-loose"], R.ENTRANCES_FLOORS)]
+    got = pmap(es_place_cart, jobs)
+    bad = []
+    for (seed, cfg, mode), cart in zip(jobs, got):
+        built = R.build_world(seed, *cfg, mode)
+        if built is not None:
+            k, w, out, dock = built
+            want = (1, out, k, dock, mode)
+        else:
+            out = R.build_placement(seed, *cfg)
+            want = (1 if out else 0, out, 0, 0, R.ENTRANCES_OFF)
+        if (cart[0], cart[1] if cart[0] else None, cart[2], cart[3], cart[4]) != \
+                (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
+            bad.append((seed, cfg[0], mode, cart[2:], want[2:]))
+    check("rando_place under entrance shuffle: build_world's", bad[:4], [])
+
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
     randoref.build_placement does, for every setting and seed tried, and every
@@ -8576,7 +8621,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
