@@ -801,7 +801,7 @@ KEY ITEMS heading of their own, saved with the game like the rows above it
 and shown by the save view with them:
 
     Key items        Vanilla / Standard / Wide
-    Map shuffle      Off / Entrances / FE         (below)
+    Map shuffle      Off / Entrances / Floors     (below)
     SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows
     Other items      Incentive / Loose            the nine with no Free
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
@@ -873,10 +873,9 @@ differ in every one.
 **Built 2026-10-14; not yet played.**  FFR's Entrance Shuffle and Entrance
 and Floor Shuffle as one row under Key items (user: three values, not two
 rows), saved with the game: Off; Entrances, every overworld dungeon and
-castle entrance leading into another's; FE, floors and entrances, and the
-stairs and teleports inside too (the user's readout, after the worldgraph
-prototype's name; not the Free Enterprise preset of `ffr-presets.md`; its
-description spells it out).  Towns stay put, as FFR's preset has them.  Only under
+castle entrance leading into another's; Floors, the entrances and the
+stairs and teleports inside too (the user's readout; its description says
+"As Entrances").  Towns stay put, as FFR's preset has them.  Only under
 Key items Standard or Wide, as in FFR: `rando_place` clears it under Vanilla,
 and when no wiring of the seed's 16 places, so the save -- and the save view
 -- says Off whenever the world is vanilla.  How it works is

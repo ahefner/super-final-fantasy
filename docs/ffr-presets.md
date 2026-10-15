@@ -126,7 +126,7 @@ Beginner, Classic, ES, EFS, CR and FE.
     weapons and armour, FE more) and drop what they hand out free.
   - **The wiring** (Tier 3): Entrances with dead ends (ES, EFS), Floors
     (EFS), and the Short ToFR (EFS, CR, FE).  *Built 2026-10-14, not yet
-    played:* the Map shuffle row, Off / Entrances / "FE" (floors and entrances), towns
+    played:* the Map shuffle row, Off / Entrances / Floors (entrances and floors), towns
     fixed; the Short ToFR not yet.
   - **Map edits**, in every randomized preset:
       - Early Open Progression, an overworld edit that, among other things,

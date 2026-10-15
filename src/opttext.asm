@@ -816,13 +816,13 @@ lut_Desc_93_1:  ; Map shuffle: Entrances
   FFPAD {"Only with Key items Standard"}, 28
   FFPAD {"or Wide.  FFR's."}, 28
 
-lut_Desc_93_2:  ; Map shuffle: FE
+lut_Desc_93_2:  ; Map shuffle: Floors
   FFLINES 5
-  FFPAD {"Floors and Entrances -- as"}, 28
-  FFPAD {"Entrances, and the stairs"}, 28
+  FFPAD {"As Entrances, and the stairs"}, 28
   FFPAD {"and teleports inside lead to"}, 28
   FFPAD {"other floors.  Only with Key"}, 28
   FFPAD {"items Standard or Wide."}, 28
+  FFPAD {"FFR's."}, 28
 
 ;  Each item row by value: the first two shared, Free the item's own.
 lut_DescItemInc:  ; an item row: Incentive

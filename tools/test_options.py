@@ -6445,7 +6445,7 @@ def test_menudesc():
                  "Warrior's Standard gives", "Royal Packmule gives",
                  "Duckling Boon gives"))]
     cases += [(optrow("Map shuffle"), K["OPT_NG_ENTRANCES"], v, phrase) for v, phrase in enumerate((
-                 "leads where it always does", "Towns stay put", "Floors and Entrances -- as"))]
+                 "leads where it always does", "Towns stay put", "As Entrances, and the stairs"))]
     seen = {}
     for row, byte, value, phrase in cases:
         bus, cpu = machine()
