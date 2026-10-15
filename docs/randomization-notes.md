@@ -845,8 +845,31 @@ until the rewards change.
     halve forever.  Incentives are drawn as before, any spot alike.  On its
     own it moves loose items in sphere 0 (reached from the start) from 45%
     to 35% under that seed's settings, over 300 seeds; the rest of the pile
-    is the order items are placed in, not where (progression first, next).
-    About 120K more instructions on a loose-heavy seed: a median 710K.
+    is the order items are placed in, not where (progression first, below).
+  - **Progression first** (user, 2026-10-14; built, not yet played; not
+    FFR's).  In the loose draw, while any loose key item would open a place
+    -- its count of new places, its own taken off, 0 or more -- the items
+    that would open none, and loose gear, weigh nothing (`randoref._first`,
+    `pl_first`).  FFR draws them alike once more than twenty places are
+    reached, which with free items is from the start, so they filled the
+    start's few places; held back, they are placed once nothing would open
+    anything, or nothing else can be, by when the world has opened.  The
+    user's first-principles reading: place items so they form chains, and
+    don't let one step of the search take many.  Loose key items by sphere
+    under the playtest's settings, 300 seeds:
+
+        sphere          0    1    2    3    4    5    6    7    8    9
+        before         45%  36%  16%   3%   1%   0%   0%   0%   0%   0%
+        forward        35%  34%  20%   6%   3%   1%   0%   0%   0%   0%
+        both           13%  16%  16%   9%   9%  13%  13%   8%   3%   1%
+
+    The chains are longer for it: the deepest sphere goes from 5 to 10, so a
+    loose-heavy game is more back and forth.  Placement is cheaper, a median
+    550K instructions, since the held-back items cost no cycles of asking.
+    What it does not do: once an area opens, forward placement favours it,
+    so a newly opened dungeon can take several loose items -- the most in one
+    dungeon is a mean of 4.4, four or more in 84% of seeds, where FFR's
+    spread placement (not wanted) would make that 3.7 and 55%.
   - **The caravan is stocked first**, as FFR's `SelectVendorItem` does
     (2026-10-14): it is a shop, so it can sell an item and not a vehicle or
     gear.  Before the loop, a random one of the incentives a shop can sell

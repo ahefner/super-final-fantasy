@@ -713,7 +713,9 @@ def test_rando_place():
     #  and 75 places reached, where its minimum of 75 says no.  (The halving
     #  of a negative count, the ship and canal raised with one incentive place
     #  reached, and giving up at cycle 15 change no placement in 3,000 seeds of
-    #  each setting: FFR's code, kept, that the vanilla world never needs.)
+    #  each setting: FFR's code, kept, that the vanilla world never needs.
+    #  Nor does progression first holding back an item that opens exactly one
+    #  place, its count 0, in 1,500 seeds of each.)
     jobs += [(2, PLACE_CONFIGS["beginner"])]
     res = pmap(place_cart, jobs)
     bad, whole = [], []
