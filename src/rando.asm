@@ -49,6 +49,8 @@
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
+.export rando_entrdest, rando_exitdest
+.import es_tables
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle
@@ -813,10 +815,14 @@ build:
     JSR deal_rng
   @ordeals:
     LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
-    BEQ @done                   ; ORDEALS_OFF
+    BEQ @wiring                 ; ORDEALS_OFF
     CMP #ORDEALS_MODES
-    BCS @done
+    BCS @wiring
     JSR deal_ordeals
+  @wiring:
+    ;  The teleport tables the game reads: the save's wiring under entrance
+    ;  shuffle, else vanilla's (entrance shuffle's chunk).
+    JSL es_tables + WORLDFAR
   @done:
     PLP
     RTS
@@ -1160,6 +1166,11 @@ rando_mapedits:
 rando_teledest:
     .a8
     .i8
+    PHB
+    PHX
+    JSR enter
+    JSR ensure                  ; leaves A8, I8
+    PLX
     CPX #ORD_LOST_TELE
     BNE @table
     LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
@@ -1167,21 +1178,64 @@ rando_teledest:
     CMP #ORDEALS_MODES
     BCS @table
     LDA #ORD_LOST_X
-    JSR @scroll
+    JSR tele_scroll
     STA sm_scroll_x
     LDA #ORD_LOST_Y
-    JSR @scroll
+    JSR tele_scroll
     STA sm_scroll_y
-    RTL
+    BRA @map
   @table:
-    LDA f:BANK00FAR + lut_NormTele_X, X
-    JSR @scroll
+    LDA f:RW_NORMX, X
+    JSR tele_scroll
     STA sm_scroll_x
-    LDA f:BANK00FAR + lut_NormTele_Y, X
-    JSR @scroll
+    LDA f:RW_NORMY, X
+    JSR tele_scroll
     STA sm_scroll_y
-    RTL
-  @scroll:
+  @map:
+    LDA f:RW_NORMMAP, X         ; the map, in A
+    JMP leave
+
+;;  An overworld entrance's landing, as rando_teledest's: X = its id.  Out:
+;;  the scroll set, A = the map, X kept.  From the cache's table, the save's
+;;  wiring under entrance shuffle.
+rando_entrdest:
+    .a8
+    .i8
+    PHB
+    PHX
+    JSR enter
+    JSR ensure
+    PLX
+    LDA f:RW_ENTRX, X
+    JSR tele_scroll
+    STA sm_scroll_x
+    LDA f:RW_ENTRY, X
+    JSR tele_scroll
+    STA sm_scroll_y
+    LDA f:RW_ENTRMAP, X
+    JMP leave
+
+;;  An exit's overworld landing: X = its id.  Out: the overworld scroll set.
+rando_exitdest:
+    .a8
+    .i8
+    PHB
+    PHX
+    JSR enter
+    JSR ensure
+    PLX
+    LDA f:RW_EXITX, X
+    SEC
+    SBC #7
+    STA ow_scroll_x
+    LDA f:RW_EXITY, X
+    SEC
+    SBC #7
+    STA ow_scroll_y
+    JMP leave
+
+;;  A landing coordinate's scroll: 7 back, wrapped to the map.
+tele_scroll:
     SEC
     SBC #7
     AND #$3F
@@ -1619,8 +1673,16 @@ give_vehicle:
     CMP #1
     BNE :+
     PHX
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    BEQ @bymap
+    ;  Under entrance shuffle the dock New Game chose for the wiring
+    ;  (es_dock): no map is where it was.
+    LDA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+    BRA @dock
+  @bymap:
     LDX cur_map                 ; where it was found: a chest or an NPC
     LDA f:LOGICFAR + lut_ShipDock, X
+  @dock:
     TAX
     LDA f:LOGICFAR + lut_DockX, X
     STA ship_x

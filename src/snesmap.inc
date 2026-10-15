@@ -1763,6 +1763,18 @@ RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
 RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
+;  The teleport tables the game reads (rando_entrdest, rando_teledest,
+;  rando_exitdest), as bank $00 holds them: vanilla's, or the save's wiring
+;  under entrance shuffle (es_tables).
+RW_ENTRX        = RANDOWRAM+$3240 ; 32: each entrance's landing x...
+RW_ENTRY        = RANDOWRAM+$3260 ; ...y...
+RW_ENTRMAP      = RANDOWRAM+$3280 ; ...and map
+RW_NORMX        = RANDOWRAM+$32A0 ; 64: each normal teleport's
+RW_NORMY        = RANDOWRAM+$32E0
+RW_NORMMAP      = RANDOWRAM+$3320
+RW_EXITX        = RANDOWRAM+$3360 ; 16: each exit's overworld x and y
+RW_EXITY        = RANDOWRAM+$3370
+.assert RW_EXITY + 16 <= RP_BASE, error, "the teleport tables run into placement's memory"
 
 ;  deal_rewards' working memory, in placement's: the two never run together.
 ;  A slot is a chest id, 256 + a reward NPC's entry, or SLOT_CARAVAN.

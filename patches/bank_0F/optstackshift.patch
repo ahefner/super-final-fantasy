@@ -62,11 +62,10 @@
 
     LDX tileprop+1          ; get the teleport ID in X for indexing teleport data
 
-    ;  The scroll for where it lands: the tables', or -- with the Ordeals
-    ;  pillars shuffled -- the one teleport FFR moves.  X is kept.
+    ;  The scroll for where it lands, from the cache's table -- vanilla's, or
+    ;  under entrance shuffle the save's wiring -- or, with the Ordeals
+    ;  pillars shuffled, the one teleport FFR moves.  A is the map; X kept.
     JSL rando_teledest + RANDOFAR
-
-    LDA lut_NormTele_Map, X ; get the map and record it
     STA cur_map
 
     TAX                     ; then throw the map in X, and use it to get

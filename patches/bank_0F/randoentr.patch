@@ -1,0 +1,21 @@
+--- OLD
+    LDA lut_EntrTele_X, X   ; get the X coord, and subtract 7 from it to get the scroll
+    SEC
+    SBC #7
+    AND #$3F                ; wrap around edge of the map
+    STA sm_scroll_x
+
+    LDA lut_EntrTele_Y, X   ; do same with Y coord
+    SEC
+    SBC #7
+    AND #$3F
+    STA sm_scroll_y
+
+    LDA lut_EntrTele_Map, X ; get the map
+    STA cur_map
+--- NEW
+.import rando_entrdest
+    ;  Where it lands, from the cache's table: vanilla's, or under entrance
+    ;  shuffle the save's wiring.  The scroll is set; A is the map.
+    JSL rando_entrdest + RANDOFAR
+    STA cur_map

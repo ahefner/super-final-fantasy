@@ -775,8 +775,9 @@ the reference's.  The fifteen tiles go to the cache (`RW_ORDPADS`), and
 it loads.  FFR also moves teleport $3C, tile $54's, to land at (16, 18), in
 the room vanilla never reaches, so that room can join the chain: the fixed
 bank's `@NormalTeleport` now asks `rando_teledest` for the landing rather than
-reading `lut_NormTele_X` and `_Y` itself, which is also where a floor shuffle
-would route teleports through the cache.  The room table and pads are FFR's,
+reading `lut_NormTele_X` and `_Y` itself.  Since entrance shuffle it reads the
+cache's table, as `rando_entrdest` and `rando_exitdest` do for the overworld
+entrances and the exits (`randomization-notes.md` §9.3).  The room table and pads are FFR's,
 held to this ROM by the test.  When incentive placement comes, its logic has
 to see 2F through the deal.
 
@@ -1891,8 +1892,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   213 free    the scarce one; stamped into every chunk.  7
-                             declared, and 206 at the end: the randomizer's
+    BANK_FIXED   247 free    the scarce one; stamped into every chunk.  7
+                             declared, and 240 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1906,7 +1907,10 @@ text region in the game references.
                              its Guillotine moved to rando_talk, gave back 31;
                              LoadPrice, its table read moved to rando_price,
                              gave back 24, the chest's exit for a vehicle
-                             took 3, and the reward NPCs' lines' hook 4
+                             took 3, and the reward NPCs' lines' hook 4;
+                             the entrance and exit landings, asked of
+                             rando_entrdest and rando_exitdest, and the
+                             teleport's map, of rando_teledest, gave back 34
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 16 bytes of
                              padding inside routines the randomizer took
@@ -1936,16 +1940,23 @@ text region in the game references.
                              before dated from 10-09 and was not kept up as
                              descriptions were added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   4148 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3757 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
                              NPCs' lines 1094, the ship's dock 13, forward
                              placement 165, progression first 75, spread
-                             placement 60
-    BANK_LOGIC  12351 free  the vanilla world's logic for placement (3714),
+                             placement 60; entrance shuffle 391 -- the
+                             placement tables in RAM 79, New Game's
+                             attempts and the PRNG lent 210, the landing
+                             hooks and the ship's dock under it 102
+    BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
-                             spread group (248), generated; data only
+                             spread group (248), and entrance shuffle's
+                             graph (5440), generated; data only
+    BANK_WORLD  11954 free  entrance shuffle's code (4430): the wiring, the
+                             seed's logic, roots, groups, the dock, and the
+                             landing tables
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

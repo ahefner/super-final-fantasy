@@ -943,6 +943,99 @@ def test_es_place():
                 (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
             bad.append((seed, cfg[0], mode, cart[2:], want[2:]))
     check("rando_place under entrance shuffle: build_world's", bad[:4], [])
+    cart = es_place_cart((5, (0, [0x20, 0, 0], [0x81, 0], 0x0F), R.ENTRANCES_FLOORS))
+    check("Key items Vanilla: no placement, and the entrances stay put",
+          (cart[0], cart[2], cart[3], cart[4]), (0, 0, 0, R.ENTRANCES_OFF))
+
+def test_es_tables():
+    """The teleport tables the game reads come from the cache: bank $00's own
+    with entrance shuffle off, the save's wiring -- attempt RANDO_ESK in its
+    mode -- with it on and the key items placed; and the three hooks read
+    them: an entrance's landing, a normal teleport's (the Ordeals pillars'
+    one moved teleport still moved) and an exit's."""
+    import graphdata as GD
+    b0 = (1 + 0x00) * 0x10000
+    rom = lambda a, n: list(ROMDATA[b0 + a:b0 + a + n])
+    van = (rom(0xAC00, 32), rom(0xAC20, 32), rom(0xAC40, 32), rom(0xAD00, 64), rom(0xAD40, 64),
+           rom(0xAD80, 64), rom(0xAC60, 16), rom(0xAC70, 16))
+
+    def tables(seed, mode, k, placed=1, ordeals=0):
+        bus, cpu = machine()
+        s = bus.sram
+        at = K["RANDO_SAVE"] - 0x6000
+        s[at:at + 4] = seed.to_bytes(4, "little")
+        s[K["RANDO_ENTRANCES"] - 0x6000] = mode
+        s[K["RANDO_ESK"] - 0x6000] = k
+        s[K["RANDO_PLACED"] - 0x6000] = placed
+        s[K["RANDO_ORDEALS"] - 0x6000] = ordeals
+        for name, n in (("RW_ENTRX", 32), ("RW_ENTRY", 32), ("RW_ENTRMAP", 32), ("RW_NORMX", 64),
+                        ("RW_NORMY", 64), ("RW_NORMMAP", 64), ("RW_EXITX", 16), ("RW_EXITY", 16)):
+            bus.wram[rw(name):rw(name) + n] = bytes([0xA5]) * n      # decoys
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        get = lambda name, n: list(bus.wram[rw(name):rw(name) + n])
+        return bus, cpu, (get("RW_ENTRX", 32), get("RW_ENTRY", 32), get("RW_ENTRMAP", 32),
+                          get("RW_NORMX", 64), get("RW_NORMY", 64), get("RW_NORMMAP", 64),
+                          get("RW_EXITX", 16), get("RW_EXITY", 16))
+
+    check("Off: bank $00's tables", tables(1, R.ENTRANCES_OFF, 0)[2], van)
+    check("a mode without a placement: bank $00's tables", tables(1, R.ENTRANCES_FLOORS, 0, placed=0)[2], van)
+    for seed, mode, k in ((1, R.ENTRANCES_ONLY, 0), (2, R.ENTRANCES_FLOORS, 1), (0xD1625106, R.ENTRANCES_FLOORS, 0)):
+        entrance, normal, exits, _ = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
+        want = ([c[1] for c in entrance], [c[2] for c in entrance], [c[0] for c in entrance],
+                [c[1] for c in normal], [c[2] for c in normal], [c[0] for c in normal],
+                [c[0] for c in exits], [c[1] for c in exits])
+        check("mode %d seed %X attempt %d: the save's wiring" % (mode, seed, k), tables(seed, mode, k)[2], want)
+
+    #  The hooks, on a shuffled world: each landing's scroll and map.
+    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1)
+    sx, sy, ox, oy = K["sm_scroll_x"], K["sm_scroll_y"], K["ow_scroll_x"], K["ow_scroll_y"]
+    bad = []
+    for e in range(32):
+        cpu.x = e
+        call(cpu, "rando_entrdest", bank=RANDO_BANK)
+        if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF) != \
+                ((t[0][e] - 7) & 0x3F, (t[1][e] - 7) & 0x3F, t[2][e], e):
+            bad.append(("entrance", e))
+    for tid in range(64):
+        cpu.x = tid
+        call(cpu, "rando_teledest", bank=RANDO_BANK)
+        if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF) != \
+                ((t[3][tid] - 7) & 0x3F, (t[4][tid] - 7) & 0x3F, t[5][tid], tid):
+            bad.append(("teleport", tid))
+    for x in range(16):
+        cpu.x = x
+        call(cpu, "rando_exitdest", bank=RANDO_BANK)
+        if (bus.wram[ox], bus.wram[oy]) != ((t[6][x] - 7) & 0xFF, (t[7][x] - 7) & 0xFF):
+            bad.append(("exit", x))
+    check("the hooks read the cache's tables", bad[:4], [])
+    #  ...and build it first, when nothing else has since power-on.
+    cold = []
+    for hook, x, want in (("rando_entrdest", 5, lambda b, c: (b.wram[sx], c.a & 0xFF)),
+                          ("rando_teledest", 9, lambda b, c: (b.wram[sx], c.a & 0xFF)),
+                          ("rando_exitdest", 3, lambda b, c: (b.wram[ox], b.wram[oy]))):
+        bus2, cpu2 = machine()
+        bus2.sram[:] = bus.sram
+        cpu2.x = x
+        call(cpu2, hook, bank=RANDO_BANK)
+        cold.append(want(bus2, cpu2))
+    check("a hook on a cold cache builds it", cold,
+          [((t[0][5] - 7) & 0x3F, t[2][5]), ((t[3][9] - 7) & 0x3F, t[5][9]),
+           ((t[6][3] - 7) & 0xFF, (t[7][3] - 7) & 0xFF)])
+    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1, ordeals=1)
+    cpu.x = K["ORD_LOST_TELE"]
+    call(cpu, "rando_teledest", bank=RANDO_BANK)
+    check("the Ordeals pillars' teleport still moved, its map the table's",
+          (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF),
+          ((K["ORD_LOST_X"] - 7) & 0x3F, (K["ORD_LOST_Y"] - 7) & 0x3F, t[5][K["ORD_LOST_TELE"]]))
+    #  And the fixed bank asks them, rather than bank $00.
+    fixed = (1 + 0x0F) * 0x10000 + 0xC000
+    body = ROMDATA[fixed:fixed + 0x4000]
+    for name in ("rando_entrdest", "rando_exitdest", "rando_teledest"):
+        a = SYM[name]
+        check("the fixed bank calls %s" % name, body.count(bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])), 1)
+    for tbl, addr in (("lut_EntrTele", 0xAC00), ("lut_NormTele", 0xAD00), ("lut_ExitTele", 0xAC60)):
+        reads = sum(body.count(bytes([0xBD, (addr + o) & 0xFF, (addr + o) >> 8])) for o in (0, 0x20, 0x40, 0x10, 0x80))
+        check("the fixed bank reads %s no more" % tbl, reads, 0)
 
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
@@ -1174,6 +1267,20 @@ def test_rando_shipdock():
     check("given, named SHIP, X kept, on every map",
           {got[m][1:] for m in got}, {(1, 0x12, 0x5A)})
     check("unplaced: the ship left where it is", give(15, placed=0)[:2], ((0x11, 0x22), 1))
+    #  Under entrance shuffle, the dock New Game chose (es_dock), whatever the map.
+    def shuffled(m, dock):
+        bus, cpu = machine()
+        s = bus.sram
+        s[K["RANDO_PLACED"] - 0x6000] = 1
+        s[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_ONLY
+        s[K["RANDO_SHIPDOCK"] - 0x6000] = dock
+        bus.wram[K["cur_map"]] = m
+        cpu.a, cpu.x = 0xF0, 0x5A
+        call(cpu, "give_vehicle", bank=RANDO_BANK)
+        return (s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), cpu.x & 0xFF
+    order = [CONERIA, PRAVOKA, ELFLAND, DWARF, MATOYA]
+    check("entrance shuffle: the save's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
+          [(order[d], 0x5A) for d in range(5)])
 
 
 def ff_decode(body):
@@ -8621,7 +8728,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

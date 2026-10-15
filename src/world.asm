@@ -16,7 +16,7 @@
 .import rando_belowfar, rando_warmfar
 .import lut_LogicKind, lut_LogicFlags
 ;  For tools/test_options.py.
-.export es_build, es_dockfar
+.export es_build, es_dockfar, es_tables
 .export rando_eswire, rando_esmasks, rando_esdock
 
 .segment "BANK_WORLD"

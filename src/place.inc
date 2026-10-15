@@ -148,6 +148,8 @@ rando_place:
     LDY #LOGIC_NWIDE
     CMP #KEYITEMS_WIDE
     BEQ @go
+    LDA #ENTRANCES_OFF          ; key items stay put: so do the entrances, as
+    STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)   ;   in FFR
     JMP leave
   @go:
     REP #$20

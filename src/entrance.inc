@@ -2481,3 +2481,103 @@ es_dockfar:
     .i16
     JSR es_dock
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_tables -- the teleport tables the game reads, in the cache: the save's
+;;  wiring (attempt RANDO_ESK in its mode) when it has one -- the mode set and
+;;  the key items placed, as New Game leaves them -- else vanilla.  From the
+;;  cache build (rando.asm), native, DBR = $7F, by JSL.  Registers clobbered.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_tables:
+    PHP
+    SEP #$20
+    .a8
+    REP #$10
+    .i16
+    LDA f:RANDO_PLACEDFAR
+    CMP #1
+    BNE @vanilla
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    BEQ @vanilla
+    PHA
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    AND #$00FF
+    JSR es_start
+    SEP #$20
+    .a8
+    PLA
+    JSR es_wiring
+    BCC @tables
+  @vanilla:
+    JSR es_vanilla
+  @tables:
+    LDY #$0000
+  @ent:
+    TYX
+    LDA a:eENT, X
+    JSR es_landbytes
+    TYX
+    STA f:RW_ENTRMAP, X
+    XBA
+    STA f:RW_ENTRY, X
+    LDA a:esLOC
+    STA f:RW_ENTRX, X
+    INY
+    CPY #32
+    BCC @ent
+    LDY #$0000
+  @norm:
+    TYX
+    LDA a:eNORM, X
+    JSR es_landbytes
+    TYX
+    STA f:RW_NORMMAP, X
+    XBA
+    STA f:RW_NORMY, X
+    LDA a:esLOC
+    STA f:RW_NORMX, X
+    INY
+    CPY #64
+    BCC @norm
+    LDY #$0000
+  @exit:
+    TYX
+    LDA a:eEXIT, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_GrExitX, X
+    XBA
+    LDA f:LOGICFAR + lut_GrExitY, X
+    TYX
+    STA f:RW_EXITY, X
+    XBA
+    STA f:RW_EXITX, X
+    INY
+    CPY #16
+    BCC @exit
+    PLP
+    RTL
+
+;;  Landing A8: A = its map, B (XBA) its y, esLOC its x.  A8, I16.  Y kept.
+es_landbytes:
+    .a8
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_GrLandX, X
+    STA a:esLOC
+    LDA f:LOGICFAR + lut_GrLandY, X
+    XBA
+    LDA f:LOGICFAR + lut_GrLandMap, X
+    RTS

@@ -1,0 +1,18 @@
+--- OLD
+    LDA lut_ExitTele_X, X   ;  get X coord
+    SEC                     ;  subtract 7 to get the scroll
+    SBC #7
+    STA ow_scroll_x
+
+    LDA lut_ExitTele_Y, X   ; do same with Y coord
+    SEC
+    SBC #7
+    STA ow_scroll_y
+
+    JMP DoOverworld         ; then jump to the overworld
+--- NEW
+.import rando_exitdest
+    ;  Where it lands on the overworld, from the cache's table: vanilla's, or
+    ;  under entrance shuffle the entrance its dungeon now hangs from.
+    JSL rando_exitdest + RANDOFAR
+    JMP DoOverworld         ; then jump to the overworld

@@ -1642,10 +1642,47 @@ the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
     960 shuffled worlds, eight settings in both modes, all winnable; at most
     six wirings tried for one.
 
-Not yet: everything on the cart -- the shuffle, the fixpoint, the teleport
-tables the game reads from WRAM, the row -- and FFR's Titan's Tunnel
-preference (§9.3 above), and the comparison of the reference shuffle's
-statistics with FFR's beyond the prototype's.
+**On the cart (2026-10-14; built, not yet played; the row is next).**  Its
+own chunk, WORLD (`src/world.asm` including `src/entrance.inc`), with the
+graph's tables in LOGIC (`src/graphdata.inc`, from gengraph.py) and the PRNG
+lent by RANDO (`rando_belowfar`, `rando_warmfar`).  Each stage is held to the
+reference byte for byte by `test_options.py`:
+
+  - **The wiring** (`es_wiring`; `test_es_wiring`, 42 seeds in each mode at
+    attempts 0 and 1): es_shuffle's, table for table.
+  - **The seed's logic** (`rando_esmasks`: `es_fixpoint`, `es_locmasks`,
+    `es_bybit`; `test_es_masks`): each place's masks as es_masks has them,
+    on the vanilla wiring in all sixteen Early combinations and on 52
+    shuffled ones, the five-mask seeds among them.  Placement's index, Chaos
+    list and groups moved to RAM for it (`RP_*`); Off copies them from ROM
+    (`pl_vanilla`).
+  - **Roots, groups and the dock** (`es_roots`, `es_groups`, `es_dock`;
+    `test_es_world`).
+  - **New Game** (`pl_shuffled`; `test_es_place`): build_world's attempt,
+    placement and dock, kept in the save (`RANDO_ESK`, `RANDO_SHIPDOCK`).
+    With no world in 16 attempts it places Off's and clears the mode, and
+    Key items Vanilla clears it too.  About 1.1 million instructions when
+    the first wiring places.
+  - **The game's teleports** (`es_tables`; `test_es_tables`): the cache
+    build deals the save's wiring again -- attempt `RANDO_ESK`, without
+    placing -- and writes the landing tables the game reads, 32 entrances,
+    64 normal teleports and 16 exits, or bank $00's own with the mode Off.
+    The fixed bank asks the cache for every landing: `rando_entrdest`
+    (overworld entrances, `randoentr.patch`), `rando_teledest` (normal
+    teleports; it already moved the Ordeals pillars' one) and
+    `rando_exitdest` (exits, `randoexit.patch`), each building the cache
+    first if nothing has since power-on.  The deal makes a cold build
+    dearer: 123,000 instructions with the mode Off; with it on, a median of
+    another 70,000 (Entrances) or 160,000 (Entrances + floors) and at most
+    680,000 in 40 seeds, the re-deals of insane wirings.  That is New Game
+    and the first Continue after power-on; a soft reset keeps the cache, so
+    its Continue costs nothing new.
+  - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
+    save's dock under the shuffle, by map without it.
+
+Not yet: the row and its save view, FFR's Titan's Tunnel preference (§9.3
+above), and the comparison of the reference shuffle's statistics with FFR's
+beyond the prototype's.
 
 
 ## 10. Interactions with shipped flags
