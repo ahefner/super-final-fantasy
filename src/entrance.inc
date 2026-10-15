@@ -44,7 +44,29 @@ esTW    = .LOWORD(ES_VARS) + $28
 esSAFE  = .LOWORD(ES_VARS) + $2A
 esX     = .LOWORD(ES_VARS) + $2C    ; an exit id
 esEND   = .LOWORD(ES_VARS) + $2E    ; a record's teleports' end
-.assert esEND + 2 <= .LOWORD(ES_WORDSEND), error, "the shuffle's words run past ES_VARS"
+;  The fixpoint's.
+esEARLY = .LOWORD(ES_VARS) + $30    ; RANDO_EARLY
+esNODE  = .LOWORD(ES_VARS) + $32    ; the region being relaxed from
+esD     = .LOWORD(ES_VARS) + $34    ; the region being relaxed to
+esRM    = .LOWORD(ES_VARS) + $36    ; 4: the edge's requirement
+esC     = .LOWORD(ES_VARS) + $3A    ; 4: a candidate mask
+esNT    = .LOWORD(ES_VARS) + $3E    ; masks in ES_TMP
+esCHG   = .LOWORD(ES_VARS) + $40    ; 1 once a candidate went in
+esHEAD  = .LOWORD(ES_VARS) + $42    ; the ring's head and tail
+esTAIL  = .LOWORD(ES_VARS) + $44
+esEI    = .LOWORD(ES_VARS) + $46    ; an index into an edge or source list...
+esEE    = .LOWORD(ES_VARS) + $48    ; ...and its end
+esSI    = .LOWORD(ES_VARS) + $4A
+esSE    = .LOWORD(ES_VARS) + $4C
+esLI    = .LOWORD(ES_VARS) + $4E    ; an index into a landing's regions...
+esLE    = .LOWORD(ES_VARS) + $50    ; ...and its end
+esTOT   = .LOWORD(ES_VARS) + $52    ; RP_MASK's bytes so far
+esLOC   = .LOWORD(ES_VARS) + $54
+esOWN   = .LOWORD(ES_VARS) + $56    ; 4: a location's own requirement
+esQ     = .LOWORD(ES_VARS) + $5A    ; a region's masks' address
+esK     = .LOWORD(ES_VARS) + $5C    ; a count down
+esBIT   = .LOWORD(ES_VARS) + $5E
+.assert esBIT + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
 
 ePMAP   = .LOWORD(ES_PMAP)
 ePFLOOR = .LOWORD(ES_PFLOOR)
@@ -60,6 +82,19 @@ eDEAD   = .LOWORD(ES_DEAD)
 eORDER  = .LOWORD(ES_ORDER)
 ePEND   = .LOWORD(ES_PEND)
 eENT    = .LOWORD(ES_ENT)
+eREQ    = .LOWORD(ES_REQ)
+eNREQ   = .LOWORD(ES_NREQ)
+eQUEUE  = .LOWORD(ES_QUEUE)
+eQD     = .LOWORD(ES_QD)
+eTMP    = .LOWORD(ES_TMP)
+eMASK   = .LOWORD(RP_MASK)
+eMOFF   = .LOWORD(RP_MOFF)
+eCHAOS  = .LOWORD(RP_CHAOS)
+eNCHAOS = .LOWORD(RP_NCHAOS)
+eBYOFF  = .LOWORD(RP_BYBITOFF)
+eBYBIT  = .LOWORD(RP_BYBIT)
+.assert ES_REQ + GR_NODES * ES_NODEMAX * 4 <= ES_NREQ, error, "ES_REQ runs into ES_NREQ"
+.assert GR_NODES <= 256, error, "a region is a byte"
 eNORM   = .LOWORD(ES_NORM)
 eEXIT   = .LOWORD(ES_EXIT)
 
@@ -1120,3 +1155,715 @@ es_entbit:
     LDA f:RANDOFAR + lut_Bit8, X
     AND a:esN
     RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_fixpoint -- each region's minimal requirement masks on the wiring
+;;  (randoref.es_masks), by relaxation: a ring of regions to visit, first in
+;;  first out as the reference's list, and for each edge out of the one
+;;  visited, its masks with the edge's requirement merged into the far
+;;  region's.  The static edges first, then the wired sources, as the
+;;  reference adds them.  A merge works in ES_TMP, so a set larger than
+;;  ES_NODEMAX before its last candidate does not count; one larger after it
+;;  refuses the wiring, as the reference does.
+;;
+;;  In: A16 = RANDO_EARLY (Early Ordeals waives the thrones' CROWN).  Out: C
+;;  set if a region needed more than ES_NODEMAX.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_fixpoint:
+    .a16
+    .i16
+    STA a:esEARLY
+    LDX #$0000
+  @clr:
+    STZ a:eNREQ, X
+    STZ a:eQD, X
+    INX
+    INX
+    CPX #256
+    BCC @clr
+    STZ a:eREQ                  ; the start: one mask, nothing needed
+    STZ a:eREQ + 2
+    SEP #$20
+    .a8
+    LDA #1
+    STA a:eNREQ
+    STA a:eQD
+    STZ a:eQUEUE
+    REP #$20
+    .a16
+    STZ a:esHEAD
+    LDA #1
+    STA a:esTAIL
+  @visit:
+    LDA a:esHEAD
+    CMP a:esTAIL
+    BNE :+
+    CLC                         ; the ring empty: done
+    RTS
+:   TAX
+    LDA a:eQUEUE, X
+    AND #$00FF
+    STA a:esNODE
+    TXA
+    INC A
+    AND #$00FF
+    STA a:esHEAD
+    LDX a:esNODE
+    SEP #$20
+    .a8
+    STZ a:eQD, X
+    REP #$20
+    .a16
+    ;  The static edges.
+    TXA
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrEdgeOff + 2, X
+    STA a:esEE
+    LDA f:LOGICFAR + lut_GrEdgeOff, X
+    STA a:esEI
+  @edge:
+    LDA a:esEI
+    CMP a:esEE
+    BCS @sources
+    TAX
+    LDA f:LOGICFAR + lut_GrEdgeDst, X
+    AND #$00FF
+    STA a:esD
+    LDA f:LOGICFAR + lut_GrEdgeReq, X
+    JSR es_reqmask
+    JSR es_relax
+    BCC :+
+    RTS
+:   INC a:esEI
+    BRA @edge
+  @sources:
+    LDA a:esNODE
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrSrcOff + 2, X
+    STA a:esSE
+    LDA f:LOGICFAR + lut_GrSrcOff, X
+    STA a:esSI
+  @source:
+    LDA a:esSI
+    CMP a:esSE
+    BCC :+
+    JMP @visit
+:   TAX
+    LDA f:LOGICFAR + lut_GrSrcReq, X
+    JSR es_reqmask
+    LDX a:esSI
+    LDA f:LOGICFAR + lut_GrSrcKind, X
+    BIT #$0080
+    BEQ @kind
+    LDA a:esEARLY               ; a throne: no CROWN with Early Ordeals
+    AND #EARLY_ORDEALS
+    BEQ :+
+    STZ a:esRM
+    STZ a:esRM + 2
+:   LDX a:esSI
+    LDA f:LOGICFAR + lut_GrSrcKind, X
+  @kind:
+    AND #$0003
+    PHA
+    LDA f:LOGICFAR + lut_GrSrcId, X
+    AND #$00FF
+    TAX
+    PLA
+    BEQ @entrance
+    CMP #1
+    BEQ @teleport
+    LDA a:eEXIT, X              ; an exit: the coordinate's regions
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrExitOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrExitOff, X
+    STA a:esLI
+  @exitto:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @nextsrc
+    TAX
+    LDA f:LOGICFAR + lut_GrExitNodes, X
+    AND #$00FF
+    STA a:esD
+    JSR es_relax
+    BCC :+
+    RTS
+:   INC a:esLI
+    BRA @exitto
+  @entrance:
+    LDA a:eENT, X
+    BRA @landing
+  @teleport:
+    LDA a:eNORM, X
+  @landing:
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrLandOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrLandOff, X
+    STA a:esLI
+  @landto:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @nextsrc
+    TAX
+    LDA f:LOGICFAR + lut_GrLandNodes, X
+    AND #$00FF
+    STA a:esD
+    JSR es_relax
+    BCC :+
+    RTS
+:   INC a:esLI
+    BRA @landto
+  @nextsrc:
+    INC a:esSI
+    JMP @source
+
+;;  Requirement index A (its low byte): esRM = its mask.  A16.
+es_reqmask:
+    .a16
+    AND #$00FF
+    ASL A
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrMask, X
+    STA a:esRM
+    LDA f:LOGICFAR + lut_GrMask + 2, X
+    STA a:esRM + 2
+    RTS
+
+;;  Region A16's masks' address in ES_REQ: A16 = it.  A region is 24 bytes.
+es_reqaddr:
+    .a16
+    STA a:esQ
+    ASL A                       ; x2
+    CLC
+    ADC a:esQ                   ; x3
+    ASL A
+    ASL A
+    ASL A                       ; x24
+    CLC
+    ADC #eREQ
+    RTS
+
+;;  The edge esNODE -> esD, requirement esRM: esNODE's masks with esRM
+;;  merged into esD's.  Out: C set if esD's set would be too large.  A16.
+es_relax:
+    .a16
+    ;  esD's set into ES_TMP.
+    LDA a:esD
+    TAX
+    LDA a:eNREQ, X
+    AND #$00FF
+    STA a:esNT
+    LDA a:esD
+    JSR es_reqaddr
+    TAY
+    LDX #$0000
+  @copy:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @copied
+    LDA a:0, Y
+    STA a:eTMP, X
+    LDA a:2, Y
+    STA a:eTMP + 2, X
+    INY
+    INY
+    INY
+    INY
+    INX
+    INX
+    INX
+    INX
+    BRA @copy
+  @copied:
+    STZ a:esCHG
+    ;  Each of esNODE's masks, with the requirement, in.
+    LDA a:esNODE
+    TAX
+    LDA a:eNREQ, X
+    AND #$00FF
+    STA a:esK
+    LDA a:esNODE
+    JSR es_reqaddr
+    STA a:esQ
+  @each:
+    LDA a:esK
+    BEQ @merged
+    DEC a:esK
+    LDX a:esQ
+    LDA a:0, X
+    ORA a:esRM
+    STA a:esC
+    LDA a:2, X
+    ORA a:esRM + 2
+    STA a:esC + 2
+    TXA
+    CLC
+    ADC #4
+    STA a:esQ
+    JSR es_insert
+    BRA @each
+  @merged:
+    LDA a:esCHG
+    BNE :+
+    CLC                         ; nothing new
+    RTS
+:   LDA a:esNT
+    CMP #ES_NODEMAX + 1
+    BCC :+
+    RTS                         ; too many: C set
+:   LDA a:esD                   ; the set back
+    JSR es_reqaddr
+    TAY
+    LDX #$0000
+  @back:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @stored
+    LDA a:eTMP, X
+    STA a:0, Y
+    LDA a:eTMP + 2, X
+    STA a:2, Y
+    INY
+    INY
+    INY
+    INY
+    INX
+    INX
+    INX
+    INX
+    BRA @back
+  @stored:
+    LDX a:esD
+    SEP #$20
+    .a8
+    LDA a:esNT
+    STA a:eNREQ, X
+    LDA a:eQD, X                ; to visit, unless it already is
+    BNE :+
+    LDA #1
+    STA a:eQD, X
+    TXA
+    LDX a:esTAIL
+    STA a:eQUEUE, X
+    REP #$20
+    .a16
+    TXA
+    INC A
+    AND #$00FF
+    STA a:esTAIL
+:   REP #$20
+    .a16
+    CLC
+    RTS
+
+;;  esC into the set in ES_TMP (esNT masks): nothing if one there needs no
+;;  more than it; otherwise those that need more go, and it goes in, and
+;;  esCHG is set.  A16.
+es_insert:
+    .a16
+    LDX #$0000
+  @dominated:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @free
+    LDA a:esC                   ; T[j] & ~C == 0: C needs all T[j] does
+    EOR #$FFFF
+    AND a:eTMP, X
+    BNE :+
+    LDA a:esC + 2
+    EOR #$FFFF
+    AND a:eTMP + 2, X
+    BNE :+
+    RTS                         ; dominated: nothing
+:   INX
+    INX
+    INX
+    INX
+    BRA @dominated
+  @free:
+    LDX #$0000                  ; those needing all C does, and more, go
+  @sweep:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @add
+    LDA a:eTMP, X               ; C & ~T[j] == 0
+    EOR #$FFFF
+    AND a:esC
+    BNE @keep
+    LDA a:eTMP + 2, X
+    EOR #$FFFF
+    AND a:esC + 2
+    BNE @keep
+    DEC a:esNT                  ; the last into its place, and look again
+    LDA a:esNT
+    ASL A
+    ASL A
+    TAY
+    LDA a:eTMP, Y
+    STA a:eTMP, X
+    LDA a:eTMP + 2, Y
+    STA a:eTMP + 2, X
+    BRA @sweep
+  @keep:
+    INX
+    INX
+    INX
+    INX
+    BRA @sweep
+  @add:
+    LDA a:esNT
+    ASL A
+    ASL A
+    TAX
+    LDA a:esC
+    STA a:eTMP, X
+    LDA a:esC + 2
+    STA a:eTMP + 2, X
+    INC a:esNT
+    LDA #1
+    STA a:esCHG
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_locmasks -- each location's masks from its regions' (es_fixpoint),
+;;  with its own requirement, less the NPC waivers of Early King, Sarda and
+;;  the Sage, as RP_MASK and RP_MOFF have them for placement; and Chaos's as
+;;  RP_CHAOS.  In: esEARLY.  Out: C set if they do not fit.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_locmasks:
+    .a16
+    .i16
+    STZ a:esTOT
+    STZ a:esLOC
+  @loc:
+    LDX a:esLOC
+    LDA f:LOGICFAR + lut_GrLocReq, X
+    JSR es_reqmask
+    LDA a:esRM
+    STA a:esOWN
+    LDA a:esRM + 2
+    STA a:esOWN + 2
+    LDA a:esLOC
+    CMP #GR_LOCS - 1
+    BCS @own                    ; Chaos has no Early flag
+    TAX
+    LDA f:LOGICFAR + lut_LogicFlags, X
+    AND #$0070
+    BEQ @own
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    DEC A                       ; its RANDO_EARLY bit
+    CMP #3
+    BCS @own                    ; Ordeals: in the graph
+    TAX
+    LDA a:esEARLY
+    AND f:RANDOFAR + lut_Bit8, X
+    AND #$00FF
+    BEQ @own
+    LDA f:RANDOFAR + lut_EarlyLBit, X
+    AND #$00FF
+    CMP #16
+    BCS @hi
+    ASL A
+    TAX
+    LDA f:RANDOFAR + lut_Bit16, X
+    EOR #$FFFF
+    AND a:esOWN
+    STA a:esOWN
+    BRA @own
+  @hi:
+    SEC
+    SBC #16
+    ASL A
+    TAX
+    LDA f:RANDOFAR + lut_Bit16, X
+    EOR #$FFFF
+    AND a:esOWN + 2
+    STA a:esOWN + 2
+  @own:
+    ;  Its regions' masks, each with its own, merged.
+    STZ a:esNT
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrLocOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrLocOff, X
+    STA a:esLI
+  @node:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @gathered
+    TAX
+    LDA f:LOGICFAR + lut_GrLocNodes, X
+    AND #$00FF
+    TAX
+    LDA a:eNREQ, X
+    AND #$00FF
+    STA a:esK
+    TXA
+    JSR es_reqaddr
+    STA a:esQ
+  @mask:
+    LDA a:esK
+    BEQ @nextnode
+    DEC a:esK
+    LDX a:esQ
+    LDA a:0, X
+    ORA a:esOWN
+    STA a:esC
+    LDA a:2, X
+    ORA a:esOWN + 2
+    STA a:esC + 2
+    TXA
+    CLC
+    ADC #4
+    STA a:esQ
+    JSR es_insert
+    BRA @mask
+  @nextnode:
+    INC a:esLI
+    JMP @node
+  @gathered:
+    LDA a:esLOC
+    CMP #GR_LOCS - 1
+    BCC @place
+    LDA a:esNT                  ; Chaos
+    CMP #RP_CHAOSMAX + 1
+    BCC :+
+    RTS
+:   STA a:eNCHAOS
+    LDX #$0000
+  @chaos:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @done
+    LDA a:eTMP, X
+    STA a:eCHAOS, X
+    LDA a:eTMP + 2, X
+    STA a:eCHAOS + 2, X
+    INX
+    INX
+    INX
+    INX
+    BRA @chaos
+  @done:
+    LDA a:esTOT                 ; the last location's end
+    STA a:eMOFF + 2 * (GR_LOCS - 1)
+    CLC
+    RTS
+  @place:
+    ASL A
+    TAX
+    LDA a:esTOT
+    STA a:eMOFF, X
+    LSR A
+    LSR A
+    CLC
+    ADC a:esNT
+    CMP #RP_MASKMAX + 1
+    BCC :+
+    RTS                         ; RP_MASK full: C set
+:   LDY a:esTOT
+    LDX #$0000
+  @store:
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCS @stored
+    LDA a:eTMP, X
+    STA a:eMASK, Y
+    LDA a:eTMP + 2, X
+    STA a:eMASK + 2, Y
+    INY
+    INY
+    INY
+    INY
+    INX
+    INX
+    INX
+    INX
+    BRA @store
+  @stored:
+    STY a:esTOT
+    INC a:esLOC
+    JMP @loc
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  es_bybit -- placement's index of the masks: for each bit, the locations
+;;  whose masks name it, in order.  Out: C set if it does not fit
+;;  RP_BYBITMAX.  A16, I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+es_bybit:
+    .a16
+    .i16
+    STZ a:esTOT                 ; entries so far
+    STZ a:esBIT
+  @bit:
+    LDA a:esBIT
+    ASL A
+    TAX
+    LDA a:esTOT
+    STA a:eBYOFF, X
+    LDA a:esBIT
+    CMP #32
+    BCC :+
+    CLC
+    RTS
+:   AND #$000F
+    ASL A
+    TAX
+    LDA f:RANDOFAR + lut_Bit16, X
+    STA a:esC                   ; the bit, in its word
+    LDA a:esBIT
+    AND #$0010
+    LSR A
+    LSR A
+    LSR A
+    STA a:esC + 2               ; its word's offset, 0 or 2
+    STZ a:esLOC
+  @loc:
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA a:eMOFF + 2, X
+    STA a:esLE
+    LDA a:eMOFF, X
+    CLC
+    ADC a:esC + 2
+    TAX
+  @mask:
+    TXA
+    SEC
+    SBC a:esC + 2
+    CMP a:esLE
+    BCS @nextloc
+    LDA a:eMASK, X
+    AND a:esC
+    BNE @names
+    INX
+    INX
+    INX
+    INX
+    BRA @mask
+  @names:
+    LDX a:esTOT
+    CPX #RP_BYBITMAX
+    BCC :+
+    RTS                         ; full: C set
+:   SEP #$20
+    .a8
+    LDA a:esLOC
+    STA a:eBYBIT, X
+    REP #$20
+    .a16
+    INC a:esTOT
+  @nextloc:
+    INC a:esLOC
+    LDA a:esLOC
+    CMP #GR_LOCS - 1
+    BCC @loc
+    INC a:esBIT
+    JMP @bit
+
+
+;;  For the harness: the wiring and then the logic, from a JSL in emulation
+;;  mode.  In: A = the mode (ENTRANCES_OFF: the vanilla wiring), X = k, Y =
+;;  RANDO_EARLY.  Out: esTRY's high byte: 0, or the stage that refused --
+;;  1 the shuffle, 2 the fixpoint, 3 the masks, 4 the index.
+rando_esmasks:
+    .a8
+    .i8
+    PHB
+    PHY
+    PHA
+    PHX
+    JSR enter
+    REP #$10
+    .i16
+    SEP #$20
+    .a8
+    PLA                         ; k
+    REP #$20
+    .a16
+    AND #$00FF
+    STA a:esK
+    SEP #$20
+    .a8
+    PLA                         ; the mode
+    BNE @shuffle
+    JSR es_vanilla
+    BRA @logic
+  @shuffle:
+    PHA
+    REP #$20
+    .a16
+    LDA a:esK
+    JSR es_start
+    SEP #$20
+    .a8
+    PLA
+    JSR es_wiring
+    LDA #1
+    BCS @out
+  @logic:
+    PLA                         ; RANDO_EARLY
+    REP #$20
+    .a16
+    AND #$00FF
+    JSR es_fixpoint
+    SEP #$20
+    .a8
+    LDA #2
+    BCS @out2
+    REP #$20
+    .a16
+    JSR es_locmasks
+    SEP #$20
+    .a8
+    LDA #3
+    BCS @out2
+    REP #$20
+    .a16
+    JSR es_bybit
+    SEP #$20
+    .a8
+    LDA #4
+    BCS @out2
+    LDA #0
+    BRA @out2
+  @out:
+    STA a:esTRY + 1
+    PLA                         ; the early byte, unread (A8: one byte)
+    JMP leave
+  @out2:
+    STA a:esTRY + 1
+    JMP leave

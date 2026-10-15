@@ -452,6 +452,10 @@ class CPU:
             r = (v + (1 if op in (0xE6, 0xEE, 0xF6, 0xFE) else -1)) & amask
             self.store(ba, r, m8); self.setzn(r, m8)
         # bit
+        elif op == 0x89:                # BIT #imm: only Z; N and V are untouched
+            v = self.a_imm(m8)
+            self.p &= ~Z
+            if not ((self.a & amask) & v): self.p |= Z
         elif op in (0x24, 0x2C):
             v = self.load(self.a_dp() if op == 0x24 else self.a_abs(), m8)
             bit = 0x80 if m8 else 0x8000

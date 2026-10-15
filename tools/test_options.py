@@ -782,6 +782,67 @@ def test_es_wiring():
             bad.append((seed, mode, k))
     check("es_wiring deals es_shuffle's wiring", bad[:4], [])
 
+def es_cart_masks(job):
+    """rando_esmasks: (stage refused, each location's masks as a sorted list,
+    Chaos's, the bit index's lists)."""
+    seed, mode, k, early = job
+    bus, cpu = machine()
+    at = K["RANDO_SAVE"] - 0x6000
+    bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    cpu.a, cpu.x, cpu.y = mode, k, early
+    call(cpu, "rando_esmasks", bank=RANDO_BANK)
+    stage = bus.wram[rw("ES_VARS") + 0x0D]
+    if stage:
+        return stage, None, None, None
+    mo, mk = rw("RP_MOFF"), rw("RP_MASK")
+    word = lambda a: bus.wram[a] | bus.wram[a + 1] << 8
+    masks = []
+    for c in range(256):
+        lo, hi = word(mo + 2 * c), word(mo + 2 * c + 2)
+        masks.append(sorted(int.from_bytes(bus.wram[mk + o:mk + o + 4], "little") for o in range(lo, hi, 4)))
+    n = word(rw("RP_NCHAOS"))
+    ch = rw("RP_CHAOS")
+    chaos = sorted(int.from_bytes(bus.wram[ch + 4 * i:ch + 4 * i + 4], "little") for i in range(n))
+    bo, bb = rw("RP_BYBITOFF"), rw("RP_BYBIT")
+    bybit = [list(bus.wram[bb + word(bo + 2 * b):bb + word(bo + 2 * b + 2)]) for b in range(32)]
+    return 0, masks, chaos, bybit
+
+
+def test_es_masks():
+    """es_fixpoint, es_locmasks and es_bybit give randoref.es_masks's masks,
+    location for location, and Chaos's, with placement's index of them --
+    on the vanilla wiring in every Early combination (logicdata's own), and
+    on shuffled wirings in both modes."""
+    jobs = [(1, R.ENTRANCES_OFF, 0, e) for e in range(16)]
+    jobs += [(seed, mode, k, e) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+             for seed in (1, 2, 3, 0xD1625106) for k in (0, 1) for e in (0, 0x0F, 0x01)]
+    #  ...and wirings with a region needing five masks, one under the limit:
+    #  about one in a hundred has one (found by searching the reference).
+    jobs += [(9, R.ENTRANCES_ONLY, 0, 0x0F), (55, R.ENTRANCES_ONLY, 0, 0x0F),
+             (342, R.ENTRANCES_FLOORS, 0, 0x0F), (452, R.ENTRANCES_FLOORS, 0, 0x0F)]
+    got = pmap(es_cart_masks, jobs)
+    import graphdata as GD
+    bad = []
+    for (seed, mode, k, early), cart in zip(jobs, got):
+        if mode == R.ENTRANCES_OFF:
+            w = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
+        else:
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
+        mm = R.es_masks(w[0], w[1], w[2], early) if w else None
+        if mm is None:
+            if cart[0] == 0:
+                bad.append((seed, mode, k, early, "the cart did not refuse"))
+            continue
+        masks, chaos, _ = mm
+        bybit = [[c for c in range(256) if any(m >> b & 1 for m in masks[c])] for b in range(32)]
+        if cart[0]:
+            bad.append((seed, mode, k, early, "refused at stage %d" % cart[0]))
+        elif (cart[1], cart[2], cart[3]) != (masks, chaos, bybit):
+            which = [c for c in range(256) if cart[1][c] != masks[c]][:3]
+            bad.append((seed, mode, k, early, "locations %s" % which if which else
+                        "Chaos" if cart[2] != chaos else "the index"))
+    check("es_masks on the cart", bad[:4], [])
+
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
     randoref.build_placement does, for every setting and seed tried, and every
@@ -8458,7 +8519,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
