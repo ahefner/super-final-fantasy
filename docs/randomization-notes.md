@@ -1793,7 +1793,13 @@ Where it departs from the plan below or from §1:
     classes (user) -- and `@Begin` after party creation only compares the
     tag.  Party creation touches neither page 0 nor the cache, and turns
     the channels back on itself as it starts.  `@Begin` still builds for a
-    Continue whose cache is cold.
+    Continue whose cache is cold.  **To come (user, 2026-10-14): make the
+    pause entertaining** -- triangle-channel bleep-bloops and a cute graphic
+    while New Game works, rather than a frozen title and silence.  It will
+    need something to run each frame while the randomizer computes (the NMI,
+    or the randomizer calling out every so often), since nothing calls the
+    music driver meanwhile.  With it, how long a New Game takes matters
+    less (user).
   - **The read-only view on Continue, built 2026-10-09** (Select on
     Continue; `options-design.md`, "Save view"): the saved game's seed and
     RANDOMIZATION rows.  The rest of item 1's minimum UI -- seed entry, and
