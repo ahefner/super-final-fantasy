@@ -878,8 +878,9 @@ stairs and teleports inside too (the user's readout; its description says
 "As Entrances").  Towns stay put, as FFR's preset has them.  Only under
 Key items Standard or Wide, as in FFR: `rando_place` clears it under Vanilla,
 and when no wiring of the seed's 16 places, so the save -- and the save view
--- says Off whenever the world is vanilla.  How it works is
-`randomization-notes.md` §9.3.
+-- says Off whenever the world is vanilla.  Under it the rescued Princess no
+longer teleports the party to Coneria Castle, as in FFR (user: the warp can
+strand the player).  How it works is `randomization-notes.md` §9.3.
 
 The row is a whole byte appended to the new-game settings (`RANDO_ENTRANCES`,
 `OPT_NG_ENTRANCES`), so zero is Off in every older option block and save;
@@ -1972,7 +1973,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3757 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3735 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -1981,7 +1982,9 @@ text region in the game references.
                              placement 60; entrance shuffle 391 -- the
                              placement tables in RAM 79, New Game's
                              attempts and the PRNG lent 210, the landing
-                             hooks and the ship's dock under it 102
+                             hooks and the ship's dock under it 102, the
+                             Princess's warp 15; New Game building the
+                             cache, and its mute, 7
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

@@ -1226,6 +1226,55 @@ def test_rando_giving():
           (shut != 0, cpu.a & 0xFF), (True, 0))
 
 
+def test_rando_princess():
+    """Rescuing the Princess teleports the party back to Coneria Castle, as in
+    vanilla -- but not under entrance shuffle, where FFR drops the warp
+    (Dialogues.cs): the castle need not be beside the Temple, and the logic
+    never counted on it.  Either way she is hidden and her rescued self
+    shown, and her line printed.  The game's own Talk_Princess1 is run, found
+    in bank $0E by its bytes."""
+    b0e = (1 + 0x0E) * 0x10000
+    w, show = SYM["rando_princesswarp"], SYM["ShowMapObject"]
+    jsl = bytes([0x22, w & 0xFF, w >> 8, RANDO_BANK, 0xEA])
+    body = ROMDATA[b0e + 0x8000:b0e + 0xC000]
+    at = [i for i in range(len(body) - 5) if body[i:i + 5] == jsl]
+    check("bank $0E calls rando_princesswarp once, in five bytes", len(at), 1)
+    if len(at) != 1:
+        return
+    start = 0x8000 + at[0] - 10
+    check("...in Talk_Princess1: hide her, show her rescued self, then the warp",
+          (bytes(body[at[0] - 10:at[0] - 8]), bytes(body[at[0] - 5:at[0]]), bytes(body[at[0] + 5:at[0] + 8])),
+          (bytes([0xA0, K["OBJID_PRINCESS_1"]]), bytes([0xA0, K["OBJID_PRINCESS_2"], 0x20, show & 0xFF, show >> 8]),
+           bytes([0xA5, K["tmp"] + 1, 0x60])))
+    flags = K["game_flags"] - 0x6000
+    P1, P2, VIS = K["OBJID_PRINCESS_1"], K["OBJID_PRINCESS_2"], K["GMFLG_OBJVISIBLE"]
+    got = {}
+    for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS):
+        bus, cpu = machine()
+        bus.sram[K["RANDO_ENTRANCES"] - 0x6000] = mode
+        bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1] = 0x11, 0x22     # decoys
+        bus.sram[flags + P1], bus.sram[flags + P2] = VIS, 0
+        bus.wram[K["tmp"] + 1] = 0x5A                                         # her line
+        cpu.x = 0x30                                                          # her map object
+        bus.sram[K["mapobj_id"] - 0x6000 + 0x30] = P1
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, start)
+        got[mode] = ((bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1]),
+                     (bus.sram[flags + P1] & VIS, bus.sram[flags + P2] & VIS,
+                      bus.sram[K["mapobj_id"] - 0x6000 + 0x30], cpu.a & 0xFF))
+    check("Off: the warp to Coneria Castle, as vanilla",
+          got[R.ENTRANCES_OFF][0], (K["TP_TELE_NORM"], K["NORMTELE_SAVEDPRINCESS"]))
+    check("entrance shuffle, either mode: no warp",
+          [got[m][0] for m in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)], [(0x11, 0x22)] * 2)
+    check("...and every mode rescues her and prints her line",
+          {got[m][1] for m in got}, {(0, VIS, 0, 0x5A)})
+    #  The hook alone keeps X and Y, as TalkNormTeleport did.
+    bus, cpu = machine()
+    cpu.x, cpu.y = 0x5A, 0xA5
+    call(cpu, "rando_princesswarp", bank=RANDO_BANK)
+    check("rando_princesswarp keeps X and Y", (cpu.x & 0xFF, cpu.y & 0xFF), (0x5A, 0xA5))
+
+
 def test_rando_shipdock():
     """A ship found under placement is moored at the dock nearest the map it
     was found on, of those the party can reach from there without it
@@ -8768,7 +8817,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

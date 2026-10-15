@@ -1,0 +1,9 @@
+--- OLD
+    LDA #NORMTELE_SAVEDPRINCESS  ; trigger the teleport back to Coneria Castle
+    JSR TalkNormTeleport
+--- NEW
+.import rando_princesswarp
+    ;  The teleport back to Coneria Castle -- but not under entrance shuffle,
+    ;  as in FFR, where it can strand the party.  Five bytes, as before.
+    JSL rando_princesswarp + RANDOFAR
+    NOP

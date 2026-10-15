@@ -49,7 +49,7 @@
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
-.export rando_entrdest, rando_exitdest
+.export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
@@ -1250,6 +1250,23 @@ tele_scroll:
     SBC #7
     AND #$3F
     RTS
+
+;;  The rescued Princess's teleport back to Coneria Castle, set up as
+;;  Talk_Princess1's TalkNormTeleport did -- except under entrance shuffle,
+;;  where FFR drops it (Dialogues.cs, "Disable the Princess Warp back to
+;;  Castle Coneria"): the castle need not be beside the Temple, nor its
+;;  floors where they were, and a party set down in it can be stranded.  The
+;;  logic never counted on it: the world graph has the party walk out of the
+;;  Temple.  From Talk_Princess1 (randoprincess.patch), emulation mode, the
+;;  game's data bank.  A clobbered; X and Y kept.
+rando_princesswarp:
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    BNE :+
+    LDA #NORMTELE_SAVEDPRINCESS
+    STA tileprop+1
+    LDA #TP_TELE_NORM           ; taken as the dialogue box closes
+    STA tileprop
+:   RTL
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

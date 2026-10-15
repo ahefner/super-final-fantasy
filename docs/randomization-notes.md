@@ -1681,6 +1681,16 @@ reference byte for byte by `test_options.py`:
     its Continue costs nothing new.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
+  - **No Princess warp** (`rando_princesswarp`, `randoprincess.patch`;
+    `test_rando_princess`; user, 2026-10-14): under the shuffle, rescuing
+    the Princess no longer teleports the party to Coneria Castle 2F
+    (`NORMTELE_SAVEDPRINCESS`), as FFR drops it under Entrances or Floors
+    (`Dialogues.cs`).  The castle need not be beside the Temple, nor its
+    floors where they were, and a party set down in it can be stranded.
+    The logic never counted on the warp -- the world graph has the party
+    walk out of the Temple -- so only the game changes.  Off keeps it.
+    Byte-neutral in bank $0E: `LDA #$3F / JSR TalkNormTeleport` became
+    `JSL` and a `NOP`, the hook setting up the teleport itself.
   - **The row**: Map shuffle, Off / Entrances / Floors, under Key
     items, saved with the game and shown by the save view
     (`options-design.md`, "Map shuffle").
