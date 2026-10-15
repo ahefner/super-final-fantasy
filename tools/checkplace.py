@@ -2,7 +2,7 @@
 """
 checkplace.py -- is every placement winnable, on the world graph itself?
 
-    pypy3 tools/checkplace.py [seeds]
+    pypy3 tools/checkplace.py [seeds] [shuffled seeds]
 
 randoref.build_placement draws from logicdata.py, the tables genlogic.py
 distilled from ../worldgraph; test_rando_place holds the cartridge to it.
@@ -12,8 +12,10 @@ from what the party starts with, Early flags and all.  The ship is where the
 cart moors it -- at the dock of the map it is found on (logicdata.SHIP_DOCK,
 which give_vehicle reads), or Coneria's when it is free -- and is boarded only
 there, not by FFR's reading, the inner sea from anywhere, which placement's
-own logic uses.  A seed that does not reach Chaos is printed.  It needs
-../worldgraph, which is why it is not part of test_options.py.
+own logic uses.  A seed that does not reach Chaos is printed.  Then the same
+under entrance shuffle, both modes: randoref.build_world's wiring, placement
+and dock, on a graph built on that wiring.  It needs ../worldgraph, which is
+why it is not part of test_options.py.
 """
 import os
 import sys
@@ -31,6 +33,7 @@ import analysis  # noqa: E402
 import build  # noqa: E402
 import placement  # noqa: E402
 import romdata as rd  # noqa: E402
+import wiring  # noqa: E402
 from model import BIT  # noqa: E402
 
 SHIP_ITEM = [n for n, _ in R.PLACE_ITEMS].index("SHIP")
@@ -153,6 +156,40 @@ def main():
         if n:
             print("%-11s loose key items by sphere: %s" % ("", " ".join(
                 "%d:%.0f%%" % (k, 100 * spheres[k] / n) for k in sorted(spheres))))
+    shuffled = int(sys.argv[2]) if len(sys.argv) > 2 else seeds // 3
+    for mode, mname in ((R.ENTRANCES_ONLY, "entrances"), (R.ENTRANCES_FLOORS, "+ floors")):
+        for name, cfg in CONFIGS.items():
+            names = tuple(n for k, n in enumerate(G.EARLY) if cfg[3] >> k & 1)
+            free = R.place_setup(*cfg)[0]
+            stats, moored, tries = Counter(), Counter(), Counter()
+            for seed in range(1, shuffled + 1):
+                built = R.build_world(seed, *cfg, mode)
+                if built is None:
+                    stats["unplaced"] += 1
+                    continue
+                k, (entrance, normal, exits), out, dock = built
+                tries[k] += 1
+                moored[LD.DOCKS[dock][0]] += 1
+                w = wiring.Wiring({e: entrance[e] for e in range(32)}, {t: normal[t] for t in range(64)},
+                                  {x: exits[x] for x in range(16)})
+                pos = dict(rd.VANILLA_POS, ship=LD.DOCKS[dock][1])
+                g, ow, _, _ = build.build(pos=pos, wiring=w, early=names)
+                idx, _ = G.order(g)
+                adj = analysis.adjacency(g, [e for e in placement.vehicle_edges(g, ow) if e[2] != BIT["SHIP"]])
+                for kk in idx[:248]:
+                    g.locations[kk].reward = None
+                for i, c in enumerate(out):
+                    if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
+                        g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
+                if winnable(g, adj, free):
+                    stats["won"] += 1
+                else:
+                    print("  %s %s seed %d: Chaos out of reach" % (mname, name, seed))
+                    lost += 1
+            print("%-9s %-11s %d seeds: %d winnable, %d with no world; wirings tried %s; ship at %s" % (
+                mname, name, shuffled, stats["won"], stats["unplaced"],
+                dict(sorted(Counter(k + 1 for k in tries.elements()).items())),
+                ", ".join("%s %d" % kv for kv in moored.most_common())))
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
 

@@ -866,6 +866,270 @@ def chest_floors(rom):
     return where
 
 
+# --- entrance shuffle -------------------------------------------------------------
+#  FFR's ShuffleEntrancesAndFloors (EntrancesFloorsShuffle.cs), as
+#  ../worldgraph/wiring.fe_shuffle ports it, over graphdata.py's indices (from
+#  tools/gengraph.py) and on the cartridge's PRNG: with the same draws the two
+#  give the same wiring (tools/checkentrance.py holds them to it).  FFR's
+#  settings as its Entrance and Floor Shuffle preset has them -- towns fixed,
+#  dead ends dealt, Coneria's start safe -- and either mode: entrances alone,
+#  which keeps every floor's links but the Sea Shrine's from Onrac, or with
+#  floors, which deals every floor but the Ice Cave's loop.
+#
+#  A wiring is three tables, as the game reads them: entrance -> (map, x, y),
+#  normal teleport -> (map, x, y), exit -> overworld (x, y).  Each New Game
+#  attempt k draws its own (STREAM_ENTR + k), so Continue can draw the one
+#  the save names without placing anything.
+import graphdata as _GD
+
+ENTRANCES_OFF, ENTRANCES_ONLY, ENTRANCES_FLOORS = 0, 1, 2
+STREAM_ENTR = 0x454E5452        # "ENTR"
+ES_SANITY = 100                 # FFR's: the sanity check's tries
+
+
+class ShuffleRng:
+    """The draws the shuffle makes, as Python's random makes them: shuffle is
+    Fisher-Yates from the top, a pick below i + 1 for each i down to 1, and
+    a splice is one pick below the length."""
+    def __init__(self, stream):
+        self.st = stream
+
+    def shuffle(self, lst):
+        for i in range(len(lst) - 1, 0, -1):
+            j = self.st.below(i + 1)
+            lst[i], lst[j] = lst[j], lst[i]
+
+    def randrange(self, n):
+        return self.st.below(n)
+
+
+def _loc(r):
+    return _GD.RECORDS[r][1]
+
+
+def _sane(shuffled):
+    """FFR's CheckEntranceSanity, an unsafe start not allowed."""
+    starter = any(o in _GD.STARTING and _loc(r) in _GD.STARTER for o, r in shuffled.items())
+    titans = (any(_loc(r) == "TitansTunnelEast" and o in _GD.CONNECTED for o, r in shuffled.items()) and
+              any(_loc(r) == "TitansTunnelWest" and o in _GD.CONNECTED for o, r in shuffled.items()))
+    danger = 6 - sum(1 for o in _GD.DANGER if o in shuffled and _loc(shuffled[o]) in _GD.SAFE)
+    return titans and starter and danger <= 3
+
+
+def es_shuffle(rng, mode):
+    """One shuffle: (entrance, normal, exits, roots), or None if FFR's sanity
+    check fails ES_SANITY times.  roots: each record dealt -> the entrance
+    its chain hangs from."""
+    rec = _GD.RECORDS
+    vanilla_ow = {o: _GD.ENTER[o] for o in _GD.LISTS["vanilla_ow"]}
+    vanilla_sm = {t: _GD.TELE[t] for t in _GD.LISTS["vanilla_sm"]}
+    placed_maps = {o: r for o, r in vanilla_ow.items() if 1 <= o <= 8}     # Coneria..Lefein
+    placed_floors = dict(vanilla_sm)
+    placed_floors.pop(_GD.SEASHRINE1, None)
+    if mode == ENTRANCES_FLOORS:
+        placed_floors = {t: _GD.TELE[t] for t in _GD.LISTS["icecave_loop"]}
+    placed_dest = {_loc(r) for r in placed_maps.values()} | {_loc(r) for r in placed_floors.values()}
+    town_ents = _GD.LISTS["towns"]
+    nontown_ents = [o for o in range(_GD.UNUSED1) if o not in town_ents]
+    shuffled_ow_count = (sum(1 for o in town_ents if o not in placed_maps) +
+                         sum(1 for o in nontown_ents if o not in placed_maps))
+
+    def recs(rs):
+        return [r for r in rs if _loc(r) not in placed_dest]
+
+    towns_l = recs(_GD.ENTER[o] for o in town_ents)
+    top = recs(_GD.ENTER[o] for o in _GD.LISTS["top"])
+    sub = recs([_GD.ENTER[o] for o in _GD.LISTS["free_ow"]] + [_GD.TELE[t] for t in _GD.LISTS["free_sm"]])
+    dead = []
+    rng.shuffle(towns_l)
+    while towns_l and rec[towns_l[0]][0] in ("Lefein", "Melmond"):
+        towns_l.append(towns_l.pop(0))
+    rng.shuffle(top)
+    rng.shuffle(sub)
+    forks = sum(len(rec[r][2]) - 1 for r in sub if len(rec[r][2]) > 1) + (1 if sub else 0)
+    for _ in range(forks):
+        k = next(i for i, r in enumerate(sub) if not rec[r][2])
+        dead.append(sub.pop(k))
+    rng.shuffle(sub)
+    rng.shuffle(dead)
+    dests = towns_l + top + sub + dead
+
+    for _ in range(ES_SANITY):
+        i = j = 0
+        shuffled, floors_out, exits_out, roots = {}, {}, {}, {}
+        s_towns, s_ents = list(town_ents), list(nontown_ents)
+        rng.shuffle(s_towns)
+        rng.shuffle(s_ents)
+        for o in s_towns + s_ents:
+            if o in placed_maps:
+                d = placed_maps[o]
+            else:
+                d, i = dests[i], i + 1
+            shuffled[o] = d
+            roots[d] = o
+            if rec[d][3] is not None:
+                exits_out[rec[d][3]] = _GD.OW_COORDS[o]
+            pending = list(rec[d][2])
+            while pending:
+                t = pending.pop(rng.randrange(len(pending)))
+                if t in placed_floors:
+                    f = placed_floors[t]
+                else:
+                    f, j = dests[shuffled_ow_count + j], j + 1
+                pending += list(rec[f][2])
+                floors_out[t] = f
+                roots[f] = o
+                if rec[f][3] is not None:
+                    exits_out[rec[f][3]] = _GD.OW_COORDS[o]
+        if _sane(shuffled):
+            break
+    else:
+        return None
+    entrance = list(_GD.VANILLA_ENTRANCE)
+    normal = list(_GD.VANILLA_NORMAL)
+    exits = list(_GD.VANILLA_EXIT)
+    for o, d in shuffled.items():
+        entrance[o] = _GD.LANDED[d]
+    for t, f in floors_out.items():
+        normal[t] = _GD.LANDED[f]
+    for x, xy in exits_out.items():
+        exits[x] = xy
+    return entrance, normal, exits, roots
+
+
+#  Each location's requirement masks on a wiring: the minimal sets of key items
+#  and events that reach it, by relaxation over graphdata.py's graph with the
+#  wiring's edges added -- analysis.requirements's fixpoint, which
+#  tools/checkentrance.py holds this to.  ES_NODE_MASKS is the room the
+#  cartridge has for one region's: a wiring that needs more is refused and
+#  another drawn.  The Early flags: King, Sarda and the Sage clear their NPC's
+#  own requirement, as the game does; Ordeals clears the CROWN from the two
+#  throne teleports' sources, in the graph.  Returns (masks per cartridge
+#  location, Chaos's, each region's), each sorted, or None.
+ES_NODE_MASKS = 8
+
+
+def _minimal(ms):
+    out = []
+    for m in sorted(set(ms), key=lambda m: (bin(m).count("1"), m)):
+        if not any(o & m == o for o in out):
+            out.append(m)
+    return sorted(out)
+
+
+def es_masks(entrance, normal, exits, early):
+    M = _GD.MASKS
+    adj = [[] for _ in range(_GD.NODES)]
+    for src, dst, r in _GD.EDGES:
+        adj[src].append((dst, M[r]))
+    for e, src, r in _GD.ENT_SRC:
+        for dst in _GD.LAND[tuple(entrance[e])]:
+            adj[src].append((dst, M[r]))
+    for t, src, r, ordeals in _GD.TELE_SRC:
+        rr = 0 if ordeals and early >> 3 & 1 else M[r]
+        for dst in _GD.LAND[tuple(normal[t])]:
+            adj[src].append((dst, rr))
+    for x, src, r in _GD.EXIT_SRC:
+        for dst in _GD.EXIT_TO[tuple(exits[x])]:
+            adj[src].append((dst, M[r]))
+    req = [[] for _ in range(_GD.NODES)]
+    req[0] = [0]
+    queue, queued = [0], {0}
+    while queue:
+        n = queue.pop(0)
+        queued.discard(n)
+        for d, r in adj[n]:
+            merged = _minimal(req[d] + [m | r for m in req[n]])
+            if merged != req[d]:
+                if len(merged) > ES_NODE_MASKS:
+                    return None
+                req[d] = merged
+                if d not in queued:
+                    queued.add(d)
+                    queue.append(d)
+    out = []
+    for c, (nodes, r) in enumerate(zip(_GD.LOC_NODES, _GD.LOC_REQ)):
+        own = M[r]
+        e = _L.LOCS[c][3]
+        if e and e != 4 and early >> (e - 1) & 1:
+            own &= ~_L.EARLY_BIT[e - 1]
+        out.append(_minimal([m | own for n in nodes for m in req[n]]))
+    chaos = _minimal([m | M[_GD.CHAOS_REQ] for n in _GD.CHAOS_NODES for m in req[n]])
+    return out, chaos, req
+
+
+#  Each region's entrances on a wiring: those whose landing reaches it without
+#  leaving the maps -- genlogic.spread_groups's dungeon, read off the wired
+#  graph.  As a 32-bit mask, an entrance a bit.
+def es_roots(entrance, normal):
+    inside = [[] for _ in range(_GD.NODES)]
+    for src, dst, r in _GD.EDGES:
+        if not _GD.OW_NODE[src] and not _GD.OW_NODE[dst]:
+            inside[src].append(dst)
+    for t, src, r, ordeals in _GD.TELE_SRC:
+        for dst in _GD.LAND[tuple(normal[t])]:
+            if not _GD.OW_NODE[src] and not _GD.OW_NODE[dst]:
+                inside[src].append(dst)
+    roots = [0] * _GD.NODES
+    for e in sorted({e for e, _, _ in _GD.ENT_SRC}):
+        todo = list(_GD.LAND[tuple(entrance[e])])
+        for n in todo:
+            roots[n] |= 1 << e
+        while todo:
+            n = todo.pop()
+            for d in inside[n]:
+                if not roots[d] >> e & 1:
+                    roots[d] |= 1 << e
+                    todo.append(d)
+    return roots
+
+
+#  The spread groups on a wiring: a number per pool chest, the chests of one
+#  dungeon (the same entrances) behind the same requirements sharing one, in
+#  the order the chests come; $FF for an NPC or the caravan.  On the vanilla
+#  wiring with no Early flag, logicdata.SPREAD (tools/checkentrance.py).
+def es_groups(roots, masks):
+    keys, out = {}, []
+    for c in range(248):
+        if _L.LOCS[c][0] != 0:
+            out.append(0xFF)
+            continue
+        ents = 0
+        for n in _GD.LOC_NODES[c]:
+            ents |= roots[n]
+        out.append(keys.setdefault((ents, tuple(masks[c])), len(keys)))
+    assert len(keys) < 0xFF
+    return out
+
+
+#  Where a ship found at location c is moored, on a shuffled wiring: of FFR's
+#  five docks, those the party can reach whenever it can reach c -- every one
+#  of c's masks that does not need the ship covers one of a dock's boarding
+#  regions' -- the nearest to the entrances c hangs from: overworld steps on
+#  foot and by canoe if any can be walked to, else as the airship flies.
+#  Coneria's is boarded from the start's region, so it always qualifies.
+def es_dock(c, masks, req, roots):
+    ship = _BIT["SHIP"]
+    ents = 0
+    for n in _GD.LOC_NODES[c]:
+        ents |= roots[n]
+    best = None
+    for d in range(len(_GD.DOCKS)):
+        board = _minimal([m for n in _GD.DOCK_BOARD[d] for m in req[n]])
+        if not all(any(b & ~m == 0 for b in board) for m in masks[c] if not m & ship):
+            continue
+        walk = [_GD.ENT_DOCK[e][d][0] for e in range(32) if ents >> e & 1 and e in _GD.ENT_DOCK
+                and _GD.ENT_DOCK[e][d][0] is not None]
+        fly = min([_GD.ENT_DOCK[e][d][1] for e in range(32) if ents >> e & 1 and e in _GD.ENT_DOCK]
+                  or [0x7FFF])
+        key = (0, min(walk), d) if walk else (1, fly, d)
+        if best is None or key < best:
+            best = key
+    return best[2]
+
+
+
+
 # --- incentive placement ----------------------------------------------------------
 #  FFR's PredictivePlacement (FF1Lib/PredictivePlacement.cs), as
 #  ../worldgraph/placement.py ports it, over the vanilla world's logic
@@ -1034,7 +1298,7 @@ _SHOPPABLE = [_NAME.index(n) for n in ("LUTE", "CROWN", "CRYSTAL", "HERB", "KEY"
 FWD_ONE = 256
 
 
-def _forward(rng, where, fwd):
+def _forward(rng, where, fwd, spread=None):
     """The place, of `where` (ascending), drawn by its weight in `fwd`; then
     every one of them halved, and those in its spread group quartered, each to
     no less than 1."""
@@ -1051,10 +1315,11 @@ def _forward(rng, where, fwd):
                 r -= w
         if w > 1:
             fwd[c] = w >> 1
-    group = _L.SPREAD[pick]
+    spread = _L.SPREAD if spread is None else spread
+    group = spread[pick]
     if group != 0xFF:
         for c in where:
-            if _L.SPREAD[c] == group:
+            if spread[c] == group:
                 fwd[c] = max(1, fwd[c] >> 2)
     return pick
 
@@ -1072,7 +1337,7 @@ def _first(wc, cs):
     return keep if sum(w for w, _ in keep) else wc
 
 
-def _attempt(rng, free, items, inc0, inclocs, masks):
+def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None):
     incentives = set(inc0)
     n_inc_pool = len(inclocs)
     while len(incentives) > n_inc_pool:
@@ -1178,7 +1443,7 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
         if item in incentives:
             placed[where[rng.below(len(where))]] = item
         else:
-            placed[_forward(rng, where, fwd)] = item
+            placed[_forward(rng, where, fwd, spread)] = item
         remaining.remove(item)
         if item in keys:
             keys.remove(item)
@@ -1188,27 +1453,67 @@ def _attempt(rng, free, items, inc0, inclocs, masks):
     if remaining:
         return None
     _, owned = place_accessible(masks, placed, free)
-    if not any(m & ~owned == 0 for m in _L.CHAOS_MASKS):
+    if not any(m & ~owned == 0 for m in (_L.CHAOS_MASKS if chaos is None else chaos)):
         return None
     return placed
 
 
-def build_placement(seed, keyitems, items3, gear2, early):
+def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STREAM_KEYS,
+                    attempts=PLACE_ATTEMPTS):
     """Where each item goes: a list in PLACE_ITEMS order of cartridge location
     indices, $FF for an item not placed (free, or gear left as Treasure);
     None under Key items Vanilla, and None too if every attempt failed."""
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
         return None
     free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early)
-    rng = Stream(seed, STREAM_KEYS)
-    for _ in range(PLACE_ATTEMPTS):
-        placed = _attempt(rng, free, items, inc, inclocs, masks)
+    if world is not None:
+        masks, chaos, spread = world
+    else:
+        chaos = spread = None
+    rng = Stream(seed, stream)
+    for _ in range(attempts):
+        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread)
         if placed is not None:
             out = [0xFF] * len(PLACE_ITEMS)
             for c, i in placed.items():
                 if i != CARAVAN_TREASURE:
                     out[i] = c
             return out
+    return None
+
+
+#  A New Game's world under entrance shuffle: for each attempt k, a wiring
+#  (STREAM_ENTR + k) whose masks fit, then its placement (STREAM_KEYS + k),
+#  given ES_PLACE_ATTEMPTS tries -- FFR gives a placement three and then rolls
+#  a new seed; a wiring that will not place often needs more than 32, and the
+#  next wiring is cheaper.  The first that places is the game's.  Returns (k,
+#  (entrance, normal, exits), placement, the ship's dock), or None.  Off is
+#  build_placement on the vanilla tables, unchanged.
+ES_ATTEMPTS = 16
+ES_PLACE_ATTEMPTS = 4
+
+
+def build_world(seed, keyitems, items3, gear2, early, entrances):
+    if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE) or entrances == ENTRANCES_OFF:
+        return None
+    ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
+    for k in range(ES_ATTEMPTS):
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances)
+        if w is None:
+            continue
+        mm = es_masks(w[0], w[1], w[2], early)
+        if mm is None:
+            continue
+        masks, chaos, req = mm
+        roots = es_roots(w[0], w[1])
+        free, items, inc, inclocs, _ = place_setup(keyitems, items3, gear2, early)
+        out = build_placement(seed, keyitems, items3, gear2, early,
+                              world=(masks, chaos, es_groups(roots, masks)), stream=STREAM_KEYS + k,
+                              attempts=ES_PLACE_ATTEMPTS)
+        if out is None:
+            continue
+        dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots)
+        return k, w[:3], out, dock
     return None
 
 

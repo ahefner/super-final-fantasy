@@ -1591,6 +1591,62 @@ can be skipped.
 Effort is medium-high, almost entirely in the logic and FFR's rules rather
 than the hooks.
 
+**Built in the reference (2026-10-14; not yet on the cart).**  One row, Off /
+Entrances / Entrances + floors (user), FFR's two modes with its Entrance and
+Floor Shuffle preset's other settings: towns fixed, dead ends dealt,
+Coneria's start safe.  Entrances alone keeps every floor's links but the Sea
+Shrine's from Onrac, as FFR does; the prototype now has that mode, and over
+30 seeds it matches FFR's own ROMs (`run_ffr_fe.py` with the preset's floors
+off: FFR's two extra moved teleports are other flags', a ToFR shortcut and
+the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
+(Key items Standard or Wide).
+
+  - **The graph without its wiring** (`tools/gengraph.py` ->
+    `graphdata.py`).  The world graph on the vanilla wiring, stripped of
+    every edge an entrance, a normal teleport or an exit makes: 223 static
+    edges, and 163 sources -- 63 entrance, 83 teleport, 17 exit -- each with
+    its requirement, plus the regions a party set down at each of the 95
+    landing and 31 exit coordinates a wiring can name.  210 of its 654
+    regions are touched by anything, so a region fits in a byte;
+    requirements are one of 26 masks.  Early Ordeals is two teleport
+    sources, the thrones, losing the CROWN.  The generator proves that the
+    vanilla wiring gives genlogic's masks in all sixteen Early combinations.
+  - **The shuffle** (`randoref.es_shuffle`) is `wiring.fe_shuffle` over
+    graphdata's indices on the cart's PRNG.  Given the same draws they deal
+    the same wiring, table for table (`tools/checkentrance.py`, 200 seeds in
+    each mode), and every wiring passes the world graph's checks: nothing
+    strands, no shared landing, every dealt floor warps back.
+  - **The logic per seed** (`randoref.es_masks`): the requirement fixpoint
+    over the static edges plus the wiring's -- about 360 relaxations, five
+    masks to a region at most, a tenth of a second on the 65816 -- held to
+    the world graph's own on every wiring checked, and to logicdata on the
+    vanilla one.  Early King, Sarda and the Sage clear their NPC's own
+    requirement, as the game does.  A region needing more than eight masks,
+    the cart's room, refuses the wiring; none has.
+  - **The world** (`randoref.build_world`): for attempt k, a wiring
+    (`STREAM_ENTR + k`), its masks, its spread groups (`es_groups`: the
+    same dungeon and requirements, the dungeon read off the wired graph --
+    logicdata's own on the vanilla wiring), then placement with four tries
+    (`STREAM_KEYS + k`).  FFR gives placement three and rolls a new seed; a
+    wiring that will not place often needs more than 32 tries, and the next
+    wiring is cheaper.  Wide with nothing free fails placement on nearly half
+    its wirings, so this matters.  Up to 16 attempts; the save keeps k, so
+    Continue redraws the wiring without placing.
+  - **The ship's dock** (`es_dock`), on a shuffled wiring: of FFR's five,
+    those reached whenever the ship's place is -- each of its masks without
+    the SHIP covers one of the dock's boarding regions' -- the nearest to the
+    entrances that place hangs from, walking if any can be walked to, else
+    flying.  Coneria's is boarded from the start's region, so one always
+    qualifies.  Off keeps `lut_ShipDock`, per map, unchanged.
+  - **Played through** (`checkplace.py`, the ship boarded only at its dock):
+    960 shuffled worlds, eight settings in both modes, all winnable; at most
+    six wirings tried for one.
+
+Not yet: everything on the cart -- the shuffle, the fixpoint, the teleport
+tables the game reads from WRAM, the row -- and FFR's Titan's Tunnel
+preference (§9.3 above), and the comparison of the reference shuffle's
+statistics with FFR's beyond the prototype's.
+
 
 ## 10. Interactions with shipped flags
 

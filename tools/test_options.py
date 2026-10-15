@@ -699,6 +699,45 @@ def place_cart(job):
     return s[K["RANDO_PLACED"] - 0x6000], list(s[p:p + K["PLACE_ITEMS"]])
 
 
+def test_es_reference():
+    """Entrance shuffle's reference (randoref.es_*), against what the vanilla
+    world already has: on the vanilla wiring, es_masks gives logicdata's
+    masks in every Early combination, es_groups logicdata's spread groups,
+    and the shuffle in both modes deals a wiring that keeps the towns and the
+    tables' shapes.  That the shuffle is FFR's, wiring for wiring, and the
+    masks the world graph's, is tools/checkentrance.py's; that the worlds it
+    builds are winnable, tools/checkplace.py's -- both need ../worldgraph."""
+    import graphdata as GD
+    van = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
+    bad = []
+    for early in range(16):
+        masks, chaos, req = R.es_masks(*van, early)
+        want = R.place_setup(R.KEYITEMS_STANDARD, [0, 0, 0], [0, 0], early)[4]
+        bad += [(early, c) for c in range(256) if masks[c] != R._minimal(want[c])]
+        if chaos != sorted(R._L.CHAOS_MASKS):
+            bad.append((early, "chaos"))
+    check("es_masks on the vanilla wiring: logicdata's", bad[:4], [])
+    masks = R.es_masks(*van, 0)[0]
+    check("es_groups on the vanilla wiring: logicdata's",
+          R.es_groups(R.es_roots(van[0], van[1]), masks) == R._L.SPREAD, True)
+    towns = [e for e in range(1, 9)]
+    for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS):
+        for seed in (1, 2, 0xD1625106):
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), mode)
+            check("mode %d seed %X: a wiring" % (mode, seed), w is not None, True)
+            if w is None:
+                continue
+            entrance, normal, exits, roots = w
+            check("mode %d seed %X: the towns stay" % (mode, seed),
+                  [entrance[e] for e in towns], [GD.VANILLA_ENTRANCE[e] for e in towns])
+            moved = sum(1 for e in range(30) if entrance[e] != GD.VANILLA_ENTRANCE[e])
+            check("mode %d seed %X: entrances moved" % (mode, seed), moved > 10, True)
+            check("mode %d seed %X: the tables' shapes" % (mode, seed),
+                  (len(entrance), len(normal), len(exits)), (32, 64, 16))
+            if mode == R.ENTRANCES_ONLY:
+                check("mode 1 seed %X: only the Sea Shrine's floor link" % seed,
+                      [t for t in range(64) if normal[t] != GD.VANILLA_NORMAL[t]] in ([], [GD.SEASHRINE1]), True)
+
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
     randoref.build_placement does, for every setting and seed tried, and every
@@ -8375,7 +8414,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
