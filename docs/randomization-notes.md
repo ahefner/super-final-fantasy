@@ -1799,17 +1799,26 @@ Where it departs from the plan below or from §1:
     the screen shows one of the game's map sprites scaled up eight times --
     every pixel a character cell, 128 pixels square on the window blue --
     walking in place, the seed choosing which: every creature a map stands
-    up and the twelve classes' mapmen, 37 (user: "all those NPCs plus the
-    player mapmen"), from the game's own banks by `tools/genroll.py`.
-    Bahamut is left out (user, 2026-10-15: no black outline, so brown
-    clashes with the blue, and no step).  A sprite whose leg tiles are
-    mirror images has no second frame, so it hops half a cell on the beat
-    instead (the fiends' sprite, the King, the fairy, and the Vampire, on
-    black -- he throbbed red at first, user 2026-10-15) -- but the sleeping
-    Elf Prince, who must not hop about like a grasshopper, stands while the
-    backdrop breathes slowly from black to a dim blue (user).  The throb is the fixed colour
-    added to a black backdrop by colour math: a register a tick may write
-    mid-picture, where CGRAM is not.  **Continue too** (user, 2026-10-15):
+    up and the twelve classes' mapmen, 38 (user: "all those NPCs plus the
+    player mapmen"), from the game's own banks by `tools/genroll.py`.  Left
+    out: the Black Orb and the plates, not creatures, and Bahamut (user,
+    2026-10-15: no black outline, so brown clashes with the blue, and no
+    second frame in any pose).  Garland and the bats are in (user; both had
+    been left out by a misreading of which graphic was which -- $04 is the
+    orb, $12 Garland, $11 the bats and Sky Warriors).  Each is drawn as the
+    game draws it facing down, but the bat facing left, where its frames
+    flap; the generator resolves both frames, tiles and mirroring, from the
+    game's 2x2 tables, so the cart reads eight tiles a sprite.  Matoya's
+    colours are her cave's: her graphic is shared with a woman in Gaia,
+    whose palette made her someone else (user).  One whose two frames are
+    the same hops half a cell on the beat instead (the King, the fairy, the
+    Vampire); Garland and the Vampire stand on black -- Garland's armour is
+    the window's own blue, and the Vampire throbbed red at first (user) --
+    and the sleeping Elf Prince, who must not hop about like a grasshopper,
+    stands while the backdrop breathes slowly from black to a dim blue
+    (user).  The throb is the fixed colour added to a black backdrop by
+    colour math: a register a tick may write mid-picture, where CGRAM is
+    not.  **Continue too** (user, 2026-10-15):
     a cold cache at `@Begin` -- the first Continue after power-on -- is
     built under the same screen, the save's own sprite, fanfare and all,
     by `rando_coldbuild`; no track after it, the overworld starting its

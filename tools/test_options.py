@@ -6168,26 +6168,49 @@ def test_rando_newgame():
 def test_roll():
     """New Game's roll screen (roll.asm): a map sprite scaled up eight times,
     walking in place, while the world rolls; the triangle's tune; the yelp;
-    the fanfare after.  The picture against one drawn here from the game's
-    own data -- the sprite's CHR in bank $02 and lut_2x2MapObj_Down in the
-    fixed bank, which says which tiles and flips make each frame -- and the
-    world rolled with the screen ticking at every yield against one rolled
-    with it never ticking."""
+    the fanfare after.  Every choice's picture against one drawn here from
+    the game's own data -- the sprite's CHR in bank $02, and the fixed bank's
+    lut_2x2MapObj_Down (or _Left, for the bat), which says which tiles and
+    flips make each frame -- and the world rolled with the screen ticking at
+    every yield against one rolled with it never ticking."""
     import re
     MUSIC_DONE = 0x81                   # music_track once a fanfare is over
     roll = (ROLL_BANK & 0x1F) * 0x10000
     rd = lambda a, n: ROMDATA[roll + a:roll + a + n]
     chr0, pal0, pitch0 = SYM["lut_RollChr"], SYM["lut_RollPal"], SYM["lut_RollPitch"]
-    n = (pal0 - chr0) // 64
+    n = (pal0 - chr0) // 128
     b0, b2 = (1 + 0x00) * 0x10000, (1 + 0x02) * 0x10000
     nescol = {int(m.group(1), 16): int(m.group(2), 16) for m in re.finditer(
         r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
 
-    #  The choices: every map object graphic a map stands up but the three
-    #  that are not creatures and Bahamut, in order, then the twelve classes'
-    #  mapmen; each
-    #  object's colours its first map's sprite palettes 2 and 3, each class's
-    #  the overworld's 0 and 1 with its own second colours.
+    #  The frames, from the game's own 2x2 tables: UL, DL, UR, DR, each a tile
+    #  and its attributes ($40 mirrors; the low bits the palette: 2 the top,
+    #  3 the legs).  The bat faces left, where its frames flap.
+    fixed = ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:(0xA7 & 0x1F) * 0x10000 + 0x10000]
+    down = bytes([0x00, 0x02, 0x02, 0x03, 0x01, 0x02, 0x03, 0x03, 0x00, 0x02, 0x03, 0x43, 0x01, 0x02, 0x02, 0x43])
+    left = bytes([0x08, 0x02, 0x0A, 0x03, 0x09, 0x02, 0x0B, 0x03, 0x0C, 0x02, 0x0E, 0x03, 0x0D, 0x02, 0x0F, 0x03])
+    check("lut_2x2MapObj_Down and _Left found, once each", (fixed.count(down), fixed.count(left)), (1, 1))
+
+    def picture(chr256, table, frame):
+        tbl = table[frame * 8:frame * 8 + 8]
+        out = [[0] * 16 for _ in range(16)]
+        for q, (qx, qy) in enumerate(((0, 0), (0, 8), (8, 0), (8, 8))):
+            tile, attr = tbl[q * 2], tbl[q * 2 + 1]
+            chr16 = chr256[tile * 16:tile * 16 + 16]
+            pal = (attr & 3) - 1
+            for y in range(8):
+                for x in range(8):
+                    bx = x if attr & 0x40 else 7 - x
+                    c = (chr16[y] >> bx & 1) | (chr16[y + 8] >> bx & 1) << 1
+                    out[qy + y][qx + x] = c | pal << 10 if c else 0
+        return out
+
+    #  The choices: every map object graphic a map stands up but the Black
+    #  Orb, the plates and Bahamut, in order, then the twelve classes'
+    #  mapmen; each object's colours its first map's sprite palettes 2 and 3,
+    #  each class's the overworld's 0 and 1 with its own second colours.  The
+    #  effects: a hop where the two frames are the same; Garland and the
+    #  Vampire on black; the Elf Prince's slow blue throb.
     gfx = ROMDATA[b0 + 0xAE00:b0 + 0xAE00 + 0xD0]
     first = {}
     for m in range(61):
@@ -6196,53 +6219,31 @@ def test_roll():
             if oid:
                 first.setdefault(gfx[oid], m)
     smpal = lambda m: ROMDATA[b0 + 0xA000 + m * 0x30:b0 + 0xA000 + m * 0x30 + 0x30]
-    want_chr, want_pal, want_fx = [], [], []
-    mirror = lambda b: int("{:08b}".format(b)[::-1], 2)
+    want = []                           # (graphic or None, both frames, colours, effect)
     for g in sorted(first):
-        if g in (0x11, 0x12, 0x1B, 0x17):
+        if g in (0x04, 0x1B, 0x17):
             continue
-        want_chr.append(bytes(ROMDATA[b2 + 0xA200 + g * 0x100:][:64]))
-        legs = want_chr[-1][32:64]
-        static = all(mirror(legs[16 + i]) == legs[i] for i in range(16))
-        want_fx.append({0x1D: 0x11, 0x1A: 0x83}.get(g, 1 if static else 0))   # the Vampire, the Elf Prince
-        p = smpal(first[g])
-        want_pal.append([nescol[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [nescol[p[0x1C + i] & 0x3F] for i in (1, 2, 3)])
+        chr256 = bytes(ROMDATA[b2 + 0xA200 + g * 0x100:][:256])
+        frames = [picture(chr256, left if g == 0x11 else down, f) for f in (0, 1)]
+        p = smpal(20 if g == 0x05 else first[g])    # Matoya in her cave's colours
+        fxw = 0x83 if g == 0x1A else (1 if frames[0] == frames[1] else 0) | (0x10 if g in (0x12, 0x1D) else 0)
+        want.append((g, frames, [nescol[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] +
+                     [nescol[p[0x1C + i] & 0x3F] for i in (1, 2, 3)], fxw))
     ow = smpal(0)
     for c in range(12):
-        want_chr.append(bytes(ROMDATA[b2 + 0x9000 + c * 0x100:][:64]))
+        chr256 = bytes(ROMDATA[b2 + 0x9000 + c * 0x100:][:256])
+        frames = [picture(chr256, down, f) for f in (0, 1)]
         top, bot = list(ow[0x10:0x14]), list(ow[0x14:0x18])
         top[2], bot[2] = ROMDATA[b0 + 0x83A0 + c * 2], ROMDATA[b0 + 0x83A0 + c * 2 + 1]
-        want_pal.append([nescol[top[i] & 0x3F] for i in (1, 2, 3)] + [nescol[bot[i] & 0x3F] for i in (1, 2, 3)])
-        want_fx.append(0)
-    got_chr = [bytes(rd(chr0 + k * 64, 64)) for k in range(n)]
+        want.append((None, frames, [nescol[top[i] & 0x3F] for i in (1, 2, 3)] +
+                     [nescol[bot[i] & 0x3F] for i in (1, 2, 3)], 1 if frames[0] == frames[1] else 0))
     fx = list(rd(SYM["lut_RollFx"], n))
-    got_pal = [[rd(pal0 + k * 12 + i * 2, 2)[0] | rd(pal0 + k * 12 + i * 2, 2)[1] << 8 for i in range(6)]
-               for k in range(n)]
-    check("the choices: 25 creatures and 12 classes, their tiles", (n, got_chr), (37, want_chr))
-    check("...and their colours", got_pal, want_pal)
-    check("...and effects: a hop for each with no second frame, the Vampire's on black; a throb for the Elf Prince",
-          fx, want_fx)
-
-    #  The frames, from the game's own 2x2 table: UL, DL, UR, DR, each a tile
-    #  and its attributes ($40 mirrors; the low bits the palette: 2 the top,
-    #  3 the legs).
-    fixed = ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:(0xA7 & 0x1F) * 0x10000 + 0x10000]
-    down = bytes([0x00, 0x02, 0x02, 0x03, 0x01, 0x02, 0x03, 0x03, 0x00, 0x02, 0x03, 0x43, 0x01, 0x02, 0x02, 0x43])
-    check("lut_2x2MapObj_Down found, once", fixed.count(down), 1)
-
-    def picture(pick, frame):
-        tbl = down[frame * 8:frame * 8 + 8]
-        out = [[0] * 16 for _ in range(16)]
-        for q, (qx, qy) in enumerate(((0, 0), (0, 8), (8, 0), (8, 8))):
-            tile, attr = tbl[q * 2], tbl[q * 2 + 1]
-            chr16 = got_chr[pick][tile * 16:tile * 16 + 16]
-            pal = (attr & 3) - 1
-            for y in range(8):
-                for x in range(8):
-                    bx = x if attr & 0x40 else 7 - x
-                    c = (chr16[y] >> bx & 1) | (chr16[y + 8] >> bx & 1) << 1
-                    out[qy + y][qx + x] = c | pal << 10 if c else 0
-        return out
+    graphics = [g for g, _, _, _ in want if g is not None]
+    check("the choices: 26 creatures, Garland and the bats among them, and 12 classes",
+          (n, 0x12 in graphics, 0x11 in graphics, 0x04 in graphics), (38, True, True, False))
+    check("...their effects: a hop for the still, Garland and the Vampire on black, the Elf Prince's throb",
+          fx, [w[3] for w in want])
+    check("...the bat flaps: its frames differ", fx[graphics.index(0x11)], 0)
 
     def begin(seed):
         bus, cpu = machine()
@@ -6253,8 +6254,7 @@ def test_roll():
         return bus, cpu
 
     bad = []
-    for seed in (0x00000000, 0x01020304, 0xDEADBEEF, 0x0BADF00D, 0xFFFFFFFF, 0x12345678,
-                 fx.index(0x11), fx.index(0x83), fx.index(1)):
+    for seed in list(range(n)) + [0x01020304, 0xDEADBEEF, 0xFFFFFFFF]:
         bus, cpu = begin(seed)
         pick = (sum(seed.to_bytes(4, "little")) & 0xFF) % n      # summed in a byte
         if bus.wram[rw("ROLL_PICK")] != pick:
@@ -6262,11 +6262,11 @@ def test_roll():
             continue
         vw = lambda w: bus.vram[w * 2] | bus.vram[w * 2 + 1] << 8
         for frame in (0, 1):
-            pic = picture(pick, frame)
+            pic = want[pick][1][frame]
             for r in range(32):
                 for c in range(32):
-                    want = pic[r - 6][c - 8] if 6 <= r < 22 and 8 <= c < 24 else 0
-                    if vw(0x1000 + frame * 0x400 + r * 32 + c) != want:
+                    cell = pic[r - 6][c - 8] if 6 <= r < 22 and 8 <= c < 24 else 0
+                    if vw(0x1000 + frame * 0x400 + r * 32 + c) != cell:
                         bad.append(("cell", seed, frame, r, c))
         tiles = [vw(w) for w in range(64)]
         if tiles != [0] * 16 + [0x00FF] * 8 + [0] * 8 + [0xFF00] * 8 + [0] * 8 + [0xFFFF] * 8 + [0] * 8:
@@ -6274,14 +6274,12 @@ def test_roll():
         cg = lambda e: bus.cgram[e * 2] | bus.cgram[e * 2 + 1] << 8
         throb = fx[pick] & 2
         black = fx[pick] & 0x12
-        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [0 if black else nescol[0x01]] + got_pal[pick]:
+        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [0 if black else nescol[0x01]] + want[pick][2]:
             bad.append(("colours", seed))
         if (bus.io.get(K["INIDISP"]), bus.io.get(K["TM"]), bus.io.get(K["BGMODE"]), bus.wram[rw("ROLL_ON")],
                 bus.io.get(K["CGADSUB"])) != (0x00, 0x01, 0x01, 1, 0x20 if throb else 0):
             bad.append(("registers", seed))
-    check("the picture: the seed's sprite, both frames, as the game draws it", bad[:4], [])
-    check("...and the seeds tried show different ones",
-          len({(sum(sd.to_bytes(4, "little")) & 0xFF) % n for sd in (0, 0x01020304, 0xDEADBEEF, 0x0BADF00D)}), 4)
+    check("every picture: its sprite, both frames, as the game draws it, and its colours", bad[:4], [])
 
     #  The effects, tick by tick: a hop is BG1VOFS half a cell up and back on
     #  the step's beat, the frames left alone; a throb is the fixed colour, a

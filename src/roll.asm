@@ -10,10 +10,12 @@
 ;  done the sprite goes on walking through the key item fanfare, fades, and
 ;  party creation follows (user, 2026-10-14).  The seed picks the sprite, from
 ;  every creature a map stands up and the twelve classes (tools/genroll.py).
-;  One without a second frame hops instead, the Vampire on black; the
-;  sleeping Elf Prince stands while the backdrop breathes black to blue --
-;  the fixed colour, added to a black backdrop, being a register a tick may
-;  write mid-picture where CGRAM is not.
+;  Each drawn as the game draws it facing down -- a bat facing left, whose
+;  frames flap.  One whose frames are the same hops instead; Garland and the
+;  Vampire are on black; and the sleeping Elf Prince stands while the
+;  backdrop breathes black to blue -- the fixed colour, added to a black
+;  backdrop, being a register a tick may write mid-picture where CGRAM is
+;  not.
 ;
 ;  Continue builds the cache the same way when it has to -- the first after
 ;  power-on (rando_coldbuild) -- the same seed, so the same sprite.
@@ -162,9 +164,8 @@ roll_pick:
 ;;
 ;;  Characters 0-3 are solid colours 0-3, so a cell's character is its
 ;;  pixel's colour; the top half's cells take BG palette 1 and the legs' 2,
-;;  as the sprite's halves take two sprite palettes.  Both frames of the
-;;  facing-down pose: the second is the first with the leg tiles swapped and
-;;  mirrored, as lut_2x2MapObj_Down draws it.
+;;  as the sprite's halves take two sprite palettes.  Both frames, each in
+;;  its half of the tilemap.
 roll_build:
     .a8
     REP #$10
@@ -293,14 +294,15 @@ roll_build:
 
 
 ;;  ROLL_BUF: row A (0-15) of the picture, in frame ROLL_FRAME, as tilemap
-;;  words.  Native, A8, I16; Y kept.
+;;  words.  The frames are resolved already (tools/genroll.py): eight tiles a
+;;  sprite, UL UR DL DR and again, mirrored as the game's table mirrors them.
+;;  Native, A8, I16; Y kept.
 roll_row:
     .a8
     .i16
     PHY
     STA f:ROLL_ROW
     ;  The palette: the top half's 1, the legs' 2, in the high byte's bits 2-4.
-    LDA f:ROLL_ROW
     CMP #8
     LDA #$04
     BCC :+
@@ -308,25 +310,23 @@ roll_row:
 :   STA f:ROLL_PALHI
     LDY #$0000                  ; the half: 0 left, 1 right
   @half:
-    ;  The tile: the top's 0 and 1; the legs' 2 and 3, or in the second frame
-    ;  3 and 2, mirrored.
+    ;  X = the pick's 128 bytes + (frame * 4 + the row's half * 2 + this half)
+    ;  * 16 + the row within the tile.
     LDA f:ROLL_ROW
-    CMP #8
-    TYA                         ; the half; the carry is the comparison's
-    BCC @top
-    LDA f:ROLL_FRAME
-    BEQ :+
+    AND #$08
+    LSR A
+    LSR A                       ; the bottom half: 2
+    STA f:ROLL_OFF
     TYA
-    EOR #1
-    BRA @legs
-:   TYA
-  @legs:
-    ORA #2
-  @top:
-    ;  X = the pick's 64 bytes, + tile * 16 + the row within it.
+    ORA f:ROLL_OFF
+    STA f:ROLL_OFF
+    LDA f:ROLL_FRAME
+    ASL A
+    ASL A
+    ORA f:ROLL_OFF              ; the tile, 0-7
     REP #$20
     .a16
-    AND #$0003
+    AND #$0007
     ASL A
     ASL A
     ASL A
@@ -334,12 +334,8 @@ roll_row:
     STA f:ROLL_OFF
     LDA f:ROLL_PICK
     AND #$00FF
-    ASL A
-    ASL A
-    ASL A
-    ASL A
-    ASL A
-    ASL A
+    XBA                         ; * 256...
+    LSR A                       ; ...and back to * 128
     CLC
     ADC f:ROLL_OFF
     STA f:ROLL_OFF
@@ -354,8 +350,7 @@ roll_row:
     STA f:ROLL_P0
     LDA lut_RollChr + 8, X      ; ...and plane 1
     STA f:ROLL_P1
-    ;  Eight cells, left to right: the planes' high bits first, or their low
-    ;  bits first when the tile is mirrored.
+    ;  Eight cells, left to right: the planes' high bits first.
     TYA
     ASL A
     ASL A
@@ -370,23 +365,6 @@ roll_row:
     LDA #8
     STA f:ROLL_N
   @pixel:
-    LDA f:ROLL_ROW
-    CMP #8
-    BCC @msb
-    LDA f:ROLL_FRAME
-    BEQ @msb
-    LDA f:ROLL_P1               ; mirrored: bit 0 first
-    LSR A
-    STA f:ROLL_P1
-    LDA #0
-    ROL A
-    ASL A
-    STA f:ROLL_HI
-    LDA f:ROLL_P0
-    LSR A
-    STA f:ROLL_P0
-    BRA @colour
-  @msb:
     LDA f:ROLL_P1
     ASL A
     STA f:ROLL_P1
@@ -397,7 +375,6 @@ roll_row:
     LDA f:ROLL_P0
     ASL A
     STA f:ROLL_P0
-  @colour:
     LDA #0
     ROL A                       ; plane 0's bit, from the carry
     ORA f:ROLL_HI               ; ...and plane 1's above it: the colour
