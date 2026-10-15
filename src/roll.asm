@@ -45,7 +45,7 @@
 
 .export roll_begin, roll_tick, roll_end
 ;  For tools/test_options.py.
-.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick
+.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick, lut_RollYelp
 
 .import CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
@@ -62,7 +62,6 @@ ROLL_STEPTICKS  = 8             ; a step every eight frames
 ROLL_NOTETICKS  = 6             ; a note every six...
 ROLL_GATETICKS  = 4             ; ...sounding for four
 ROLL_YELPTICKS  = 8
-ROLL_YELPSTART  = $0040         ; the yelp's first period: high, then falling
 ROLL_BACKDROP   = NESCOL_01     ; the game's window blue
 FANFARE         = $54           ; the key item fanfare (DialogueBox_Sfx's)
 MUSIC_DONE      = $81           ; music_track once a fanfare has finished
@@ -554,10 +553,19 @@ roll_sound:
     STA f:ROLL_YREQ
     LDA #ROLL_YELPTICKS
     STA f:ROLL_YELP
-    LDA #<ROLL_YELPSTART
+    ;  Each yelp starts on the next note of a rising pentatonic, so the
+    ;  clusters they come in climb (user, 2026-10-15), and falls from there.
+    LDA f:ROLL_YNUM
+    AND #7
+    ASL A
+    TAX
+    LDA lut_RollYelp, X
     STA f:ROLL_YPER
-    LDA #>ROLL_YELPSTART
+    LDA lut_RollYelp + 1, X
     STA f:ROLL_YPER + 1
+    LDA f:ROLL_YNUM
+    INC A
+    STA f:ROLL_YNUM
   @noreq:
     LDA f:ROLL_YELP
     BEQ @gate
@@ -657,6 +665,11 @@ roll_sound:
 
 lut_RollWalk:
   .byte <-2, <-1, 1, 2
+
+;;  Where each yelp starts, in turn: E6 G6 A6 C7 D7 E7 G7 A7, as the first
+;;  pulse's periods (1789773 / (16 f) - 1).
+lut_RollYelp:
+  .word $054, $046, $03F, $034, $02F, $029, $023, $01F
 
 ;;  Each stage's scale, as triangle periods (1789773 / (32 f) - 1), low to
 ;;  high: ROLLSTAGE_PLACE whole-tone D4-E5, _WIRING C major pentatonic C5-E6,

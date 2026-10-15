@@ -6370,7 +6370,13 @@ def test_roll():
         cpu.run(ROLL_BANK, SYM["roll_tick"])
         sh = bus.wram[0x900:0x916]
         seen.append((sh[0], sh[2] | sh[3] << 8, sh[0x15] & 1, bus.wram[rw("ROLL_FRAME")], bus.wram[rw("ROLL_BRIGHT")]))
-    per = [0x40]
+    #  The yelps start on a rising pentatonic in turn, E6 to A7, on the first
+    #  pulse: 1789773 / (16 f) - 1.
+    note = lambda n: round(1789773 / (16 * 440 * 2 ** ((n - 69) / 12))) - 1
+    starts = [note(n) for n in (88, 91, 93, 96, 98, 100, 103, 105)]
+    yelp_tbl = [rd(SYM["lut_RollYelp"] + i * 2, 2)[0] | rd(SYM["lut_RollYelp"] + i * 2, 2)[1] << 8 for i in range(8)]
+    check("the yelps' notes: E G A C D E G A, two octaves", yelp_tbl, starts)
+    per = [starts[0]]
     for _ in range(6):
         per.append(per[-1] + (per[-1] >> 2))
     check("the yelp: the first pulse falling a quarter a tick, quieter, then off",
@@ -6379,8 +6385,14 @@ def test_roll():
     check("...the step every eight ticks, the fade in over fifteen",
           ([x[3] for x in seen], [x[4] for x in seen]),
           ([0] * 7 + [1] * 5, list(range(1, 13))))
+    first = []
+    for k in range(10):                 # a cluster: each yelp the next note
+        bus.wram[rw("ROLL_YREQ")] = 1
+        cpu.run(ROLL_BANK, SYM["roll_tick"])
+        first.append(bus.wram[0x902] | bus.wram[0x903] << 8)
+    check("...and a cluster of them climbs the notes in turn, round again", first, starts[1:] + starts[:3])
     check("...and every tick a frame of sound sent (hal_audioframe)",
-          bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 12)
+          bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 22)
 
     #  The world rolled is the same ticked at every yield as never ticked; and
     #  the tune heard, a yelp among it, and the fanfare after, then the title's

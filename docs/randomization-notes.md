@@ -1832,7 +1832,9 @@ Where it departs from the plan below or from §1:
     working out the logic a low one, building the world a G major arpeggio
     -- each note a step of a walk two bits of the PRNG's state choose; and
     the first pulse yelps, falling, whenever a placement attempt or a wiring
-    is thrown away (user).  When the roll is done the sprite walks on
+    is thrown away (user) -- each yelp from the next note of a rising
+    pentatonic, E6 to A7, since they come in clusters and a cluster should
+    sound like music (user, 2026-10-15).  When the roll is done the sprite walks on
     through the key item fanfare (track $54) -- the screen's least time up,
     however quick the roll (user) -- fades, the title's music starts again
     for party creation, and the PPU goes back to the HAL dark.
