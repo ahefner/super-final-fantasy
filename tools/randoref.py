@@ -948,7 +948,9 @@ def es_shuffle(rng, mode):
     rng.shuffle(sub)
     forks = sum(len(rec[r][2]) - 1 for r in sub if len(rec[r][2]) > 1) + (1 if sub else 0)
     for _ in range(forks):
-        k = next(i for i, r in enumerate(sub) if not rec[r][2])
+        k = next((i for i, r in enumerate(sub) if not rec[r][2]), None)
+        if k is None:
+            return None                     # FFR's code assumes there is one
         dead.append(sub.pop(k))
     rng.shuffle(sub)
     rng.shuffle(dead)

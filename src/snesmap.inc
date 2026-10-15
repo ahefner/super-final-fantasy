@@ -337,6 +337,9 @@ ORDEALS_MODES   = 2
 KEYITEMS_VANILLA  = 0
 KEYITEMS_STANDARD = 1
 KEYITEMS_WIDE     = 2
+ENTRANCES_OFF   = 0               ; the Entrances row: vanilla wiring
+ENTRANCES_ONLY  = 1               ; FFR's entrance shuffle, floors kept
+ENTRANCES_FLOORS = 2              ; ...and its floor shuffle
 KEYITEMS_MODES    = 3
 ;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
 ;  Other items, the nine with no Free, has the first two only.
@@ -1839,6 +1842,33 @@ RP_WORDSEND     = RP_BASE+$0B74
 RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)
+;  Entrance shuffle's (entrance.inc), in the same memory: it runs at New Game
+;  before placement, and in the cache build, where only the rewards' RV_ area
+;  below $2000 is in use.  The fixpoint's regions borrow that area at New Game.
+ES_REQ          = RP_BASE+$1000   ; GR_NODES x ES_NODEMAX masks: each region's
+ES_NODEMAX      = 6
+ES_NREQ         = RP_BASE+$2400   ; how many each region has
+ES_QUEUE        = RP_BASE+$2500   ; the fixpoint's regions to visit, a ring of 256
+ES_QD           = RP_BASE+$2600   ; 1 for a region in the ring
+ES_ROOTS        = RP_BASE+$2700   ; GR_NODES x 4: each region's entrances, a bit each
+ES_ENT          = RP_BASE+$2B00   ; the wiring: each entrance's landing index...
+ES_NORM         = RP_BASE+$2B20   ; ...each normal teleport's...
+ES_EXIT         = RP_BASE+$2B60   ; ...and each exit's overworld coordinate index
+ES_PMAP         = RP_BASE+$2D00   ; 32: the shuffle's pinned entrances, record or $FF
+ES_PFLOOR       = RP_BASE+$2D20   ; 64: its pinned floors
+ES_SHUF         = RP_BASE+$2D60   ; 32: the record each entrance leads to
+ES_FOUT         = RP_BASE+$2D80   ; 64: the record each teleport leads to, $FF unchanged
+ES_XOUT         = RP_BASE+$2DC0   ; 16: each exit's coordinate index, $FF unchanged
+ES_PDEST        = RP_BASE+$2DD0   ; 16: the pinned destinations, a bit per location id
+ES_DESTS        = RP_BASE+$2E00   ; 128: what is dealt, in order
+ES_TL           = RP_BASE+$2E80   ; 16: towns to deal
+ES_TOP          = RP_BASE+$2E90   ; 16: forced top floors
+ES_SUB          = RP_BASE+$2EA0   ; 80: free floors...
+ES_DEAD         = RP_BASE+$2F00   ; 32: ...and the dead ends set aside from them
+ES_ORDER        = RP_BASE+$2F20   ; 32: the entrances, in the order they are filled
+ES_PEND         = RP_BASE+$2F40   ; 32: teleports still to fill
+ES_VARS         = RP_BASE+$2F80   ; the words below
+ES_WORDSEND     = RP_BASE+$2FC0
 RP_CHAOS        = RP_BASE+$2B70   ; Chaos's masks, RP_CHAOSMAX of them...
 RP_NCHAOS       = RP_BASE+$2B88   ; ...and how many, a word
 RP_CHAOSMAX     = 6

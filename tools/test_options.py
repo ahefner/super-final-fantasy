@@ -738,6 +738,50 @@ def test_es_reference():
                 check("mode 1 seed %X: only the Sea Shrine's floor link" % seed,
                       [t for t in range(64) if normal[t] != GD.VANILLA_NORMAL[t]] in ([], [GD.SEASHRINE1]), True)
 
+def es_indices():
+    """graphdata's landings and exit coordinates, as the cart numbers them."""
+    import graphdata as GD
+    lands = sorted(GD.LAND)
+    exits = sorted(GD.EXIT_TO)
+    return {c: i for i, c in enumerate(lands)}, {c: i for i, c in enumerate(exits)}
+
+
+def es_cart_wiring(seed, mode, k):
+    bus, cpu = machine()
+    at = K["RANDO_SAVE"] - 0x6000
+    bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    cpu.a, cpu.x = mode, k
+    call(cpu, "rando_eswire", bank=RANDO_BANK)
+    failed = bus.wram[rw("ES_VARS") + 0x0D]
+    e, n, x = rw("ES_ENT"), rw("ES_NORM"), rw("ES_EXIT")
+    return failed, list(bus.wram[e:e + 32]), list(bus.wram[n:n + 64]), list(bus.wram[x:x + 16])
+
+
+def es_wiring_job(job):
+    seed, mode, k = job
+    return es_cart_wiring(seed, mode, k)
+
+
+def test_es_wiring():
+    """es_wiring deals randoref.es_shuffle's wiring, table for table: each
+    entrance's landing, each teleport's, each exit's coordinate, in both
+    modes and for more than one attempt's stream."""
+    lidx, xidx = es_indices()
+    jobs = [(seed, mode, k) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+            for seed in list(range(1, 41)) + [0x600DCAFE, 0xD1625106] for k in (0, 1)]
+    got = pmap(es_wiring_job, jobs)
+    bad = []
+    for (seed, mode, k), cart in zip(jobs, got):
+        w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
+        if w is None:
+            want = (1,)
+        else:
+            want = (0, [lidx[tuple(c)] for c in w[0]], [lidx[tuple(c)] for c in w[1]],
+                    [xidx[tuple(c)] for c in w[2]])
+        if (cart[0],) + (tuple(cart[1:]) if not cart[0] else ()) != (want[0],) + (tuple(want[1:]) if not want[0] else ()):
+            bad.append((seed, mode, k))
+    check("es_wiring deals es_shuffle's wiring", bad[:4], [])
+
 def test_rando_place():
     """Incentive placement: rando_place lands every item exactly where
     randoref.build_placement does, for every setting and seed tried, and every
@@ -8414,7 +8458,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

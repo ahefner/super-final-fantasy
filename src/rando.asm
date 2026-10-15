@@ -52,6 +52,7 @@
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle
+.export es_wiring, es_vanilla, rando_eswire
 
 .segment "BANK_RANDO"
 
@@ -5099,5 +5100,6 @@ rando_steprng:
 
 
 .include "place.inc"
+.include "entrance.inc"
 .include "rewards.inc"
 .include "dlgtext.inc"

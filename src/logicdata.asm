@@ -13,6 +13,9 @@
 .export lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
 .export lut_DockX, lut_DockY, lut_ShipDock, lut_LogicGroup
 
+.include "graph.inc"            ; .global: exports what graphdata.inc defines
+
 .segment "BANK_LOGIC"
 
 .include "logicdata.inc"
+.include "graphdata.inc"

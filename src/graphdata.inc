@@ -2,12 +2,6 @@
 ;  The world graph without its wiring, and FFR's entrance shuffle data;
 ;  see gengraph.py.  Regions number from 0, the start.
 
-GR_NODES         = 210
-GR_MASKS         = 26
-GR_LANDINGS      = 95
-GR_EXITXY        = 31
-GR_LOCS          = 257
-GR_DOCKS         = 5
 
 ;  The requirement masks, four bytes each, low first.
 lut_GrMask:
@@ -364,12 +358,6 @@ lut_GrEntFly:
 ;  FFR's shuffle: records, by index -- location id, landing, exit ($FF
 ;  none), the teleports out of it; and flags (1: Lefein or Melmond, which
 ;  never come first).
-ES_RECORDS       = 72
-ES_LOCATIONS     = 69
-ES_UNUSED1       = 30
-ES_SEASHRINE1    = 32
-ES_LOC_TITANEAST = 66
-ES_LOC_TITANWEST = 67
 
 lut_EsRecLoc:
   .BYTE $00, $01, $02, $03, $04, $05, $06, $07, $07, $08, $09, $0A, $0B, $0C, $0D, $0E
@@ -426,35 +414,28 @@ lut_EsTele:
   .BYTE $36, $37, $3E, $38, $39, $3A, $3B, $3C, $3D, $2F, $30, $3F, $40, $41, $42, $43
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $35
 
-ES_TOWNS_N       = 8
 lut_EsTowns:
   .BYTE $01, $02, $03, $04, $05, $07, $06, $08
 
-ES_TOP_N         = 5
 lut_EsTop:
   .BYTE $19, $1A, $09, $0C, $0D
 
-ES_FREE_OW_N     = 17
 lut_EsFreeOw:
   .BYTE $0A, $0B, $14, $15, $16, $00, $11, $12, $1B, $1C, $1D, $10, $13, $0E, $0F, $17
   .BYTE $18
 
-ES_FREE_SM_N     = 33
 lut_EsFreeSm:
   .BYTE $19, $0F, $10, $11, $05, $06, $07, $08, $09, $0A, $0B, $0C, $0D, $0E, $03, $04
   .BYTE $02, $29, $2A, $2B, $2C, $2D, $2E, $2F, $22, $20, $21, $23, $24, $25, $26, $27
   .BYTE $28
 
-ES_ICECAVE_LOOP_N = 4
 lut_EsIcecaveLoop:
   .BYTE $12, $13, $14, $15
 
-ES_VANILLA_OW_N  = 30
 lut_EsVanillaOw:
   .BYTE $01, $02, $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10
   .BYTE $00, $11, $12, $1B, $1C, $1D, $13, $14, $15, $16, $17, $18, $19, $1A
 
-ES_VANILLA_SM_N  = 40
 lut_EsVanillaSm:
   .BYTE $00, $02, $03, $04, $05, $06, $07, $08, $09, $0A, $0B, $0C, $0D, $0E, $0F, $10
   .BYTE $11, $12, $13, $14, $15, $16, $17, $19, $20, $21, $22, $23, $24, $25, $26, $27
