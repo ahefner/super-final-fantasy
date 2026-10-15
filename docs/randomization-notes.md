@@ -827,7 +827,7 @@ until the rewards change.
     stay where they are.  It uses FFR's safe tables, as FFR does on its own
     map without Entrance shuffle, and its BRIDGE at 2.0, which FFR sets for
     that map -- the prototype had the unsafe ones, built for the shuffle.
-  - **Forward placement** (user, 2026-10-14; built, not yet played).  The
+  - **Forward placement** (user, 2026-10-14; built, early places spot-checked the same day, not yet played).  The
     first playtest's seed (D1625106: Wide, every key item loose but the free
     BRIDGE and KEY, four gear incentives) put nine loose items in places
     reached from the start -- Coneria Castle, the Temple, Matoya's Cave --
@@ -846,7 +846,7 @@ until the rewards change.
     own it moves loose items in sphere 0 (reached from the start) from 45%
     to 35% under that seed's settings, over 300 seeds; the rest of the pile
     is the order items are placed in, not where (progression first, below).
-  - **Progression first** (user, 2026-10-14; built, not yet played; not
+  - **Progression first** (user, 2026-10-14; built, early places spot-checked the same day, not yet played; not
     FFR's).  In the loose draw, while any loose key item would open a place
     -- its count of new places, its own taken off, 0 or more -- the items
     that would open none, and loose gear, weigh nothing (`randoref._first`,
@@ -869,7 +869,7 @@ until the rewards change.
     What it does not do: once an area opens, forward placement favours it,
     so a newly opened dungeon can take several loose items -- the most in one
     dungeon a mean of 4.4, four or more in 84% of seeds.
-  - **Spread placement** (user, 2026-10-14; built, not yet played).  FFR's
+  - **Spread placement** (user, 2026-10-14; built, early places spot-checked the same day, not yet played).  FFR's
     `LooseItemsSpreadPlacement`, off in every FFR preset: once a chest is
     drawn, the chests in the same dungeon behind the same requirements are
     quartered, to no less than 1, after the forward halving -- so the next

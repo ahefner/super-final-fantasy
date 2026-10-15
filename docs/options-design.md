@@ -816,7 +816,8 @@ is moored at the dock nearest the map it is found on -- FFR's
 `ShipLocations` wherever a dock can be walked to, Ice Cave to Pravoka's
 (built 2026-10-14 after the first run, where it was always Coneria's; not
 yet played): section 4.8 there.  Loose items are placed progression first,
-forward and spread (section 4.7; built 2026-10-14, not yet played): an item
+forward and spread (section 4.7; built 2026-10-14, early places spot-checked,
+not yet played): an item
 that opens nothing waits while others open something, places reached early
 lose weight with every draw, and a dungeon that has taken an item is less
 likely to take the next, so loose items spread through the game instead of
