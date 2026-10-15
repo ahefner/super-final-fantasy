@@ -10,6 +10,13 @@
 ;  done the sprite goes on walking through the key item fanfare, fades, and
 ;  party creation follows (user, 2026-10-14).  The seed picks the sprite, from
 ;  every creature a map stands up and the twelve classes (tools/genroll.py).
+;  One without a second frame hops instead; the Vampire stands while the
+;  backdrop throbs black to red, the sleeping Elf Prince while it breathes
+;  black to blue -- the fixed colour, added to a black backdrop, being a
+;  register a tick may write mid-picture where CGRAM is not.
+;
+;  Continue builds the cache the same way when it has to -- the first after
+;  power-on (rando_coldbuild) -- the same seed, so the same sprite.
 ;
 ;  There are no interrupts in this port, and the randomizer has no frame
 ;  loop.  So the randomizer yields, often -- every draw, every ask the logic
@@ -36,7 +43,7 @@
 
 .export roll_begin, roll_tick, roll_end
 ;  For tools/test_options.py.
-.export lut_RollChr, lut_RollPal, lut_RollPitch
+.export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx
 
 .import CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
@@ -56,12 +63,16 @@ ROLL_YELPTICKS  = 8
 ROLL_YELPSTART  = $0040         ; the yelp's first period: high, then falling
 ROLL_BACKDROP   = NESCOL_01     ; the game's window blue
 FANFARE         = $54           ; the key item fanfare (DialogueBox_Sfx's)
-TITLEMUSIC      = $41           ; IntroTitlePrepare's, which party creation hears
 MUSIC_DONE      = $81           ; music_track once a fanfare has finished
+ROLLFX_WALK     = 0             ; lut_RollFx: the frames swap...
+ROLLFX_HOP      = 1             ; ...it hops, having no second frame...
+ROLLFX_THROB    = 2             ; ...or the backdrop throbs: COLDATA's channels
+ROLLFX_SLOW     = 1             ;   in bits 7-5, and this for slow and dim
+ROLL_HOPVOFS    = $003          ; BG1VOFS half a cell up from $3FF
 
-;;  In emulation mode, by JSL from rando_newgame, the seed in the save.  Out:
-;;  the screen up, dark, fading in as it ticks; the music the title left
-;;  already silenced (DisableAPU).
+;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the seed
+;;  in the save.  Out: the screen up, dark, fading in as it ticks; the music
+;;  the title left already silenced (DisableAPU).
 roll_begin:
     PHP
     PHB
@@ -84,6 +95,10 @@ roll_begin:
     CLC
     XCE
     JSR roll_pick
+    LDA f:ROLL_PICK
+    TAX
+    LDA lut_RollFx, X
+    STA f:ROLL_FX
     JSR roll_build
     SEC
     XCE
@@ -99,8 +114,14 @@ roll_begin:
     STZ a:TMW
     STZ a:TSW
     STZ a:W12SEL
-    STZ a:CGWSEL
-    STZ a:CGADSUB
+    STZ a:CGWSEL                ; colour math everywhere, with the fixed colour
+    LDA #$E0
+    STA a:COLDATA               ; ...which is black, to start
+    LDA f:ROLL_FX
+    AND #ROLLFX_THROB
+    BEQ :+
+    LDA #$20                    ; a throb: added to the backdrop
+:   STA a:CGADSUB
     STZ a:BG1HOFS
     STZ a:BG1HOFS
     LDA #$FF                    ; -1: the picture's first line is the tilemap's
@@ -217,13 +238,23 @@ roll_build:
     STA f:ROLL_FRAME
     CMP #2
     BCC @frame
+    LDA #0
+    STA f:ROLL_FRAME            ; the first frame is the one shown
 
-    ;  The colours: the backdrop, then the halves' three each.
+    ;  The colours: the backdrop -- black under a throb, which adds its colour
+    ;  -- then the halves' three each.
     STZ a:CGADD
-    LDA #<ROLL_BACKDROP
+    LDA f:ROLL_FX
+    AND #ROLLFX_THROB
+    BEQ :+
+    STZ a:CGDATA
+    STZ a:CGDATA
+    BRA :++
+:   LDA #<ROLL_BACKDROP
     STA a:CGDATA
     LDA #>ROLL_BACKDROP
     STA a:CGDATA
+:
     REP #$20
     .a16
     LDA f:ROLL_PICK
@@ -450,9 +481,10 @@ roll_tick:
     RTL
 
 
-;;  The picture's frame: a little brighter, until full; and every
-;;  ROLL_STEPTICKS a step, the other half of the tilemap.  A8, either mode,
-;;  DBR this chunk.
+;;  The picture's frame: a little brighter, until full; and its effect --
+;;  every ROLL_STEPTICKS a step, the other half of the tilemap, or a hop; or
+;;  the throb, a triangle wave of the fixed colour.  Only registers, which a
+;;  tick may write mid-picture.  A8 X8, either mode, DBR this chunk.
 roll_frame:
     .a8
     LDA f:ROLL_T
@@ -464,15 +496,55 @@ roll_frame:
     INC A
     STA f:ROLL_BRIGHT
     STA a:INIDISP
-:   LDA f:ROLL_T
+:   LDA f:ROLL_FX
+    AND #ROLLFX_THROB
+    BNE @throb
+    LDA f:ROLL_T
     AND #ROLL_STEPTICKS - 1
-    BNE :+
+    BNE @out
     LDA f:ROLL_FRAME
     EOR #1
     STA f:ROLL_FRAME
+    TAX
+    LDA f:ROLL_FX
+    BNE @hop
     STZ a:BG1HOFS               ; low, then high: 0 or 256
-    STA a:BG1HOFS
-:   RTS
+    STX a:BG1HOFS
+  @out:
+    RTS
+  @hop:
+    LDA #<$3FF                  ; down, or half a cell up
+    LDY #>$3FF
+    CPX #0
+    BEQ :+
+    LDA #<ROLL_HOPVOFS
+    LDY #>ROLL_HOPVOFS
+:   STA a:BG1VOFS
+    STY a:BG1VOFS
+    RTS
+  @throb:
+    LDA f:ROLL_FX
+    AND #ROLLFX_SLOW
+    TAX
+    LDA f:ROLL_T
+    CPX #0
+    BEQ :+
+    LSR A                       ; slow: half the speed...
+:   AND #63
+    CMP #32
+    BCC :+
+    EOR #63                     ; 32..63 -> 31..0: up, then down
+:   CPX #0
+    BEQ :+
+    LSR A                       ; ...and half as bright
+:   STA f:ROLL_HI
+    LDA #$E0
+    STA a:COLDATA               ; every channel to zero...
+    LDA f:ROLL_FX
+    AND #$E0
+    ORA f:ROLL_HI
+    STA a:COLDATA               ; ...then the throb's to the wave
+    RTS
 
 
 ;;  The tick's sound, into the APU's shadow: the yelp on the first pulse, and
@@ -595,16 +667,18 @@ lut_RollPitch:
   .word $08E, $070, $05E, $046, $038, $02F, $023, $01B
 
 
-;;  In emulation mode, by JSL from rando_newgame, the world rolled.  The
-;;  sprite walks on through the key item fanfare -- also the screen's least
-;;  time up, however quick the roll -- then fades; the title's music starts
-;;  again for party creation, and the PPU goes back to the HAL, dark.
+;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the
+;;  world rolled; A = the track to start after, or 0 for none.  The sprite
+;;  walks on through the key item fanfare -- also the screen's least time up,
+;;  however quick the roll -- then fades; the track starts, and the PPU goes
+;;  back to the HAL, dark.
 roll_end:
     PHP
     PHB
     PHK
     PLB
     SEP #$30
+    STA f:ROLL_AFTER
     LDA #0
     STA f:ROLL_ON               ; no more ticks: the frames are this loop's
     LDA #FANFARE
@@ -626,8 +700,11 @@ roll_end:
   @dark:
     LDA #$80
     STA a:INIDISP
-    LDA #TITLEMUSIC
+    STZ a:CGADSUB               ; the throb's colour math off again
+    LDA f:ROLL_AFTER
+    BEQ :+
     STA music_track
+:
     JSL hal_ppureclaim + HALFAR
     PLB
     PLP

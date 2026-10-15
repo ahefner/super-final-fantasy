@@ -1924,8 +1924,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   247 free    the scarce one; stamped into every chunk.  7
-                             declared, and 240 at the end: the randomizer's
+    BANK_FIXED   250 free    the scarce one; stamped into every chunk.  7
+                             declared, and 243 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -1942,7 +1942,9 @@ text region in the game references.
                              took 3, and the reward NPCs' lines' hook 4;
                              the entrance and exit landings, asked of
                              rando_entrdest and rando_exitdest, and the
-                             teleport's map, of rando_teledest, gave back 34
+                             teleport's map, of rando_teledest, gave back 34;
+                             @Begin's cold build, one JSL to the
+                             randomizer's rando_coldbuild, gave back 3
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 16 bytes of
                              padding inside routines the randomizer took
@@ -1975,7 +1977,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3519 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3497 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -1989,7 +1991,8 @@ text region in the game references.
                              their choice 94; New Game building the
                              cache, and its mute, 7; a draw with nowhere
                              to go, and the counts reused, 33; the roll
-                             screen's yields, stages and yelps 89
+                             screen's yields, stages and yelps 89, and
+                             Continue's cold build under it 22
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -1997,9 +2000,9 @@ text region in the game references.
     BANK_WORLD  11914 free  entrance shuffle's code (4430): the wiring, the
                              seed's logic, roots, groups, the dock, and the
                              landing tables; the roll screen's yields 40
-    BANK_ROLL   12321 free  New Game's roll screen (4063): its code, and
-                             38 pictures' tiles and colours (2888, from
-                             tools/genroll.py)
+    BANK_ROLL   12214 free  New Game's roll screen (4170): its code, and
+                             37 pictures' tiles, colours and effects
+                             (2849, from tools/genroll.py)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

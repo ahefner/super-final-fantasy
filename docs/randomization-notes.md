@@ -1799,8 +1799,21 @@ Where it departs from the plan below or from §1:
     the screen shows one of the game's map sprites scaled up eight times --
     every pixel a character cell, 128 pixels square on the window blue --
     walking in place, the seed choosing which: every creature a map stands
-    up and the twelve classes' mapmen, 38 (user: "all those NPCs plus the
-    player mapmen"), from the game's own banks by `tools/genroll.py`.  The
+    up and the twelve classes' mapmen, 37 (user: "all those NPCs plus the
+    player mapmen"), from the game's own banks by `tools/genroll.py`.
+    Bahamut is left out (user, 2026-10-15: no black outline, so brown
+    clashes with the blue, and no step).  A sprite whose leg tiles are
+    mirror images has no second frame, so it hops half a cell on the beat
+    instead (the fiends' sprite, the King, the fairy) -- but the Vampire
+    stands while the backdrop throbs black to red, and the sleeping Elf
+    Prince, who must not hop about like a grasshopper, while it breathes
+    slowly from black to a dim blue (user).  The throb is the fixed colour
+    added to a black backdrop by colour math: a register a tick may write
+    mid-picture, where CGRAM is not.  **Continue too** (user, 2026-10-15):
+    a cold cache at `@Begin` -- the first Continue after power-on -- is
+    built under the same screen, the save's own sprite, fanfare and all,
+    by `rando_coldbuild`; no track after it, the overworld starting its
+    own.  A soft reset's Continue still only compares the tag.  The
     triangle plays a tune the roll writes: each stage its own scale --
     placing key items whole-tone, dealing the doors a high pentatonic,
     working out the logic a low one, building the world a G major arpeggio

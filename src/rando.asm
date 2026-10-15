@@ -54,6 +54,7 @@
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
+.export rando_coldbuild
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
@@ -589,9 +590,28 @@ rando_newgame:
     JSL rando_place + RANDOFAR
     ;  ...and the world itself, now rather than at @Begin.
     JSL rando_ensure + RANDOFAR
-    ;  The fanfare, the fade, and the PPU back to the HAL.
+    ;  The fanfare, the fade, the title's music again for party creation, and
+    ;  the PPU back to the HAL.
+    LDA #TITLEMUSIC
     JSL roll_end + ROLLFAR
     PLX
+    PLP
+    RTL
+
+TITLEMUSIC = $41                ; IntroTitlePrepare's, which party creation hears
+
+;;  A cold cache at @Begin -- a Continue the first after power-on, the save's
+;;  world not in WRAM -- built as New Game builds it, the roll screen up and
+;;  the same seed's sprite on it (user, 2026-10-15); but no track after,
+;;  since PrepOverworld starts the overworld's.  From @Begin when rando_stale
+;;  says so, in emulation mode, by JSL.
+rando_coldbuild:
+    PHP
+    JSR DisableAPU              ; the title's music: nothing drives it meanwhile
+    JSL roll_begin + ROLLFAR
+    JSL rando_ensure + RANDOFAR
+    LDA #0
+    JSL roll_end + ROLLFAR
     PLP
     RTL
 

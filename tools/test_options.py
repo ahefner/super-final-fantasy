@@ -6184,7 +6184,8 @@ def test_roll():
         r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
 
     #  The choices: every map object graphic a map stands up but the three
-    #  that are not creatures, in order, then the twelve classes' mapmen; each
+    #  that are not creatures and Bahamut, in order, then the twelve classes'
+    #  mapmen; each
     #  object's colours its first map's sprite palettes 2 and 3, each class's
     #  the overworld's 0 and 1 with its own second colours.
     gfx = ROMDATA[b0 + 0xAE00:b0 + 0xAE00 + 0xD0]
@@ -6195,11 +6196,15 @@ def test_roll():
             if oid:
                 first.setdefault(gfx[oid], m)
     smpal = lambda m: ROMDATA[b0 + 0xA000 + m * 0x30:b0 + 0xA000 + m * 0x30 + 0x30]
-    want_chr, want_pal = [], []
+    want_chr, want_pal, want_fx = [], [], []
+    mirror = lambda b: int("{:08b}".format(b)[::-1], 2)
     for g in sorted(first):
-        if g in (0x11, 0x12, 0x1B):
+        if g in (0x11, 0x12, 0x1B, 0x17):
             continue
         want_chr.append(bytes(ROMDATA[b2 + 0xA200 + g * 0x100:][:64]))
+        legs = want_chr[-1][32:64]
+        static = all(mirror(legs[16 + i]) == legs[i] for i in range(16))
+        want_fx.append({0x1D: 0x22, 0x1A: 0x83}.get(g, 1 if static else 0))   # the Vampire, the Elf Prince
         p = smpal(first[g])
         want_pal.append([nescol[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [nescol[p[0x1C + i] & 0x3F] for i in (1, 2, 3)])
     ow = smpal(0)
@@ -6208,11 +6213,15 @@ def test_roll():
         top, bot = list(ow[0x10:0x14]), list(ow[0x14:0x18])
         top[2], bot[2] = ROMDATA[b0 + 0x83A0 + c * 2], ROMDATA[b0 + 0x83A0 + c * 2 + 1]
         want_pal.append([nescol[top[i] & 0x3F] for i in (1, 2, 3)] + [nescol[bot[i] & 0x3F] for i in (1, 2, 3)])
+        want_fx.append(0)
     got_chr = [bytes(rd(chr0 + k * 64, 64)) for k in range(n)]
+    fx = list(rd(SYM["lut_RollFx"], n))
     got_pal = [[rd(pal0 + k * 12 + i * 2, 2)[0] | rd(pal0 + k * 12 + i * 2, 2)[1] << 8 for i in range(6)]
                for k in range(n)]
-    check("the choices: 26 creatures and 12 classes, their tiles", (n, got_chr), (38, want_chr))
+    check("the choices: 25 creatures and 12 classes, their tiles", (n, got_chr), (37, want_chr))
     check("...and their colours", got_pal, want_pal)
+    check("...and effects: a hop for each with no second frame, a throb for the Vampire and the Elf Prince",
+          fx, want_fx)
 
     #  The frames, from the game's own 2x2 table: UL, DL, UR, DR, each a tile
     #  and its attributes ($40 mirrors; the low bits the palette: 2 the top,
@@ -6244,7 +6253,8 @@ def test_roll():
         return bus, cpu
 
     bad = []
-    for seed in (0x00000000, 0x01020304, 0xDEADBEEF, 0x0BADF00D, 0xFFFFFFFF, 0x12345678):
+    for seed in (0x00000000, 0x01020304, 0xDEADBEEF, 0x0BADF00D, 0xFFFFFFFF, 0x12345678,
+                 fx.index(0x22), fx.index(0x83), fx.index(1)):
         bus, cpu = begin(seed)
         pick = (sum(seed.to_bytes(4, "little")) & 0xFF) % n      # summed in a byte
         if bus.wram[rw("ROLL_PICK")] != pick:
@@ -6262,14 +6272,49 @@ def test_roll():
         if tiles != [0] * 16 + [0x00FF] * 8 + [0] * 8 + [0xFF00] * 8 + [0] * 8 + [0xFFFF] * 8 + [0] * 8:
             bad.append(("tiles", seed))
         cg = lambda e: bus.cgram[e * 2] | bus.cgram[e * 2 + 1] << 8
-        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [nescol[0x01]] + got_pal[pick]:
+        throb = fx[pick] & 2
+        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [0 if throb else nescol[0x01]] + got_pal[pick]:
             bad.append(("colours", seed))
-        if (bus.io.get(K["INIDISP"]), bus.io.get(K["TM"]), bus.io.get(K["BGMODE"]), bus.wram[rw("ROLL_ON")]) != \
-                (0x00, 0x01, 0x01, 1):
+        if (bus.io.get(K["INIDISP"]), bus.io.get(K["TM"]), bus.io.get(K["BGMODE"]), bus.wram[rw("ROLL_ON")],
+                bus.io.get(K["CGADSUB"])) != (0x00, 0x01, 0x01, 1, 0x20 if throb else 0):
             bad.append(("registers", seed))
     check("the picture: the seed's sprite, both frames, as the game draws it", bad[:4], [])
     check("...and the seeds tried show different ones",
           len({(sum(sd.to_bytes(4, "little")) & 0xFF) % n for sd in (0, 0x01020304, 0xDEADBEEF, 0x0BADF00D)}), 4)
+
+    #  The effects, tick by tick: a hop is BG1VOFS half a cell up and back on
+    #  the step's beat, the frames left alone; a throb is the fixed colour, a
+    #  triangle wave on its channels -- the Elf Prince's half as fast and half
+    #  as bright.
+    def ticks(pick, count):
+        bus, cpu = begin(pick)
+        log = []
+        write = bus.write
+
+        def w(bank, addr, val):
+            if addr in (K["BG1HOFS"], K["BG1VOFS"], K["COLDATA"]) and (bank & 0xFF) not in (0x7E, 0x7F):
+                log.append((bus.wram[rw("ROLL_T")], addr, val & 0xFF))
+            write(bank, addr, val)
+        bus.write = w
+        cpu.e = False
+        for _ in range(count):
+            cpu.run(ROLL_BANK, SYM["roll_tick"])
+        return log
+
+    wave = lambda t: (t & 63) if (t & 63) < 32 else 63 - (t & 63)
+    log = ticks(fx.index(0), 16)
+    check("a step: the other frame, 256 across, and back, every eight ticks", log,
+          [(8, K["BG1HOFS"], 0x00), (8, K["BG1HOFS"], 0x01), (16, K["BG1HOFS"], 0x00), (16, K["BG1HOFS"], 0x00)])
+    log = ticks(fx.index(1), 24)
+    check("a hop: half a cell up and back every eight ticks, the frames untouched", log,
+          [(8, K["BG1VOFS"], 0x03), (8, K["BG1VOFS"], 0x00), (16, K["BG1VOFS"], 0xFF), (16, K["BG1VOFS"], 0x03),
+           (24, K["BG1VOFS"], 0x03), (24, K["BG1VOFS"], 0x00)])
+    log = ticks(fx.index(0x22), 70)
+    check("the Vampire's throb: black to red and back, every tick",
+          log, [x for t in range(1, 71) for x in ((t, K["COLDATA"], 0xE0), (t, K["COLDATA"], 0x20 | wave(t)))])
+    log = ticks(fx.index(0x83), 70)
+    check("the Elf Prince's: black to a dim blue, slowly",
+          log, [x for t in range(1, 71) for x in ((t, K["COLDATA"], 0xE0), (t, K["COLDATA"], 0x80 | wave(t >> 1) >> 1))])
 
     #  A tick: a step every eight, a brighter frame until full, and a note every
     #  six: its stage's scale, the walk's step from the PRNG's low bits,
@@ -8119,6 +8164,7 @@ def test_rando_begin():
     found by its bytes and run alone, from where it sits."""
     fixed = (0xA7 & 0x1F) * 0x10000
     a, e, d = SYM["rando_stale"], SYM["rando_ensure"], SYM["DisableAPU"]
+    cb = SYM["rando_coldbuild"]
     op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
     img = ROMDATA[fixed + 0xC000:fixed + 0x10000]
     at = [i for i in range(len(img) - 3) if img[i:i + 4] == op]
@@ -8127,11 +8173,11 @@ def test_rando_begin():
         return
     pc = 0xC000 + at[0]
     scroll = K["unsram_ow_scroll_x"]
-    check("...at @Begin: if stale, mute and build, then fetch the overworld scroll",
-          bytes(img[at[0] + 4:at[0] + 16]),
-          bytes([0x90, 0x07, 0x20, d & 0xFF, d >> 8, 0x22, e & 0xFF, e >> 8, RANDO_BANK,
+    check("...at @Begin: if stale, the cold build, then fetch the overworld scroll",
+          bytes(img[at[0] + 4:at[0] + 13]),
+          bytes([0x90, 0x04, 0x22, cb & 0xFF, cb >> 8, RANDO_BANK,
                  0xAD, scroll & 0xFF, scroll >> 8]))
-    end = pc + 13
+    end = pc + 10
 
     def playing(bus):
         bus.wram[APUSHADOW:APUSHADOW + 16] = bytes([0xBF, 0, 0x40, 0x02, 0xBF, 0, 0x60, 0x03,
@@ -8149,14 +8195,22 @@ def test_rando_begin():
                  ("RANDO_STATUS", 1), ("RANDO_SCRIPTS", 3), ("RANDO_SKILLS", 3), ("RANDO_RNG", 1)):
         bus.sram[K[k] - 0x6000] = v
     playing(bus)
-    check("@Begin, stale: reaches rando_ensure", cpu.run(0xA7, pc, stop=e), True)
-    check("...the music silenced before it starts",
-          (apu(bus), bus.wram[rw("RW_TAG")]), ((0, (0x30, 0x30, 0x30, 0x30)), 0))
-    n = 0                               # run on from there: run() would call it afresh
-    while (cpu.pbr, cpu.pc) != (0xA7, end) and n < 2_000_000:
+    bus.frames()                        # the roll screen waits on vblanks
+    cpu.pbr, cpu.pc = 0xA7, pc
+    n = 0
+    while (cpu.pbr, cpu.pc) != (RANDO_BANK, e) and n < 2_000_000:
+        cpu.step()
+        n += 1
+    check("@Begin, stale: reaches rando_ensure", (cpu.pbr, cpu.pc), (RANDO_BANK, e))
+    check("...the music silenced before it starts, the roll screen up",
+          (apu(bus), bus.wram[rw("RW_TAG")], bus.wram[rw("ROLL_ON")]), ((0, (0x30, 0x30, 0x30, 0x30)), 0, 1))
+    n = 0
+    while (cpu.pbr, cpu.pc) != (0xA7, end) and n < 8_000_000:
         cpu.step()
         n += 1
     check("...and runs on to the next instruction", (cpu.pbr, cpu.pc), (0xA7, end))
+    check("...the roll screen down, its fanfare over, no track started after",
+          (bus.wram[rw("ROLL_ON")], bus.wram[K["music_track"]]), (0, 0x81))
     check("...having built the save's world",
           (bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"], form_cache(bus), rng_cache(bus), ai_cache(bus)[1:]),
           (True, R.build_domains(ROMDATA, seed, 2, 2), R.build_rng(seed, 1), R.build_ai(ROMDATA, seed, 3, 3)))

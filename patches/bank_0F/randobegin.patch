@@ -5,8 +5,8 @@
   @Begin:
     JSR ClearZeroPage               ; clear Zero Page for good measure
 
-.import rando_stale, rando_ensure
-.export DisableAPU                  ; for rando_newgame and the harness
+.import rando_stale, rando_coldbuild
+.export DisableAPU                  ; for the randomizer and the harness
     ;  The randomizer's world, built here from the save Continue just loaded
     ;  -- before any game code runs, so the build's pause falls in the
     ;  transition into the game rather than on the first step, battle or menu
@@ -15,13 +15,12 @@
     ;  intact: both only compare the tag.  The consumers still ensure, a check
     ;  that should now never fire.
     ;
-    ;  Nothing calls the music driver during a build, up to ~0.85 s, and the
-    ;  SPC700 would hold whatever was sounding through it: silence first.
-    ;  Only when there is a build to wait for, so a soft reset's Continue
+    ;  When there is a build, rando_coldbuild silences the title's music --
+    ;  nothing drives it meanwhile -- and puts up New Game's roll screen for
+    ;  it, the save's own sprite, and its fanfare.  A soft reset's Continue
     ;  keeps its music and its frames.  PrepOverworld starts the overworld's
     ;  track next, and a new track turns the channels back on.
     JSL rando_stale + RANDOFAR
     BCC :+
-      JSR DisableAPU
-      JSL rando_ensure + RANDOFAR
+      JSL rando_coldbuild + RANDOFAR
   :

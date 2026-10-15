@@ -6,7 +6,18 @@ While New Game rolls the seed, the screen shows one of the game's own map
 sprites scaled up eight times -- every pixel a character cell -- walking in
 place, the seed choosing which (user, 2026-10-14).  The choices are every
 map object graphic some map uses, but the three that are not creatures (a
-pole, the black orb, the rod plate), and the twelve classes' mapmen.
+pole, the black orb, the rod plate) and Bahamut -- no black outline, so brown
+on the blue clashes, and no step (user, 2026-10-15) -- and the twelve
+classes' mapmen.
+
+Each has an effect, lut_RollFx: most walk in place, the two frames swapping;
+a sprite whose leg tiles are mirror images has no second frame to show, so
+it hops instead, half a cell on the same beat -- but the Vampire stands
+still while the backdrop throbs from black to red and back, and the sleeping
+Elf Prince, who cannot be hopping about like a grasshopper, sleeps while it
+breathes slowly from black to a dim blue (user).  A throb's byte is the
+fixed colour's channels (COLDATA's bits 7-5) with FX_THROB, and FX_SLOW for
+half the speed and half the brightness.
 
 For each, the four tiles of its facing-down pose (tiles 0-3 of its sixteen,
 as lut_2x2MapObj_Down and lut_PlayerMapmanSprTbl draw it) in NES 2bpp, and
@@ -33,7 +44,19 @@ MAPOBJCHR = 0xA200 - 0x8000     # in bank $02: per graphic, sixteen tiles
 MAPMANCHR = 0x9000 - 0x8000     # in bank $02: per class, sixteen tiles
 MAPS = 61
 CLASSES = 12
-NOT_CREATURES = {0x11, 0x12, 0x1B}   # a pole, the black orb, the rod plate
+LEFT_OUT = {0x11, 0x12, 0x1B,  # a pole, the black orb, the rod plate
+            0x17}              # Bahamut
+FX_WALK, FX_HOP, FX_THROB, FX_SLOW = 0, 1, 2, 1     # FX_SLOW only with FX_THROB
+RED, BLUE = 0x20, 0x80
+THROBS = {0x1D: RED | FX_THROB,                 # the Vampire
+          0x1A: BLUE | FX_THROB | FX_SLOW}      # the Elf Prince, asleep
+
+
+def mirrored(chr64):
+    """Tile 3 the mirror image of tile 2: the walking frame, which swaps and
+    mirrors the legs, is then the standing one."""
+    m = lambda b: int("{:08b}".format(b)[::-1], 2)
+    return all(m(chr64[48 + i]) == chr64[32 + i] for i in range(16))
 
 
 def choices():
@@ -50,17 +73,21 @@ def choices():
     pal = lambda m: b0[SMPALETTES + m * 0x30:SMPALETTES + m * 0x30 + 0x30]
     out = []
     for g in sorted(first):
-        if g in NOT_CREATURES:
+        if g in LEFT_OUT:
             continue
         p = pal(first[g])
-        out.append(("graphic $%02X (map %d)" % (g, first[g]), b2[MAPOBJCHR + g * 0x100:][:64],
-                    [col[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [col[p[0x1C + i] & 0x3F] for i in (1, 2, 3)]))
+        chr64 = b2[MAPOBJCHR + g * 0x100:][:64]
+        fx = THROBS.get(g, FX_HOP if mirrored(chr64) else FX_WALK)
+        out.append(("graphic $%02X (map %d)" % (g, first[g]), chr64,
+                    [col[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [col[p[0x1C + i] & 0x3F] for i in (1, 2, 3)], fx))
     ow = pal(0)
     for c in range(CLASSES):
         top, bot = list(ow[0x10:0x14]), list(ow[0x14:0x18])
         top[2], bot[2] = b0[MAPMANPAL + c * 2], b0[MAPMANPAL + c * 2 + 1]
-        out.append(("class %d" % c, b2[MAPMANCHR + c * 0x100:][:64],
-                    [col[top[i] & 0x3F] for i in (1, 2, 3)] + [col[bot[i] & 0x3F] for i in (1, 2, 3)]))
+        chr64 = b2[MAPMANCHR + c * 0x100:][:64]
+        out.append(("class %d" % c, chr64,
+                    [col[top[i] & 0x3F] for i in (1, 2, 3)] + [col[bot[i] & 0x3F] for i in (1, 2, 3)],
+                    FX_HOP if mirrored(chr64) else FX_WALK))
     return out
 
 
@@ -71,13 +98,17 @@ def main():
          "", "ROLL_SPRITES = %d" % len(cs), "",
          ";  Each: tiles 0-3 of its sixteen, its facing-down pose, NES 2bpp.",
          "lut_RollChr:"]
-    for name, chr64, _ in cs:
+    for name, chr64, _, _ in cs:
         o.append("  ; " + name)
         for t in range(4):
             o.append("  .byte " + ", ".join("$%02X" % b for b in chr64[t * 16:t * 16 + 16]))
     o += ["", ";  Each: the top half's colours 1-3, then the legs', SNES BGR.", "lut_RollPal:"]
-    for name, _, c in cs:
+    for name, _, c, _ in cs:
         o.append("  .word " + ", ".join("$%04X" % v for v in c) + "   ; " + name)
+    o += ["", ";  Each: 0 walks, 1 hops (no second frame), else the backdrop throbs:",
+          ";  COLDATA's channels, 2, and 1 for slow.", "lut_RollFx:"]
+    for name, _, _, fx in cs:
+        o.append("  .byte $%02X   ; %s" % (fx, name))
     open(DST, "w").write("\n".join(o) + "\n")
 
 
