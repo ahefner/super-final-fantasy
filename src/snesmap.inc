@@ -1802,7 +1802,7 @@ SHOP_CARAVAN    = 70
 
 ;  Incentive placement's working memory (place.inc).  It runs once, at New
 ;  Game, before the cache is built, so nothing here outlives it; the result
-;  goes to RANDO_PLACE in the save.  Above the cache, which ends below $B300.
+;  goes to RANDO_PLACE in the save.  Above the cache, which ends below $B380.
 RP_BASE         = RANDOWRAM+$4000
 RP_BYBITOFF     = RP_BASE+$0000   ; 33 words: where each bit's list of locations starts
 RP_BYBIT        = RP_BASE+$0042   ; RP_BYBITMAX: the locations whose masks name each bit
