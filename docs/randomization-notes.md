@@ -1804,10 +1804,10 @@ Where it departs from the plan below or from §1:
     Bahamut is left out (user, 2026-10-15: no black outline, so brown
     clashes with the blue, and no step).  A sprite whose leg tiles are
     mirror images has no second frame, so it hops half a cell on the beat
-    instead (the fiends' sprite, the King, the fairy) -- but the Vampire
-    stands while the backdrop throbs black to red, and the sleeping Elf
-    Prince, who must not hop about like a grasshopper, while it breathes
-    slowly from black to a dim blue (user).  The throb is the fixed colour
+    instead (the fiends' sprite, the King, the fairy, and the Vampire, on
+    black -- he throbbed red at first, user 2026-10-15) -- but the sleeping
+    Elf Prince, who must not hop about like a grasshopper, stands while the
+    backdrop breathes slowly from black to a dim blue (user).  The throb is the fixed colour
     added to a black backdrop by colour math: a register a tick may write
     mid-picture, where CGRAM is not.  **Continue too** (user, 2026-10-15):
     a cold cache at `@Begin` -- the first Continue after power-on -- is

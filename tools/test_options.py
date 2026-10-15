@@ -6204,7 +6204,7 @@ def test_roll():
         want_chr.append(bytes(ROMDATA[b2 + 0xA200 + g * 0x100:][:64]))
         legs = want_chr[-1][32:64]
         static = all(mirror(legs[16 + i]) == legs[i] for i in range(16))
-        want_fx.append({0x1D: 0x22, 0x1A: 0x83}.get(g, 1 if static else 0))   # the Vampire, the Elf Prince
+        want_fx.append({0x1D: 0x11, 0x1A: 0x83}.get(g, 1 if static else 0))   # the Vampire, the Elf Prince
         p = smpal(first[g])
         want_pal.append([nescol[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [nescol[p[0x1C + i] & 0x3F] for i in (1, 2, 3)])
     ow = smpal(0)
@@ -6220,7 +6220,7 @@ def test_roll():
                for k in range(n)]
     check("the choices: 25 creatures and 12 classes, their tiles", (n, got_chr), (37, want_chr))
     check("...and their colours", got_pal, want_pal)
-    check("...and effects: a hop for each with no second frame, a throb for the Vampire and the Elf Prince",
+    check("...and effects: a hop for each with no second frame, the Vampire's on black; a throb for the Elf Prince",
           fx, want_fx)
 
     #  The frames, from the game's own 2x2 table: UL, DL, UR, DR, each a tile
@@ -6254,7 +6254,7 @@ def test_roll():
 
     bad = []
     for seed in (0x00000000, 0x01020304, 0xDEADBEEF, 0x0BADF00D, 0xFFFFFFFF, 0x12345678,
-                 fx.index(0x22), fx.index(0x83), fx.index(1)):
+                 fx.index(0x11), fx.index(0x83), fx.index(1)):
         bus, cpu = begin(seed)
         pick = (sum(seed.to_bytes(4, "little")) & 0xFF) % n      # summed in a byte
         if bus.wram[rw("ROLL_PICK")] != pick:
@@ -6273,7 +6273,8 @@ def test_roll():
             bad.append(("tiles", seed))
         cg = lambda e: bus.cgram[e * 2] | bus.cgram[e * 2 + 1] << 8
         throb = fx[pick] & 2
-        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [0 if throb else nescol[0x01]] + got_pal[pick]:
+        black = fx[pick] & 0x12
+        if [cg(0)] + [cg(e) for e in (17, 18, 19, 33, 34, 35)] != [0 if black else nescol[0x01]] + got_pal[pick]:
             bad.append(("colours", seed))
         if (bus.io.get(K["INIDISP"]), bus.io.get(K["TM"]), bus.io.get(K["BGMODE"]), bus.wram[rw("ROLL_ON")],
                 bus.io.get(K["CGADSUB"])) != (0x00, 0x01, 0x01, 1, 0x20 if throb else 0):
@@ -6309,9 +6310,7 @@ def test_roll():
     check("a hop: half a cell up and back every eight ticks, the frames untouched", log,
           [(8, K["BG1VOFS"], 0x03), (8, K["BG1VOFS"], 0x00), (16, K["BG1VOFS"], 0xFF), (16, K["BG1VOFS"], 0x03),
            (24, K["BG1VOFS"], 0x03), (24, K["BG1VOFS"], 0x00)])
-    log = ticks(fx.index(0x22), 70)
-    check("the Vampire's throb: black to red and back, every tick",
-          log, [x for t in range(1, 71) for x in ((t, K["COLDATA"], 0xE0), (t, K["COLDATA"], 0x20 | wave(t)))])
+    check("the Vampire hops too, on black, with no throb", ticks(fx.index(0x11), 24), log)
     log = ticks(fx.index(0x83), 70)
     check("the Elf Prince's: black to a dim blue, slowly",
           log, [x for t in range(1, 71) for x in ((t, K["COLDATA"], 0xE0), (t, K["COLDATA"], 0x80 | wave(t >> 1) >> 1))])

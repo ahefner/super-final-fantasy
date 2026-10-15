@@ -12,12 +12,12 @@ classes' mapmen.
 
 Each has an effect, lut_RollFx: most walk in place, the two frames swapping;
 a sprite whose leg tiles are mirror images has no second frame to show, so
-it hops instead, half a cell on the same beat -- but the Vampire stands
-still while the backdrop throbs from black to red and back, and the sleeping
-Elf Prince, who cannot be hopping about like a grasshopper, sleeps while it
+it hops instead, half a cell on the same beat -- the Vampire on black
+(user, 2026-10-15: he throbbed red before) -- but the sleeping Elf Prince,
+who cannot be hopping about like a grasshopper, sleeps while the backdrop
 breathes slowly from black to a dim blue (user).  A throb's byte is the
 fixed colour's channels (COLDATA's bits 7-5) with FX_THROB, and FX_SLOW for
-half the speed and half the brightness.
+half the speed and half the brightness; FX_BLACK puts any on black.
 
 For each, the four tiles of its facing-down pose (tiles 0-3 of its sixteen,
 as lut_2x2MapObj_Down and lut_PlayerMapmanSprTbl draw it) in NES 2bpp, and
@@ -46,10 +46,10 @@ MAPS = 61
 CLASSES = 12
 LEFT_OUT = {0x11, 0x12, 0x1B,  # a pole, the black orb, the rod plate
             0x17}              # Bahamut
-FX_WALK, FX_HOP, FX_THROB, FX_SLOW = 0, 1, 2, 1     # FX_SLOW only with FX_THROB
-RED, BLUE = 0x20, 0x80
-THROBS = {0x1D: RED | FX_THROB,                 # the Vampire
-          0x1A: BLUE | FX_THROB | FX_SLOW}      # the Elf Prince, asleep
+FX_WALK, FX_HOP, FX_THROB, FX_SLOW, FX_BLACK = 0, 1, 2, 1, 0x10   # FX_SLOW only with FX_THROB
+BLUE = 0x80
+SPECIAL = {0x1D: FX_HOP | FX_BLACK,              # the Vampire
+           0x1A: BLUE | FX_THROB | FX_SLOW}      # the Elf Prince, asleep
 
 
 def mirrored(chr64):
@@ -77,7 +77,7 @@ def choices():
             continue
         p = pal(first[g])
         chr64 = b2[MAPOBJCHR + g * 0x100:][:64]
-        fx = THROBS.get(g, FX_HOP if mirrored(chr64) else FX_WALK)
+        fx = SPECIAL.get(g, FX_HOP if mirrored(chr64) else FX_WALK)
         out.append(("graphic $%02X (map %d)" % (g, first[g]), chr64,
                     [col[p[0x18 + i] & 0x3F] for i in (1, 2, 3)] + [col[p[0x1C + i] & 0x3F] for i in (1, 2, 3)], fx))
     ow = pal(0)
@@ -105,8 +105,8 @@ def main():
     o += ["", ";  Each: the top half's colours 1-3, then the legs', SNES BGR.", "lut_RollPal:"]
     for name, _, c, _ in cs:
         o.append("  .word " + ", ".join("$%04X" % v for v in c) + "   ; " + name)
-    o += ["", ";  Each: 0 walks, 1 hops (no second frame), else the backdrop throbs:",
-          ";  COLDATA's channels, 2, and 1 for slow.", "lut_RollFx:"]
+    o += ["", ";  Each: 0 walks, 1 hops (no second frame), or 2 the backdrop throbs:",
+          ";  COLDATA's channels with it, and 1 for slow; $10 a black backdrop.", "lut_RollFx:"]
     for name, _, _, fx in cs:
         o.append("  .byte $%02X   ; %s" % (fx, name))
     open(DST, "w").write("\n".join(o) + "\n")

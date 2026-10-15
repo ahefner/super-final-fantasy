@@ -10,10 +10,10 @@
 ;  done the sprite goes on walking through the key item fanfare, fades, and
 ;  party creation follows (user, 2026-10-14).  The seed picks the sprite, from
 ;  every creature a map stands up and the twelve classes (tools/genroll.py).
-;  One without a second frame hops instead; the Vampire stands while the
-;  backdrop throbs black to red, the sleeping Elf Prince while it breathes
-;  black to blue -- the fixed colour, added to a black backdrop, being a
-;  register a tick may write mid-picture where CGRAM is not.
+;  One without a second frame hops instead, the Vampire on black; the
+;  sleeping Elf Prince stands while the backdrop breathes black to blue --
+;  the fixed colour, added to a black backdrop, being a register a tick may
+;  write mid-picture where CGRAM is not.
 ;
 ;  Continue builds the cache the same way when it has to -- the first after
 ;  power-on (rando_coldbuild) -- the same seed, so the same sprite.
@@ -68,6 +68,7 @@ ROLLFX_WALK     = 0             ; lut_RollFx: the frames swap...
 ROLLFX_HOP      = 1             ; ...it hops, having no second frame...
 ROLLFX_THROB    = 2             ; ...or the backdrop throbs: COLDATA's channels
 ROLLFX_SLOW     = 1             ;   in bits 7-5, and this for slow and dim
+ROLLFX_BLACK    = $10           ; any of them on black
 ROLL_HOPVOFS    = $003          ; BG1VOFS half a cell up from $3FF
 
 ;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the seed
@@ -241,11 +242,11 @@ roll_build:
     LDA #0
     STA f:ROLL_FRAME            ; the first frame is the one shown
 
-    ;  The colours: the backdrop -- black under a throb, which adds its colour
-    ;  -- then the halves' three each.
+    ;  The colours: the backdrop -- black under a throb, which adds its colour,
+    ;  or where asked -- then the halves' three each.
     STZ a:CGADD
     LDA f:ROLL_FX
-    AND #ROLLFX_THROB
+    AND #ROLLFX_THROB | ROLLFX_BLACK
     BEQ :+
     STZ a:CGDATA
     STZ a:CGDATA
@@ -507,6 +508,7 @@ roll_frame:
     STA f:ROLL_FRAME
     TAX
     LDA f:ROLL_FX
+    AND #ROLLFX_HOP
     BNE @hop
     STZ a:BG1HOFS               ; low, then high: 0 or 256
     STX a:BG1HOFS
