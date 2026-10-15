@@ -1001,12 +1001,16 @@ def es_shuffle(rng, mode):
 #  and events that reach it, by relaxation over graphdata.py's graph with the
 #  wiring's edges added -- analysis.requirements's fixpoint, which
 #  tools/checkentrance.py holds this to.  ES_NODE_MASKS is the room the
-#  cartridge has for one region's: a wiring that needs more is refused and
-#  another drawn.  The Early flags: King, Sarda and the Sage clear their NPC's
+#  cartridge has for one region's -- 3,000 wirings needed five at most -- and
+#  ES_LOC_MASKS and ES_BYBIT its room for the locations' masks and placement's
+#  index of them (588 and 968 at most): a wiring that needs more is refused
+#  and another drawn.  The Early flags: King, Sarda and the Sage clear their NPC's
 #  own requirement, as the game does; Ordeals clears the CROWN from the two
 #  throne teleports' sources, in the graph.  Returns (masks per cartridge
 #  location, Chaos's, each region's), each sorted, or None.
-ES_NODE_MASKS = 8
+ES_NODE_MASKS = 6
+ES_LOC_MASKS = 1024
+ES_BYBIT = 1536
 
 
 def _minimal(ms):
@@ -1055,6 +1059,9 @@ def es_masks(entrance, normal, exits, early):
             own &= ~_L.EARLY_BIT[e - 1]
         out.append(_minimal([m | own for n in nodes for m in req[n]]))
     chaos = _minimal([m | M[_GD.CHAOS_REQ] for n in _GD.CHAOS_NODES for m in req[n]])
+    if (sum(len(m) for m in out) > ES_LOC_MASKS or len(chaos) > ES_NODE_MASKS or
+            sum(len({b for m in ms for b in range(32) if m >> b & 1}) for ms in out) > ES_BYBIT):
+        return None
     return out, chaos, req
 
 

@@ -1774,7 +1774,9 @@ SHOP_CARAVAN    = 70
 ;  Game, before the cache is built, so nothing here outlives it; the result
 ;  goes to RANDO_PLACE in the save.  Above the cache, which ends below $B300.
 RP_BASE         = RANDOWRAM+$4000
-RP_MASK         = RP_BASE+$0000   ; LOGIC_MASKS x 4: the masks, Early waivers applied
+RP_BYBITOFF     = RP_BASE+$0000   ; 33 words: where each bit's list of locations starts
+RP_BYBIT        = RP_BASE+$0042   ; RP_BYBITMAX: the locations whose masks name each bit
+RP_BYBITMAX     = 1536
 RP_PLACED       = RP_BASE+$0700   ; 256: the item placed at each location, or $FF
 RP_REACH        = RP_BASE+$0800   ; 256: reached with what is placed so far
 RP_SEEN         = RP_BASE+$0900   ; 256: reached in the candidate being asked about
@@ -1837,6 +1839,14 @@ RP_WORDSEND     = RP_BASE+$0B74
 RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)
+RP_CHAOS        = RP_BASE+$2B70   ; Chaos's masks, RP_CHAOSMAX of them...
+RP_NCHAOS       = RP_BASE+$2B88   ; ...and how many, a word
+RP_CHAOSMAX     = 6
+RP_GROUP        = RP_BASE+$2C00   ; 248: each pool place's spread group
+RP_MASK         = RP_BASE+$3000   ; RP_MASKMAX x 4: each location's masks, Early waivers applied
+RP_MASKMAX      = 1024
+.assert RP_BYBIT + RP_BYBITMAX <= RP_PLACED, error, "RP_BYBIT runs into RP_PLACED"
+.assert RP_MASK + RP_MASKMAX * 4 <= RP_BASE + $4000, error, "RP_MASK runs off the bank"
 .assert RP_B3 + 32 <= RP_OWNED, error, "RP_B3 runs into RP_OWNED"
 .assert RP_NN + 2 * 19 <= RP_B3, error, "RP_NN runs into RP_B3"
 .assert RP_NI + 2 * 19 <= RP_NN, error, "RP_NI runs into RP_NN"

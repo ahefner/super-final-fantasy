@@ -79,6 +79,11 @@ pWANT    = .LOWORD(RP_WANT)
 pCLR0    = .LOWORD(RP_CLR0)
 pCLR2    = .LOWORD(RP_CLR2)
 pMOFF    = .LOWORD(RP_MOFF)
+pBYOFF   = .LOWORD(RP_BYBITOFF)
+pBYBIT   = .LOWORD(RP_BYBIT)
+pCHAOS   = .LOWORD(RP_CHAOS)
+pNCHAOS  = .LOWORD(RP_NCHAOS)
+pGROUP   = .LOWORD(RP_GROUP)
 pFWD     = .LOWORD(RP_FWD)
 pGRP     = .LOWORD(RP_GRP)
 
@@ -147,6 +152,7 @@ rando_place:
     STX a:pSPOT
     STY a:pNINCPOOL
     JSR pl_masks
+    JSR pl_vanilla
     JSR pl_items
     LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
     EOR #.LOWORD(STREAM_KEYS)
@@ -166,6 +172,66 @@ rando_place:
   @won:
     JSR pl_store
     JMP leave
+
+
+;;  The vanilla world's bit index, Chaos's masks and spread groups, copied
+;;  into RAM, where placement reads them; under entrance shuffle the same
+;;  tables are worked out for the seed instead (entrance.inc).
+pl_vanilla:
+    LDX #$0000
+  @off:
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_LogicByBitHi, X
+    XBA
+    LDA f:LOGICFAR + lut_LogicByBitLo, X
+    REP #$20
+    .a16
+    PHA
+    TXA
+    ASL A
+    TAY
+    PLA
+    STA a:pBYOFF, Y
+    INX
+    CPX #33
+    BCC @off
+    LDX #$0000
+  @entry:
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_LogicByBit, X
+    STA a:pBYBIT, X
+    REP #$20
+    .a16
+    INX
+    CPX #LOGIC_BYBIT
+    BCC @entry
+    LDX #$0000
+  @chaos:
+    LDA f:LOGICFAR + lut_LogicChaos, X
+    STA a:pCHAOS, X
+    INX
+    INX
+    CPX #LOGIC_CHAOSMASKS * 4
+    BCC @chaos
+    LDA #LOGIC_CHAOSMASKS
+    STA a:pNCHAOS
+    LDX #$0000
+  @group:
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_LogicGroup, X
+    STA a:pGROUP, X
+    REP #$20
+    .a16
+    INX
+    CPX #LOGIC_POOL
+    BCC @group
+    RTS
+.assert LOGIC_BYBIT <= RP_BYBITMAX, error, "the vanilla bit index does not fit RP_BYBIT"
+.assert LOGIC_CHAOSMASKS <= RP_CHAOSMAX, error, "Chaos's vanilla masks do not fit RP_CHAOS"
+.assert LOGIC_MASKS <= RP_MASKMAX, error, "the vanilla masks do not fit RP_MASK"
 
 
 ;;  RP_MASK: logic.inc's masks, with each location's Early waiver applied
@@ -789,18 +855,23 @@ pl_attempt:
   @placed:
     LDX #$0000                  ; and the seed is won: Chaos reached
   @chaos:
-    LDA f:LOGICFAR + lut_LogicChaos, X
+    TXA                         ; (none of Chaos's masks met, or none at all:
+    LSR A                       ;   a wiring nothing reaches Chaos in)
+    LSR A
+    CMP a:pNCHAOS
+    BCS @lost
+    LDA a:pCHAOS, X
     AND a:pNOTOWN
     BNE :+
-    LDA f:LOGICFAR + lut_LogicChaos + 2, X
+    LDA a:pCHAOS + 2, X
     AND a:pNOTOWN + 2
     BEQ @won
 :   INX
     INX
     INX
     INX
-    CPX #LOGIC_CHAOSMASKS * 4
-    BCC @chaos
+    BRA @chaos
+  @lost:
     CLC
     RTS
   @won:
@@ -1266,7 +1337,7 @@ pl_forward:
     CPX #LOGIC_POOL
     BCC @walk
     LDX a:pLOC                  ; spread: its group, quartered
-    LDA f:LOGICFAR + lut_LogicGroup, X
+    LDA a:pGROUP, X
     AND #$00FF
     CMP #LOGIC_NOGROUP
     BEQ @done
@@ -1275,7 +1346,7 @@ pl_forward:
   @spread:
     JSR pl_fwdok
     BCC @snext
-    LDA f:LOGICFAR + lut_LogicGroup, X
+    LDA a:pGROUP, X
     AND #$00FF
     CMP a:pGRP
     BNE @snext
@@ -1549,22 +1620,12 @@ pl_propagate:
     EOR #$FFFF
     AND a:pPEND, Y
     STA a:pPEND, Y
-    LDX a:pBIT
-    SEP #$20
-    .a8
-    LDA f:LOGICFAR + lut_LogicByBitHi + 1, X
-    XBA
-    LDA f:LOGICFAR + lut_LogicByBitLo + 1, X
-    REP #$20
-    .a16
+    LDA a:pBIT
+    ASL A
+    TAX
+    LDA a:pBYOFF + 2, X
     STA a:pLE
-    SEP #$20
-    .a8
-    LDA f:LOGICFAR + lut_LogicByBitHi, X
-    XBA
-    LDA f:LOGICFAR + lut_LogicByBitLo, X
-    REP #$20
-    .a16
+    LDA a:pBYOFF, X
     STA a:pLI
   @list:
     LDA a:pLI
@@ -1572,7 +1633,7 @@ pl_propagate:
     BCS @next
     INC a:pLI
     TAX
-    LDA f:LOGICFAR + lut_LogicByBit, X
+    LDA a:pBYBIT, X
     AND #$00FF
     STA a:pLOC
     TAX
