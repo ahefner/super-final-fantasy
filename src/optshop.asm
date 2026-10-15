@@ -577,6 +577,20 @@ opt_weapbyte:
     PHA                         ; the caller's high byte
     XBA
     JSL rando_weapbyte + RANDOFAR
+    ;  The Ruse Staff: the Power Staff casts RUSE, as opt_itemspell has it.
+    CPY #WEAPON_SPELL
+    BNE @byte
+    CPX #WEAPON_POWERSTAFF
+    BNE @byte
+    PHA
+    LDA OPTFB_RUSESTAFF
+    AND #OPTFM_RUSESTAFF
+    BEQ :+
+    PLA
+    LDA #SPELLBYTE_RUSE
+    PHA
+:   PLA
+  @byte:
     XBA
     PLA
     XBA                         ; the byte, with the high byte put back

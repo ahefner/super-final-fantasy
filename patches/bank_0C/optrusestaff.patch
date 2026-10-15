@@ -1,0 +1,13 @@
+--- OLD
+    LDA ($88), Y                ; get spell cast
+    
+    TAX                             ; put it in X
+    DEX                             ; DEX to make it 0-based (FF becomes "no spell")
+    LDY btlcmd_curchar              ; Y=cur char -- default to targetting yourself
+--- NEW
+    LDA ($88), Y                ; get spell cast
+.import opt_itemspell
+    ;  X = the spell 0-based, Y = the character, as before -- but the Power
+    ;  Staff's RUSE under the Ruse Staff flag.  Five bytes, as before.
+    JSL opt_itemspell + OPTFAR
+    NOP

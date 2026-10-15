@@ -507,11 +507,12 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (11)
+### Variations (12)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshole Kraken.
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshole Kraken, Ruse
+Staff.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -542,6 +543,33 @@ every saved block reads it off and the format stays 9.  `test_kraken` runs
 the real `Enemy_DoAi` from all 256 RNG states: always the white mage with
 the flag, and the enemy's own turns, roll for roll, without it, with nobody
 to hit, for any other enemy, and for every other class.
+
+**Ruse Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; built,
+not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
+its dropdown; Super has it, Improved does not.  FFR crafts it only with its
+item magic shuffled (`CraftDefenseItem`), to promise a RUSE the shuffle
+might have dealt away, and keeps the staff out of its random shops; there
+is no item magic shuffle here and no random wares, so it stands alone.
+The Power Staff, used in battle, casts RUSE as the Defense sword does -- the
+same spell byte, 4 -- and is named for it as FFR's `WriteItemSpellData`
+names it: the spell's name padded to six, then the staff's own icon, so
+"RUSE" in capitals beside the game's mixed-case names, as in FFR.  Nothing
+is written to the weapon table; three readers ask the flag instead, so it
+follows a change of settings mid-game.  Battle's Use is
+`optrusestaff.patch`: the five bytes after `@GetSpellCast` reads the
+record's spell byte (`TAX`, `DEX`, `LDY btlcmd_curchar`) become a JSL to
+`opt_itemspell` and a NOP, which hands back the same X and Y but RUSE when
+the item just recorded in `btl_charcmditem` is the Power Staff; armour goes
+through the same code, its ids from `$44`, so it never matches.  The
+equipment text reads spell bytes through `opt_weapbyte`, which answers 4
+for weapon 27's byte 3.  The name is `rando_nameptr`'s, built in
+`OPTNAMEBUF` as a vehicle's is, a blursing's sign and digit placed on it as
+on any name.  Bit 44, no build having set it, so the format stays 9.
+`test_rusestaff` runs the game's own item path from the menu's choice to
+`SetCharacterBattleCommand` for all 40 weapons and 40 armours and every
+character, flag on against off with the other characters' items decoy Power
+Staffs, and sweeps every weapon byte and all 256 names the same way: only
+the Power Staff moves.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -1959,7 +1987,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     936 free   once the descriptions moved out, the None, the
+    BANK_OPT     858 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -1970,14 +1998,16 @@ text region in the game references.
                              readouts and field tables, the field code), and
                              Asshole Kraken (138: its row and opt_kraken),
                              and Map shuffle (87: its row, readouts and
-                             scalar)
-    BANK_OPTTEXT  4239 free  the settings screen's descriptions; Map
-                             shuffle's took 376 (measured 2026-10-14 from
+                             scalar), and the Ruse Staff (78: its row,
+                             opt_itemspell and opt_weapbyte's answer)
+    BANK_OPTTEXT  4124 free  the settings screen's descriptions; Map
+                             shuffle's took 376, the Ruse Staff's 115
+                             (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3497 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3440 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -1992,7 +2022,8 @@ text region in the game references.
                              cache, and its mute, 7; a draw with nowhere
                              to go, and the counts reused, 33; the roll
                              screen's yields, stages and yelps 89, and
-                             Continue's cold build under it 22
+                             Continue's cold build under it 22; the Ruse
+                             Staff's name 57
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

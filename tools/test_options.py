@@ -245,13 +245,13 @@ def test_presets():
     #  TRANCE's element, is a variation that FFR's Improved Vanilla has, so
     #  Improved has it as well as Super.  Bits 41 and 42, the Lefein map
     #  edits, are quality of life here but off in FFR's Improved Vanilla: Super
-    #  only.
+    #  only.  Bit 44, the Ruse Staff, a variation: Super only.
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
     want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
             1: (0x01C00007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x07E003FFFDFF, 5, 6, 3, 3, 15, 2)}
+            2: (0x17E003FFFDFF, 5, 6, 3, 3, 15, 2)}
     for preset, (f, g, e, en, bo, el, th) in want.items():
         bus, cpu = machine()
         cpu.a = preset
@@ -4351,6 +4351,130 @@ def test_kraken():
     b = base(KRAKEN, (WM, FI, WW, TH), stone=0x01)
     check("two, the first stone: always the other",
           set(kraken_turn(b, s) for s in range(256)), {("hit", 2, 2)})
+
+def test_rusestaff():
+    """Ruse Staff: the Power Staff casts RUSE when used in battle, its
+    equipment text says so, and its name is RUSE and the staff.  Each of the
+    three, flag on against flag off over everything it could touch: only the
+    Power Staff moves.  Battle's Use is the game's own item path, weapon and
+    armour, every index, from the menu's choice to SetCharacterBattleCommand,
+    the other characters' items all decoy Power Staffs."""
+    FB, FM = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"]
+    check("the Ruse Staff is bit 44", (K["OPTFB_RUSESTAFF"] - OPTBLOCK, FM), (OPT_FLAGS + 5, 0x10))
+    STAFF, IDX, CURCHAR, CMDITEM, CMDBUF = 0x37, 27, 0x6B7A, 0x689F, 0x688F
+    img = BANK_0C & 0x1F
+    check("@GetSpellCast asks opt_itemspell", jsl_count(img, "opt_itemspell", CHUNK_OPT_BANK), 1)
+    lo = img * 0x10000 + 0x8000
+    bank = bytes(ROMDATA[lo:lo + 0x8000])
+    #  The hook in the patched bytes: five where TAX DEX LDY btlcmd_curchar
+    #  were, between the record's LDA ($88),Y and LDA #$10, JMP onward.
+    a = SYM["opt_itemspell"]
+    k = bank.find(bytes([0xB1, 0x88, 0x22, a & 0xFF, a >> 8, CHUNK_OPT_BANK, 0xEA, 0xA9, 0x10, 0x4C]))
+    check("the hook: JSL and NOP between the spell byte and LDA #$10", k >= 0, True)
+    target = bank[k + 10] | bank[k + 11] << 8
+
+    def path(start):
+        """The menu's choice, from LDA $89: index to item to record pointer."""
+        k = bank.find(bytes([0xA5, 0x89, 0xAC, 0x7A, 0x6B, 0x18, 0x69, start, 0x99, 0x9F, 0x68, 0xA5, 0x89, 0x20]))
+        check("the item path for $%02X, found once" % start,
+              (k >= 0, bank.find(bytes([0xA5, 0x89, 0xAC, 0x7A, 0x6B, 0x18, 0x69, start]), k + 1)), (True, -1))
+        return 0x8000 + k
+
+    def use(start, i, on, char, other=0):
+        bus, cpu = machine()
+        setblk(bus, FB, (FM if on else 0) | other)
+        bus.sram[CURCHAR - 0x6000] = char
+        for c in range(4):
+            bus.sram[CMDITEM - 0x6000 + c] = STAFF       # decoys
+        bus.wram[0x89] = i
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, path(start)
+        for _ in range(400):
+            if cpu.pbr == BANK_0C and cpu.pc == target:
+                return (cpu.a & 0xFF, cpu.x & 0xFF, cpu.y & 0xFF, bus.sram[CMDITEM - 0x6000 + char])
+            cpu.step()
+        return "never reached SetCharacterBattleCommand"
+
+    for start, n in ((0x1C, 40), (0x44, 40)):
+        bad = []
+        for i in range(n):
+            for char in range(4):
+                off, on = use(start, i, False, char), use(start, i, True, char)
+                want = off if (start, i) != (0x1C, IDX) else (0x10, 3, char, STAFF)
+                if on != want or use(start, i, False, char, 0xFF & ~FM) != off:
+                    bad.append("item $%02X char %d: %s, off %s" % (start + i, char, on, off))
+        check("Use, items $%02X-: only the Power Staff casts RUSE (spell 3)" % start, bad[:4], [])
+    check("...and off, the Power Staff casts nothing", use(0x1C, IDX, False, 2), (0x10, 0xFF, 2, STAFF))
+    check("...as the Defense sword casts RUSE either way",
+          (use(0x1C, 31, False, 1)[1], use(0x1C, 31, True, 1)[1]), (3, 3))
+
+    #  The equipment text's reader: byte 3 of weapon 27, and nothing else.
+    bad = []
+    for i in range(40):
+        for y in range(8):
+            got = []
+            for on in (False, True):
+                bus, cpu = machine()
+                setblk(bus, FB, FM if on else 0)
+                cpu.a, cpu.x, cpu.y = 0x5A00, i, y
+                call(cpu, "opt_weapbyte", dbr=CHUNK_OPT_BANK)
+                got.append((cpu.a, cpu.x, cpu.y, bool(cpu.p & 0x02)))
+            a0 = got[0][0] & 0xFF
+            want = (0x5A00 | 4, i, y, False) if (i, y) == (IDX, 3) else (0x5A00 | a0, i, y, a0 == 0)
+            if got[1] != want or got[0][0] >> 8 != 0x5A:
+                bad.append("weapon %d byte %d: %s" % (i, y, got))
+    check("opt_weapbyte: only the Power Staff's spell byte, RUSE's 4", bad[:4], [])
+    #  And as the text reads in a chest's box, the spell's name spelled out.
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID, OPTCTX_CHEST = 0x6E50, 0x6EC1, 0x61, 3
+
+    def text(item, on):
+        bus, cpu = machine()
+        setblk(bus, FB, FM if on else 0)
+        bus.sram[OPTCTX_A - 0x6000] = OPTCTX_CHEST
+        bus.wram[DLG_ITEMID] = item
+        cpu.a = item
+        call(cpu, "opt_descgear")
+        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        return buf[:buf.find(0)]
+    ruse = bytes([0x9B, 0x9E, 0x9C, 0x8E])
+    on, off, defense = text(STAFF, True), text(STAFF, False), text(0x3B, True)
+    check("the Power Staff's text: off, no spell", ruse in off, False)
+    tail = on[len(off):]
+    check("...on, the same text and the Defense sword's cast line, RUSE",
+          (on.startswith(off), len(tail) > len(ruse), tail.endswith(ruse), defense.endswith(tail)),
+          (True, True, True, True))
+
+    #  The name: RUSE, two spaces, the staff, a bonus's digits on it as on
+    #  any name; everything else, gear or not, as with the flag off.
+    want_name = bytes([0x9B, 0x9E, 0x9C, 0x8E, 0xFF, 0xFF, 0xD8])
+    nb = K["OPTNAMEBUF"] - 0x6000
+
+    def name(item, on, seed=0x0BADF00D, bless=0, curse=0):
+        bus, cpu = machine()
+        setgear(bus, seed, bless, curse)
+        warm(bus)
+        setblk(bus, FB, FM if on else 0)
+        bus.sram[nb:nb + 8] = b"\x9a" * 8       # a decoy: the last name built
+        cpu.a, cpu.y = item, 0x5A
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
+        return p, bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(8)), cpu.y
+    bad = [i for i in range(256) if i != STAFF and name(i, True, 77, 3, 3) != name(i, False, 77, 3, 3)]
+    check("every other name the same with the flag on", bad, [])
+    at = (1 + 0x0A) * 0x10000 + 0xB700 + STAFF * 2
+    check("the Power Staff, off: the ROM's Power and the staff, through its pointer",
+          name(STAFF, False), (ROMDATA[at] | ROMDATA[at + 1] << 8,
+                               bytes([0x99, 0xB2, 0xBA, 0xA8, 0xB5, 0xFF, 0xD8, 0x00]), 0x5A))
+    check("...on: RUSE and the staff, in the buffer, Y kept",
+          name(STAFF, True), (K["OPTNAMEBUF"], want_name + b"\0", 0x5A))
+    for sign in (1, -1):
+        seed = next(sd for sd in range(1, 4000)
+                    if R.build_gear(ROMDATA, sd, 4, 4)[1][IDX] * sign > 0)
+        b = R.build_gear(ROMDATA, seed, 4, 4)[1][IDX]
+        w = bytearray(want_name)
+        w[5], w[4] = 0x80 + abs(b), 0xC1 if b > 0 else 0xC2
+        check("...blursed %+d: the sign and digit before the staff" % b,
+              name(STAFF, True, seed, 4, 4), (K["OPTNAMEBUF"], bytes(w) + b"\0", 0x5A))
+
 
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
@@ -9287,7 +9411,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_rusestaff, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

@@ -319,6 +319,19 @@ OPTFM_KRAKEN    = $08    ; bit 43
 ENEMY_KRAKEN    = $7B           ; the Sea Shrine's fiend
 ENEMY_KRAKEN2   = $7C           ; ...and its return in the Temple of Fiends
 
+;  Ruse Staff (user, 2026-10-15), FFR's Guaranteed Defense Item at RUSE: the
+;  Power Staff casts RUSE when used in battle, the Defense sword's own spell
+;  byte, and is named for it, "RUSE" and the staff's icon, as FFR's
+;  WriteItemSpellData names it.  At read time, so it follows the flag: the
+;  battle's Use (opt_itemspell), the equipment text (opt_weapbyte) and the
+;  name (rando_nameptr).  Bit 44; no build has set it, so every saved block
+;  reads off until a preset says otherwise.
+OPTFB_RUSESTAFF = OPT_FLAGS+5
+OPTFM_RUSESTAFF = $10    ; bit 44
+ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
+WEAPON_POWERSTAFF = 27          ; ...and its weapon index
+SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
+
 ;  Standard map edits: tiles written over a map as it loads, when a flag asks
 ;  (opt_mapedits, lut_MapEdits).  The first two are FFR's Lefein shops, both
 ;  quality of life here (user, 2026-10-13): Lefeinish Hospitality, Crescent

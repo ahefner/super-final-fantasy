@@ -1923,6 +1923,11 @@ lut_VehicleNames:
   .BYTE $8B, $9B, $92, $8D, $90, $8E, $00, $00   ; BRIDGE
   .BYTE $8C, $8A, $97, $8A, $95, $00, $00, $00   ; CANAL
 
+;;  The Ruse Staff's name (OPTFM_RUSESTAFF): the spell's, padded to six, and
+;;  the Power Staff's own staff icon, as FFR writes it.
+lut_RuseName:
+  .BYTE $9B, $9E, $9C, $8E, $FF, $FF, $D8, $00   ; RUSE, the staff
+
 
 ;;  Is the tile at X a trap -- one FFR's Trap Tiles may move?
 ;;
@@ -3345,9 +3350,12 @@ rando_nameptr:
     LDA a:wNAMEID
     SEC
     SBC #TCITYPE_WEPSTART
-    BCC @rom
+    BCC @notgear
     CMP #80
-    BCS @rom
+    BCC @gear
+  @notgear:
+    JMP @rom
+  @gear:
     REP #$20
     .a16
     AND #$00FF
@@ -3355,9 +3363,30 @@ rando_nameptr:
     SEP #$20
     .a8
     LDA a:wBONUS, X
-    BEQ @rom
     STA a:wNAMEB
-
+    ;  The Ruse Staff: the Power Staff named for its spell, as FFR names it,
+    ;  into the buffer -- a bonus's digits go on it as on any name.
+    LDA a:wNAMEID
+    CMP #ITEM_POWERSTAFF
+    BNE @plain
+    LDA f:SRAMFAR + OPTFB_RUSESTAFF
+    AND #OPTFM_RUSESTAFF
+    BEQ @plain
+    LDX #$0000
+  @ruse:
+    LDA f:RANDOFAR + lut_RuseName, X
+    STA f:NAMEBUFFAR, X
+    INX
+    CPX #8
+    BCC @ruse
+    LDA a:wNAMEB
+    BNE @digits
+    JMP @buffer
+  @plain:
+    LDA a:wNAMEB
+    BNE :+
+    JMP @rom
+:
     LDX a:wNAMEPTR
     LDY #$0000
   @copy:
@@ -3373,6 +3402,7 @@ rando_nameptr:
     LDA #$00
     STA f:NAMEBUFFAR + 7        ; the terminator
 
+  @digits:
     LDX #$0006                  ; the last letter, or the one before an icon
     LDA f:NAMEBUFFAR + 6
     CMP #$FF
@@ -3398,6 +3428,7 @@ rando_nameptr:
   @sign:
     DEX
     STA f:NAMEBUFFAR, X
+  @buffer:
     LDA #<OPTNAMEBUF
     STA a:wNAMEPTR
     LDA #>OPTNAMEBUF

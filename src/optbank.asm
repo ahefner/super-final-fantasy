@@ -75,6 +75,7 @@
 .import lut_LvlUpHitRateBonus
 .import lut_DrinkCursorPos, lut_CombatDrinkBox
 .import rando_mapedits
+.export opt_itemspell
 .import opt_spelloverride
 .import lut_WaitString
 .import BattleRNG_L
@@ -167,7 +168,8 @@ lut_Presets:
     .BYTE   STARTITEMS_NONE
     .RES    3, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
-    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM, OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE
+    .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
+    .BYTE   OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE | OPTFM_RUSESTAFF
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
     .BYTE   STARTITEMS_NONE
     .RES    3, $00
@@ -3706,6 +3708,28 @@ opt_padreset:
     PHA
     PLB
     JML OnReset + BANK00FAR
+
+
+;;  The spell an item cast in battle -- @GetSpellCast's, after it reads the
+;;  record's byte -- but the Power Staff's RUSE under the Ruse Staff flag.
+;;  In: A = the record's spell byte (1-based, 0 none); btl_charcmditem, for
+;;  btlcmd_curchar, the item it just recorded.  Out: X = the spell 0-based
+;;  ($FF none) and Y = btlcmd_curchar, as the five bytes this replaced left
+;;  them.  Emulation mode, the battle's data bank.
+opt_itemspell:
+    TAX
+    LDA OPTFB_RUSESTAFF
+    AND #OPTFM_RUSESTAFF
+    BEQ @out
+    LDY btlcmd_curchar
+    LDA btl_charcmditem, Y
+    CMP #ITEM_POWERSTAFF
+    BNE @out
+    LDX #SPELLBYTE_RUSE         ; the Defense sword's
+  @out:
+    DEX
+    LDY btlcmd_curchar
+    RTL
 
 
 opt_housemp:
