@@ -1984,7 +1984,7 @@ lut_ValKeyItems:
 lut_ValMapShuffle:
   FFPAD "             Off", 16   ; ENTRANCES_OFF
   FFPAD "       Entrances", 16   ; ENTRANCES_ONLY
-  FFPAD "Entrances+floors", 16   ; ENTRANCES_FLOORS
+  FFPAD "              FE", 16   ; ENTRANCES_FLOORS: floors and entrances
 
 ;  The item rows, and Other items, which stops at Loose.
 lut_ValIncentive:

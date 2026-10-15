@@ -1592,7 +1592,7 @@ Effort is medium-high, almost entirely in the logic and FFR's rules rather
 than the hooks.
 
 **Built in the reference (2026-10-14), then on the cart (below).**  One row,
-Map shuffle: Off / Entrances / Entrances+floors (user), FFR's two modes with its Entrance and
+Map shuffle: Off / Entrances / "FE", floors and entrances (user), FFR's two modes with its Entrance and
 Floor Shuffle preset's other settings: towns fixed, dead ends dealt,
 Coneria's start safe.  Entrances alone keeps every floor's links but the Sea
 Shrine's from Onrac, as FFR does; the prototype now has that mode, and over
@@ -1675,13 +1675,13 @@ reference byte for byte by `test_options.py`:
     `rando_exitdest` (exits, `randoexit.patch`), each building the cache
     first if nothing has since power-on.  The deal makes a cold build
     dearer: 123,000 instructions with the mode Off; with it on, a median of
-    another 70,000 (Entrances) or 160,000 (Entrances + floors) and at most
+    another 70,000 (Entrances) or 160,000 (FE) and at most
     680,000 in 40 seeds, the re-deals of insane wirings.  That is New Game
     and the first Continue after power-on; a soft reset keeps the cache, so
     its Continue costs nothing new.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
-  - **The row**: Map shuffle, Off / Entrances / Entrances+floors, under Key
+  - **The row**: Map shuffle, Off / Entrances / FE, under Key
     items, saved with the game and shown by the save view
     (`options-design.md`, "Map shuffle").
 
