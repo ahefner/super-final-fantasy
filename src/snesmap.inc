@@ -1182,7 +1182,11 @@ h_vdst0         = HAL_VARS+$4B  ; 2 bytes: ...for the copy at row r
 h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30
 h_ntsrc2        = HAL_VARS+$4F  ; 2 bytes: source address of the span in flight
 NESPALPREV      = $7E4820       ; 32 bytes: palette as CGRAM last saw it
+PALSTAGE        = $7E4840       ; 128 bytes: the next flush's CGRAM writes,
+                                ;   four bytes each for DMA mode 3 -- the
+                                ;   address twice, then the colour (pal_prep)
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
+h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
 GATHERBUF       = $0C80         ; 128 bytes: one tilemap column, made contiguous
 h_gcol          = HAL_VARS+$53  ; 2 bytes: column being sent
 h_gcount        = HAL_VARS+$55  ; 2 bytes: loop counter / dirty row tally

@@ -24,6 +24,7 @@ class Bus:
         self.mul_a = 0
         self.mul_b = 0
         self.clock = None                   # see frames()
+        self.dma = False                    # see _dma()
         self.vram = None                    # see ppu()
 
     def frames(self, every=50):
@@ -90,12 +91,41 @@ class Bus:
             self._ppu_write(addr, val)
         if addr < 0x6000:
             self.io[addr] = val
+            if addr == 0x420B and self.dma:
+                self._dma(val)
             return
         if addr < 0x8000:
             self.sram[addr - 0x6000] = val
             return
         raise RuntimeError("write to ROM at $%02X:%04X" % (bank, addr))
 
+
+    def _dma(self, channels):
+        """General-purpose DMA, A bus to B bus, as each channel's registers
+        say: the mode's write pattern over B-bus registers from BBADn, the
+        A-bus address stepping or fixed, DASn bytes (0 meaning 65536).  The
+        registers are left as the hardware leaves them.  Opt-in -- set
+        bus.dma -- because the tests written before it expect a DMA to do
+        nothing."""
+        patterns = {0: (0,), 1: (0, 1), 2: (0, 0), 3: (0, 0, 1, 1),
+                    4: (0, 1, 2, 3), 5: (0, 1, 0, 1), 6: (0, 0), 7: (0, 0, 1, 1)}
+        for ch in range(8):
+            if not channels & 1 << ch:
+                continue
+            reg = 0x4300 + ch * 16
+            r = lambda k: self.io.get(reg + k, 0)
+            mode, bbad = r(0), r(1)
+            if mode & 0x80:
+                raise NotImplementedError("DMA from the B bus")
+            a, bank = r(2) | r(3) << 8, r(4)
+            n = (r(5) | r(6) << 8) or 0x10000
+            step = 0 if mode & 0x08 else (-1 if mode & 0x10 else 1)
+            pat = patterns[mode & 7]
+            for i in range(n):
+                self.write(0, 0x2100 + ((bbad + pat[i % len(pat)]) & 0xFF), self.read(bank, a))
+                a = (a + step) & 0xFFFF
+            self.io[reg + 2], self.io[reg + 3] = a & 0xFF, a >> 8
+            self.io[reg + 5] = self.io[reg + 6] = 0
 
     def _ppu_write(self, addr, val):
         if addr == 0x2116:
@@ -521,6 +551,11 @@ class CPU:
         elif op == 0x50: self.branch(not (self.p & V))
         elif op == 0x70: self.branch(bool(self.p & V))
         elif op == 0x80: self.branch(True)
+        #  BRL: a sixteen-bit displacement from the next instruction, always
+        #  taken, within the bank.  The HAL's palette loop is too long for BRA.
+        elif op == 0x82:
+            off = self.fetch16()
+            self.pc = (self.pc + off - (0x10000 if off & 0x8000 else 0)) & 0xFFFF
         # jumps and calls
         elif op == 0x4C: self.pc = self.fetch16()
         elif op == 0x5C: a = self.fetch16(); self.pbr = self.fetch(); self.pc = a

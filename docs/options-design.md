@@ -1797,6 +1797,22 @@ What made the pieces small enough to be worth splitting:
     scanlines of vblank stepping over clean ones.  The scan it already does
     now records where the dirty rows begin and end.  This is the whole game's
     hot path, not the menu's: it took the prologue screen's flicker with it.
+  - **The palette's arithmetic runs before the wait** (2026-10-16; user:
+    "forced vblank-looking flicker when walking on the damaging lava tiles").
+    `flush_pal` converted each entry in vblank -- which ones moved, the tint,
+    the grey, where it lands in CGRAM -- at about sixty instructions an
+    entry, so a whole palette was some two thousand, most of a vblank.  The
+    whole palette moves whenever greyscale or emphasis does, and
+    `MapTileDamage` flips greyscale every frame on lava and ice, while the
+    walk's dirty rows already fill vblank: a black band of thirty-odd lines
+    across the top, flickering.  Now `pal_prep` converts from `hal_waitvbl`
+    before the wait, as the frame's sound already is, into `PALSTAGE` records
+    laid out for DMA mode 3 (CGADD twice, CGDATA twice), and `flush_pal`
+    sends them with one DMA: a whole palette costs the vblank 22 more
+    instructions and 128 bytes, about a scanline.  Measured in the harness by
+    instruction count (2004 inside vblank before, 22 after), not yet with the
+    ares profiler; `test_palflush` holds it, with the harness's 65816 now
+    running general-purpose DMA when a test asks (`bus.dma`) and BRL.
   - **The description box is drawn once.**  It is rows 21-28 and the list is
     rows 1-20, so a repaint of the list cannot damage it.
   - **A checkbox or a value repaints one row**, not the window.  Nothing else

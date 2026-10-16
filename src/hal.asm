@@ -41,6 +41,7 @@
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
 .export hal_altarband, hal_altaroff
+.export hal_flush, pal_prep, nespal_snes  ; for tools/test_options.py
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
@@ -1217,6 +1218,7 @@ hal_waitvbl:
                                 ;   half-frame clock
     jsr hal_apu_frame           ; this frame's sound, sent before the wait so
                                 ;   it costs idle time rather than vblank
+    jsr pal_prep                ; and the palette's arithmetic, likewise
     ;  Arriving here already inside vblank used to cost a whole frame: the
     ;  code spun out the rest of that vblank and then waited for the next one,
     ;  on the reasoning that the call belonged to the frame about to start.
@@ -1473,11 +1475,29 @@ hal_flush:
     rts
 
 ; --- palette ------------------------------------------------------------
-flush_pal:
+;;  The palette in two halves.  pal_prep, from hal_waitvbl before the wait,
+;;  does the arithmetic -- which entries moved, the tint and the grey, where
+;;  each lands in CGRAM -- into PALSTAGE, records of four bytes laid out for
+;;  DMA mode 3, which writes p, p, p+1, p+1: CGADD twice, then CGDATA twice.
+;;  flush_pal, in vblank, sends the lot with one DMA.
+;;
+;;  Doing the arithmetic in vblank was about sixty instructions an entry, two
+;;  thousand for the whole palette -- most of a vblank on its own.  The whole
+;;  palette moves on every frame that flips greyscale or emphasis, and on a
+;;  damage tile MapTileDamage flips greyscale every frame while the party walks,
+;;  when the nametable transfers already fill vblank: the flush ran some thirty
+;;  lines into the picture under forced blank, a black band across the top
+;;  that flickered for as long as the party stood on lava or ice.  As one DMA
+;;  the whole palette is 128 bytes, about a scanline.
+;;
+;;  The two run as a pair, once each per hal_waitvbl, and nothing writes the
+;;  palette between them -- the game is waiting -- so the list holds one frame's
+;;  changes and never more than 32 records.
+pal_prep:
     lda a:h_paldirty
     bne :+
     rts
-:   stz a:h_paldirty
+:   stz a:h_paldirty            ; h_palsendn is 0: the last flush emptied it
     ENTER16
     ;  Which of the palette's eight emphasis blocks to read from.  The tint is
     ;  a fixed function of the emphasis bits and the colour, so it is baked
@@ -1545,13 +1565,7 @@ flush_pal:
 @entry:
     clc
     adc a:h_t0
-    sta a:h_t1
-    sep #$20
-    .a8
-    lda a:h_t1
-    sta a:CGADD
-    rep #$20
-    .a16
+    sta a:h_t1                  ; the CGRAM entry
     tya
     tax
     sep #$20
@@ -1592,11 +1606,20 @@ flush_pal:
     adc a:h_tintbase            ; this emphasis mode's block, already tinted
     tax
     lda f:nespal_snes + HALFAR,x
+    sta a:h_t2                  ; the colour
+    lda a:h_palsendn            ; a byte: h_palsendn's neighbour comes too
+    and #$00FF
+    asl a
+    asl a                       ; four bytes a record
+    tax
+    lda a:h_t2
+    sta f:PALSTAGE + 2,x
     sep #$20
     .a8
-    sta a:CGDATA
-    xba
-    sta a:CGDATA
+    lda a:h_t1
+    sta f:PALSTAGE + 0,x        ; CGADD, twice: mode 3's pattern
+    sta f:PALSTAGE + 1,x
+    inc a:h_palsendn
     rep #$20
     .a16
 @skip:
@@ -1610,6 +1633,31 @@ flush_pal:
     rep #$20
     .a16
     LEAVE16
+    rts
+
+;;  In vblank: the records pal_prep left, one DMA.  .a8 .i8.
+flush_pal:
+    lda a:h_palsendn
+    bne :+
+    rts
+:   lda #$03                    ; mode 3: p, p, p+1, p+1, A to B, stepping
+    sta a:DMAP0
+    lda #<CGADD                 ; p = CGADD, p+1 = CGDATA
+    sta a:BBAD0
+    lda #^PALSTAGE
+    sta a:A1B0
+    ENTER16
+    lda #.loword(PALSTAGE)
+    sta a:A1T0L
+    lda a:h_palsendn
+    and #$00FF
+    asl a
+    asl a
+    sta a:DAS0L
+    LEAVE16
+    lda #$01
+    sta a:MDMAEN
+    stz a:h_palsendn
     rts
 
 

@@ -5897,6 +5897,112 @@ def test_itemmagic():
     check("the caster pool: the dealt spells, under FFR's caster rule", bad, [])
 
 
+def test_palflush():
+    """The palette in two halves: pal_prep converts what moved before the
+    frame wait, flush_pal sends it in vblank as one DMA (mode 3: CGADD twice,
+    CGDATA twice a record).  Each NES entry lands at its CGRAM entry in the
+    colour the cartridge's table gives for that emphasis, greyed to the grey
+    column under greyscale; nothing else in CGRAM moves; only the entries that
+    changed are sent unless everything must be; and a whole palette costs the
+    vblank flush a DMA's setup, not two thousand instructions -- the black
+    band a damage tile's greyscale flicker ran into the picture."""
+    HV, PAL, PREV = 0x0800, 0x4800, 0x4820
+    DIRTY, FORCE, EMPH, GREY, SENDN = 0x26, 0x51, 0x3B, 0x3C, 0xCE
+    table = SYM["nespal_snes"]
+
+    def cg_entry(y):
+        return (y >> 2) * 16 + (y & 3) if y < 16 else 128 + ((y >> 2) - 4) * 16 + (y & 3)
+
+    def colour(bus, c, emph, grey):
+        c = c & 0x30 if grey else c & 0x3F
+        at = table + (emph * 64 + c) * 2
+        return bus.read(0xC0, at) | bus.read(0xC0, at + 1) << 8
+
+    def fresh():
+        bus, cpu = machine()
+        bus.ppu()
+        bus.dma = True
+        bus.frames()
+        bus.cgram[:] = b"\x5a" * 0x200            # decoys
+        return bus, cpu
+
+    def cgram(bus, e):
+        return bus.cgram[e * 2] | bus.cgram[e * 2 + 1] << 8
+    entries = {cg_entry(y) for y in range(32)}
+    check("the 32 NES entries land on 32 CGRAM entries", len(entries), 32)
+    import random
+    rnd = random.Random(16)
+    bad = []
+    for emph in range(8):
+        for grey in (0, 1):
+            bus, cpu = fresh()
+            pal = [rnd.randrange(64) for _ in range(32)]
+            for y in range(32):
+                bus.wram[PAL + y] = pal[y]
+                bus.wram[PREV + y] = pal[y]          # as last sent: only force sends
+            bus.wram[HV + DIRTY], bus.wram[HV + FORCE] = 1, 1
+            bus.wram[HV + EMPH], bus.wram[HV + GREY] = emph, grey
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            got = [cgram(bus, cg_entry(y)) for y in range(32)]
+            want = [colour(bus, pal[y], emph, grey) for y in range(32)]
+            rest = {cgram(bus, e) for e in range(256) if e not in entries}
+            if got != want or rest != {0x5A5A} or bus.wram[HV + SENDN] or bus.wram[HV + FORCE]:
+                bad.append("emphasis %d grey %d" % (emph, grey))
+    check("a forced palette: every entry, tinted and greyed, nothing else", bad[:4], [])
+
+    #  Only what moved: two entries changed, a background and a sprite one;
+    #  everything else in CGRAM a decoy that must stay.
+    bus, cpu = fresh()
+    for y in range(32):
+        bus.wram[PAL + y] = bus.wram[PREV + y] = y
+    bus.wram[PAL + 5], bus.wram[PAL + 22] = 0x30, 0x2A
+    bus.wram[HV + DIRTY] = 1
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    moved = {e for e in range(256) if cgram(bus, e) != 0x5A5A}
+    check("unforced: only the two that moved are sent",
+          (moved, cgram(bus, cg_entry(5)), cgram(bus, cg_entry(22)), bytes(bus.wram[PREV:PREV + 32])),
+          ({cg_entry(5), cg_entry(22)}, colour(bus, 0x30, 0, 0), colour(bus, 0x2A, 0, 0),
+           bytes(bus.wram[PAL:PAL + 32])))
+    bus.cgram[:] = b"\x5a" * 0x200
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    check("...and the next frame, nothing", {cgram(bus, e) for e in range(256)}, {0x5A5A})
+
+    #  MapTileDamage's flicker: $2001 written $1E then $1F, frame by frame.
+    bus, cpu = fresh()
+    pal = [rnd.randrange(64) for _ in range(32)]
+    for y in range(32):
+        bus.wram[PAL + y] = pal[y]
+    bad = []
+    for frame in range(6):
+        cpu.a = 0x1E | frame & 1
+        call(cpu, "hal_w2001", bank=0xC0)
+        bus.wram[HV + DIRTY] = 1 if frame == 0 else bus.wram[HV + DIRTY]
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        if [cgram(bus, cg_entry(y)) for y in range(32)] != [colour(bus, pal[y], 0, frame & 1) for y in range(32)]:
+            bad.append(frame)
+    check("the damage tile's flicker: grey and back, each frame whole", bad, [])
+
+    #  What it costs the flush in vblank: a whole palette against none.
+    def flush_cost(full):
+        bus, cpu = fresh()
+        for y in range(32):
+            bus.wram[PAL + y] = y
+        bus.wram[HV + DIRTY], bus.wram[HV + FORCE] = int(full), int(full)
+        call(cpu, "pal_prep", bank=0xC0)
+        n = [0]
+        step = cpu.step
+
+        def counted():
+            n[0] += 1
+            step()
+        cpu.step = counted
+        call(cpu, "hal_flush", bank=0xC0)
+        return n[0], [cgram(bus, cg_entry(y)) for y in range(32)] == [colour(bus, y, 0, 0) for y in range(32)] if full else True
+    (none, _), (whole, landed) = flush_cost(False), flush_cost(True)
+    check("a whole palette costs the vblank flush a DMA's setup, and lands",
+          (whole - none <= 25, landed), (True, True))
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -10896,7 +11002,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
