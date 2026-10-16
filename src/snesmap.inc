@@ -335,6 +335,17 @@ ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
 WEAPON_POWERSTAFF = 27          ; ...and its weapon index
 SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
 
+;  NUKE Stick (user, 2026-10-15; "stick" is the community's word for a
+;  staff): the Wizard Staff casts NUKE in battle instead of CONF and is named
+;  for it, NUKE and the staff's icon -- what FFR's item magic shuffle makes
+;  when it deals NUKE to a staff, here as a flag of its own, the RUSE Staff's
+;  three readers.  Bit 47, the sixth flag byte's last; no build had set it.
+OPTFB_NUKESTICK = OPT_FLAGS+5
+OPTFM_NUKESTICK = $80    ; bit 47
+ITEM_WIZARDSTAFF = $3C          ; the Wizard Staff's item id...
+WEAPON_WIZARDSTAFF = 32         ; ...and its weapon index
+SPELLBYTE_NUKE  = $3D           ; NUKE, as a weapon's spell byte holds it
+
 ;  Boss tactics (user, 2026-10-15; not FFR's): a value row, not a checkbox,
 ;  in two bits of the sixth flag byte -- 45 and 46, which no build had set,
 ;  so every saved block reads Off and the format stays 9.  tactics.asm.

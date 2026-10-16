@@ -1923,10 +1923,12 @@ lut_VehicleNames:
   .BYTE $8B, $9B, $92, $8D, $90, $8E, $00, $00   ; BRIDGE
   .BYTE $8C, $8A, $97, $8A, $95, $00, $00, $00   ; CANAL
 
-;;  The Ruse Staff's name (OPTFM_RUSESTAFF): the spell's, padded to six, and
-;;  the Power Staff's own staff icon, as FFR writes it.
-lut_RuseName:
+;;  The RUSE Staff's name (OPTFM_RUSESTAFF) and the NUKE Stick's
+;;  (OPTFM_NUKESTICK): the spell's, padded to six, and the staff's own icon,
+;;  as FFR writes it.
+lut_StaffNames:
   .BYTE $9B, $9E, $9C, $8E, $FF, $FF, $D8, $00   ; RUSE, the staff
+  .BYTE $97, $9E, $94, $8E, $FF, $FF, $D8, $00   ; NUKE, the staff
 
 
 ;;  Is the tile at X a trap -- one FFR's Trap Tiles may move?
@@ -3364,20 +3366,34 @@ rando_nameptr:
     .a8
     LDA a:wBONUS, X
     STA a:wNAMEB
-    ;  The Ruse Staff: the Power Staff named for its spell, as FFR names it,
-    ;  into the buffer -- a bonus's digits go on it as on any name.
+    ;  The RUSE Staff and the NUKE Stick: a staff named for its spell, as
+    ;  FFR names it, into the buffer -- a bonus's digits go on it as on any
+    ;  name.  X, the name's place in lut_StaffNames.
     LDA a:wNAMEID
+    LDX #$0000
     CMP #ITEM_POWERSTAFF
-    BNE @plain
+    BNE :+
     LDA f:SRAMFAR + OPTFB_RUSESTAFF
     AND #OPTFM_RUSESTAFF
     BEQ @plain
-    LDX #$0000
+    BRA @staff
+:   CMP #ITEM_WIZARDSTAFF
+    BNE @plain
+    LDA f:SRAMFAR + OPTFB_NUKESTICK
+    AND #OPTFM_NUKESTICK
+    BEQ @plain
+    LDX #$0008
+  @staff:
+    LDY #$0000
   @ruse:
-    LDA f:RANDOFAR + lut_RuseName, X
+    LDA f:RANDOFAR + lut_StaffNames, X
+    PHX
+    TYX
     STA f:NAMEBUFFAR, X
+    PLX
     INX
-    CPX #8
+    INY
+    CPY #8
     BCC @ruse
     LDA a:wNAMEB
     BNE @digits

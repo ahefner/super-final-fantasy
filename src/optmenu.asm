@@ -1696,6 +1696,8 @@ lut_OptRows:
   OPTLABEL {"Boss tactics"}
   .BYTE $01, $2C   ; RUSE Staff   (bit 44)
   FFPAD "RUSE Staff", 30
+  .BYTE $01, $2F   ; NUKE Stick   (bit 47)
+  FFPAD "NUKE Stick", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; TREASURES

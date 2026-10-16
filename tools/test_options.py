@@ -5201,16 +5201,24 @@ def test_bosstactics():
     check("...with the Improved preset's TRANCE bit there to keep", keep & 0x01, 1)
 
 
-def test_rusestaff():
-    """Ruse Staff: the Power Staff casts RUSE when used in battle, its
-    equipment text says so, and its name is RUSE and the staff.  Each of the
-    three, flag on against flag off over everything it could touch: only the
-    Power Staff moves.  Battle's Use is the game's own item path, weapon and
-    armour, every index, from the menu's choice to SetCharacterBattleCommand,
-    the other characters' items all decoy Power Staffs."""
-    FB, FM = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"]
-    check("the Ruse Staff is bit 44", (K["OPTFB_RUSESTAFF"] - OPTBLOCK, FM), (OPT_FLAGS + 5, 0x10))
-    STAFF, IDX, CURCHAR, CMDITEM, CMDBUF = 0x37, 27, 0x6B7A, 0x689F, 0x688F
+def test_staffspells():
+    """RUSE Staff and NUKE Stick: the Power Staff casts RUSE and the Wizard
+    Staff NUKE when used in battle, their equipment text says so, and each is
+    named for its spell and the staff.  Each of the three readers, over every
+    pair of the two flags and the byte's other bits, against both off, over
+    everything it could touch: only the flagged staff moves.  Battle's Use is
+    the game's own item path, weapon and armour, every index, from the menu's
+    choice to SetCharacterBattleCommand, the other characters' items all decoy
+    staves."""
+    FB, RUSE, NUKE = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"], K["OPTFM_NUKESTICK"]
+    check("the RUSE Staff is bit 44, the NUKE Stick bit 47",
+          (K["OPTFB_RUSESTAFF"] - OPTBLOCK, RUSE, K["OPTFB_NUKESTICK"] - OPTBLOCK, NUKE),
+          (OPT_FLAGS + 5, 0x10, OPT_FLAGS + 5, 0x80))
+    #  flag, item, weapon index, spell byte, the name it takes
+    STAVES = ((RUSE, 0x37, 27, 4, bytes([0x9B, 0x9E, 0x9C, 0x8E, 0xFF, 0xFF, 0xD8])),
+              (NUKE, 0x3C, 32, 0x3D, bytes([0x97, 0x9E, 0x94, 0x8E, 0xFF, 0xFF, 0xD8])))
+    BITS = (RUSE, NUKE, RUSE | NUKE, 0xFF & ~(RUSE | NUKE), 0xFF)
+    CURCHAR, CMDITEM, CMDBUF = 0x6B7A, 0x689F, 0x688F
     img = BANK_0C & 0x1F
     check("@GetSpellCast asks opt_itemspell", jsl_count(img, "opt_itemspell", CHUNK_OPT_BANK), 1)
     lo = img * 0x10000 + 0x8000
@@ -5229,12 +5237,12 @@ def test_rusestaff():
               (k >= 0, bank.find(bytes([0xA5, 0x89, 0xAC, 0x7A, 0x6B, 0x18, 0x69, start]), k + 1)), (True, -1))
         return 0x8000 + k
 
-    def use(start, i, on, char, other=0):
+    def use(start, i, bits, char):
         bus, cpu = machine()
-        setblk(bus, FB, (FM if on else 0) | other)
+        setblk(bus, FB, bits)
         bus.sram[CURCHAR - 0x6000] = char
         for c in range(4):
-            bus.sram[CMDITEM - 0x6000 + c] = STAFF       # decoys
+            bus.sram[CMDITEM - 0x6000 + c] = STAVES[c & 1][1]      # decoys
         bus.wram[0x89] = i
         cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, path(start)
         for _ in range(400):
@@ -5247,82 +5255,106 @@ def test_rusestaff():
         bad = []
         for i in range(n):
             for char in range(4):
-                off, on = use(start, i, False, char), use(start, i, True, char)
-                want = off if (start, i) != (0x1C, IDX) else (0x10, 3, char, STAFF)
-                if on != want or use(start, i, False, char, 0xFF & ~FM) != off:
-                    bad.append("item $%02X char %d: %s, off %s" % (start + i, char, on, off))
-        check("Use, items $%02X-: only the Power Staff casts RUSE (spell 3)" % start, bad[:4], [])
-    check("...and off, the Power Staff casts nothing", use(0x1C, IDX, False, 2), (0x10, 0xFF, 2, STAFF))
+                off = use(start, i, 0, char)
+                for bits in BITS:
+                    want = off
+                    for fm, item, idx, byte, _ in STAVES:
+                        if (start, i) == (0x1C, idx) and bits & fm:
+                            want = (0x10, byte - 1, char, item)
+                    got = use(start, i, bits, char)
+                    if got != want:
+                        bad.append("item $%02X char %d bits $%02X: %s, off %s" % (start + i, char, bits, got, off))
+        check("Use, items $%02X-: only a flagged staff casts its spell" % start, bad[:4], [])
+    check("...and off, the Power Staff casts nothing, the Wizard Staff CONF",
+          (use(0x1C, 27, 0, 2), use(0x1C, 32, 0, 1)), ((0x10, 0xFF, 2, 0x37), (0x10, 0x1E, 1, 0x3C)))
+    check("...on, RUSE (spell 3) and NUKE (spell $3C)",
+          (use(0x1C, 27, RUSE, 2), use(0x1C, 32, NUKE, 1)), ((0x10, 3, 2, 0x37), (0x10, 0x3C, 1, 0x3C)))
     check("...as the Defense sword casts RUSE either way",
-          (use(0x1C, 31, False, 1)[1], use(0x1C, 31, True, 1)[1]), (3, 3))
+          [use(0x1C, 31, bits, 1)[1] for bits in (0,) + BITS], [3] * (1 + len(BITS)))
 
-    #  The equipment text's reader: byte 3 of weapon 27, and nothing else.
+    #  The equipment text's reader: byte 3 of weapons 27 and 32, and nothing else.
     bad = []
     for i in range(40):
         for y in range(8):
             got = []
-            for on in (False, True):
+            for bits in (0,) + BITS:
                 bus, cpu = machine()
-                setblk(bus, FB, FM if on else 0)
+                setblk(bus, FB, bits)
                 cpu.a, cpu.x, cpu.y = 0x5A00, i, y
                 call(cpu, "opt_weapbyte", dbr=CHUNK_OPT_BANK)
                 got.append((cpu.a, cpu.x, cpu.y, bool(cpu.p & 0x02)))
             a0 = got[0][0] & 0xFF
-            want = (0x5A00 | 4, i, y, False) if (i, y) == (IDX, 3) else (0x5A00 | a0, i, y, a0 == 0)
-            if got[1] != want or got[0][0] >> 8 != 0x5A:
-                bad.append("weapon %d byte %d: %s" % (i, y, got))
-    check("opt_weapbyte: only the Power Staff's spell byte, RUSE's 4", bad[:4], [])
+            if got[0] != (0x5A00 | a0, i, y, a0 == 0):
+                bad.append("weapon %d byte %d off: %s" % (i, y, got[0]))
+            for bits, g in zip(BITS, got[1:]):
+                want = got[0]
+                for fm, item, idx, byte, _ in STAVES:
+                    if (i, y) == (idx, 3) and bits & fm:
+                        want = (0x5A00 | byte, i, y, False)
+                if g != want:
+                    bad.append("weapon %d byte %d bits $%02X: %s, off %s" % (i, y, bits, g, got[0]))
+    check("opt_weapbyte: only a flagged staff's spell byte, RUSE's 4 and NUKE's $3D", bad[:4], [])
     #  And as the text reads in a chest's box, the spell's name spelled out.
     OPTDESC_A, OPTCTX_A, DLG_ITEMID, OPTCTX_CHEST = 0x6E50, 0x6EC1, 0x61, 3
 
-    def text(item, on):
+    def text(item, bits):
         bus, cpu = machine()
-        setblk(bus, FB, FM if on else 0)
+        setblk(bus, FB, bits)
         bus.sram[OPTCTX_A - 0x6000] = OPTCTX_CHEST
         bus.wram[DLG_ITEMID] = item
         cpu.a = item
         call(cpu, "opt_descgear")
         buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
         return buf[:buf.find(0)]
-    ruse = bytes([0x9B, 0x9E, 0x9C, 0x8E])
-    on, off, defense = text(STAFF, True), text(STAFF, False), text(0x3B, True)
+    ruse, nuke, conf = bytes([0x9B, 0x9E, 0x9C, 0x8E]), bytes([0x97, 0x9E, 0x94, 0x8E]), bytes([0x8C, 0x98, 0x97, 0x8F])
+    on, off, defense = text(0x37, RUSE), text(0x37, 0), text(0x3B, RUSE)
     check("the Power Staff's text: off, no spell", ruse in off, False)
     tail = on[len(off):]
     check("...on, the same text and the Defense sword's cast line, RUSE",
           (on.startswith(off), len(tail) > len(ruse), tail.endswith(ruse), defense.endswith(tail)),
           (True, True, True, True))
+    on, off = text(0x3C, NUKE), text(0x3C, 0)
+    check("the Wizard Staff's text: off, CONF and no NUKE", (off.count(conf), nuke in off), (1, False))
+    check("...on, the same text, NUKE for CONF", on, off.replace(conf, nuke))
+    check("...each staff's text deaf to the other's flag and the byte's other bits",
+          [text(item, bits) == text(item, 0) for fm, item, _, _, _ in STAVES for bits in BITS if not bits & fm],
+          [True] * 4)
 
-    #  The name: RUSE, two spaces, the staff, a bonus's digits on it as on
-    #  any name; everything else, gear or not, as with the flag off.
-    want_name = bytes([0x9B, 0x9E, 0x9C, 0x8E, 0xFF, 0xFF, 0xD8])
+    #  The name: the spell, two spaces, the staff, a bonus's digits on it as
+    #  on any name; everything else, gear or not, as with the flag off.
     nb = K["OPTNAMEBUF"] - 0x6000
 
-    def name(item, on, seed=0x0BADF00D, bless=0, curse=0):
+    def name(item, bits, seed=0x0BADF00D, bless=0, curse=0):
         bus, cpu = machine()
         setgear(bus, seed, bless, curse)
         warm(bus)
-        setblk(bus, FB, FM if on else 0)
+        setblk(bus, FB, bits)
         bus.sram[nb:nb + 8] = b"\x9a" * 8       # a decoy: the last name built
         cpu.a, cpu.y = item, 0x5A
         call(cpu, "rando_nameptr", bank=RANDO_BANK)
         p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
         return p, bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(8)), cpu.y
-    bad = [i for i in range(256) if i != STAFF and name(i, True, 77, 3, 3) != name(i, False, 77, 3, 3)]
-    check("every other name the same with the flag on", bad, [])
-    at = (1 + 0x0A) * 0x10000 + 0xB700 + STAFF * 2
-    check("the Power Staff, off: the ROM's Power and the staff, through its pointer",
-          name(STAFF, False), (ROMDATA[at] | ROMDATA[at + 1] << 8,
-                               bytes([0x99, 0xB2, 0xBA, 0xA8, 0xB5, 0xFF, 0xD8, 0x00]), 0x5A))
-    check("...on: RUSE and the staff, in the buffer, Y kept",
-          name(STAFF, True), (K["OPTNAMEBUF"], want_name + b"\0", 0x5A))
-    for sign in (1, -1):
-        seed = next(sd for sd in range(1, 4000)
-                    if R.build_gear(ROMDATA, sd, 4, 4)[1][IDX] * sign > 0)
-        b = R.build_gear(ROMDATA, seed, 4, 4)[1][IDX]
-        w = bytearray(want_name)
-        w[5], w[4] = 0x80 + abs(b), 0xC1 if b > 0 else 0xC2
-        check("...blursed %+d: the sign and digit before the staff" % b,
-              name(STAFF, True, seed, 4, 4), (K["OPTNAMEBUF"], bytes(w) + b"\0", 0x5A))
+    bad = [i for i in range(256) if i not in (0x37, 0x3C)
+           and name(i, RUSE | NUKE, 77, 3, 3) != name(i, 0, 77, 3, 3)]
+    check("every other name the same with the flags on", bad, [])
+    for (fm, item, idx, byte, want_name), rom in zip(STAVES, (
+            bytes([0x99, 0xB2, 0xBA, 0xA8, 0xB5, 0xFF, 0xD8, 0x00]),     # Power
+            bytes([0xA0, 0xAC, 0xBD, 0xA4, 0xB5, 0xA7, 0xD8, 0x00]))):   # Wizard
+        at = (1 + 0x0A) * 0x10000 + 0xB700 + item * 2
+        plain = (ROMDATA[at] | ROMDATA[at + 1] << 8, rom, 0x5A)
+        check("item $%02X, off: the ROM's name and the staff, through its pointer" % item,
+              [name(item, bits) for bits in (0,) + BITS if not bits & fm], [plain] * 3)
+        check("...on: its spell and the staff, in the buffer, Y kept",
+              [name(item, bits) for bits in BITS if bits & fm],
+              [(K["OPTNAMEBUF"], want_name + b"\0", 0x5A)] * 3)
+        for sign in (1, -1):
+            seed = next(sd for sd in range(1, 4000)
+                        if R.build_gear(ROMDATA, sd, 4, 4)[1][idx] * sign > 0)
+            b = R.build_gear(ROMDATA, seed, 4, 4)[1][idx]
+            w = bytearray(want_name)
+            w[5], w[4] = 0x80 + abs(b), 0xC1 if b > 0 else 0xC2
+            check("...blursed %+d: the sign and digit before the staff" % b,
+                  name(item, fm, seed, 4, 4), (K["OPTNAMEBUF"], bytes(w) + b"\0", 0x5A))
 
 
 def test_strayobjects():
@@ -10314,7 +10346,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_rusestaff, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

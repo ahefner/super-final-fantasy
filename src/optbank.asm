@@ -3717,24 +3717,32 @@ opt_padreset:
 
 
 ;;  The spell an item cast in battle -- @GetSpellCast's, after it reads the
-;;  record's byte -- but the Power Staff's RUSE under the Ruse Staff flag.
+;;  record's byte -- but the Power Staff's RUSE under the RUSE Staff flag, and
+;;  the Wizard Staff's NUKE under the NUKE Stick's.
 ;;  In: A = the record's spell byte (1-based, 0 none); btl_charcmditem, for
 ;;  btlcmd_curchar, the item it just recorded.  Out: X = the spell 0-based
 ;;  ($FF none) and Y = btlcmd_curchar, as the five bytes this replaced left
 ;;  them.  Emulation mode, the battle's data bank.
 opt_itemspell:
     TAX
-    LDA OPTFB_RUSESTAFF
-    AND #OPTFM_RUSESTAFF
-    BEQ @out
     LDY btlcmd_curchar
     LDA btl_charcmditem, Y
     CMP #ITEM_POWERSTAFF
+    BEQ @ruse
+    CMP #ITEM_WIZARDSTAFF
     BNE @out
+    LDA OPTFB_NUKESTICK         ; the NUKE Stick
+    AND #OPTFM_NUKESTICK
+    BEQ @out
+    LDX #SPELLBYTE_NUKE
+    BRA @out
+  @ruse:
+    LDA OPTFB_RUSESTAFF
+    AND #OPTFM_RUSESTAFF
+    BEQ @out
     LDX #SPELLBYTE_RUSE         ; the Defense sword's
   @out:
-    DEX
-    LDY btlcmd_curchar
+    DEX                         ; Y, btlcmd_curchar, as the hook's LDY left it
     RTL
 
 

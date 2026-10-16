@@ -519,12 +519,12 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (13)
+### Variations (14)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
 Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
-tactics, Ruse Staff.
+tactics, RUSE Staff, NUKE Stick.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -708,11 +708,32 @@ equipment text reads spell bytes through `opt_weapbyte`, which answers 4
 for weapon 27's byte 3.  The name is `rando_nameptr`'s, built in
 `OPTNAMEBUF` as a vehicle's is, a blursing's sign and digit placed on it as
 on any name.  Bit 44, no build having set it, so the format stays 9.
-`test_rusestaff` runs the game's own item path from the menu's choice to
-`SetCharacterBattleCommand` for all 40 weapons and 40 armours and every
-character, flag on against off with the other characters' items decoy Power
-Staffs, and sweeps every weapon byte and all 256 names the same way: only
-the Power Staff moves.
+`test_staffspells` (with the NUKE Stick's below) runs the game's own item
+path from the menu's choice to `SetCharacterBattleCommand` for all 40
+weapons and 40 armours and every character, each pair of the two flags and
+the byte's other bits against both off, the other characters' items decoy
+staves, and sweeps every weapon byte and all 256 names the same way: only
+the flagged staff moves.
+
+**NUKE Stick** (user, 2026-10-15; "stick" is the community's word for a
+staff, as "bonk" is for a gauntlet; built, not yet played) is the same
+idea for the Wizard Staff: used in battle it casts NUKE (spell `$3C`, byte
+`$3D`) instead of CONF, its equipment text says NUKE where it said CONF, and
+it is named "NUKE" and the staff's icon.  FFR has no flag of this name; a
+NUKE stick is what its item magic shuffle (`ItemMagicMode.Randomized`, in
+`ShuffleItemMagic`) makes when it happens to deal NUKE to a staff, renaming
+the item for the spell as above.  That shuffle is the general form -- every
+casting item's spell redealt, from a pool with the useless ones weighed out
+-- and would be the follow-up if this one is liked; here it is one flag, off
+in every preset, Super included: a NUKE every turn from whoever holds the
+Wizard Staff is a different game.  The same three readers as the RUSE
+Staff's, each now asking which staff and which flag: `opt_itemspell` checks
+the item before the flags, so a staff with its flag off leaves the record's
+byte; `opt_weapbyte` answers `$3D` for weapon 32's byte 3; `rando_nameptr`
+copies the second name in `lut_StaffNames`.  Bit 47, the sixth flag byte's
+last, no build having set it, so the format stays 9.  Nineteen mutations
+caught, one equivalent removed (`opt_itemspell` reloading Y, which nothing
+between had changed).
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -2132,7 +2153,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     783 free   once the descriptions moved out, the None, the
+    BANK_OPT     652 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2146,16 +2167,19 @@ text region in the game references.
                              scalar), and the Ruse Staff (78: its row,
                              opt_itemspell and opt_weapbyte's answer), and
                              Boss tactics (75: its row, readouts, scalar
-                             tables, opt_isbossfar and opt_spellbytefar)
-    BANK_OPTTEXT  3692 free  the settings screen's descriptions; Map
+                             tables, opt_isbossfar and opt_spellbytefar),
+                             and the shoulders (68: opt_shoulders and the
+                             split of opt_sideways), and the NUKE Stick
+                             (63: its row and the two readers' second staff)
+    BANK_OPTTEXT  3577 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
-                             Boss tactics' three 432
+                             Boss tactics' three 432, the NUKE Stick's 115
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3440 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3408 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2171,7 +2195,8 @@ text region in the game references.
                              to go, and the counts reused, 33; the roll
                              screen's yields, stages and yelps 89, and
                              Continue's cold build under it 22; the Ruse
-                             Staff's name 57
+                             Staff's name 57, and the NUKE Stick's beside
+                             it 32
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
