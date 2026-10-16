@@ -546,79 +546,112 @@ the flag, and the enemy's own turns, roll for roll, without it, with nobody
 to hit, for any other enemy, and for every other class.
 
 **Boss tactics** (user, 2026-10-15: bosses that "strategically select
-targets or choose spells to their best advantage"; built, not yet played) is
-not FFR's -- FFR only shuffles or removes boss scripts -- and is off in every
-preset.  A value row, Off / Clever / Ruthless, in two bits of the sixth flag
-byte (45 and 46, which no build had set, so every saved block reads Off and
-the format stays 9): the scalar tables already take a field of any byte of
-the option page, as the key item rows do.  This is the first half, the aim;
-choosing the spell is the second.
+targets or choose spells to their best advantage" -- and, after a first cut
+that only aimed, "do the real shit"; built, not yet played) is not FFR's --
+FFR only shuffles or removes boss scripts -- and is off in every preset.  A
+value row, Off / Clever / Ruthless, in two bits of the sixth flag byte (45
+and 46, which no build had set, so every saved block reads Off and the
+format stays 9): the scalar tables already take a field of any byte of the
+option page, as the key item rows do.
 
-Every enemy aims by `GetRandomPlayerTarget` -- slot 0 half the time, slot 1 a
-quarter, 2 and 3 an eighth each, rerolled past the dead and the stone -- the
-same for a fighter in plate as for a mage on 40 HP.  With the dial on, a boss
-(`opt_isboss`, FFR's list, reached through `opt_isbossfar` so there is one
-list) scores each target 0-256 first:
+Every enemy runs its script: a roll against its magic rate, then its skill
+rate, else a swing; the next spell or skill in turn, whatever it is; and
+`GetRandomPlayerTarget`'s half, quarter, eighth, eighth for the aim.  With
+the dial on, a boss (`opt_isboss`, FFR's list, through `opt_isbossfar` so
+there is one list) weighs every action it has -- the swing, each spell and
+each skill of the script in force (the cache's, `OPTAISHADOW`, so Enemy
+scripts and skills shuffles count), at each target -- and takes the one worth
+most.  **Ruthless** decides everything.  **Clever** keeps the script's rhythm
+-- its rates still roll, as `EnemyAi_ShouldPerformAction` rolls them, for a
+spell, a skill or a swing -- and decides what and at whom; a kind with
+nothing worth casting is a swing.  Garland and the Pirates have no script:
+their swing is weighed at its hook.  Asshat Octopus's aim stands.
 
-  - **A physical attack**, by the share of the target's HP it can expect to
-    take: `DoPhysicalAttack`'s own rules -- hit chance 168, DARK either way,
-    the hit rate in and evade out for a target that can move, a quarter more
-    damage and no dodging against one asleep or stunned, the crit chance
-    under the hit chance, absorb, at least 1 a hit, a crit adding the roll
-    again, hits times FAST's multiplier -- summed exactly over the 256 values
-    of the battle's dice, as `RandAX` turns a die into a roll (including its
-    quirk that a range of 256 is 0, so base damage 255 always rolls 255).
-  - **A spell or skill at one target**, by its chance to work there: 148,
-    nothing if the element is resisted, plus the spell's accuracy, less magic
-    defense, against `Random_0_200` -- a resisted spell still lands on a roll
-    of 0, as in the game, so a Ribbon is two dice in 256 from safe; no use if
-    the target has every ailment it gives; SLOW no use on one already slowed;
-    XXXX and STUN sure at 300 HP or under, else no use; a damage spell by the
-    share of HP, a crit's share and a plain one's weighed by the crit dice.
-    Any other effect leaves every target alike.
+**The worth is the race, in rounds.**  Dp is the party's damage a round to
+the boss: each living member's best, its swing by `DoPhysicalAttack`'s own
+rules (its weapon's element and category against the boss's weakness, the
+elemental bonus, evade, absorb, DARK, FAST) or a damage spell it knows and
+has the MP for (resisted, weak, HARM against the undead or anything with
+White Mage HARM), whichever is more; mute casters have only their swing.  Rb,
+the boss's rounds left, is its HP over Dp.  Db is the most any of its own
+actions is expected to take off the party.  Then, in rounds:
 
-**Clever** weighs each target by vanilla's weight times its score, so the
-front of the line still draws most swings but a target it can finish pulls
-hard; with every score alike it is vanilla's 4:2:1:1 exactly.  **Ruthless**
-takes the best score, and vanilla's weights among equals.  One battle die for
-the choice when there are two or more candidates, none when there is one, and
-nothing at all with the dial off or an enemy that is not a boss: those turns
-are vanilla's, roll for roll.  Asshat Octopus's aim stands when both are on.
+  - HP off the party, over Db: a turn's worth for its best.
+  - A kill, the HP and the rounds Rb grows when Dp loses that member -- Rb
+    d/(Dp - d), all of the cap if under 16 of Dp would be left -- and its
+    healing (CURE to CUR4, HEAL, what it has the MP for) over the rounds
+    left, and the whole fight if it was the last one standing.
+  - Stun four turns of that member's damage and healing (a stunned player
+    recovers one turn in four, `Battle_PlayerTryUnstun`), sleep as many as
+    `Battle_PlayerTryWakeup`'s max HP roll makes it (one, past 80 HP),
+    confusion two; nothing more on one out already.  MUTE a caster's spells
+    for the fight; DARK and SLOW a fighter's swing, by the swing in the dark
+    or a multiplier down; poison two HP a round for the fight.
+  - Its own heal, the HP it is missing at most, over Dp; CUR4 all of it; FAST
+    (nothing at a multiplier of 2) the party falling sooner to its faster
+    swing for the rest of the fight -- if its swing then beats its best.
 
-Two byte-neutral hooks in bank `$0C`: `tactics_swing.patch` takes the seven
-NOPs `randostatus.patch` left in `EnemyAttackPlayer_Physical` -- after the
-attacker's numbers are loaded and scaled, so the score sees what the swing
-will use -- for `JSL tac_swing` and `JSR PrepCharStatPointers`, which points
-the stat pointers at whichever slot it chose; `tactics_cast.patch` turns
+A muted boss's spells and skills are worth nothing; it swings.
+
+**From the dice.**  A swing's mean and variance are summed exactly over the
+256 values of the battle's dice as `RandAX` turns them into rolls -- a hit's
+damage and its square, a crit adding the roll again, `RandAX`'s quirk that a
+range of 256 is 0 so B 255 rolls 255 -- and a spell's from its roll (each
+share counted as holding 256/k dice for the square).  The chance of a kill
+and the HP short of overkill come from the normal tail at z = (16 HP - 8 -
+mean) / sd, in sixteenths from -4 to 4 (`gentactics.py`'s tables, checked
+against `erf`).  The sums: a closed form while no roll caps -- the dice's
+shares sum to ((k-1)*255 + gcd(k,256) - 1)/2 -- and otherwise a count share
+by share, each share Q or Q+1 dice of 256 = Qk + R; for absorb under the
+base damage the squared sums follow from the rolls' alone, kept for two base
+damages.  Spells' records come through `opt_spellbyte`, the battle's own rule
+(Improved spells, Spell Fixes), once a decision each.  CURE, CUR2, CUR3 and
+HEAL are effect 7 -- the jump table has RecoverHP twice -- which a mutation
+run caught the reckoning missing.
+
+**Thinking takes frames; the music does not wait.**  A decision is up to
+about 120000 instructions -- Chaos against four casters each with a full
+spell list -- a fifth of a second; most are a few thousand.  The game's own
+calls each frame drive the music, so the thinking yields: whenever RDNMI
+says a vblank has begun (its latch holds until read, so no frame is missed)
+it runs the battle's frame of music -- `music_track`'s follow-up, then
+`CallMusicPlay` with `cur_bank` at this chunk so the driver swaps back here
+-- and the HAL's frame of sound.  Nothing on screen moves while a boss
+thinks, so nothing else of the frame is owed.
+
+**Where it is.**  Its own chunk, `CHUNK_TACTICS` (`$18`, `src/tactics.asm`),
+native and sixteen bits wide, with its scratch at `TC_BASE` in bank `$7F`
+between the roll screen's and placement's, cleared each decision -- nothing
+there is power-on clean, and the tests fill it with junk first.  Three
+byte-neutral hooks in bank `$0C`: `tactics_turn.patch` takes four of the nine
+dead bytes `randoai.patch` left in `Enemy_DoAi` for `JSL tac_turn`, which, if
+it decides, drops its own return and jumps into `EnemyAttackPlayer_Physical`
+or `Enemy_DoMagicEffect` as `Enemy_DoAi` would, leaving the aim in a latch
+(the slot with a mark, its complement, the attacker: all three must agree,
+the slot must still be alive, and whoever reads it clears it);
+`tactics_swing.patch` takes the seven NOPs `randostatus.patch` left in
+`EnemyAttackPlayer_Physical` for `JSL tac_swing` and `JSR
+PrepCharStatPointers`; `tactics_cast.patch` turns
 `Battle_CastMagicOnRandomPlayer`'s load and `ORA` into `JSL tac_cast` and a
-NOP.  The work is in its own chunk, `CHUNK_TACTICS` (`$18`,
-`src/tactics.asm`), native and sixteen bits wide, with its scratch at
-`TC_BASE` in bank `$7F` between the roll screen's and placement's, cleared
-each decision -- nothing there is power-on clean, and the tests fill it with
-junk first.
+NOP.  The decision borrows `$84` and the eight attacker bytes to ask
+`opt_scaleatk` for the swing's scaled numbers, and puts them back.
 
-**Exact sums, not a rehearsal.** The game's own calls each frame drive the
-music, so a turn's thinking has to fit in about a frame.  Rehearsing a swing
-32 times at each of four targets would have been several.  So the sum of the
-damage rolls over the 256 dice is a closed form while no roll caps, base
-damage under 128 -- the dice's shares sum to ((k-1)*255 + gcd(k,256) - 1)/2,
-k = B+1, and gcd(k,256) is k's lowest set bit -- or else a count share by
-share, each share holding Q or Q+1 dice of 256 = Qk + R, at most 128 steps;
-what gets past absorb is that sum less 256 times absorb unless absorb reaches
-B, and only then counted; two base damages are kept, a party half asleep
-having two.  The worst there is, WarMECH's 128 against a party half asleep,
-is about 10300 instructions, near one frame; most turns are a few thousand.
-
-`test_bosstactics` checks the reading first, against the game's own code:
-one swing through the real hit loop for chosen dice, the spell effects
-through the real `BtlMag_Effect_*` (found through the magic jump table) for
-every roll -- that is where `RandAX`'s 255 turned up -- and the per-die
-damage summed over all 65536 pairs is the model's sums.  Then `tactics.asm`
-against the model exactly: 240 drawn swings and 240 drawn casts, sweeps at
-the edges of absorb, base damage, hit chance and XXXX's line, every kept sum;
-what the scores mean in cases a player knows; both hooks in place from the
-game's own code, off and on; the dial on the settings screen.  71 mutations,
-69 caught; one equivalent (an evade floor of 0 is raised to 1 just after).
+`tools/tacref.py` is the reckoning in Python, integer for integer.
+`test_bosstactics` holds the game to it first -- one swing through the real
+hit loop for chosen dice, every spell effect through the real
+`BtlMag_Effect_*` for every roll, the per-die damage and its square summed
+over all 65536 pairs -- then the cart to it: every intermediate (threat, Dp,
+Rb, Db, kill and disable worth, each candidate's worth and aim, the choice
+and the dice it used) over 160 drawn turns with spell lists, MP and the
+spell buffs, and the edges; `Enemy_DoAi` in place for every boss, Clever and
+Ruthless, with the boss's stats scaled, the swing reaching its hook; the
+latch's rules; cases a player knows (Lich and Ribbons -- SLP2 has no element
+in this cartridge, so a Ribbon does nothing for it; Chaos's CUR4 at full HP
+and hurt; FAST once fast; XXXX's 300; MUTE with and without a caster; the
+last one standing); the music running between thoughts and the decision the
+same; the arithmetic called as the reckoning calls it; the dial.  87
+mutations, all caught; one more equivalent (SLOW on one already slowed is
+worth nothing by the threat arithmetic anyway).
 
 **Ruse Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; built,
 not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
@@ -2050,13 +2083,14 @@ text region in the game references.
                              @Begin's cold build, one JSL to the
                              randomizer's rando_coldbuild, gave back 3
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
-    BANK_0C        4 free    declared unused at $BFFC; and 9 bytes of
+    BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
                              over, never executed in Enemy_DoAi (Asshat
-                             Octopus's hook took 12 of 21; the 7 NOPs in
-                             the enemy attack setup are Boss tactics'
-                             hook now) -- and 33 never executed where the
-                             DRINK choice used to be
+                             Octopus's hook took 12 of 21, Boss tactics'
+                             turn 4 of the 9 left; the 7 NOPs in the
+                             enemy attack setup are its swing's hook now)
+                             -- and 33 never executed where the DRINK
+                             choice used to be
     BANK_0D      212 free
     BANK_0E       37 free    12 declared unused at $BFF4, after House MP took
                              four; 25 NOPs in the old LoadShopInventory.
@@ -2064,7 +2098,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     791 free   once the descriptions moved out, the None, the
+    BANK_OPT     783 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2077,11 +2111,11 @@ text region in the game references.
                              and Map shuffle (87: its row, readouts and
                              scalar), and the Ruse Staff (78: its row,
                              opt_itemspell and opt_weapbyte's answer), and
-                             Boss tactics (67: its row, readouts, scalar
-                             tables and opt_isbossfar)
-    BANK_OPTTEXT  3720 free  the settings screen's descriptions; Map
+                             Boss tactics (75: its row, readouts, scalar
+                             tables, opt_isbossfar and opt_spellbytefar)
+    BANK_OPTTEXT  3748 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
-                             Boss tactics' three 404
+                             Boss tactics' three 376
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
@@ -2115,8 +2149,10 @@ text region in the game references.
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their
                              reach (from tools/genroll.py)
-    BANK_TACTICS 13910 free  Boss tactics (2474): the scoring, the sums and
-                             the pick, and the 199-byte hit table
+    BANK_TACTICS  7669 free  Boss tactics (8715): gathering, the threat, the
+                             race, the dice's sums, the normal tail, the
+                             choice, the arithmetic, and gentactics.py's
+                             tables (199 + 3 x 129 words + 81 words)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

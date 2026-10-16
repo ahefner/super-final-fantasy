@@ -47,6 +47,7 @@
 ;  Reached by tools/test_options.py.
 .export opt_num, opt_word, opt_bitscan, opt_permissions
 .export opt_descgear, opt_weapcrit, opt_gearlive, opt_weapbyte, opt_armbyte
+.export opt_spellbytefar
 .export opt_setposes, opt_canuseit
 
 ;  The fixed bank is stamped into every chunk, so these are a plain JSR away.
@@ -1473,6 +1474,16 @@ opt_weaponstats:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Spells
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  The same, from another chunk (Boss tactics), with this chunk's data bank
+;  as the rule's own tables want it.  In and out as opt_spellbyte.
+opt_spellbytefar:
+    PHB
+    PHK
+    PLB
+    JSR opt_spellbyte
+    PLB
+    RTL
 
 ;  A byte of a spell record, as the spell will actually behave.
 ;

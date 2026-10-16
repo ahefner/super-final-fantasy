@@ -1,0 +1,17 @@
+--- OLD
+:   JSL rando_enemyai + RANDOFAR
+    BCC @UseAi
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+    .res 9, $EA                 ; the lookup this replaced was 30 bytes
+--- NEW
+:   JSL rando_enemyai + RANDOFAR
+    BCC @Think
+      JMP ChooseAndAttackPlayer ; no AI -- just attack a random player
+.import tac_turn
+  @Think:
+    ;  Boss tactics: a boss weighs its whole turn (tactics.asm), and if it
+    ;  decides it does not come back here.  Four of the nine bytes the
+    ;  lookup left; the rest fall through to the script.  The name sorts
+    ;  after randoai_kraken.patch, whose output this edits.
+    JSL tac_turn + TACTICSFAR
+    .res 5, $EA
