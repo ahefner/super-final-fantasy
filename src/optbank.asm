@@ -58,6 +58,7 @@
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
 .export opt_openchests
 .export opt_freestuff, opt_housemp
+.export opt_casteritem, opt_castergood   ; for tools/test_options.py
 .export opt_padreset
 .export opt_magicgfx, opt_castlife, opt_playervalid
 .export opt_magicmsg, opt_curedmsg
@@ -68,7 +69,8 @@
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
-.import rando_stir, rando_newgame
+.import rando_stir, rando_newgame, rando_caster
+.import opt_weapbyte, opt_armbyte, opt_spellbytefar
 .import DrawItemTargetMenu
 ;  The game's own reset entry, for Controller Reset.
 .import OnReset
@@ -3855,8 +3857,9 @@ opt_freestuff:
     ;  table, which the checksum should have stopped, gives nothing.
   @items:
     LDA OPT_STARTITEMS
+    AND #STARTITEMS_SET         ; the set; the caster item's bit is above it
     CMP #STARTITEMS_SETS
-    BCS @out
+    BCS @caster
     ASL A                       ; * 8, the row stride
     ASL A
     ASL A
@@ -3869,8 +3872,139 @@ opt_freestuff:
     INY
     CPY #STARTITEMS_ROW
     BCC @count
+
+  @caster:
+    LDA OPT_STARTITEMS
+    AND #STARTITEMS_CASTER
+    BEQ @out
+    JSR opt_casteritem
   @out:
     RTL
+
+
+;;  The starting caster item: FFR's StartingEquipmentRandomCasterItem.  One
+;;  weapon or armour, dealt evenly from every one whose spell is good for
+;;  something -- GetCasterItemPool's rule, below -- weapons first and then
+;;  armour, as FFR concatenates them; drawn from the seed's own stream.
+;;  FFR's Write puts its first weapon in the first character's first weapon
+;;  slot and its first armour in the first armour slot, unequipped, and so
+;;  does this.  GameStart zeroed the stat page before the title, and party
+;;  creation writes only the class and the name, so the slot is empty and
+;;  stays filled.  The first character is never a None.
+;;
+;;  The spell is the one the item really casts, as opt_weapbyte and
+;;  opt_spellbyte have it: the RUSE Staff's RUSE and the NUKE Stick's NUKE,
+;;  with whatever the spell flags change.  An empty pool gives nothing, as
+;;  FFR's Count > 0 does.  A, X, Y clobbered.
+opt_casteritem:
+    LDY #$00                    ; the count
+    LDX #CASTER_GEAR - 1
+  @count:
+    JSR opt_castergood
+    BCC :+
+    INY
+:   DEX
+    BPL @count
+    TYA
+    BEQ @none
+    JSL rando_caster + RANDOFAR ; which of them
+    TAY
+    LDX #$00
+  @find:
+    JSR opt_castergood
+    BCC @next
+    DEY
+    BMI @found
+  @next:
+    INX
+    BRA @find                   ; the draw is below the count, so it ends
+  @found:
+    TXA
+    CMP #CASTER_WEAPONS
+    BCS @armour
+    INC A                       ; the slot holds the index plus one
+    STA ch_weapons
+  @none:
+    RTS
+  @armour:
+    SBC #CASTER_WEAPONS - 1     ; C set: the armour's index plus one
+    STA ch_armor
+    RTS
+
+CASTER_WEAPONS = 40
+CASTER_GEAR    = 80
+.assert ARMOR_SPELL = WEAPON_SPELL, error, "opt_castergood asks both for one byte"
+
+;;  In: X = 0..39 a weapon, 40..79 an armour.  Out: C set if what it casts
+;;  is in FFR's pool: a routine of lut_CasterRoutines, or InflictStatus with
+;;  exactly death, stone or confusion -- SpellStatus values, compared whole,
+;;  as FFR compares them.  X and Y kept.
+opt_castergood:
+    PHX
+    PHY
+    LDY #WEAPON_SPELL
+    CPX #CASTER_WEAPONS
+    BCS @armour
+    JSR opt_weapbyte
+    BRA @byte
+  @armour:
+    TXA
+    SEC
+    SBC #CASTER_WEAPONS
+    TAX
+    JSR opt_armbyte
+  @byte:
+    BEQ @no                     ; casts nothing
+    CMP #64 + 1
+    BCS @no                     ; past the sixty-four spells
+    DEC A
+    TAX                         ; the spell
+    LDY #MAGDATA_EFFECTIVITY
+    JSL opt_spellbytefar + OPTFAR
+    PHA
+    LDY #MAGDATA_EFFECT
+    JSL opt_spellbytefar + OPTFAR
+    LDX #CASTER_ROUTINES - 1
+  @routine:
+    CMP f:lut_CasterRoutines + OPTFAR, X
+    BEQ @yes
+    DEX
+    BPL @routine
+    CMP #SPELLROUTINE_STATUS
+    BNE @drop
+    PLA                         ; the status it inflicts
+    LDX #CASTER_STATUSES - 1
+  @status:
+    CMP f:lut_CasterStatuses + OPTFAR, X
+    BEQ @yes2
+    DEX
+    BPL @status
+  @no:
+    CLC
+    PLY
+    PLX
+    RTS
+  @drop:
+    PLA
+    BRA @no
+  @yes:
+    PLA
+  @yes2:
+    SEC
+    PLY
+    PLX
+    RTS
+
+;  FFR's SpellRoutine values: Damage, DamageUndead, Heal, Fast, Sabr, Lock,
+;  FullHeal, Ruse, PowerWord.  InflictStatus is the one with a condition.
+lut_CasterRoutines:
+    .BYTE $01, $02, $07, $0C, $0D, $0E, $0F, $10, $12
+CASTER_ROUTINES = * - lut_CasterRoutines
+SPELLROUTINE_STATUS = $03
+;  ...and its SpellStatus values: Death, Stone, Confuse.
+lut_CasterStatuses:
+    .BYTE $01, $02, $80
+CASTER_STATUSES = * - lut_CasterStatuses
 
 
 

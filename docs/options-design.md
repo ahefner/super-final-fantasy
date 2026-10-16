@@ -828,9 +828,9 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### Treasures (1)
+### Treasures (2)
 
-Starting items.  *Until 2026-10-14 also* Free SHIP, Free AIRSHIP, Free
+Starting items, Starting caster item.  *Until 2026-10-14 also* Free SHIP, Free AIRSHIP, Free
 BRIDGE, Free CANAL, Free CANOE, Free KEY, Free CHIME, Free CROWN, Free LUTE,
 Free TAIL and Free ROD: those are now the Free value of the key item rows
 (Key items, below), saved with the game, and what follows describes them.
@@ -864,6 +864,39 @@ Improved Vanilla use the Explorer Pack.  **Decision: the six randomized sets
 are left out** -- none of FFR's presets uses one, and each would need a
 seeded roll at New Game.  Approved by the user, 2026-10-11, as "a subset ...
 or all of them".
+
+**Starting caster item** (user, 2026-10-15: "useful for high-difficulty
+seeds so the player has some hope of progressing"; built, not yet played) is
+FFR's `StartingEquipmentRandomCasterItem`, an Off/On row under Starting
+items, off in every preset.  A new game gives the first character one weapon
+or armour, unequipped, dealt evenly from `GetCasterItemPool`: every item
+whose spell's routine is Damage, DamageUndead, Heal, Fast, Sabr, Lock,
+FullHeal, Ruse or PowerWord, or InflictStatus with exactly death, stone or
+confusion -- FFR's `SpellRoutine` and `SpellStatus` values, compared whole as
+FFR compares them.  Weapons first, then armour, as FFR concatenates them.
+The spell is the one the item really casts, through `opt_weapbyte`,
+`opt_armbyte` and `opt_spellbyte`, so the RUSE Staff's RUSE and the NUKE
+Stick's NUKE count, and so would any later item magic shuffle.  On this
+cartridge every casting item passes: twelve (the Light Axe, Heal Staff, Mage
+Staff, Defense, Wizard Staff, Thor's Hammer, Bane Sword, White and Black
+Shirts, Heal Helm, Zeus and Power Gauntlets), thirteen with the RUSE Staff.
+The draw is the seed's own stream, `STREAM_CASTER` ("CAST"), through
+`rando_caster`, so a seed always starts with the same item.  FFR's `Write`
+puts its first weapon in the first character's first weapon slot and its
+first armour in the first armour slot, and so does `opt_casteritem`, from
+`opt_freestuff` after the starting set: GameStart zeroed the stat page
+before the title, party creation writes only the class and the name, and
+the first character is never a None.  It goes to the first character
+whatever the class, as in FFR, and the equip screen's trade moves it.  The
+bit is `OPT_STARTITEMS`'s top one (scalar 50), the set in its low four
+(`STARTITEMS_SET`); no build had set it, so the format stays 9, and a block
+from before reads Off.  `test_casteritem` holds the pool to one transcribed
+from FFR's rule and the ROM's tables, sweeps the rule over all 256 spell
+bytes in the cache at both ends of both tables with every flag off and on,
+deals 44 seeds under the staff flags and pools of one and two at the ends,
+and runs New Game itself beside each starting set.  Thirty-two mutations,
+one equivalent: splitting weapons from armour at 41 rather than 40 reads
+weapon 40's byte 3, which in the cache is armour 0's.
 
 ### New game (6)
 
@@ -1120,6 +1153,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
+| Starting caster item | Off, On | -- | 2 | Off |
 
 Each stores a step index in one byte.  Adjusted with left/right, consistent
 with the existing Respond Rate control.  A readout is four columns, or eight
@@ -2153,7 +2187,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     652 free   once the descriptions moved out, the None, the
+    BANK_OPT     458 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2170,16 +2204,21 @@ text region in the game references.
                              tables, opt_isbossfar and opt_spellbytefar),
                              and the shoulders (68: opt_shoulders and the
                              split of opt_sideways), and the NUKE Stick
-                             (63: its row and the two readers' second staff)
-    BANK_OPTTEXT  3577 free  the settings screen's descriptions; Map
+                             (63: its row and the two readers' second staff),
+                             and the starting caster item (194: its row and
+                             scalar, the pool's rule and walk) -- the next
+                             feature with much code should go to a chunk
+                             of its own, as Boss tactics did
+    BANK_OPTTEXT  3462 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
-                             Boss tactics' three 432, the NUKE Stick's 115
+                             Boss tactics' three 432, the NUKE Stick's 115,
+                             the starting caster item's 115
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3408 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   3365 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2196,7 +2235,7 @@ text region in the game references.
                              screen's yields, stages and yelps 89, and
                              Continue's cold build under it 22; the Ruse
                              Staff's name 57, and the NUKE Stick's beside
-                             it 32
+                             it 32; the caster item's draw 43
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

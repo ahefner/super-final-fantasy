@@ -55,6 +55,7 @@
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
 .export rando_coldbuild
+.export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
@@ -222,6 +223,7 @@ STREAM_BSKILLS  = $42534B4C     ; "BSKL"
 STREAM_RNG      = $524E4754     ; "RNGT"
 STREAM_ORDEALS  = $4F52444C     ; "ORDL"
 STREAM_KEYS     = $4B455953     ; "KEYS"
+STREAM_CASTER   = $43415354     ; "CAST": the starting caster item's one draw
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -404,6 +406,40 @@ rando_below:
     CMP a:wBOUND
     BCS @draw
     RTS
+
+
+;;  rando_caster -- the starting caster item's draw, for opt_casteritem
+;;
+;;  One number below A from the game's own stream, so a seed always starts
+;;  with the same item, and no other feature's draws move with it.  Called by
+;;  New Game after rando_newgame has written the seed, and only then.
+;;
+;;  In: A = the pool's size, 1..255.  Out: A = 0..A-1; X and Y kept.
+;;  Emulation mode in and out.
+rando_caster:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    PHA
+    JSR enter
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_CASTER)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_CASTER)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    PLA
+    JSR rando_below
+    PLY
+    PLX
+    JMP leave
 
 
 ;;  The PRNG for entrance shuffle's chunk (world.asm), as long calls: the

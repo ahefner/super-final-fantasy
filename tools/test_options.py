@@ -5357,6 +5357,181 @@ def test_staffspells():
                   name(item, fm, seed, 4, 4), (K["OPTNAMEBUF"], bytes(w) + b"\0", 0x5A))
 
 
+def test_casteritem():
+    """Starting caster item: FFR's StartingEquipmentRandomCasterItem.  New
+    Game gives the first character one weapon or armour, unequipped, dealt
+    evenly from those whose spell GetCasterItemPool keeps, weapons first, by
+    the seed's own stream.  The pool is transcribed from FFR's rule and the
+    ROM's tables; the rule itself is swept over every spell byte, under the
+    flags off and every flag on, through the gear cache."""
+    CH, WEAP, ARM = 0x100, 0x118, 0x11C          # ch_stats, ch_weapons, ch_armor
+    FB, RUSE, NUKE = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"], K["OPTFM_NUKESTICK"]
+    check("the caster item is OPT_STARTITEMS's top bit, the set below it",
+          (K["STARTITEMS_CASTER"], K["STARTITEMS_SET"], K["CASTER_SHIFT"]), (0x80, 0x0F, 7))
+    check("...and its own stream", R.STREAM_CASTER, 0x43415354)
+    MAGIC_ROM = GEAR_ROM + 40 * 8 + 40 * 4
+
+    def ffr_good(routine, eff):
+        """GetCasterItemPool: Damage, DamageUndead, Fast, FullHeal, Heal,
+        InflictStatus with exactly Death, Confuse or Stone, Lock, PowerWord,
+        Ruse, Sabr -- FFR's SpellRoutine values, Magic.cs."""
+        return (routine in (0x01, 0x02, 0x0C, 0x0F, 0x07, 0x0E, 0x12, 0x10, 0x0D)
+                or routine == 0x03 and eff in (0x01, 0x80, 0x02))
+
+    def rom_byte(g):
+        """The spell byte of gear g, 0-39 weapons and 40-79 armour, from ROM."""
+        return ROMDATA[GEAR_ROM + g * 8 + 3] if g < 40 else ROMDATA[GEAR_ROM + 320 + (g - 40) * 4 + 3]
+
+    def pool(bits):
+        out = []
+        for g in range(80):
+            b = rom_byte(g)
+            if g == 27 and bits & RUSE:
+                b = 4
+            if g == 32 and bits & NUKE:
+                b = 0x3D
+            if 1 <= b <= 64:
+                rec = ROMDATA[MAGIC_ROM + (b - 1) * 8: MAGIC_ROM + b * 8]
+                if ffr_good(rec[4], rec[1]):
+                    out.append(g)
+        return out
+    VANILLA = [28, 29, 30, 31, 32, 35, 36, 40 + 14, 40 + 15, 40 + 30, 40 + 36, 40 + 37]
+    check("the vanilla pool: Light Axe to Bane Sword, White and Black Shirts, "
+          "Heal Helm, Zeus and Power Gauntlets", pool(0), VANILLA)
+    check("...the RUSE Staff joins it; the NUKE Stick was in it as the Wizard Staff",
+          (pool(RUSE), pool(NUKE)), (sorted(VANILLA + [27]), VANILLA))
+
+    #  The draw: one number below n from the seed's CAST stream, X and Y kept.
+    bad = []
+    for seed in SEEDS + (R.STREAM_CASTER,):
+        for n in (1, 2, 3, 12, 13, 80, 128, 255):
+            bus, cpu = machine()
+            setsave(bus, seed, 0)
+            cpu.a, cpu.x, cpu.y = n, 0x5A, 0xA5
+            call(cpu, "rando_caster", bank=RANDO_BANK)
+            got = (cpu.a & 0xFF, cpu.x & 0xFF, cpu.y & 0xFF)
+            want = (R.Stream(seed, R.STREAM_CASTER).below(n), 0x5A, 0xA5)
+            if got != want:
+                bad.append("seed %08X n %d: %s, want %s" % (seed, n, got, want))
+    check("rando_caster: the CAST stream's draw", bad[:4], [])
+
+    #  The rule, over every spell byte, in a weapon's place and an armour's,
+    #  first and last: the cache's byte poked, the spell's record as the
+    #  battle has it (opt_spellbyte) put to FFR's rule.
+    WC = rw("RW_WEAPONS")
+    for flags in (0, 0xFF):
+        bus, cpu = machine()
+        setsave(bus, 0x12345678, 0)
+        warm(bus)
+        for i in range(6):
+            setblk(bus, OPT_FLAGS + i, flags)
+        rec = {}
+        for sp in range(64):
+            for y in (1, 4):
+                cpu.x, cpu.y = sp, y
+                call(cpu, "opt_spellbyte", dbr=CHUNK_OPT_BANK)
+                rec[sp, y] = cpu.a & 0xFF
+        bad = []
+        for g, at in ((0, WC + 3), (39, WC + 39 * 8 + 3), (40, WC + 320 + 3), (79, WC + 320 + 39 * 4 + 3)):
+            keep = bus.wram[at]
+            for b in range(256):
+                if g == 27 or g == 32:
+                    continue
+                bus.wram[at] = b
+                cpu.x, cpu.y = g, 0x77
+                call(cpu, "opt_castergood")
+                got = (bool(cpu.p & 1), cpu.x & 0xFF, cpu.y & 0xFF)
+                want = (1 <= b <= 64 and ffr_good(rec[b - 1, 4], rec[b - 1, 1]), g, 0x77)
+                if got != want:
+                    bad.append("gear %d byte $%02X: %s, want %s" % (g, b, got, want))
+            bus.wram[at] = keep
+        check("opt_castergood, flags $%02X: FFR's rule over every byte" % flags, bad[:4], [])
+        check("...and the sweep met both answers",
+              len({ffr_good(rec[sp, 4], rec[sp, 1]) for sp in range(64)}), 2)
+
+    def ch_page(bus):
+        return bytes(bus.sram[CH:CH + 0x100])
+
+    #  The deal, from a warm cache: the stat page empty but for the one slot.
+    def deal(seed, bits=0, poke=None):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)
+        warm(bus)
+        setblk(bus, FB, bits)
+        if poke is not None:
+            for g in range(80):
+                at = WC + g * 8 + 3 if g < 40 else WC + 320 + (g - 40) * 4 + 3
+                bus.wram[at] = poke.get(g, 0)
+        bus.sram[CH:CH + 0x100] = bytes(0x100)
+        call(cpu, "opt_casteritem")
+        return ch_page(bus)
+
+    def want_page(g):
+        page = bytearray(0x100)
+        if g is not None:
+            if g < 40:
+                page[WEAP - CH] = g + 1
+            else:
+                page[ARM - CH] = g - 40 + 1
+        return bytes(page)
+    bad = []
+    for seed in SEEDS + tuple(range(3, 40)):
+        for bits in (0, RUSE, NUKE):
+            pl = pool(bits)
+            g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
+            if deal(seed, bits) != want_page(g):
+                bad.append("seed %08X bits $%02X: want gear %d" % (seed, bits, g))
+    check("opt_casteritem: the seed's draw from the pool, in its slot", bad[:4], [])
+    #  The ends of the walk and the armour's arithmetic: a pool of one, at
+    #  each end of each table; and none, which gives nothing.
+    for g in (0, 39, 40, 79):
+        check("a pool of gear %d alone" % g, deal(7, 0, {g: 0x01}), want_page(g))
+    check("an empty pool gives nothing", deal(7, 0, {}), want_page(None))
+    #  ...and pools of two across the ends, so a walk begun late or counted
+    #  in the wrong order deals the other one.
+    bad = []
+    for pair in ((0, 40), (39, 79), (0, 79), (0, 1)):
+        for seed in range(8):
+            g = pair[R.Stream(seed, R.STREAM_CASTER).below(2)]
+            if deal(seed, 0, {pair[0]: 0x01, pair[1]: 0x01}) != want_page(g):
+                bad.append("gear %d and %d, seed %d: want %d" % (pair + (seed, g)))
+    check("pools of two: the draw's one", bad, [])
+    check("...nor does a pool of spells FFR leaves out (SLEP, SLOW, LIFE)",
+          deal(7, 0, {3: 0x06, 44: 0x10, 77: 0x22}), want_page(None))
+
+    #  New Game itself: the flag on, the set beside it untouched; off, nothing;
+    #  and the slot outlives the class's starting stats.
+    TENT = 0x36
+    pool_at = K["RANDO_POOL"] - 0x6000
+
+    def newgame(seed, items, bits=0):
+        bus, cpu = machine()
+        bus.sram[pool_at:pool_at + 4] = seed.to_bytes(4, "little")
+        setblk(bus, FB, bits)
+        setblk(bus, OPT_STARTITEMS, items)
+        bus.sram[CH:CH + 0x100] = bytes(0x100)
+        call(cpu, "opt_freestuff")
+        return bus, cpu
+    for seed, items, bits in ((0x12345678, 0x80, 0), (0xDEADBEEF, 0x84, RUSE), (5, 0x88, RUSE | NUKE),
+                              (6, 0x8F, 0), (9, 0xFF, NUKE)):
+        bus, cpu = newgame(seed, items, bits)
+        pl = pool(bits)
+        g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
+        set_ = items & 0x0F
+        check("New Game, seed %08X, items $%02X: the caster item" % (seed, items), ch_page(bus), want_page(g))
+        sets = [(0,) * 6, None, None, None, (10, 0, 0, 50, 4, 2), None, None, None, (99,) * 6]
+        want = sets[set_] if set_ < 9 else (0,) * 6
+        check("...and the starting set beside it", tuple(bus.sram[TENT:TENT + 6]), want)
+        for c in range(4):
+            bus.sram[CH + c * 0x40] = c                  # Fighter, Thief, BB, RM
+        call(cpu, "NewGame_LoadStartingStats")
+        check("...still there after the starting stats",
+              (bus.sram[WEAP], bus.sram[ARM]), (want_page(g)[WEAP - CH], want_page(g)[ARM - CH]))
+    for items in (0x00, 0x04, 0x7F):
+        bus, cpu = newgame(0x12345678, items, RUSE | NUKE)
+        check("New Game, items $%02X: no caster item" % items, ch_page(bus), want_page(None))
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -7658,7 +7833,9 @@ def test_rando_options():
             ("Ribbon", "OPT_NG_GEAR", 7, 1, 2),
             ("Xcalber", "OPT_NG_GEAR", 0, 1, 2),         # the second gear byte
             ("Early Ordeals", "OPT_NG_EARLY", 3, 1, 2),
-            ("Map shuffle", "OPT_NG_ENTRANCES", 0, 8, 3)):
+            ("Map shuffle", "OPT_NG_ENTRANCES", 0, 8, 3),
+            ("Starting items", "OPT_STARTITEMS", 0, 4, 9),
+            ("Starting caster item", "OPT_STARTITEMS", 7, 1, 2)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
         row = optrow(name)
@@ -10346,7 +10523,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
