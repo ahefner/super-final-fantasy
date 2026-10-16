@@ -26,6 +26,7 @@
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
 .export opt_menu_valbyte          ; for tools/test_options.py
+.export opt_shoulders, opt_sideways ; for tools/test_options.py
 
 ;  Exported for tools/test_options.py, which checks every label against the
 ;  width the menu actually draws.  Nothing in the game reaches it by name.
@@ -112,6 +113,7 @@ OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
 OPTMENU_WAS    = OPTBLOCK + $1D ; the row a left/right page started on
 OPTMENU_LEFT   = OPTBLOCK + $1C ; rows still to draw before the next breath
 OPTMENU_ANY    = OPTBLOCK + $1B ; did a section toggle find a checkbox at all?
+OPTMENU_SHPREV = OPTBLOCK + $1A ; L and R as they read last frame (h_joyaux's)
 OPTMENU_VIEW   = OPTBLOCK + $31 ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
@@ -239,6 +241,16 @@ opt_menu_screen:
     LDA joy
     STA OPTMENU_PREV
 
+    ;  The shoulders page, as SNES menus do: L up, R down, on any row --
+    ;  a value row's left and right belong to its value, so on the dials and
+    ;  the randomization rows these are the only way to page.  Not in the
+    ;  save view, which pages nothing.
+    LDA OPTMENU_VIEW
+    BNE :+
+    JSR opt_shoulders
+    BCC :+
+    JMP @loop
+:
     ;  The save view hears up, down and the ways out, and nothing else: no
     ;  toggles, no value steps, no paging.
     LDA OPTMENU_VIEW
@@ -1020,6 +1032,10 @@ opt_waitrelease:
     BNE @wait
     STA OPTMENU_PREV            ; A is zero here, so nothing reads as newly
     STA OPTMENU_EDGE            ;   pressed on the frame after this
+    LDA a:h_joyaux              ; ...nor a shoulder held coming in
+    AND #JOYAUX_L | JOYAUX_R
+    STA OPTMENU_SHPREV
+    LDA #$00
     ;  The game's own catchers belong to whichever screen runs next, and with
     ;  nothing held there is no transition pending for them to lose.
     STA joy_a
@@ -1274,7 +1290,17 @@ opt_sideways:
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
     CMP #OPTROW_VAL
-    BEQ @value
+    BNE :+
+    PLA
+    JMP opt_value_adjust
+:   PLA
+    ;  fall into opt_page
+
+
+;;  In: A = RIGHT or LEFT.  Half a screen down or up, whatever the row: left
+;;  and right off a value row, and the shoulders anywhere.
+opt_page:
+    PHA
     LDA OPTMENU_SEL             ; paging half a screen from the first or last
     STA OPTMENU_WAS             ;   selectable row lands back on it; see @moved
     PLA
@@ -1320,9 +1346,32 @@ opt_sideways:
   @painted:
     RTS
 
-  @value:
-    PLA
-    ;  fall through
+
+;;  The shoulders: L pressed this frame pages up, R pages down.  C set if
+;;  either did (the loop has nothing else to hear that frame).  The edge is
+;;  against OPTMENU_SHPREV, the HAL's h_joyaux as it read last time.
+opt_shoulders:
+    LDA a:h_joyaux
+    AND #JOYAUX_L | JOYAUX_R
+    TAX
+    EOR OPTMENU_SHPREV
+    STX OPTMENU_SHPREV
+    STX OPTSCRATCH
+    AND OPTSCRATCH              ; down now, not down before
+    BEQ @none
+    AND #JOYAUX_R
+    BEQ :+
+    LDA #RIGHT
+    JSR opt_page
+    SEC
+    RTS
+:   LDA #LEFT
+    JSR opt_page
+    SEC
+    RTS
+  @none:
+    CLC
+    RTS
 
 
 ;;  In: A = RIGHT or LEFT.  Steps a value row, clamped at both ends.
@@ -1645,8 +1694,8 @@ lut_OptRows:
   FFPAD "Asshat Octopus", 30
   .BYTE $02, 49    ; Boss tactics   (scalar 49: bits 45-46)
   OPTLABEL {"Boss tactics"}
-  .BYTE $01, $2C   ; Ruse Staff   (bit 44)
-  FFPAD "Ruse Staff", 30
+  .BYTE $01, $2C   ; RUSE Staff   (bit 44)
+  FFPAD "RUSE Staff", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; TREASURES

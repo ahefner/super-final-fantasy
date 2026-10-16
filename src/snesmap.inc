@@ -1425,6 +1425,8 @@ FREEAIRSHIP_Y     = 165
 JOYAUX_L          = $20
 JOYAUX_X          = $40
 JOYAUX_Y          = $01
+JOYAUX_R          = $10         ; R too, in its own JOY1L bit: the settings
+                                ;   screen's page down, as L is its page up
 
 ;  The controller reset combos.  Tested against the masked byte with CMP rather
 ;  than with AND, so L with both X and Y is neither combo rather than

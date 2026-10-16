@@ -7932,6 +7932,59 @@ def optrow(label):
     raise KeyError(label)
 
 
+def test_shoulders():
+    """L and R page the settings list, up and down half a screen, as SNES
+    menus do -- on any row, a value row too, where left and right step the
+    value.  A press pages once; held, it does not repeat.  R joins h_joyaux
+    in its own JOY1L bit, and the reset combos (L|X|Y) do not see it."""
+    SEL, TOP = 0x6E, 0x6F
+    AUX, SHPREV = K["h_joyaux"], K["OPTBLOCK"] + 0x1A - 0x6000
+    L, R = K["JOYAUX_L"], K["JOYAUX_R"]
+    check("R is JOY1L's own bit, apart from the reset combos'", (R, R & K["PADRESET_MASK"]), (0x10, 0))
+    gold = optrow("Gold and XP")
+
+    def press(sel, aux, prev=0, entry="opt_shoulders", a=None):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.wram[SEL], bus.wram[TOP] = sel, max(0, sel - 10)
+        bus.wram[AUX] = aux
+        bus.sram[SHPREV] = prev
+        if a is not None:
+            cpu.a = a
+        call(cpu, entry, dbr=CHUNK_OPT_BANK)
+        return bus.wram[SEL], bool(cpu.p & C), blk(bus, OPT_GOLDXP), bus.sram[SHPREV]
+    sel0, _, gold0, _ = press(gold, 0)
+    down = press(gold, R)
+    check("R on a value row: pages down, the value untouched, R remembered",
+          (down[0] > gold + 4, down[1], down[2], down[3]), (True, True, gold0, R))
+    up = press(down[0], L)
+    check("...L pages back up", (up[0] < down[0] - 4, up[1]), (True, True))
+    check("R held from last frame: no second page", press(gold, R, prev=R)[:2], (gold, False))
+    check("nothing pressed: nothing", press(gold, 0)[:2], (gold, False))
+    check("the d-pad on the value row still steps the value, not the page",
+          press(gold, 0, entry="opt_sideways", a=K["RIGHT"])[0::2], (gold, gold0 + 1))
+    #  The pad as the HAL reads it: L, X and R from JOY1L, Y from JOY1H.
+    got = []
+    for lo, hi in ((0x10, 0), (0x20, 0), (0x30, 0x40), (0x8F, 0xBF)):
+        bus, cpu = machine()
+        bus.io[K["JOY1L"]], bus.io[K["JOY1H"]] = lo, hi
+        call(cpu, "aux_capture", bank=0xC0)
+        got.append(bus.wram[AUX])
+    check("aux_capture: R, L, L+R+Y, and nothing from A, B or the d-pad", got, [0x10, 0x20, 0x31, 0x00])
+    #  The reset combos are L with X or Y; R with them is neither.
+    bad = []
+    for aux, want in ((L | K["JOYAUX_X"], K["PADRESET_SOFT"]), (R | K["JOYAUX_X"], 0), (R, 0), (L | R, 0)):
+        bus, cpu = machine()
+        bus.wram[AUX] = aux
+        bus.wram[K["h_joyauxprev"]] = 0
+        bus.wram[K["h_padreset"]] = 0
+        call(cpu, "aux_edge", bank=0xC0)
+        if bus.wram[K["h_padreset"]] != want:
+            bad.append((hex(aux), bus.wram[K["h_padreset"]]))
+    check("R is no part of a reset", bad, [])
+
+
 def test_menudesc():
     SEL, TOP = 0x6E, 0x6F
     TRAPS, SHOPS = optrow("Trap tiles"), optrow("Shops")
@@ -10261,7 +10314,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_rusestaff, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_rusestaff, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

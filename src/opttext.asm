@@ -250,7 +250,7 @@ lut_Desc_67:  ; TRANCE status element
   FFPAD {"has the status element, so a"}, 28
   FFPAD {"Ribbon resists it."}, 28
 
-lut_Desc_95:  ; Ruse Staff
+lut_Desc_95:  ; RUSE Staff
   FFLINES 4
   FFPAD {"The Power Staff becomes the"}, 28
   FFPAD {"Ruse Staff, casting RUSE"}, 28

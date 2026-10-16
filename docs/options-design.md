@@ -500,6 +500,18 @@ left and right still page, and the first page lands well below them.  Anywhere
 else it would be a hole in the middle of the scrolling, in a position that
 moved every time a flag was added above it.
 
+**The shoulders page anywhere** (user, 2026-10-15: "the idiomatic SNES way to
+page through menus is using the left and right shoulder buttons").  L pages
+up half a screen and R down, on any row -- the dials and the randomization
+rows included, where left and right belong to the value -- once a press, not
+repeating while held.  The NES pad has no shoulders, so the HAL reads them:
+`aux_capture`, which already filed L, X and Y into `h_joyaux` for the reset
+combos, files R too, in its own JOY1L bit ($10); the combos are tested
+against L|X|Y and do not see it.  `opt_shoulders` takes the press edge
+against `OPTMENU_SHPREV` and calls `opt_page`, which is the d-pad's paging
+split out of `opt_sideways`.  The save view pages nothing, shoulders
+included.  `test_shoulders`.
+
 **Decision: the elemental bonus is a dial, not a checkbox.**  FFR has both -- a
 checkbox and a "Damage Bonus" slider under it, greyed out until the box is
 ticked.  A list of rows cannot grey anything out, and a checkbox that has to be
@@ -674,7 +686,8 @@ same; the arithmetic called as the reckoning calls it; the dial.  96
 mutations, all caught; one more equivalent (SLOW on one already slowed is
 worth nothing by the threat arithmetic anyway).
 
-**Ruse Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; built,
+**RUSE Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; the row
+reads "RUSE Staff", the spell's name in capitals as the game spells it; built,
 not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
 its dropdown; Super has it, Improved does not.  FFR crafts it only with its
 item magic shuffled (`CraftDefenseItem`), to promise a RUSE the shuffle

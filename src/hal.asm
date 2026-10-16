@@ -34,7 +34,7 @@
 .export hal_reset
 .export hal_w2000, hal_w2001, hal_r2002, hal_r2002x, hal_r2002y, hal_b2002
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
-.export aux_edge
+.export aux_edge, aux_capture
 .export hal_wipewindow, hal_chrload, hal_drawattr
 .export hal_theendclear, hal_theendplot, hal_theendand
 .export hal_ntblit
@@ -1066,8 +1066,8 @@ aux_capture:
     and #$01                    ; don't read mid auto-latch
     bne @wait
     lda a:JOY1L
-    and #(JOYAUX_L | JOYAUX_X)  ; L and X, already in their own bits
-    sta a:h_joyaux
+    and #(JOYAUX_L | JOYAUX_X | JOYAUX_R)   ; L, X and R, already in their
+    sta a:h_joyaux                          ;   own bits
     lda a:JOY1H
     and #$40                    ; Y lives in the high byte, and nothing in the
     lsr a                       ;   NES byte wants it -- the #$3F mask drops it
