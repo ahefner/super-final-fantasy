@@ -249,10 +249,10 @@ def test_presets():
     #
     #  No preset starts with items: like the Treasures flags, they are for the
     #  New Game list's FFR presets to set.
-    want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0),
-            1: (0x01C00007FDFF, 4, 10, 3, 3, 2, 1),
-            2: (0x17E003FFFDFF, 5, 6, 3, 3, 15, 2)}
-    for preset, (f, g, e, en, bo, el, th) in want.items():
+    want = {0: (0x0000000000, 2, 10, 3, 3, 2, 0, 0),
+            1: (0x01C00007FDFF, 4, 10, 3, 3, 2, 1, 0),
+            2: (0x17E003FFFDFF, 5, 6, 3, 3, 15, 2, 4)}
+    for preset, (f, g, e, en, bo, el, th, lp) in want.items():
         bus, cpu = machine()
         cpu.a = preset
         #  as opt_init leaves it before its JSR to this routine
@@ -264,7 +264,10 @@ def test_presets():
         check("%s: enemy step" % name, blk(bus, OPT_ENEMY), en)
         check("%s: boss step" % name, blk(bus, OPT_BOSS), bo)
         check("%s: elemental bonus step" % name, blk(bus, OPT_ELEMDMG), el)
-        check("%s: Thief hit step" % name, blk(bus, OPT_THIEFHIT), th)
+        check("%s: Thief hit step" % name, blk(bus, OPT_THIEFHIT) & 0x0F, th)
+        #  Thief lockpicking, in the same byte: FFR's randomized presets have
+        #  it at level 15 and its Improved Vanilla does not, so Super only.
+        check("%s: Thief lockpicking step" % name, blk(bus, OPT_THIEFHIT) >> 4, lp)
         check("%s: no starting items" % name, blk(bus, OPT_STARTITEMS), 0)
         #  loadpreset seals as it goes, so init must accept what it wrote
         cpu2 = CPU(bus); cpu2.dbr = 0xA7
@@ -5532,6 +5535,101 @@ def test_casteritem():
         check("New Game, items $%02X: no caster item" % items, ch_page(bus), want_page(None))
 
 
+def test_lockpick():
+    """Thief lockpicking: FFR's Lockpicking (1B_9300_LockpickDoors).  A locked
+    door opens without the KEY if any character is a Thief or Ninja whose
+    level is the setting's or above -- class and level only, as FFR checks.
+    opt_lockpick swept over every setting, every slot, every class and the
+    levels about each threshold, the other characters decoys; then the door
+    itself, through SMMove_Door's patched bytes in the fixed bank."""
+    TH, NJ, NONE = 1, 7, K["CLS_NONE"]
+    LEVELS = (None, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)
+    check("lockpicking is OPT_THIEFHIT's top four bits, Thief hit the bottom two",
+          (K["LOCKPICK_FIELD"], K["LOCKPICK_SHIFT"], K["THIEFHIT_FIELD"], K["LOCKPICK_STEPS"]),
+          (0xF0, 4, 0x03, 12))
+    KEY, CH, CLASS, LEVEL = 0x25, 0x100, 0x00, 0x26     # item_mystickey; ch_stats
+    TILEPROP1, INROOM, SHOP, ENTERING = 0x45, 0x0D, 0x62, 0x50
+
+    bus, cpu = machine()
+
+    def pick(setting, party, key=0, hit=2):
+        setblk(bus, OPT_THIEFHIT, setting << 4 | hit)
+        bus.sram[KEY] = key
+        for c, (cls, lvl) in enumerate(party):
+            bus.sram[CH + c * 0x40 + CLASS] = cls
+            bus.sram[CH + c * 0x40 + LEVEL] = lvl
+        bus.wram[TILEPROP1] = 0x33
+        cpu.a, cpu.x, cpu.y = 0x02, 0x99, 0x77
+        call(cpu, "opt_lockpick")
+        x = cpu.x & 0xFF
+        return (x != 0, bool(cpu.p & 0x02) == (x == 0), cpu.a & 0xFF, cpu.y & 0xFF, bus.wram[TILEPROP1])
+
+    def ffr(setting, party, key=0):
+        if key:
+            return True
+        if not 1 <= setting < len(LEVELS):
+            return False
+        return any(cls in (TH, NJ) and lvl + 1 >= LEVELS[setting] for cls, lvl in party)
+
+    bad = []
+    for setting in range(16):
+        thr = LEVELS[setting] - 1 if 1 <= setting < len(LEVELS) else 20
+        decoys = [(0, 255),
+                  (TH, thr - 1) if thr > 0 else (6, 255),
+                  (NJ, thr - 1) if thr > 0 else (8, 255)]
+        for slot in range(4):
+            for cls in list(range(12)) + [NONE]:
+                for lvl in sorted({max(thr - 2, 0), max(thr - 1, 0), thr, thr + 1, 0, 49, 255}):
+                    party = decoys[:slot] + [(cls, lvl)] + decoys[slot:]
+                    got = pick(setting, party)
+                    want = (ffr(setting, party), True, 0x02, 0x77, 0)
+                    if got != want:
+                        bad.append("setting %d slot %d class %d level %d: %s, want %s"
+                                   % (setting, slot, cls, lvl, got, want))
+    check("opt_lockpick: a Thief or Ninja of the level, anywhere in the party", bad[:4], [])
+    nobody = [(0, 255), (2, 255), (3, 255), (5, 255)]
+    check("...and the KEY opens any door, at every setting, a Thief or not",
+          [pick(s, nobody, key)[0] for s in range(16) for key in (1, 0xFF)], [True] * 32)
+    check("...the Thief hit step beside it changes nothing",
+          [pick(4, [(TH, 14)] + nobody[1:], 0, hit)[0] for hit in range(4)]
+          + [pick(4, [(TH, 13)] + nobody[1:], 0, hit)[0] for hit in range(4)], [True] * 4 + [False] * 4)
+    check("...a dead Thief still knows how, as in FFR",
+          pick(1, [(TH, 0)] + nobody[1:]), (True, True, 0x02, 0x77, 0))
+
+    #  The door: SMMove_Door's seven bytes from LDX #0 to LDX item_mystickey
+    #  are the JSL and three NOPs, and the rest is the game's own.
+    door = SYM["SMMove_Door"]
+    a = SYM["opt_lockpick"]
+    got = bytes(bus.read(0xA7, door + k) for k in range(16))
+    check("SMMove_Door: LSR, AND, CMP, BNE, then the JSL, three NOPs and the BNE",
+          (got[:5], got[5], got[7:14], got[14], got[6] - got[15]),
+          (bytes([0x4A, 0x29, 0x03, 0xC9, 0x02]), 0xD0,
+           bytes([0x22, a & 0xFF, a >> 8, CHUNK_OPT_BANK, 0xEA, 0xEA, 0xEA]), 0xD0,
+           16 - 7))                             # both BNEs land on @OpenDoor
+
+    def walk(tp, setting, party, key=0):
+        dbus, dcpu = machine()
+        setblk(dbus, OPT_THIEFHIT, setting << 4)
+        dbus.sram[KEY] = key
+        for c, (cls, lvl) in enumerate(party):
+            dbus.sram[CH + c * 0x40 + CLASS] = cls
+            dbus.sram[CH + c * 0x40 + LEVEL] = lvl
+        for z, v in ((TILEPROP1, 0x33), (INROOM, 0), (ENTERING, 0), (0x20, 0), (0x2F, 0), (0x14, 0)):
+            dbus.wram[z] = v
+        dcpu.a = tp
+        call(dcpu, "SMMove_Door")
+        return (not dcpu.p & 1, dbus.wram[INROOM], dbus.wram[ENTERING])
+    LOCKED, DOOR = 0x04, 0x02
+    thief15, thief14 = [(TH, 14)] + nobody[1:], [(TH, 13)] + nobody[1:]
+    check("a locked door, Lv15, a level-15 Thief: in, no shop", walk(LOCKED, 4, thief15), (True, 2, 0))
+    check("...a level-14 Thief: not", walk(LOCKED, 4, thief14), (False, 0, 0))
+    check("...a level-15 Ninja last in line: in", walk(LOCKED, 4, nobody[1:] + [(NJ, 14)]), (True, 2, 0))
+    check("...Off, a level-50 Thief: not", walk(LOCKED, 0, [(TH, 49)] + nobody[1:]), (False, 0, 0))
+    check("...Off, the KEY: in", walk(LOCKED, 0, nobody, 1), (True, 2, 0))
+    check("an open door, Off: in, and a shop behind it still a shop",
+          walk(DOOR, 0, nobody), (True, 1, 1))
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -6416,9 +6514,9 @@ STARTSTATS = 0xB040                 # lut_ClassStartingStats, in chunk 0
 
 
 def test_thiefhit():
-    def grow(cls, step, before=50):
+    def grow(cls, step, before=50, lock=0):
         bus, cpu = machine()
-        setblk(bus, OPT_THIEFHIT, step)
+        setblk(bus, OPT_THIEFHIT, step | lock << 4)    # lockpicking above it
         cpu.a = before
         cpu.x = cls
         cpu.p &= ~0x01                      # carry clear, as the CLC before it
@@ -6429,8 +6527,9 @@ def test_thiefhit():
     for step in range(3):
         for cls in range(12):
             want = 50 + VANILLA_HITBONUS[cls] + (step if cls in (CLS_TH, CLS_NJ) else 0)
-            if grow(cls, step) != want:
-                wrong.append((CLASS_NAMES[cls], step, grow(cls, step), want))
+            for lock in (0, 4, 11, 15):
+                if grow(cls, step, 50, lock) != want:
+                    wrong.append((CLASS_NAMES[cls], step, lock, grow(cls, step, 50, lock), want))
     check("hit growth: the table's, plus the step for TH and NJ only", wrong, [])
 
     #  The whole of it, end to end: a Thief or Ninja levelled from 1 to 50
@@ -7835,6 +7934,8 @@ def test_rando_options():
             ("Early Ordeals", "OPT_NG_EARLY", 3, 1, 2),
             ("Map shuffle", "OPT_NG_ENTRANCES", 0, 8, 3),
             ("Starting items", "OPT_STARTITEMS", 0, 4, 9),
+            ("Thief and Ninja hit%", "OPT_THIEFHIT", 0, 2, 3),
+            ("Thief lockpicking", "OPT_THIEFHIT", 4, 4, 12),
             ("Starting caster item", "OPT_STARTITEMS", 7, 1, 2)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
@@ -10523,7 +10624,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

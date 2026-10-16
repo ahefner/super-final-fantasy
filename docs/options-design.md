@@ -519,9 +519,9 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (14)
+### Variations (15)
 
-Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
+Better Thief + Ninja, Thief and Ninja Hit%, Thief lockpicking, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
 Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
 tactics, RUSE Staff, NUKE Stick.
@@ -734,6 +734,39 @@ copies the second name in `lut_StaffNames`.  Bit 47, the sixth flag byte's
 last, no build having set it, so the format stays 9.  Nineteen mutations
 caught, one equivalent removed (`opt_itemspell` reloading Y, which nothing
 between had changed).
+
+**Thief lockpicking** (ported 2026-10-15, the batch's own pick; built, not
+yet played) is FFR's `Lockpicking` with its `LockpickingLevelRequirement`:
+a locked door opens without the KEY if anyone in the party is a Thief or a
+Ninja of the set level or above.  A value row under Thief and Ninja hit%:
+Off, then levels 1, 5, 10 ... 50 -- FFR takes any of 1-50, and every one
+of its randomized presets uses 15, so Super has 15 (step 4) and Improved,
+as FFR's Improved Vanilla, has it off.  FFR's `1B_9300_LockpickDoors`
+checks class and level and nothing else, so a dead or stoned Thief still
+counts, here as there.  The hook is `optlockpick.patch`: `SMMove_Door`'s
+seven bytes from `LDX #0` to `LDX item_mystickey` become a JSL to
+`opt_lockpick` and three NOPs, byte-neutral in the fixed bank; it makes the
+two stores itself, keeps A (the door bits `@OpenDoor` stores) and answers
+in X and Z for the `BNE` that follows.  FFR's version also sets a bit at
+`$62FA` for its tracker, which has no counterpart here.  The step is
+`OPT_THIEFHIT`'s top four bits (scalar 51; Thief hit narrowed to the low
+two, `THIEFHIT_FIELD`, and `opt_hitgrowth` masks it); no build had set
+them, so the format stays 9, and a step past the table reads Off.
+
+**Decision: placement logic does not count on it**, as FFR's does not --
+the party is the player's choice, and a seed must be finishable without a
+Thief.  Picking round the KEY is a sequence break the player earns (user,
+2026-10-15: "a legit strat").  With forced parties (FFR's Chaos Rush has
+one, `randomization-notes.md` §12) the logic could count it, and flags could
+be designed round it (user, the same day) -- the follow-up if forced
+parties come.  `test_lockpick` sweeps `opt_lockpick` over every setting,
+past-the-table ones included, every slot, every class and None, and the
+levels about each threshold, the other three characters decoys (a Thief and
+a Ninja one level short, strong non-thieves); then walks `SMMove_Door`
+itself for the door, the KEY, Off, a Ninja last in line and an open door to
+a shop.  Twenty-one mutations caught.  The harness's 65816 gained the rest
+of the stack-relative family (`ADC`, `CMP`, `STA`, `AND`, `EOR`, `SBC`
+`sr,S`) for this and Thief hit's new mask.
 
 **Decision: FFR's two Thief dropdowns stay two settings here.**  It has
 "Better Thief & Ninja Agility" and "Adjust Thief & Ninja Hit% Growth"
@@ -1152,6 +1185,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Enemy skills | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
+| Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
 | Starting caster item | Off, On | -- | 2 | Off |
 
@@ -2187,7 +2221,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     458 free   once the descriptions moved out, the None, the
+    BANK_OPT     282 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2206,13 +2240,16 @@ text region in the game references.
                              split of opt_sideways), and the NUKE Stick
                              (63: its row and the two readers' second staff),
                              and the starting caster item (194: its row and
-                             scalar, the pool's rule and walk) -- the next
-                             feature with much code should go to a chunk
-                             of its own, as Boss tactics did
-    BANK_OPTTEXT  3462 free  the settings screen's descriptions; Map
+                             scalar, the pool's rule and walk), and Thief
+                             lockpicking (176: its row, readouts and
+                             scalar, opt_lockpick, Thief hit's mask) --
+                             the next feature with much code goes to a
+                             chunk of its own, as Boss tactics did
+    BANK_OPTTEXT  3347 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
-                             the starting caster item's 115
+                             the starting caster item's 115, Thief
+                             lockpicking's 115
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were

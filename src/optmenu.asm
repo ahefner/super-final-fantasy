@@ -1661,6 +1661,8 @@ lut_OptRows:
   .BYTE $AD, $A4, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $02, $13   ; Thief and Ninja hit%   (scalar 19; bit 21 until 2026-10-11)
   FFPAD "Thief and Ninja hit%", 30
+  .BYTE $02, 51    ; Thief lockpicking   (scalar 51: OPT_THIEFHIT bits 4-7)
+  OPTLABEL {"Thief lockpicking"}
   .BYTE $01, $14   ; Double weapon crit
   .BYTE $8D, $B2, $B8, $A5, $AF, $A8, $FF, $BA, $A8, $A4
   .BYTE $B3, $B2, $B1, $FF, $A6, $B5, $AC, $B7, $FF, $FF
@@ -2060,6 +2062,22 @@ lut_ValGear:
   FFPAD "        Treasure", 16   ; GEAR_TREASURE
   FFPAD "       Incentive", 16   ; GEAR_INCENTIVE
 
+;  Thief lockpicking: Off, then the level a Thief or Ninja needs.
+lut_ValLockpick:
+  FFPAD " Off", 4
+  FFPAD "Lv 1", 4
+  FFPAD "Lv 5", 4
+  FFPAD "Lv10", 4
+  FFPAD "Lv15", 4
+  FFPAD "Lv20", 4
+  FFPAD "Lv25", 4
+  FFPAD "Lv30", 4
+  FFPAD "Lv35", 4
+  FFPAD "Lv40", 4
+  FFPAD "Lv45", 4
+  FFPAD "Lv50", 4
+.assert * - lut_ValLockpick = 4 * LOCKPICK_STEPS, error, "a readout per lockpicking step"
+
 ;  The Early flags.
 lut_ValOnOff:
   FFPAD " Off", 4
@@ -2086,6 +2104,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValMapShuffle
               .BYTE <lut_ValBossAI
               .BYTE <lut_ValOnOff
+              .BYTE <lut_ValLockpick
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2105,6 +2124,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValMapShuffle
               .BYTE >lut_ValBossAI
               .BYTE >lut_ValOnOff
+              .BYTE >lut_ValLockpick
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2124,6 +2144,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE ENTRANCES_MODES
               .BYTE BOSSAI_MODES
               .BYTE CASTER_MODES
+              .BYTE LOCKPICK_STEPS
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2132,6 +2153,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 4                                         ; Map shuffle
               .BYTE 3                                         ; Boss tactics
               .BYTE 2                                         ; Starting caster item
+              .BYTE 2                                         ; Thief lockpicking
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2154,6 +2176,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_ENTRANCES
               .BYTE <OPTFB_BOSSAI                             ; in the flag word
               .BYTE <OPT_STARTITEMS                           ; above the set
+              .BYTE <OPT_THIEFHIT                             ; above Thief hit
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2168,7 +2191,9 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE 0                                         ; Map shuffle
               .BYTE BOSSAI_SHIFT                              ; Boss tactics
               .BYTE CASTER_SHIFT                              ; Starting caster item
-lut_ValMask:  .RES 20, $FF
+              .BYTE LOCKPICK_SHIFT                            ; Thief lockpicking
+lut_ValMask:  .RES 19, $FF
+              .BYTE THIEFHIT_FIELD                            ; Thief and Ninja hit%
               .BYTE STARTITEMS_SET                            ; Starting items
               .RES 2, $FF
               .REPEAT ITEMROWS, k
@@ -2181,7 +2206,8 @@ lut_ValMask:  .RES 20, $FF
               .BYTE $FF                                       ; Map shuffle
               .BYTE OPTFM_BOSSAI                              ; Boss tactics
               .BYTE STARTITEMS_CASTER                         ; Starting caster item
-VALSCALARS = 51
+              .BYTE LOCKPICK_FIELD                            ; Thief lockpicking
+VALSCALARS = 52
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
 .assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"

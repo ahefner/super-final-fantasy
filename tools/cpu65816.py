@@ -213,8 +213,11 @@ class CPU:
 
     def a_sr(self):
         """sr,S -- an offset from the stack pointer, in bank 0.  The settings
-        screen's field store (opt_field_put) merges a field it pushed, and the
-        rewards deal reads back an index it pushed."""
+        screen's field store (opt_field_put) merges a field it pushed, the
+        rewards deal reads back an index it pushed, Thief hit growth adds into
+        the rate it pushed, and lockpicking compares levels with the one it
+        pushed -- ORA, LDA, ADC, STA and CMP so far, and AND, EOR and SBC with
+        them, as one family.  Opcodes $03 + $20n.  Bank 0, as on the chip."""
         return (0, (self.s + self.fetch()) & 0xFFFF)
 
     def a_dpx(self):
@@ -347,6 +350,7 @@ class CPU:
         elif op == 0xB2: v = self.load(self.a_dpind(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0xA7: v = self.load(self.a_dpindlong(), m8); self.a = (self.a & 0xFF00 | v) if m8 else v; self.setzn(v, m8)
         elif op == 0x8D: self.store(self.a_abs(), self.a, m8)
+        elif op == 0x83: self.store(self.a_sr(), self.a, m8)
         elif op == 0x9D: self.store(self.a_absx(), self.a, m8)
         elif op == 0x99: self.store(self.a_absy(), self.a, m8)
         elif op == 0x85: self.store(self.a_dp(), self.a, m8)
@@ -392,9 +396,9 @@ class CPU:
         elif op == 0x5B: self.d = self.a & 0xFFFF
         elif op == 0x7B: self.a = self.d; self.setzn(self.a, False)
         # logic and arithmetic
-        elif op in (0x29, 0x2D, 0x3D, 0x39, 0x25, 0x2F, 0x3F, 0x35, 0x31):
+        elif op in (0x29, 0x2D, 0x3D, 0x39, 0x25, 0x2F, 0x3F, 0x35, 0x31, 0x23):
             v = self.a_imm(m8) if op == 0x29 else self.load(
-                {0x31: self.a_dpind_y, 0x35: self.a_dpx, 0x2D: self.a_abs, 0x3D: self.a_absx, 0x39: self.a_absy,
+                {0x23: self.a_sr, 0x31: self.a_dpind_y, 0x35: self.a_dpx, 0x2D: self.a_abs, 0x3D: self.a_absx, 0x39: self.a_absy,
                  0x25: self.a_dp, 0x2F: self.a_long, 0x3F: self.a_longx}[op](), m8)
             r = (self.a & amask) & v
             self.a = (self.a & 0xFF00 | r) if m8 else r; self.setzn(r, m8)
@@ -404,25 +408,25 @@ class CPU:
                  0x05: self.a_dp, 0x0F: self.a_long, 0x1F: self.a_longx, 0x03: self.a_sr}[op](), m8)
             r = (self.a & amask) | v
             self.a = (self.a & 0xFF00 | r) if m8 else r; self.setzn(r, m8)
-        elif op in (0x49, 0x4D, 0x5D, 0x59, 0x45, 0x4F, 0x5F, 0x55, 0x51):
+        elif op in (0x49, 0x4D, 0x5D, 0x59, 0x45, 0x4F, 0x5F, 0x55, 0x51, 0x43):
             v = self.a_imm(m8) if op == 0x49 else self.load(
-                {0x51: self.a_dpind_y, 0x55: self.a_dpx, 0x4D: self.a_abs, 0x5D: self.a_absx, 0x59: self.a_absy,
+                {0x43: self.a_sr, 0x51: self.a_dpind_y, 0x55: self.a_dpx, 0x4D: self.a_abs, 0x5D: self.a_absx, 0x59: self.a_absy,
                  0x45: self.a_dp, 0x4F: self.a_long, 0x5F: self.a_longx}[op](), m8)
             r = (self.a & amask) ^ v
             self.a = (self.a & 0xFF00 | r) if m8 else r; self.setzn(r, m8)
-        elif op in (0x69, 0x6D, 0x7D, 0x79, 0x65, 0x6F, 0x7F, 0x75, 0x71):
+        elif op in (0x69, 0x6D, 0x7D, 0x79, 0x65, 0x6F, 0x7F, 0x75, 0x71, 0x63):
             v = self.a_imm(m8) if op == 0x69 else self.load(
-                {0x71: self.a_dpind_y, 0x75: self.a_dpx, 0x6D: self.a_abs, 0x7D: self.a_absx, 0x79: self.a_absy,
+                {0x63: self.a_sr, 0x71: self.a_dpind_y, 0x75: self.a_dpx, 0x6D: self.a_abs, 0x7D: self.a_absx, 0x79: self.a_absy,
                  0x65: self.a_dp, 0x6F: self.a_long, 0x7F: self.a_longx}[op](), m8)
             self.adc(v, m8)
-        elif op in (0xE9, 0xED, 0xFD, 0xF9, 0xE5, 0xEF, 0xFF, 0xF5, 0xF1):
+        elif op in (0xE9, 0xED, 0xFD, 0xF9, 0xE5, 0xEF, 0xFF, 0xF5, 0xF1, 0xE3):
             v = self.a_imm(m8) if op == 0xE9 else self.load(
-                {0xF1: self.a_dpind_y, 0xF5: self.a_dpx, 0xED: self.a_abs, 0xFD: self.a_absx, 0xF9: self.a_absy,
+                {0xE3: self.a_sr, 0xF1: self.a_dpind_y, 0xF5: self.a_dpx, 0xED: self.a_abs, 0xFD: self.a_absx, 0xF9: self.a_absy,
                  0xE5: self.a_dp, 0xEF: self.a_long, 0xFF: self.a_longx}[op](), m8)
             self.sbc(v, m8)
-        elif op in (0xC9, 0xCD, 0xDD, 0xD9, 0xC5, 0xCF, 0xDF, 0xD5, 0xD1):
+        elif op in (0xC9, 0xCD, 0xDD, 0xD9, 0xC5, 0xCF, 0xDF, 0xD5, 0xD1, 0xC3):
             v = self.a_imm(m8) if op == 0xC9 else self.load(
-                {0xD1: self.a_dpind_y, 0xD5: self.a_dpx, 0xCD: self.a_abs, 0xDD: self.a_absx, 0xD9: self.a_absy,
+                {0xC3: self.a_sr, 0xD1: self.a_dpind_y, 0xD5: self.a_dpx, 0xCD: self.a_abs, 0xDD: self.a_absx, 0xD9: self.a_absy,
                  0xC5: self.a_dp, 0xCF: self.a_long, 0xDF: self.a_longx}[op](), m8)
             r = (self.a & amask) - v
             self.p = (self.p & ~C) | (C if r >= 0 else 0); self.setzn(r & amask, m8)

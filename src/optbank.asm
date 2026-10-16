@@ -59,6 +59,7 @@
 .export opt_openchests
 .export opt_freestuff, opt_housemp
 .export opt_casteritem, opt_castergood   ; for tools/test_options.py
+.export opt_lockpick
 .export opt_padreset
 .export opt_magicgfx, opt_castlife, opt_playervalid
 .export opt_magicmsg, opt_curedmsg
@@ -173,7 +174,7 @@ lut_Presets:
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
     .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
     .BYTE   OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE | OPTFM_RUSESTAFF
-    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE
+    .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE | (LOCKPICK_15 << LOCKPICK_SHIFT)
     .BYTE   STARTITEMS_NONE
     .RES    3, $00
 
@@ -3539,10 +3540,83 @@ opt_hitgrowth:
     CPX #CLS_NJ
     BNE @out
   @thief:
+    PHA
+    LDA OPT_THIEFHIT
+    AND #THIEFHIT_FIELD         ; lockpicking's level is above it
     CLC
-    ADC OPT_THIEFHIT
+    ADC $01, S
+    STA $01, S
+    PLA
   @out:
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;;  Thief lockpicking -- FFR's Lockpicking, its 1B_9300_LockpickDoors: a
+;;  locked door opens without the KEY if anyone in the party is a Thief or a
+;;  Ninja of the set level or above.  Anyone: FFR checks class and level and
+;;  nothing else, so a dead Thief still knows how.  Its placement logic does
+;;  not count on it -- a party may have no Thief -- and nor does this one's.
+;;
+;;    SMMove_Door's seven bytes from LDX #0 to LDX item_mystickey become the
+;;  JSL and three NOPs, and its BNE @OpenDoor reads the answer: X nonzero,
+;;  Z clear, to open.  The two stores it replaced are made here first.
+;;
+;;    In: A = the door bits (kept: @OpenDoor stores them).  Out: X and Z.
+;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_lockpick:
+    PHA
+    LDX #0
+    STX tileprop+1              ; as the door did: no locked shop
+    LDX item_mystickey
+    BNE @out                    ; the KEY, whatever the setting
+    LDA OPT_THIEFHIT
+    AND #LOCKPICK_FIELD
+    BEQ @out                    ; Off: X = 0
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    CMP #LOCKPICK_STEPS
+    BCS @out                    ; past the table, which the checksum should
+    TAX                         ;   have stopped: Off, X still 0
+    LDA f:lut_LockpickLevel - 1 + OPTFAR, X
+    PHA                         ; the level, 0-based as ch_level holds it
+    LDX #$C0                    ; the fourth character, then down
+  @char:
+    LDA ch_class, X
+    CMP #CLS_TH
+    BEQ @class
+    CMP #CLS_NJ
+    BNE @next
+  @class:
+    LDA ch_level, X
+    CMP $01, S
+    BCS @yes
+  @next:
+    TXA
+    SEC
+    SBC #$40
+    TAX
+    BCS @char                   ; past the first: C clear
+    PLA
+    LDX #0
+    BRA @out
+  @yes:
+    PLA
+    LDX #1
+  @out:
+    PLA
+    CPX #0
+    RTL
+
+;  Each step's level, less one, as ch_level counts.
+lut_LockpickLevel:
+    .BYTE 1-1, 5-1, 10-1, 15-1, 20-1, 25-1, 30-1, 35-1, 40-1, 45-1, 50-1
+.assert * - lut_LockpickLevel = LOCKPICK_STEPS - 1, error, "a level per step but Off"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

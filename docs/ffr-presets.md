@@ -207,8 +207,10 @@ HARM.
     A fifth of the gold chests give XP instead, which needs a new kind of
     chest content.
   - **Thief lockpicking**, in every randomized preset.  A Thief of the set
-    level opens every locked door without the KEY.  Placement logic has to
-    know about it.
+    level opens every locked door without the KEY.  *Built 2026-10-15*
+    (options-design.md, Variations): a value row, Super at FFR's 15.
+    Placement logic does not count on it, as FFR's does not -- the party
+    may have no Thief.
   - **Lefein's Inn, Clinic and SuperStore**, in every randomized preset.
     These are town edits and shop data.  *Played 2026-10-13:* two
     quality-of-life rows, and the cartridge's standard-map edit
@@ -288,7 +290,7 @@ HARM.
       3. the Explorer pack and the small rules of §3.2;
       4. map edits;
       5. class blursings;
-      6. lockpicking, random prices and hints.
+      6. random prices and hints (lockpicking built 2026-10-15).
   - **ES and EFS** are Beginner plus the wiring and the Short ToFR.
   - **Chaos Rush** is Beginner's list plus the unlocked ToFR, the orb count
     and the forced party.  It is otherwise the most complete already.

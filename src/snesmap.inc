@@ -600,6 +600,16 @@ THIEFHIT_STEPS    = 3
 THIEFHIT_VANILLA  = 0           ; +2 a level, the table's
 THIEFHIT_MODERATE = 1           ; +3, FFR's Improved Vanilla
 THIEFHIT_DOUBLE   = 2           ; +4, FFR's other presets
+THIEFHIT_FIELD    = $03         ; OPT_THIEFHIT: the step, in the low bits...
+
+;  ...and Thief lockpicking (FFR's Lockpicking; ported 2026-10-15), scalar 51,
+;  in the top four: a Thief or Ninja of the step's level opens a locked door
+;  without the KEY.  Off, then levels 1, 5, 10 ... 50.  No build had set the
+;  bits, so the format stays 9.
+LOCKPICK_FIELD    = $F0
+LOCKPICK_SHIFT    = 4
+LOCKPICK_STEPS    = 12
+LOCKPICK_15       = 4           ; level 15, FFR's randomized presets'
 THIEF_HIT_VANILLA = 2           ; what lut_LvlUpHitRateBonus holds for TH and NJ
 
 ;  Starting items: FFR's StartingItemSet, its nine fixed sets.  Each sets the

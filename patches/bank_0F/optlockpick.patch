@@ -1,0 +1,15 @@
+--- OLD
+    LDX #0                    ; otherwise (door is locked)
+    STX tileprop+1            ; erase the secondary attribute byte (prevent it from being a locked shop)
+    LDX item_mystickey        ; check to see if the player has the key
+    BNE @OpenDoor             ; if they do, open the door
+--- NEW
+.import opt_lockpick
+.export SMMove_Door          ; for tools/test_options.py
+
+    ;  The two stores and the KEY, or Thief lockpicking: optbank.asm.
+    JSL opt_lockpick + OPTFAR ; X nonzero if the door opens
+    NOP
+    NOP
+    NOP
+    BNE @OpenDoor             ; if they do, open the door
