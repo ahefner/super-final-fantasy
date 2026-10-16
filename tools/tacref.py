@@ -241,12 +241,22 @@ def member_heal(m, party, spellrec):
 
 
 # --- the decision ----------------------------------------------------------
+DECK_TURNS = 8                          # a pass through the script's slots
+
+
 class Mind:
     """One boss turn's thinking.  script: (magic rate, skill rate, 8 spells,
-    4 skills).  spellrec(id): the record the battle casts, five bytes."""
+    4 skills).  spellrec(id): the record the battle casts, five bytes.  deck:
+    the enemy's two rotation bytes as Boss tactics keeps them -- the spell
+    slots played this pass, a bit each; the skill slots in the low nibble,
+    the pass's turns so far in the high.  Each slot plays once a pass; a
+    pass is DECK_TURNS of the boss's turns."""
 
-    def __init__(self, party, boss, script, spellrec, elemdmg=0, wmharm=False):
+    def __init__(self, party, boss, script, spellrec, elemdmg=0, wmharm=False, deck=(0, 0)):
         self.p, self.b, self.script, self.rec = party, boss, script, spellrec
+        self.spent, self.skspent, self.turns = deck[0], deck[1] & 0x0F, deck[1] >> 4
+        if self.turns >= DECK_TURNS:
+            self.spent = self.skspent = self.turns = 0
         self.alive = [m.alive for m in party]
         self.nalive = sum(self.alive)
         self.phys = [member_phys(m, boss, elemdmg) if a else 0 for m, a in zip(party, self.alive)]
@@ -291,13 +301,25 @@ class Mind:
         spell and each skill of the script once, in its order."""
         out = [(None, None)]
         seen = set()
-        for s in self.script[2:10]:
-            if s != 0xFF and s not in seen:
+        for j, s in enumerate(self.script[2:10]):
+            if s != 0xFF and not self.spent & (1 << j) and s not in seen:
                 seen.add(s); out.append((s, Spell(self.rec(s))))
-        for s in self.script[10:14]:
-            if s != 0xFF and s + 0x42 not in seen:
+        for j, s in enumerate(self.script[10:14]):
+            if s != 0xFF and not self.skspent & (1 << j) and s + 0x42 not in seen:
                 seen.add(s + 0x42); out.append((s + 0x42, Spell(self.rec(s + 0x42))))
         return out
+
+    def after(self, aid):
+        """The two rotation bytes once the boss has done aid: its first slot
+        still in the deck played, and a turn of the pass gone."""
+        spent, skspent = self.spent, self.skspent
+        if aid is not None and aid < 0x42:
+            j = next(j for j, s in enumerate(self.script[2:10]) if s == aid and not spent & (1 << j))
+            spent |= 1 << j
+        elif aid is not None:
+            j = next(j for j, s in enumerate(self.script[10:14]) if s + 0x42 == aid and not skspent & (1 << j))
+            skspent |= 1 << j
+        return spent, skspent | ((self.turns + 1) << 4)
 
     def actions(self):
         live = [i for i in range(4) if self.alive[i]]

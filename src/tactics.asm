@@ -113,12 +113,32 @@ tac_turn:
     STA f:TC_SCRIPT, X
     DEY
     BPL :-
-    JSR tac_party
+    ;  The deck: what of the script this pass has played, kept in the
+    ;  rotation bytes Enemy_DoAi no longer reads -- spell slots a bit each,
+    ;  skill slots the low nibble, the pass's turns the high.  LoadEnemyStats
+    ;  zeroes both for every battle.
+    LDY #en_aiatkpos
+    LDA ($9A), Y
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    CMP #DECK_TURNS
+    BCS :+                      ; a pass gone by: all of it back, as the
+    STA f:TC_DECKT              ;   cleared scratch already has it
+    LDA ($9A), Y
+    AND #$0F
+    STA f:TC_DECKK
+    LDY #en_aimagpos
+    LDA ($9A), Y
+    STA f:TC_DECKM
+:   JSR tac_party
     JSR tac_boss
     JSR tac_bossatk
     JSR tac_script
     JSR tac_think
     JSR tac_decide
+    JSR tac_spend
 
     LDA f:TC_CHOICE
     ASL A
@@ -269,6 +289,72 @@ tac_latch:
     RTS
 
 lut_TacBit:  .BYTE $01, $02, $04, $08
+lut_TacBit8: .BYTE $01, $02, $04, $08, $10, $20, $40, $80
+
+
+;;  The deck, once the boss has chosen: the first slot still in it that
+;;  holds the chosen spell or skill is played, a turn of the pass goes by,
+;;  and both go back into the rotation bytes.  The swing plays no slot.
+;;  ($9A) the enemy's RAM stats.  X, Y clobbered.
+tac_spend:
+    .a8
+    .i8
+    LDA f:TC_CHOICE
+    ASL A
+    TAX
+    LDA f:TC_CID + 1, X
+    BMI @turn                   ; the swing
+    LDA f:TC_CID, X
+    CMP #$42
+    BCS @skill
+    STA f:TC_T
+    LDX #0
+  : LDA f:TC_SCRIPT + 2, X
+    CMP f:TC_T
+    BNE :+
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    AND f:TC_DECKM
+    BNE :+
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    ORA f:TC_DECKM
+    STA f:TC_DECKM
+    BRA @turn
+:   INX
+    CPX #8
+    BNE :--
+    BRA @turn
+  @skill:
+    SEC
+    SBC #$42
+    STA f:TC_T
+    LDX #0
+  : LDA f:TC_SCRIPT + 11, X
+    CMP f:TC_T
+    BNE :+
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    AND f:TC_DECKK
+    BNE :+
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    ORA f:TC_DECKK
+    STA f:TC_DECKK
+    BRA @turn
+:   INX
+    CPX #4
+    BNE :--
+  @turn:
+    LDA f:TC_DECKT
+    INC A
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ORA f:TC_DECKK
+    LDY #en_aiatkpos
+    STA ($9A), Y
+    LDA f:TC_DECKM
+    LDY #en_aimagpos
+    STA ($9A), Y
+    RTS
 
 
 ;;  Whether to think at all.  In: A = the enemy's id.  Out: C set if the
@@ -551,6 +637,14 @@ tac_script:
     STA f:TC_NCAND
     LDY #2
   @spell:
+    TYA                         ; played this pass: not in the deck
+    SEC
+    SBC #2
+    TAX
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    AND f:TC_DECKM
+    AND #$00FF
+    BNE :+
     TYX
     LDA f:TC_SCRIPT, X
     AND #$00FF
@@ -562,6 +656,14 @@ tac_script:
     BNE @spell
     LDY #11
   @skill:
+    TYA
+    SEC
+    SBC #11
+    TAX
+    LDA f:TACTICSFAR + lut_TacBit8, X
+    AND f:TC_DECKK
+    AND #$00FF
+    BNE :+
     TYX
     LDA f:TC_SCRIPT, X
     AND #$00FF

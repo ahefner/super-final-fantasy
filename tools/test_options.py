@@ -4520,13 +4520,15 @@ def tac_script_bytes(magic_rate, skill_rate, spells, skills):
     return s
 
 
-def tac_setup(party, enemy, hp, script, mode, state, ail=0, mult=1, flags5=0, elemdmg=4, **boss):
+def tac_setup(party, enemy, hp, script, mode, state, ail=0, mult=1, flags5=0, elemdmg=4, deck=(0, 0), **boss):
     bus = tac_base()
     tac_junk(bus)
     tac_dial(bus, mode, flags5)
     setblk(bus, K["OPTD_ELEMDMG"] - OPTBLOCK, elemdmg)
     tac_write_party(bus, party)
     tac_write_boss(bus, enemy, hp, ail=ail, mult=mult, **boss)
+    en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
+    bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]] = deck
     at = K["OPTAISHADOW"] - 0x6000
     bus.sram[at:at + 16] = bytes(script)
     bus.wram[0x9E], bus.wram[0x9F] = K["OPTAISHADOW"] & 0xFF, K["OPTAISHADOW"] >> 8
@@ -4542,6 +4544,8 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
     elemdmg = blk(bus, K["OPTD_ELEMDMG"] - OPTBLOCK)
     wmharm = bool(blk(bus, K["OPTFB_WMHARM"] - OPTBLOCK) & K["OPTFM_WMHARM"])
     borrowed = bytes(bus.sram[0x686C - 0x6000:0x6874 - 0x6000]) + bytes(bus.wram[0x84:0x86])
+    en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
+    deck = (bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]])
     got, cpu = tac_run(bus)
     if bytes(bus.sram[0x686C - 0x6000:0x6874 - 0x6000]) + bytes(bus.wram[0x84:0x86]) != borrowed:
         bad = ["%s: the attacker's bytes or $84 not put back" % where]
@@ -4549,7 +4553,7 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
         bad = []
     boss = tac_boss_of(bus, enemy)
     flat = list(script[0:2]) + list(script[2:10]) + list(script[11:15])
-    M = TR.Mind(party, boss, flat, rec, elemdmg, wmharm)
+    M = TR.Mind(party, boss, flat, rec, elemdmg, wmharm, deck)
     words = lambda name, n=4: [tac_w(bus, name, 2 * i) for i in range(n)]
     for name, want in (("TC_PHYS", M.phys), ("TC_PDARK", M.pdark), ("TC_PSLOW", M.pslow), ("TC_MAG", M.mag),
                        ("TC_HEAL", M.heal), ("TC_D", M.d), ("TC_KG", M.KG), ("TC_DG", M.DG)):
@@ -4577,6 +4581,11 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
     after = bus.sram[BTL_RNGSTATE - 0x6000]
     if (got, after) != (want, (state + used) & 0xFF):
         bad.append("%s chose %s (dice to %d), want %s (dice to %d)" % (where, got, after, want, (state + used) & 0xFF))
+    left = (bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]])
+    if got[0] in ("swing", "magic") and left != M.after(aid):
+        bad.append("%s deck %s after %s, want %s" % (where, left, got, M.after(aid)))
+    if (got, after) != (want, (state + used) & 0xFF):
+        pass
     elif tgt is not None and aid is not None or aid is None:
         latch = bytes(bus.wram[rw("TC_LATCH"):rw("TC_LATCH") + 3])
         if tgt is not None and latch != bytes([0xA0 | tgt, (0xA0 | tgt) ^ 0xFF, TAC_ENEMYSLOT]):
@@ -4846,9 +4855,11 @@ def test_bosstactics():
         skills = [rnd.randrange(0x26) for _ in range(rnd.randrange(0, 5))]
         script = tac_script_bytes(rnd.choice((0, 30, 64, 128)), rnd.choice((0, 30, 64, 128)), spells, skills)
         mode, state = 1 + n % 2, rnd.randrange(256)
+        deck = rnd.choice(((0, 0), (rnd.randrange(256), rnd.randrange(16) | rnd.randrange(8) << 4),
+                           (rnd.randrange(256), rnd.randrange(16) | 8 << 4), (0xFF, 0x7F)))
         bus = tac_setup(party, enemy, rnd.choice((maxhp, max(1, maxhp // 3), 7, maxhp + 100)), script, mode, state,
                         ail=rnd.choice((0, 0, 0, 0x08, 0x40)), mult=rnd.choice((1, 1, 2, 0)),
-                        flags5=rnd.choice((0, 0x01)), elemdmg=rnd.choice((4, 30)))
+                        flags5=rnd.choice((0, 0x01)), elemdmg=rnd.choice((4, 30)), deck=deck)
         if rnd.random() < 0.3:
             setblk(bus, K["OPTFB_WMHARM"] - OPTBLOCK, blk(bus, K["OPTFB_WMHARM"] - OPTBLOCK) | K["OPTFM_WMHARM"])
         if rnd.random() < 0.5:                   # spells as the buffs and fixes write them
@@ -5097,6 +5108,49 @@ def test_bosstactics():
     last = [TR.Member(ail=0x01, hp=0, maxhp=300)] * 3 + [TR.Member(cls=FI, hp=500, maxhp=500)]
     worth, act, bus = turn(last, 127, 2000)
     check("the last one standing: a kill is the fight", tac_w(bus, "TC_KG", 6), TR.CAP)
+
+    #  --- The deck: a fight of sixteen of Chaos's turns, in place ---
+    #  The dice and the rotation bytes carried from turn to turn, and the
+    #  party hurting it between: no slot of its script twice in a pass of
+    #  eight, its CUR4 once a pass however hurt it is.
+    rom = ROMDATA[ENEMIES_ROM + 127 * 20:][:20]
+    chaosmax = rom[4] | rom[5] << 8
+    party = [TR.Member(cls=c, hp=900, maxhp=900, dmg=110, hitrate=150, numhits=2, absorb=60, evade=60, magdef=110)
+             for c in (6, 7, 9, 10)]
+    for mode in (1, 2):
+        state, deck, hp, plays = 17, (0, 0), chaosmax, []
+        for turn_no in range(16):
+            bus = tac_setup(party, 127, hp, [0xFF] * 16, mode, state, deck=deck)
+            cpu = CPU(bus)
+            cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, SYM["Enemy_DoAi"]
+            cpu.push(0xFF); cpu.push(0xFD)
+            while not (cpu.pbr == BANK_0C and cpu.pc in (SYM["EnemyAttackPlayer_Physical"], SYM["Enemy_DoMagicEffect"])):
+                cpu.step()
+            act = "swing" if cpu.pc == SYM["EnemyAttackPlayer_Physical"] else cpu.a & 0xFF
+            plays.append(act)
+            en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
+            deck = (bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]])
+            state = bus.sram[BTL_RNGSTATE - 0x6000]
+            hp = cur = chaosmax if act == cur4 else max(1, hp - 400)
+        at = K["OPTAISHADOW"] - 0x6000
+        script = list(tac_base().sram[at:at + 16])
+        bus = tac_setup(party, 127, chaosmax, [0xFF] * 16, mode, 0)
+        cpu = CPU(bus)
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, SYM["Enemy_DoAi"]
+        cpu.push(0xFF); cpu.push(0xFD)
+        while not (cpu.pbr == BANK_0C and cpu.pc in (SYM["EnemyAttackPlayer_Physical"], SYM["Enemy_DoMagicEffect"])):
+            cpu.step()
+        script = list(bus.sram[at:at + 16])
+        slots = [x for x in script[2:10] if x != 0xFF] + [x + 0x42 for x in script[11:15] if x != 0xFF]
+        over = [(w, a) for w in (0, 8) for a in set(plays[w:w + 8]) if a != "swing"
+                and plays[w:w + 8].count(a) > slots.count(a)]
+        name = ("Clever", "Ruthless")[mode - 1]
+        check("%s Chaos, sixteen turns: no slot played twice in a pass of eight" % name, over, [])
+        check("...CUR4 at most once a pass, hurt as it is", [plays[w:w + 8].count(cur4) <= 1 for w in (0, 8)],
+              [True, True])
+        check("...and it casts something", any(a != "swing" for a in plays), True)
+        print("    boss tactics: %s Chaos, sixteen turns: %s" % (name, " ".join(
+            "-" if a == "swing" else ("%02X" % a) for a in plays)))
 
     #  --- The music plays while it thinks ---
     party = [TR.Member(cls=c, hp=700, maxhp=700, absorb=30, spells=[rnd.randrange(1, 65) for _ in range(32)],

@@ -567,6 +567,24 @@ spell, a skill or a swing -- and decides what and at whom; a kind with
 nothing worth casting is a swing.  Garland and the Pirates have no script:
 their swing is weighed at its hook.  Asshat Octopus's aim stands.
 
+**The script is the boss's deck** (user, 2026-10-15, before the first
+playtest: "if Chaos is just going to spam NUKE, that's not very sporting").
+The first build had no such limit, and against a likely endgame party it did
+not spam NUKE -- but once Chaos was down two rounds of the party's damage,
+CUR4 was its best move every turn, and a boss that heals to full forever
+has won and is no fight.  Now each slot of the script plays once in every
+eight of the boss's turns (`DECK_TURNS`), the boss choosing which and when,
+and the swing is always there: Chaos one CUR4 and one NUKE an eight, Lich 2
+two NUKEs, Kary 2 four FIR3s -- the script's own mix bounds each boss, as
+vanilla's rotation does.  A pass is eight turns rather than "until every
+slot is played" because a boss that would rather swing than play its weak
+cards would never reach the end of its deck and never get its NUKE back,
+and reshuffling whenever it is stuck brings NUKE straight back.  The deck
+lives in the two rotation bytes `Enemy_DoAi` no longer reads when the dial
+is on: `en_aimagpos` the spell slots played, a bit each, `en_aiatkpos` the
+skill slots in its low nibble and the pass's turns in its high; both zeroed
+by `LoadEnemyStats` for every battle.
+
 **The worth is the race, in rounds.**  Dp is the party's damage a round to
 the boss: each living member's best, its swing by `DoPhysicalAttack`'s own
 rules (its weapon's element and category against the boss's weakness, the
@@ -587,7 +605,8 @@ actions is expected to take off the party.  Then, in rounds:
     confusion two; nothing more on one out already.  MUTE a caster's spells
     for the fight; DARK and SLOW a fighter's swing, by the swing in the dark
     or a multiplier down; poison two HP a round for the fight.
-  - Its own heal, the HP it is missing at most, over Dp; CUR4 all of it; FAST
+  - Its own heal, the HP it is missing at most, over Dp; CUR4 all of it,
+    once a pass of the deck; FAST
     (nothing at a multiplier of 2) the party falling sooner to its faster
     swing for the rest of the fight -- if its swing then beats its best.
 
@@ -645,11 +664,13 @@ Rb, Db, kill and disable worth, each candidate's worth and aim, the choice
 and the dice it used) over 160 drawn turns with spell lists, MP and the
 spell buffs, and the edges; `Enemy_DoAi` in place for every boss, Clever and
 Ruthless, with the boss's stats scaled, the swing reaching its hook; the
-latch's rules; cases a player knows (Lich and Ribbons -- SLP2 has no element
+latch's rules; the deck over drawn states and a sixteen-turn fight with
+Chaos, dice and deck carried from turn to turn (no slot twice in a pass, CUR4
+once a pass however hurt); cases a player knows (Lich and Ribbons -- SLP2 has no element
 in this cartridge, so a Ribbon does nothing for it; Chaos's CUR4 at full HP
 and hurt; FAST once fast; XXXX's 300; MUTE with and without a caster; the
 last one standing); the music running between thoughts and the decision the
-same; the arithmetic called as the reckoning calls it; the dial.  87
+same; the arithmetic called as the reckoning calls it; the dial.  96
 mutations, all caught; one more equivalent (SLOW on one already slowed is
 worth nothing by the threat arithmetic anyway).
 
@@ -2113,9 +2134,9 @@ text region in the game references.
                              opt_itemspell and opt_weapbyte's answer), and
                              Boss tactics (75: its row, readouts, scalar
                              tables, opt_isbossfar and opt_spellbytefar)
-    BANK_OPTTEXT  3748 free  the settings screen's descriptions; Map
+    BANK_OPTTEXT  3692 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
-                             Boss tactics' three 376
+                             Boss tactics' three 432
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
@@ -2149,7 +2170,7 @@ text region in the game references.
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their
                              reach (from tools/genroll.py)
-    BANK_TACTICS  7669 free  Boss tactics (8715): gathering, the threat, the
+    BANK_TACTICS  7447 free  Boss tactics (8937): gathering, the deck, the threat, the
                              race, the dice's sums, the normal tail, the
                              choice, the arithmetic, and gentactics.py's
                              tables (199 + 3 x 129 words + 81 words)

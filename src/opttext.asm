@@ -271,18 +271,20 @@ lut_Desc_96_0:  ; Boss tactics: Off
   FFPAD {"eighth each."}, 28
 
 lut_Desc_96_1:  ; Boss tactics: Clever
-  FFLINES 4
+  FFLINES 5
   FFPAD {"Bosses keep their script's"}, 28
   FFPAD {"pace, but pick the spell or"}, 28
   FFPAD {"skill, and the target, that"}, 28
-  FFPAD {"hurt the party most."}, 28
+  FFPAD {"hurts most, each slot of it"}, 28
+  FFPAD {"once in eight turns."}, 28
 
 lut_Desc_96_2:  ; Boss tactics: Ruthless
-  FFLINES 4
+  FFLINES 5
   FFPAD {"Bosses weigh every action"}, 28
   FFPAD {"they have, every turn, and"}, 28
-  FFPAD {"take the one that leaves the"}, 28
-  FFPAD {"party worst off."}, 28
+  FFPAD {"take the best, each slot of"}, 28
+  FFPAD {"their script once in eight"}, 28
+  FFPAD {"turns."}, 28
 
 lut_Desc_92:  ; Asshat Octopus
   FFLINES 3

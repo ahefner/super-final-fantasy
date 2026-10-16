@@ -331,19 +331,22 @@ ENEMY_KRAKEN2   = $7C           ; ...and its return in the Temple of Fiends
 OPTFB_RUSESTAFF = OPT_FLAGS+5
 OPTFM_RUSESTAFF = $10    ; bit 44
 
+ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
+WEAPON_POWERSTAFF = 27          ; ...and its weapon index
+SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
+
 ;  Boss tactics (user, 2026-10-15; not FFR's): a value row, not a checkbox,
 ;  in two bits of the sixth flag byte -- 45 and 46, which no build had set,
 ;  so every saved block reads Off and the format stays 9.  tactics.asm.
 OPTFB_BOSSAI    = OPT_FLAGS+5
 OPTFM_BOSSAI    = $60
 BOSSAI_SHIFT    = 5
-BOSSAI_OFF      = 0             ; GetRandomPlayerTarget, as ever
-BOSSAI_CLEVER   = 1             ; vanilla's weights times each target's score
-BOSSAI_RUTHLESS = 2             ; the best score; vanilla's weights among equals
+BOSSAI_OFF      = 0             ; the script, as ever
+BOSSAI_CLEVER   = 1             ; the script's rates, the best of the deck
+BOSSAI_RUTHLESS = 2             ; the best of the swing and the deck, always
 BOSSAI_MODES    = 3
-ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
-WEAPON_POWERSTAFF = 27          ; ...and its weapon index
-SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
+DECK_TURNS      = 8             ; a boss's script is its deck: each slot plays
+                                ;   once in this many of its turns
 
 ;  Standard map edits: tiles written over a map as it loads, when a flag asks
 ;  (opt_mapedits, lut_MapEdits).  The first two are FFR's Lefein shops, both
@@ -2007,8 +2010,11 @@ TC_MCB          = TC_BASE+$390  ; the roll sums kept, two base damages: B + 1...
 TC_MC1          = TC_BASE+$394  ; ...the rolls' sum...
 TC_MC2          = TC_BASE+$398  ; ...and their squares' (4 each)
 TC_SPV          = TC_BASE+$3A0  ; 64 bytes: a spell's record is in TC_SPREC
-TC_END          = TC_BASE+$3E0
-TC_SPREC        = TC_BASE+$3E0  ; 64 x 5: the spells' records, once each, as
+TC_DECKM        = TC_BASE+$3E0  ; the deck: spell slots played this pass...
+TC_DECKK        = TC_BASE+$3E2  ; ...skill slots...
+TC_DECKT        = TC_BASE+$3E4  ; ...and the pass's turns so far
+TC_END          = TC_BASE+$3E6
+TC_SPREC        = TC_BASE+$3E6  ; 64 x 5: the spells' records, once each, as
                                 ;   TC_SPV says (so not cleared)
 TC_SPRECEND     = TC_SPREC + 64 * 5
 ;  The aim a decision leaves for the swing or spell it chose: the slot with
