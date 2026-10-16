@@ -330,6 +330,13 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"starts out with.  Saved"}, 28
   FFPAD {"games are not affected."}, 28
 
+lut_Desc_100:  ; Item magic
+  FFLINES 4
+  FFPAD {"Each item that casts a spell"}, 28
+  FFPAD {"casts another, and is named"}, 28
+  FFPAD {"for it.  Balanced leaves out"}, 28
+  FFPAD {"the strongest and weakest."}, 28
+
 lut_Desc_99:  ; Thief lockpicking
   FFLINES 4
   FFPAD {"A Thief or Ninja at this"}, 28
@@ -1011,7 +1018,7 @@ lut_DescLo:
   .BYTE <lut_Desc_27, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64
   .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
-  .BYTE <lut_Desc_51, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
+  .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
   .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
   .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_93, <lut_Desc_74, <lut_Desc_75
   .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
@@ -1032,7 +1039,7 @@ lut_DescHi:
   .BYTE >lut_Desc_27, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64
   .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
-  .BYTE >lut_Desc_51, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
+  .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
   .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81

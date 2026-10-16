@@ -3792,33 +3792,34 @@ opt_padreset:
     JML OnReset + BANK00FAR
 
 
-;;  The spell an item cast in battle -- @GetSpellCast's, after it reads the
-;;  record's byte -- but the Power Staff's RUSE under the RUSE Staff flag, and
-;;  the Wizard Staff's NUKE under the NUKE Stick's.
-;;  In: A = the record's spell byte (1-based, 0 none); btl_charcmditem, for
-;;  btlcmd_curchar, the item it just recorded.  Out: X = the spell 0-based
-;;  ($FF none) and Y = btlcmd_curchar, as the five bytes this replaced left
-;;  them.  Emulation mode, the battle's data bank.
+;;  The spell an item cast in battle -- @GetSpellCast's, which read the
+;;  cartridge's record -- as the item really casts it: the record as the
+;;  world has it (item magic's deal, in the gear cache) under the RUSE Staff
+;;  and the NUKE Stick, through the readers the equipment text uses, so the
+;;  two cannot disagree.
+;;  In: btl_charcmditem, for btlcmd_curchar, the item it just recorded (the
+;;  record's byte in A is not needed).  Out: X = the spell 0-based ($FF none)
+;;  and Y = btlcmd_curchar, as the five bytes this replaced left them.
+;;  Emulation mode, the battle's data bank.
 opt_itemspell:
-    TAX
     LDY btlcmd_curchar
     LDA btl_charcmditem, Y
-    CMP #ITEM_POWERSTAFF
-    BEQ @ruse
-    CMP #ITEM_WIZARDSTAFF
-    BNE @out
-    LDA OPTFB_NUKESTICK         ; the NUKE Stick
-    AND #OPTFM_NUKESTICK
-    BEQ @out
-    LDX #SPELLBYTE_NUKE
-    BRA @out
-  @ruse:
-    LDA OPTFB_RUSESTAFF
-    AND #OPTFM_RUSESTAFF
-    BEQ @out
-    LDX #SPELLBYTE_RUSE         ; the Defense sword's
-  @out:
-    DEX                         ; Y, btlcmd_curchar, as the hook's LDY left it
+    SEC
+    SBC #TCITYPE_WEPSTART       ; gear 0..79, weapons then armour
+    LDY #WEAPON_SPELL
+    CMP #CASTER_WEAPONS
+    BCS @armour
+    TAX
+    JSR opt_weapbyte
+    BRA @spell
+  @armour:
+    SBC #CASTER_WEAPONS         ; C set: the armour's index
+    TAX
+    JSR opt_armbyte
+  @spell:
+    TAX
+    DEX
+    LDY btlcmd_curchar
     RTL
 
 

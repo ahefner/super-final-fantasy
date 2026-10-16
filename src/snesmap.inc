@@ -1665,6 +1665,17 @@ CHESTS_MODES    = 2
 MAGIC_OFF       = 0
 MAGIC_SHUFFLE   = 1
 MAGIC_MODES     = 2
+MAGIC_FIELD     = $03           ; RANDO_MAGIC: the levels shuffle, low...
+;  ...and item magic (FFR's ShuffleItemMagic; user, 2026-10-15), scalar 52,
+;  bits 4-5: every item that casts a spell casts another, from FFR's All or
+;  Balanced pool, and is named for it.  No save had set the bits, so a game
+;  begun before reads Off, and the save's layout stays as it was.
+ITEMMAGIC_FIELD    = $30
+ITEMMAGIC_SHIFT    = 4
+ITEMMAGIC_OFF      = 0
+ITEMMAGIC_SHUFFLE  = 1
+ITEMMAGIC_BALANCED = 2
+ITEMMAGIC_MODES    = 3
 
 ;  Blursings: FFR's RandomWeaponBonus and RandomArmorBonus, one range for both.
 ;  Each piece of gear rolls a bonus from -curse to +blessing, so a plain piece

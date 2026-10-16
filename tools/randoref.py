@@ -53,6 +53,7 @@ STREAM_RNG = 0x524E4754         # "RNGT"
 STREAM_ORDEALS = 0x4F52444C     # "ORDL"
 STREAM_KEYS = 0x4B455953        # "KEYS"
 STREAM_CASTER = 0x43415354      # "CAST"
+STREAM_ITEMMAGIC = 0x494D4147   # "IMAG"
 WARMUP = 8
 
 
@@ -333,6 +334,67 @@ def build_gear(rom, seed, bless, curse):
             t[a + 0] = clamp(t[a + 0] - k * b, 0, 255)   # evade penalty, FFR's weight
             t[a + 1] = clamp(t[a + 1] + k * b, 1, 255)   # absorb
     return bytes(t), bonus
+
+
+# --- item magic -------------------------------------------------------------------
+#  FFR's ShuffleItemMagic: every item that casts a spell casts another, dealt
+#  from a pool, weapons first and then armour as FFR concatenates them; the
+#  item is named for it.  The modes are the high field of RANDO_MAGIC.
+ITEMMAGIC_OFF, ITEMMAGIC_SHUFFLE, ITEMMAGIC_BALANCED = range(3)
+ITEMMAGIC_SHIFT = 4
+MAGIC_AT = GEAR_AT + 480                    # lut_MagicData, after the gear
+
+
+def balanced_drops(d):
+    """GetBalancedSpells' removals, on a record's bytes: 1 effectivity,
+    2 element, 3 target, 4 routine."""
+    eff, elem, tgt, rt = d[1], d[2], d[3], d[4]
+    return ((rt == 0x0D and tgt != 0x04) or rt == 0x0C
+            or (rt == 0x01 and eff > 55 and elem == 0)
+            or (rt == 0x01 and eff > 70 and tgt == 0x01)
+            or (rt == 0x01 and eff > 100) or (rt == 0x01 and eff < 20)
+            or (rt == 0x08 and eff & 0x50 == 0) or rt == 0x0F
+            or (rt == 0x02 and eff > 120)
+            or (rt == 0x12 and eff & 0x03 and elem == 0)
+            or (rt == 0x03 and eff & 0xD3 == 0) or (rt == 0x12 and eff & 0xD3 == 0)
+            or (rt == 0x10 and eff > 80) or (rt == 0x09 and eff > 32)
+            or (rt == 0x0A and eff == 0xFF))
+
+
+def itemmagic_pool(records, mode):
+    """The spells mode deals from, in spell order: every one with a battle
+    routine (GetAllSpells), less balanced_drops for Balanced."""
+    out = []
+    for s in range(64):
+        d = records[s * 8:s * 8 + 8]
+        if d[4] == 0 or (mode == ITEMMAGIC_BALANCED and balanced_drops(d)):
+            continue
+        out.append(s)
+    return out
+
+
+def gear_spell_at(g):
+    """Where gear g's spell byte is in the 480-byte tables."""
+    return g * 8 + 3 if g < 40 else 320 + (g - 40) * 4 + 3
+
+
+def build_itemmagic(rom, seed, mode):
+    """{gear 0..79: its spell byte, 1-based}, for the items that cast one on
+    the cartridge.  Fisher-Yates over the pool as far as the items go, so
+    each item's spell is distinct, as FFR's shuffle-and-zip makes it."""
+    if mode not in (ITEMMAGIC_SHUFFLE, ITEMMAGIC_BALANCED):
+        return {}
+    pool = itemmagic_pool(rom[MAGIC_AT:MAGIC_AT + 512], mode)
+    items = [g for g in range(80) if rom[GEAR_AT + gear_spell_at(g)]]
+    rng = Stream(seed, STREAM_ITEMMAGIC)
+    deal = {}
+    for k, g in enumerate(items):
+        if k >= len(pool):
+            break
+        j = k + rng.below(len(pool) - k)
+        pool[k], pool[j] = pool[j], pool[k]
+        deal[g] = pool[k] + 1
+    return deal
 
 
 def blursed_name_bytes(rom, item, b):

@@ -5240,8 +5240,18 @@ def test_staffspells():
               (k >= 0, bank.find(bytes([0xA5, 0x89, 0xAC, 0x7A, 0x6B, 0x18, 0x69, start]), k + 1)), (True, -1))
         return 0x8000 + k
 
+    #  One machine, its world built, as a battle's always is: Use reads the
+    #  spell through the gear cache now (item magic), and a cold cache is a
+    #  build inside the step budget.  Warming one machine per call was two
+    #  thousand builds' worth of snapshots, and PyPy's ARM64 JIT fell over on
+    #  the trace.  Each call resets what it reads.
+    wbus, wcpu = machine()
+    fresh = (wcpu.s, wcpu.p, wcpu.e, wcpu.d)
+    call(wcpu, "rando_ensure", bank=RANDO_BANK)
+
     def use(start, i, bits, char):
-        bus, cpu = machine()
+        bus, cpu = wbus, wcpu
+        cpu.s, cpu.p, cpu.e, cpu.d = fresh
         setblk(bus, FB, bits)
         bus.sram[CURCHAR - 0x6000] = char
         for c in range(4):
@@ -5628,6 +5638,263 @@ def test_lockpick():
     check("...Off, the KEY: in", walk(LOCKED, 0, nobody, 1), (True, 2, 0))
     check("an open door, Off: in, and a shop behind it still a shop",
           walk(DOOR, 0, nobody), (True, 1, 1))
+
+
+def test_itemmagic():
+    """Item magic: FFR's ShuffleItemMagic with its All and Balanced pools.
+    Every item that casts a spell on the cartridge casts another, dealt
+    without repeats from the pool, weapons first, and is named for it; the
+    RUSE Staff and the NUKE Stick stand over the deal.  The pools are held
+    to a transcription of FFR's rules here, the deal to randoref's, and every
+    reader -- the records, the names, battle's Use, the caster pool -- to
+    the deal."""
+    FIELD, SHIFT = K["ITEMMAGIC_FIELD"], K["ITEMMAGIC_SHIFT"]
+    check("item magic is RANDO_MAGIC's bits 4-5, the levels shuffle bits 0-1",
+          (FIELD, SHIFT, K["MAGIC_FIELD"], K["ITEMMAGIC_MODES"]), (0x30, 4, 0x03, 3))
+    check("...its own stream", R.STREAM_ITEMMAGIC, 0x494D4147)
+    MAGIC_ROM = GEAR_ROM + 480
+    recs = [ROMDATA[MAGIC_ROM + i * 8:MAGIC_ROM + i * 8 + 8] for i in range(64)]
+
+    def balanced_ok(d):
+        """GetBalancedSpells, ItemMagic.cs, rule by rule: d[1] effectivity,
+        d[2] element, d[3] target, d[4] routine."""
+        e, el, t, rt = d[1], d[2], d[3], d[4]
+        drops = [rt == 0x0D and t != 0x04,                 # attack up, not on self
+                 rt == 0x0C,                                # doubles hit rate
+                 rt == 0x01 and e > 55 and el == 0,        # strong, non-elemental
+                 rt == 0x01 and e > 70 and t == 0x01,      # strong, every enemy
+                 rt == 0x01 and e > 100,
+                 rt == 0x01 and e < 20,
+                 rt == 0x08 and (e & 0b01010000) == 0,     # cures neither stun nor mute
+                 rt == 0x0F,                                # HP max
+                 rt == 0x02 and e > 120,
+                 rt == 0x12 and (e & 0b11) != 0 and el == 0,
+                 rt == 0x03 and (e & 0b11010011) == 0,
+                 rt == 0x12 and (e & 0b11010011) == 0,
+                 rt == 0x10 and e > 80,
+                 rt == 0x09 and e > 32,
+                 rt == 0x0A and e == 0xFF]
+        return not any(drops)
+    want_all = [i for i in range(64) if recs[i][4] != 0]
+    want_bal = [i for i in want_all if balanced_ok(recs[i])]
+    #  The generator's rule (randoref's) against this one, over records the
+    #  cartridge does not have: most of FFR's removals touch none of its 64.
+    bad = []
+    for rt in range(0x14):
+        for tgt in (0x01, 0x02, 0x04, 0x08, 0x10):
+            for el in (0x00, 0x01, 0x10):
+                for e in range(256):
+                    d = bytes([0, e, el, tgt, rt, 0, 0, 0])
+                    if rt and R.balanced_drops(d) == balanced_ok(d):
+                        bad.append("routine $%02X target $%02X element $%02X eff %d" % (rt, tgt, el, e))
+    check("randoref's Balanced rule is FFR's, over every synthetic record", bad[:4], [])
+    bus, cpu = machine()
+
+    def table(name, n):
+        a = SYM[name]
+        return [bus.read(RANDO_BANK, a + k) for k in range(n)]
+    check("the All pool: every spell with a battle routine, and no more",
+          (table("lut_IMAll", len(want_all)), SYM["lut_IMBal"] - SYM["lut_IMAll"]), (want_all, len(want_all)))
+    check("the Balanced pool: FFR's removals", table("lut_IMBal", len(want_bal)), want_bal)
+    check("...and no more", (SYM["IM_ALL_N"], SYM["IM_BAL_N"]), (len(want_all), len(want_bal)))
+
+    def names(ids):
+        return sorted(R.item_name(ROMDATA, 0xB0 + i).strip() for i in ids)
+    check("...All leaves out the five spells for the field",
+          names(set(range(64)) - set(want_all)), sorted(["LIFE", "LIF2", "WARP", "EXIT", "SOFT"]))
+    check("...Balanced, NUKE and FADE, CUR4 and FAST, among others; BANE and XXXX stay",
+          ({"NUKE", "FADE", "CUR4", "FAST", "WALL", "FIRE"} <= set(names(set(want_all) - set(want_bal))),
+           {"BANE", "XXXX", "FIR2", "HEAL"} <= set(names(want_bal))), (True, True))
+
+    def rom_byte(g):
+        return ROMDATA[GEAR_ROM + R.gear_spell_at(g)]
+    CASTERS = [g for g in range(80) if rom_byte(g)]
+    check("the dealt: the cartridge's twelve casting items", len(CASTERS), 12)
+
+    #  The deal, in the cache, beside blursings and the levels shuffle.
+    bad = []
+    for seed in SEEDS:
+        for mode in (0, 1, 2, 3):
+            for levels, bless, curse in ((0, 0, 0), (1, 3, 2)):
+                bus, cpu = machine()
+                setgear(bus, seed, bless, curse)
+                bus.sram[K["RANDO_MAGIC"] - 0x6000] = mode << SHIFT | levels
+                call(cpu, "rando_ensure", bank=RANDO_BANK)
+                got, bonus = gear_cache(bus)
+                t, wb = R.build_gear(ROMDATA, seed, bless, curse)
+                t = bytearray(t)
+                deal = R.build_itemmagic(ROMDATA, seed, mode)
+                for g, b in deal.items():
+                    t[R.gear_spell_at(g)] = b
+                pool = {1: want_all, 2: want_bal}.get(mode, [])
+                spells = [b - 1 for b in deal.values()]
+                ok = (got == bytes(t) and bonus == wb and sorted(deal) == (CASTERS if pool else [])
+                      and len(set(spells)) == len(spells) and set(spells) <= set(pool))
+                p = rw("RW_PERM")
+                perm = list(bus.wram[p:p + 64])
+                if not ok or perm != list(R.build_magic(seed, levels)[0]):
+                    bad.append("seed %08X mode %d levels %d blurse %d/%d" % (seed, mode, levels, bless, curse))
+    check("the gear cache: each casting item's spell dealt, distinct, from the pool", bad[:4], [])
+    #  The walk's two ends, which cast nothing on the cartridge: a copy in
+    #  which the first weapon and the last armour cast CURE.
+    rom = bytearray(ROMDATA)
+    for g in (0, 79):
+        rom[GEAR_ROM + R.gear_spell_at(g)] = 0x01
+    bus, cpu = machine()
+    bus.rom = rom
+    setgear(bus, 0x12345678, 0, 0)
+    bus.sram[K["RANDO_MAGIC"] - 0x6000] = 1 << SHIFT
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    deal = R.build_itemmagic(rom, 0x12345678, 1)
+    got = gear_cache(bus)[0]
+    check("...the first and the last piece of gear dealt, when they cast",
+          (sorted(deal)[0], sorted(deal)[-1], {g: got[R.gear_spell_at(g)] for g in deal}), (0, 79, deal))
+
+    #  The readers, from one warm world: the record bytes, battle's Use, the
+    #  names, the caster pool.  The staves over the deal.
+    FB, RUSE, NUKE = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"], K["OPTFM_NUKESTICK"]
+    seed, mode, bless, curse = 0x0BADF00D, 2, 3, 3
+    deal = R.build_itemmagic(ROMDATA, seed, mode)
+    bonus = R.build_gear(ROMDATA, seed, bless, curse)[1]
+
+    def world(m=mode, rom=None):
+        bus, cpu = machine()
+        if rom is not None:
+            bus.rom = rom
+        setgear(bus, seed, bless, curse)
+        bus.sram[K["RANDO_MAGIC"] - 0x6000] = m << SHIFT
+        if rom is None:
+            warm(bus)
+        return bus, cpu
+
+    def effective(g, bits):
+        if g == 27 and bits & RUSE:
+            return 4
+        if g == 32 and bits & NUKE:
+            return 0x3D
+        return deal.get(g, rom_byte(g))
+    bad = []
+    for bits in (0, RUSE | NUKE):
+        bus, cpu = world()
+        setblk(bus, FB, bits)
+        for g in range(80):
+            cpu.a, cpu.x, cpu.y = 0, g if g < 40 else g - 40, 3
+            call(cpu, "opt_weapbyte" if g < 40 else "opt_armbyte", dbr=CHUNK_OPT_BANK)
+            rec = cpu.a & 0xFF
+            for char in (0, 3):
+                bus.sram[0x6B7A - 0x6000] = char
+                bus.sram[0x689F - 0x6000 + char] = 0x1C + g
+                cpu.y = 0x55
+                call(cpu, "opt_itemspell")
+                use = (cpu.x & 0xFF, cpu.y & 0xFF)
+                if (rec, use) != (effective(g, bits), ((effective(g, bits) - 1) & 0xFF, char)):
+                    bad.append("gear %d bits $%02X char %d: record %d, use %s" % (g, bits, char, rec, use))
+    check("the record and battle's Use: the deal, the staves over it", bad[:4], [])
+
+    def spell_bytes(sp):
+        bank = (1 + 0x0A) * 0x10000
+        q = bank + 0xB700 + (0xB0 + sp) * 2
+        at = bank + (ROMDATA[q] | ROMDATA[q + 1] << 8)
+        nm = bytes(ROMDATA[at:at + 4])
+        return nm[:nm.index(0)] + b"\xff" * (4 - nm.index(0)) if 0 in nm else nm
+
+    def want_name(item, bits):
+        g = item - 0x1C
+        rom_name = R.blursed_name_bytes(ROMDATA, item, 0)
+        if not 0 <= g < 80:
+            return None
+        if (g == 27 and bits & RUSE) or (g == 32 and bits & NUKE):
+            base = bytearray((b"RUSE" if g == 27 else b"NUKE").translate(
+                bytes.maketrans(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ", bytes(range(0x8A, 0xA4))))
+                + b"\xff\xff\xd8")
+        elif g in deal:
+            icon = rom_name[6] if rom_name[6] > 200 and rom_name[6] != 0xFF else 0xFF
+            base = bytearray(spell_bytes(deal[g] - 1) + b"\xff\xff" + bytes([icon]))
+        else:
+            return None
+        b = bonus[g]
+        if b:
+            i = 5 if (base[6] > 200 and base[6] != 0xFF) else 6
+            base[i] = 0x80 + abs(b)
+            base[i - 1] = 0xC1 if b > 0 else 0xC2
+        return bytes(base) + b"\0"
+    nb = K["OPTNAMEBUF"] - 0x6000
+
+    def drawn(bits, m):
+        bus, cpu = world(m)
+        setblk(bus, FB, bits)
+        out = []
+        for item in range(256):
+            bus.sram[nb:nb + 8] = b"\x9a" * 8           # a decoy: the last name built
+            cpu.a, cpu.y = item, 0x5A
+            call(cpu, "rando_nameptr", bank=RANDO_BANK)
+            p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
+            out.append((p, bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(8)), cpu.y & 0xFF))
+        return out
+    bad = []
+    for bits in (0, RUSE | NUKE):
+        on, off = drawn(bits, mode), drawn(bits, 0)
+        for item in range(256):
+            w = want_name(item, bits)
+            want = (K["OPTNAMEBUF"], w, 0x5A) if w is not None else off[item]
+            if on[item] != want:
+                bad.append("item $%02X bits $%02X: %s, want %s" % (item, bits, on[item], want))
+    check("the names: each dealt item its spell's, the staves theirs, the rest as with it off",
+          bad[:4], [])
+    #  Off, every casting item its own name, blursed as it is.
+    off = drawn(0, 0)
+    check("off, each casting item named as the cartridge has it",
+          [off[0x1C + g][1][:7] for g in CASTERS],
+          [R.blursed_name_bytes(ROMDATA, 0x1C + g, bonus[g]) for g in CASTERS])
+    #  ...and with no bonuses, the padding bare.
+    bless, curse = 0, 0
+    bonus = [0] * 80
+    on = drawn(0, mode)
+    check("no bonuses: each dealt name its spell, two spaces and the icon",
+          [on[0x1C + g] for g in CASTERS], [(K["OPTNAMEBUF"], want_name(0x1C + g, 0), 0x5A) for g in CASTERS])
+    #  The icon rule over every byte the name's seventh could be: the Defense
+    #  sword's, which has none, in a private copy of the cartridge.
+    DEFENSE = 0x3B
+    q = (1 + 0x0A) * 0x10000 + 0xB700 + DEFENSE * 2
+    at7 = (1 + 0x0A) * 0x10000 + (ROMDATA[q] | ROMDATA[q + 1] << 8) + 6
+    rom = bytearray(ROMDATA)
+    bus, cpu = world(mode, rom)
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    bad = []
+    for v in range(256):
+        rom[at7] = v
+        cpu.a, cpu.y = DEFENSE, 0x5A
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        got = bus.sram[nb + 6]
+        if got != (v if v > 200 else 0xFF):
+            bad.append("seventh byte $%02X: drawn $%02X" % (v, got))
+    check("the icon kept above 200, a letter padded over", bad[:4], [])
+    bless, curse = 3, 3
+    bonus = R.build_gear(ROMDATA, seed, bless, curse)[1]
+    check("...a dealt name with a bonus, and one without an icon, among them",
+          (any(bonus[g] for g in deal), any(not 200 < R.blursed_name_bytes(ROMDATA, 0x1C + g, 0)[6] < 0xFF
+                                            for g in deal)), (True, True))
+
+    #  The starting caster item deals from what the items really cast.
+    def caster_good(sb):
+        if not 1 <= sb <= 64:
+            return False
+        d = recs[sb - 1]
+        return (d[4] in (0x01, 0x02, 0x0C, 0x0F, 0x07, 0x0E, 0x12, 0x10, 0x0D)
+                or d[4] == 0x03 and d[1] in (0x01, 0x80, 0x02))
+    bad = []
+    for bits in (0, RUSE | NUKE):
+        pl = [g for g in range(80) if caster_good(effective(g, bits))]
+        bus, cpu = world()
+        setblk(bus, FB, bits)
+        bus.sram[0x100:0x200] = bytes(0x100)
+        call(cpu, "opt_casteritem")
+        g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
+        got = (bus.sram[0x118], bus.sram[0x11C])
+        want = (g + 1, 0) if g < 40 else (0, g - 39)
+        if got != want:
+            bad.append("bits $%02X: %s, want gear %d" % (bits, got, g))
+    check("the caster pool: the dealt spells, under FFR's caster rule", bad, [])
 
 
 def test_strayobjects():
@@ -7936,6 +8203,8 @@ def test_rando_options():
             ("Starting items", "OPT_STARTITEMS", 0, 4, 9),
             ("Thief and Ninja hit%", "OPT_THIEFHIT", 0, 2, 3),
             ("Thief lockpicking", "OPT_THIEFHIT", 4, 4, 12),
+            ("Magic levels", "OPT_NG_MAGIC", 0, 2, 2),
+            ("Item magic", "OPT_NG_MAGIC", 4, 2, 3),
             ("Starting caster item", "OPT_STARTITEMS", 7, 1, 2)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
@@ -7967,6 +8236,8 @@ def test_rando_options():
     for e in range(4):
         spec[44 + e] = ("OPT_NG_EARLY", 0, e, 2)
     spec[48] = ("OPT_NG_ENTRANCES", 0, 0, 3)
+    spec[8] = ("OPT_NG_MAGIC", 0, 0, 2)          # Magic levels, under...
+    spec[52] = ("OPT_NG_MAGIC", 0, 4, 3)         # ...Item magic, one byte
     view_at = 0x6400 - 0x6000 + (K["RANDO_SAVE"] - 0x6000) + K["RANDO_NGOFF"]
     ng0 = K["OPT_NG"] - 0x6000
     bad = []
@@ -9925,7 +10196,8 @@ def test_saveview():
     #  field cannot agree, and the settings a different value in every field.
     def tbl(name, s):
         return ROMDATA[optimg + SYM[name] + s]
-    OLD = [3, 1, 1, 1, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1, 1]  # Trap tiles .. Ordeals pillars
+    OLD = [3, 1, 1, 1, 2, 4, 2, 2, 1, 1, 1, 1, 3, 2, 1, 1]  # Trap tiles .. Ordeals pillars;
+    #  the fifth Item magic's Balanced, beside Magic levels' Shuffle in one byte
     base = K["OPT_NG"] - OPTBLOCK
     step = {}
     ngb, decoy = bytearray(K["OPT_NG_SIZE"]), bytearray(K["OPT_NG_SIZE"])
@@ -10624,7 +10896,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

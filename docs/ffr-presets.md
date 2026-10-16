@@ -261,7 +261,9 @@ HARM.
   - Random Wares (CR and FE): declined (user, 2026-10-08).
   - Recruitment (FE): declined (user).
   - Dormant in all five, because their parent flag is off:
-      - the guaranteed defense item, which needs item-magic shuffle;
+      - the guaranteed defense item -- *wrong:* FFR crafts it unless item
+        magic is None, Vanilla included; it is the RUSE Staff here, and
+        Item magic (its All and Balanced pools) is built too, 2026-10-15;
       - wealth, except under FE's random loot;
       - Beginner's early-encounter, damage-tile and poison sub-values.
   - `NoBossSkillScriptShuffle` (FE): no code reads it.

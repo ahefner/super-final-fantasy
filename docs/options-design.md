@@ -689,10 +689,11 @@ worth nothing by the threat arithmetic anyway).
 **RUSE Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; the row
 reads "RUSE Staff", the spell's name in capitals as the game spells it; built,
 not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
-its dropdown; Super has it, Improved does not.  FFR crafts it only with its
-item magic shuffled (`CraftDefenseItem`), to promise a RUSE the shuffle
-might have dealt away, and keeps the staff out of its random shops; there
-is no item magic shuffle here and no random wares, so it stands alone.
+its dropdown; Super has it, Improved does not.  FFR's `CraftDefenseItem`
+runs whenever item magic is not None -- Vanilla included, which is how all
+its presets but Improved Vanilla and Over Randomizer have it -- after any
+shuffle, so the
+staff stands over the deal; here it stands over Item magic the same way.
 The Power Staff, used in battle, casts RUSE as the Defense sword does -- the
 same spell byte, 4 -- and is named for it as FFR's `WriteItemSpellData`
 names it: the spell's name padded to six, then the staff's own icon, so
@@ -909,7 +910,7 @@ confusion -- FFR's `SpellRoutine` and `SpellStatus` values, compared whole as
 FFR compares them.  Weapons first, then armour, as FFR concatenates them.
 The spell is the one the item really casts, through `opt_weapbyte`,
 `opt_armbyte` and `opt_spellbyte`, so the RUSE Staff's RUSE and the NUKE
-Stick's NUKE count, and so would any later item magic shuffle.  On this
+Stick's NUKE count, and so does Item magic's deal.  On this
 cartridge every casting item passes: twelve (the Light Axe, Heal Staff, Mage
 Staff, Defense, Wizard Staff, Thor's Hammer, Bane Sword, White and Black
 Shirts, Heal Helm, Zeus and Power Gauntlets), thirteen with the RUSE Staff.
@@ -931,7 +932,7 @@ and runs New Game itself beside each starting set.  Thirty-two mutations,
 one equivalent: splitting weapons from armour at 41 rather than 40 reads
 weapon 40's byte 3, which in the cache is armour 0's.
 
-### New game (6)
+### New game (16)
 
 **Decision (user, 2026-10-09): the section is headed RANDOMIZATION, and each
 row's first value reads "Off".**  Under the old NEW GAME heading, "Trap tiles:
@@ -958,6 +959,50 @@ presets use it.  White spells trade slots with white, black with black, and
 MP, price, shop and who may learn stay with the slot.  Tiered, mixed books
 and permissions that follow the spell are left out; every FFR preset has them
 off.
+
+Item magic, a value row: Off, Shuffle, Balanced -- FFR's `ShuffleItemMagic`
+(user, 2026-10-15, after the NUKE Stick: "item magic shuffle sounds easy";
+built, not yet played).  Every item that casts a spell on the cartridge --
+the twelve, weapons first and then armour as FFR concatenates them -- casts
+another, dealt from a pool without repeats, and is named for it as FFR's
+`WriteItemSpellData` names it: the spell's four letters padded to six and
+the item's own icon, or padded to seven without one, a blursing's digits on
+top.  Shuffle is FFR's All pool (every spell that does something in battle:
+59, all but LIFE, LIF2, WARP, EXIT and SOFT), Balanced its Balanced (45:
+less FFR's removals -- FIRE and LIT, the sleep and dark spells, LAMP, PURE,
+TMPR, FAST, CUR4, NUKE, FADE, WALL).  Low, Support and Curated are left
+out; none of FFR's presets shuffles item magic at all, so the row is Off in
+every preset.  `genitemmagic.py` works the pools out at build time from the
+cartridge's records -- not the option-adjusted ones, so a world stays a
+function of the seed and the save -- and `deal_itemmagic` deals at cache
+build, after the blursings (which never touch the spell byte), from its own
+stream ("IMAG"), into byte 3 of the gear cache's records.  Every reader asks
+the cache: the descriptions and the starting caster item through
+`opt_weapbyte` and `opt_armbyte`, battle's Use through `opt_itemspell` (now
+those two readers, not the record's ROM byte), the names through
+`rando_nameptr`.
+
+**The RUSE Staff and the NUKE Stick stand over it** (user, the same day:
+"ruse staff and nuke stick should override it and force their presence").
+They are options and the deal is the world's, so the deal never sees them:
+`opt_weapbyte` puts them over the record as it reads, and the names take
+theirs first.  The Power Staff casts nothing on the cartridge, so it is
+never dealt; the Wizard Staff's dealt spell waits under the NUKE Stick, and
+turning either flag on or off mid-game moves nothing else.  The starting
+caster item deals from what the items really cast, staves and deal
+together.
+
+The mode is `RANDO_MAGIC`'s bits 4-5 (scalar 52), Magic levels narrowed to
+the low two (`MAGIC_FIELD`): no save had set them, so a game begun before
+reads Off, and the save's layout -- and every playtest file -- stays as it
+was.  `test_itemmagic` holds the pools to its own transcription of FFR's
+rules (and randoref's rule to it over every synthetic record), the cache to
+randoref's deal over seeds, modes, blursings and the levels shuffle, the
+walk's two ends through a cartridge copy where they cast, every reader to
+the deal with the staves over it, all 256 names on and off, with and
+without bonuses, and the icon rule over every value of the seventh byte.
+Thirty-seven mutations caught; one equivalent removed (a test for a space
+before the icon rule, which keeps a space as itself anyway).
 
 Max gear blessing (0 to +5) and Min gear curse (0 to -5), two value rows:
 FFR's blursings.  Every weapon and armour rolls a bonus from -curse to
@@ -1174,6 +1219,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Shops | Off, Shuffle | -- | 2 | Off |
 | Chests | Off, Shuffle | -- | 2 | Off |
 | Magic levels | Off, Shuffle | -- | 2 | Off |
+| Item magic | Off, Shuffle, Balanced | -- | 3 | Off |
 | Max gear blessing | 0 to +5 | 1 | 6 | 0 |
 | Min gear curse | 0 to -5 | 1 | 6 | 0 |
 | Formation rarity | Off, Shuffle, Tiered | -- | 3 | Off |
@@ -2221,7 +2267,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     282 free   once the descriptions moved out, the None, the
+    BANK_OPT     223 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2242,20 +2288,22 @@ text region in the game references.
                              and the starting caster item (194: its row and
                              scalar, the pool's rule and walk), and Thief
                              lockpicking (176: its row, readouts and
-                             scalar, opt_lockpick, Thief hit's mask) --
+                             scalar, opt_lockpick, Thief hit's mask), and
+                             Item magic (59: its row, readouts and scalar;
+                             opt_itemspell shrank, asking the readers) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  3347 free  the settings screen's descriptions; Map
+    BANK_OPTTEXT  3232 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
-                             lockpicking's 115
+                             lockpicking's 115, Item magic's 115
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   3365 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   2949 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2272,7 +2320,9 @@ text region in the game references.
                              screen's yields, stages and yelps 89, and
                              Continue's cold build under it 22; the Ruse
                              Staff's name 57, and the NUKE Stick's beside
-                             it 32; the caster item's draw 43
+                             it 32; the caster item's draw 43; Item
+                             magic 416 -- its two pools 104, the deal,
+                             gear_spellat and the dealt names
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

@@ -224,6 +224,7 @@ STREAM_RNG      = $524E4754     ; "RNGT"
 STREAM_ORDEALS  = $4F52444C     ; "ORDL"
 STREAM_KEYS     = $4B455953     ; "KEYS"
 STREAM_CASTER   = $43415354     ; "CAST": the starting caster item's one draw
+STREAM_ITEMMAGIC = $494D4147    ; "IMAG"
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -233,6 +234,7 @@ ROMENCRNG    = RANDOFAR + lut_RNG
 
 ;  The weapon and armour tables, contiguous in bank $0C: 40 x 8, then 40 x 4.
 .import lut_WeaponData, lut_ArmorData
+.import lut_SpellNames              ; the options chunk's, four letters each
 ROMGEAR    = BANK0CFAR + lut_WeaponData
 .assert lut_ArmorData = lut_WeaponData + 40 * 8, lderror, "armour no longer follows the weapons"
 
@@ -824,6 +826,7 @@ build:
   @magic:
     JSR copy_magic
     LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
+    AND #MAGIC_FIELD            ; item magic's field is above it
     BEQ @inverse                ; MAGIC_OFF
     CMP #MAGIC_MODES
     BCS @inverse
@@ -835,13 +838,21 @@ build:
     JSR copy_gear
     LDA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
     CMP #BLURSE_STEPS
-    BCS @forms                  ; out of range: as none
+    BCS @itemmagic              ; out of range: as none
     LDA f:RANDO_SAVEFAR + (RANDO_CURSE - RANDO_SAVE)
     CMP #BLURSE_STEPS
-    BCS @forms
+    BCS @itemmagic
     ORA f:RANDO_SAVEFAR + (RANDO_BLESS - RANDO_SAVE)
-    BEQ @forms                  ; both nothing: off
+    BEQ @itemmagic              ; both nothing: off
     JSR deal_gear
+    ;  Item magic after the bonuses, which never touch the spell byte.
+  @itemmagic:
+    LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
+    AND #ITEMMAGIC_FIELD
+    BEQ @forms                  ; ITEMMAGIC_OFF
+    CMP #ITEMMAGIC_MODES << ITEMMAGIC_SHIFT
+    BCS @forms                  ; a mode this build does not know: as off
+    JSR deal_itemmagic
 
     ;  Formations: zones first, then rarity, each its own pass and stream.
   @forms:
@@ -3057,6 +3068,137 @@ deal_gear:
     BCC @each
     RTS
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Item magic -- FFR's ShuffleItemMagic, its All and Balanced pools
+;;
+;;  Every item that casts a spell on the cartridge -- weapons first, then
+;;  armour, as FFR concatenates them -- casts another, dealt from the pool:
+;;  Fisher-Yates over it as far as the items go, so no two share a spell, as
+;;  FFR's shuffle-and-zip has it.  The spell goes into the gear cache's
+;;  record, byte 3, which every reader asks: the descriptions and the
+;;  starting caster item through opt_weapbyte and opt_armbyte, battle's Use
+;;  through opt_itemspell, the names through rando_nameptr.  The pools are
+;;  worked out at build time (genitemmagic.py) from the cartridge's records.
+;;
+;;  The RUSE Staff and the NUKE Stick are options, not settings of the world,
+;;  so the deal never sees them: opt_weapbyte puts them over it as it reads,
+;;  and the Wizard Staff's dealt spell waits under the NUKE Stick.  Turning
+;;  either on mid-game moves nothing else.
+;;
+;;  In: A = the field, still shifted.  A8, I16, DBR $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.include "itemmagic.inc"
+.export lut_IMAll, lut_IMBal, IM_ALL_N, IM_BAL_N   ; for tools/test_options.py
+
+deal_itemmagic:
+    .a8
+    .i16
+    PHA
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_ITEMMAGIC)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_ITEMMAGIC)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    PLA
+    LDX #$0000
+    CMP #ITEMMAGIC_BALANCED << ITEMMAGIC_SHIFT
+    BEQ @bal
+  @all:
+    LDA f:RANDOFAR + lut_IMAll, X
+    STA a:wLIST, X
+    INX
+    CPX #IM_ALL_N
+    BCC @all
+    BRA @dealt
+  @bal:
+    LDA f:RANDOFAR + lut_IMBal, X
+    STA a:wLIST, X
+    INX
+    CPX #IM_BAL_N
+    BCC @bal
+  @dealt:
+    TXA
+    STA a:wLEN                  ; the pool's size
+    STZ a:wK                    ; the next of it to deal
+    STZ a:wGI
+  @each:
+    LDA a:wGI
+    JSR gear_spellat
+    LDA f:ROMGEAR, X
+    BEQ @next                   ; casts nothing on the cartridge
+    LDA a:wK
+    CMP a:wLEN
+    BCS @out                    ; the pool spent, as FFR's Zip stops
+    PHX
+    LDA a:wLEN
+    SEC
+    SBC a:wK
+    JSR rando_below             ; j - k, below what is left
+    CLC
+    ADC a:wK
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX                         ; j
+    LDA a:wK
+    AND #$00FF
+    TAY                         ; k
+    SEP #$20
+    .a8
+    LDA a:wLIST, X              ; swap them
+    PHA
+    LDA a:wLIST, Y
+    STA a:wLIST, X
+    PLA
+    STA a:wLIST, Y
+    INC A                       ; 1-based, as a record holds it
+    PLX
+    STA a:wWEAPONS, X
+    INC a:wK
+  @next:
+    INC a:wGI
+    LDA a:wGI
+    CMP #80
+    BCC @each
+  @out:
+    RTS
+
+;;  In: A8 = gear 0..79, weapons then armour.  Out: X16 = where its spell
+;;  byte is in the tables, ROMGEAR's or the cache's.  A8, I16.
+gear_spellat:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    AND #$00FF
+    CMP #40
+    BCS @armour
+    ASL A
+    ASL A
+    ASL A                       ; eight bytes a weapon
+    BRA @byte
+  @armour:
+    ASL A
+    ASL A                       ; four an armour, after the 320: 4g + 160
+    CLC
+    ADC #40 * 8 - 40 * 4
+  @byte:
+    CLC
+    ADC #WEAPON_SPELL
+    TAX
+    SEP #$20
+    .a8
+    RTS
+.assert WEAPON_SPELL = ARMOR_SPELL, error, "gear_spellat: one byte for both"
+
+
 ;;  Apply bonus A (nonzero) to piece X, 0..79.  A8, I16, DBR $7F.
 blurse_one:
     .a8
@@ -3432,9 +3574,63 @@ rando_nameptr:
     CPY #8
     BCC @ruse
     LDA a:wNAMEB
-    BNE @digits
-    JMP @buffer
+    BEQ :+
+    JMP @digits
+:   JMP @buffer
   @plain:
+    ;  Item magic: a casting item named for the spell it was dealt, as FFR's
+    ;  WriteItemSpellData names it -- the spell's four letters padded to
+    ;  six, then the item's own icon; one without an icon is padded to
+    ;  seven.  A bonus's digits go on it as on any name.
+    LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
+    AND #ITEMMAGIC_FIELD
+    BEQ @named                  ; off
+    CMP #ITEMMAGIC_MODES << ITEMMAGIC_SHIFT
+    BCS @named                  ; as the build reads it: off
+    LDA a:wNAMEID
+    SEC
+    SBC #TCITYPE_WEPSTART
+    JSR gear_spellat
+    LDA f:ROMGEAR, X
+    BEQ @named                  ; casts nothing on the cartridge: not dealt
+    LDA a:wWEAPONS, X           ; the dealt spell, 1-based
+    DEC A
+    REP #$20
+    .a16
+    AND #$003F
+    ASL A
+    ASL A
+    TAX                         ; its four letters
+    SEP #$20
+    .a8
+    LDY #$0000
+  @letter:
+    LDA f:OPTFAR + lut_SpellNames, X
+    PHX
+    TYX
+    STA f:NAMEBUFFAR, X
+    PLX
+    INX
+    INY
+    CPY #4
+    BCC @letter
+    LDA #$FF
+    STA f:NAMEBUFFAR + 4
+    STA f:NAMEBUFFAR + 5
+    LDX a:wNAMEPTR
+    LDA f:BANK0AFAR + 6, X      ; the cartridge name's seventh byte
+    CMP #201
+    BCS @icon                   ; FFR's icon: above 200 (a space, $FF, is
+    LDA #$FF                    ;   itself either way)
+  @icon:
+    STA f:NAMEBUFFAR + 6
+    LDA #$00
+    STA f:NAMEBUFFAR + 7
+    LDA a:wNAMEB
+    BEQ :+
+    JMP @digits
+:   JMP @buffer
+  @named:
     LDA a:wNAMEB
     BNE :+
     JMP @rom
