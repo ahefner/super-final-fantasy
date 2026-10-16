@@ -507,12 +507,12 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (12)
+### Variations (13)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Ruse
-Staff.
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
+tactics, Ruse Staff.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -544,6 +544,81 @@ every saved block reads it off and the format stays 9.  `test_kraken` runs
 the real `Enemy_DoAi` from all 256 RNG states: always the white mage with
 the flag, and the enemy's own turns, roll for roll, without it, with nobody
 to hit, for any other enemy, and for every other class.
+
+**Boss tactics** (user, 2026-10-15: bosses that "strategically select
+targets or choose spells to their best advantage"; built, not yet played) is
+not FFR's -- FFR only shuffles or removes boss scripts -- and is off in every
+preset.  A value row, Off / Clever / Ruthless, in two bits of the sixth flag
+byte (45 and 46, which no build had set, so every saved block reads Off and
+the format stays 9): the scalar tables already take a field of any byte of
+the option page, as the key item rows do.  This is the first half, the aim;
+choosing the spell is the second.
+
+Every enemy aims by `GetRandomPlayerTarget` -- slot 0 half the time, slot 1 a
+quarter, 2 and 3 an eighth each, rerolled past the dead and the stone -- the
+same for a fighter in plate as for a mage on 40 HP.  With the dial on, a boss
+(`opt_isboss`, FFR's list, reached through `opt_isbossfar` so there is one
+list) scores each target 0-256 first:
+
+  - **A physical attack**, by the share of the target's HP it can expect to
+    take: `DoPhysicalAttack`'s own rules -- hit chance 168, DARK either way,
+    the hit rate in and evade out for a target that can move, a quarter more
+    damage and no dodging against one asleep or stunned, the crit chance
+    under the hit chance, absorb, at least 1 a hit, a crit adding the roll
+    again, hits times FAST's multiplier -- summed exactly over the 256 values
+    of the battle's dice, as `RandAX` turns a die into a roll (including its
+    quirk that a range of 256 is 0, so base damage 255 always rolls 255).
+  - **A spell or skill at one target**, by its chance to work there: 148,
+    nothing if the element is resisted, plus the spell's accuracy, less magic
+    defense, against `Random_0_200` -- a resisted spell still lands on a roll
+    of 0, as in the game, so a Ribbon is two dice in 256 from safe; no use if
+    the target has every ailment it gives; SLOW no use on one already slowed;
+    XXXX and STUN sure at 300 HP or under, else no use; a damage spell by the
+    share of HP, a crit's share and a plain one's weighed by the crit dice.
+    Any other effect leaves every target alike.
+
+**Clever** weighs each target by vanilla's weight times its score, so the
+front of the line still draws most swings but a target it can finish pulls
+hard; with every score alike it is vanilla's 4:2:1:1 exactly.  **Ruthless**
+takes the best score, and vanilla's weights among equals.  One battle die for
+the choice when there are two or more candidates, none when there is one, and
+nothing at all with the dial off or an enemy that is not a boss: those turns
+are vanilla's, roll for roll.  Asshat Octopus's aim stands when both are on.
+
+Two byte-neutral hooks in bank `$0C`: `tactics_swing.patch` takes the seven
+NOPs `randostatus.patch` left in `EnemyAttackPlayer_Physical` -- after the
+attacker's numbers are loaded and scaled, so the score sees what the swing
+will use -- for `JSL tac_swing` and `JSR PrepCharStatPointers`, which points
+the stat pointers at whichever slot it chose; `tactics_cast.patch` turns
+`Battle_CastMagicOnRandomPlayer`'s load and `ORA` into `JSL tac_cast` and a
+NOP.  The work is in its own chunk, `CHUNK_TACTICS` (`$18`,
+`src/tactics.asm`), native and sixteen bits wide, with its scratch at
+`TC_BASE` in bank `$7F` between the roll screen's and placement's, cleared
+each decision -- nothing there is power-on clean, and the tests fill it with
+junk first.
+
+**Exact sums, not a rehearsal.** The game's own calls each frame drive the
+music, so a turn's thinking has to fit in about a frame.  Rehearsing a swing
+32 times at each of four targets would have been several.  So the sum of the
+damage rolls over the 256 dice is a closed form while no roll caps, base
+damage under 128 -- the dice's shares sum to ((k-1)*255 + gcd(k,256) - 1)/2,
+k = B+1, and gcd(k,256) is k's lowest set bit -- or else a count share by
+share, each share holding Q or Q+1 dice of 256 = Qk + R, at most 128 steps;
+what gets past absorb is that sum less 256 times absorb unless absorb reaches
+B, and only then counted; two base damages are kept, a party half asleep
+having two.  The worst there is, WarMECH's 128 against a party half asleep,
+is about 10300 instructions, near one frame; most turns are a few thousand.
+
+`test_bosstactics` checks the reading first, against the game's own code:
+one swing through the real hit loop for chosen dice, the spell effects
+through the real `BtlMag_Effect_*` (found through the magic jump table) for
+every roll -- that is where `RandAX`'s 255 turned up -- and the per-die
+damage summed over all 65536 pairs is the model's sums.  Then `tactics.asm`
+against the model exactly: 240 drawn swings and 240 drawn casts, sweeps at
+the edges of absorb, base damage, hit chance and XXXX's line, every kept sum;
+what the scores mean in cases a player knows; both hooks in place from the
+game's own code, off and on; the dial on the settings screen.  71 mutations,
+69 caught; one equivalent (an evade floor of 0 is raised to 1 just after).
 
 **Ruse Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; built,
 not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
@@ -1975,12 +2050,13 @@ text region in the game references.
                              @Begin's cold build, one JSL to the
                              randomizer's rando_coldbuild, gave back 3
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
-    BANK_0C        4 free    declared unused at $BFFC; and 16 bytes of
+    BANK_0C        4 free    declared unused at $BFFC; and 9 bytes of
                              padding inside routines the randomizer took
-                             over -- 9 never executed in Enemy_DoAi (Asshat
-                             Octopus's hook took 12 of 21), 7 NOPs
-                             in the enemy attack setup -- and 33 never
-                             executed where the DRINK choice used to be
+                             over, never executed in Enemy_DoAi (Asshat
+                             Octopus's hook took 12 of 21; the 7 NOPs in
+                             the enemy attack setup are Boss tactics'
+                             hook now) -- and 33 never executed where the
+                             DRINK choice used to be
     BANK_0D      212 free
     BANK_0E       37 free    12 declared unused at $BFF4, after House MP took
                              four; 25 NOPs in the old LoadShopInventory.
@@ -1988,7 +2064,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     858 free   once the descriptions moved out, the None, the
+    BANK_OPT     791 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2000,9 +2076,12 @@ text region in the game references.
                              Asshat Octopus (138: its row and opt_kraken),
                              and Map shuffle (87: its row, readouts and
                              scalar), and the Ruse Staff (78: its row,
-                             opt_itemspell and opt_weapbyte's answer)
-    BANK_OPTTEXT  4124 free  the settings screen's descriptions; Map
-                             shuffle's took 376, the Ruse Staff's 115
+                             opt_itemspell and opt_weapbyte's answer), and
+                             Boss tactics (67: its row, readouts, scalar
+                             tables and opt_isbossfar)
+    BANK_OPTTEXT  3720 free  the settings screen's descriptions; Map
+                             shuffle's took 376, the Ruse Staff's 115,
+                             Boss tactics' three 404
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
@@ -2036,6 +2115,8 @@ text region in the game references.
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their
                              reach (from tools/genroll.py)
+    BANK_TACTICS 13910 free  Boss tactics (2474): the scoring, the sums and
+                             the pick, and the 199-byte hit table
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

@@ -1,0 +1,14 @@
+--- OLD
+    ;  OptScaleEnemyAttack has stored the ailment already, from the
+    ;  randomizer's cache, where Status attacks may have moved it.
+    .res 7, $EA
+--- NEW
+    ;  OptScaleEnemyAttack has stored the ailment already, from the
+    ;  randomizer's cache, where Status attacks may have moved it.
+.import tac_swing
+    ;  Boss tactics: the attack's numbers loaded, a boss may aim elsewhere
+    ;  than the roll did (tactics.asm).  A = the slot, and the stat pointers
+    ;  follow it.  The seven bytes the ailment's load left; the name sorts
+    ;  after randostatus.patch, which left them.
+    JSL tac_swing + TACTICSFAR
+    JSR PrepCharStatPointers

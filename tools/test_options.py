@@ -21,7 +21,7 @@ mirrors $8000-$FFFF into the low half of every chunk, and that copy is never
 addressed, so mutating it proves nothing.  Changing lut_EncDungeonN's vanilla
 numerator from 16 to 15 should fail four of the five live base rates.
 """
-import os, re, shutil, subprocess, sys
+import os, random, re, shutil, subprocess, sys
 
 #  Under PyPy the suite takes fifteen seconds where CPython takes seventy: its
 #  JIT runs cpu65816's interpreter loop fifteen to twenty-five times faster.
@@ -4352,6 +4352,674 @@ def test_kraken():
     check("two, the first stone: always the other",
           set(kraken_turn(b, s) for s in range(256)), {("hit", 2, 2)})
 
+# --- Boss tactics ------------------------------------------------------------
+#  The model, from the game's own rules as bank $0C has them -- checked die by
+#  die against the real routines below, then held to tactics.asm exactly.
+TAC_SLOTW = (4, 2, 1, 1)
+
+
+def tac_hits(h):
+    """Dice of 256 whose RandAX(0, 200) roll is at or under h, 200 a miss --
+    counted, not from the cart's table."""
+    return sum(1 for b in range(256) if (b * 201) >> 8 <= h and (b * 201) >> 8 != 200)
+
+
+def tac_roll(B, die):
+    """RandAX(0, B) + B, at most 255: its range is B + 1 in a byte, so B 255
+    rolls 0."""
+    return min(255, B + ((die * ((B + 1) & 0xFF)) >> 8))
+
+
+def tac_swing_model(B0, hr, cr, N, dark, ail, hp, ev, ab):
+    """(H, C, B): DoPhysicalAttack's hit chance, crit chance and base damage
+    against this defender; and the score, 0-256: the share of HP N hits
+    can expect to take, in sixteenths of a hit, as tactics.asm keeps it."""
+    H = 168 - (40 if dark else 0) + (40 if ail & 0x08 else 0)
+    B = B0
+    if ail & 0x30:                          # asleep or stunned: no dodging
+        B = min(255, B0 + (B0 >> 2))
+    else:
+        H = max(0, min(255, H + hr) - ev)
+    H = H or 1
+    C = min(cr, H)
+    rolls = [tac_roll(B, d) for d in range(256)]
+    SD = sum(rolls)
+    SX = sum(max(1, x - ab) for x in rolls)
+    T = N * ((tac_hits(H) * SX + tac_hits(C) * SD) >> 12)
+    HP16 = min(hp, 2047) * 16
+    return (H, C, B), (256 if T >= HP16 else (T * 256) // HP16)
+
+
+def tac_swing_die(H, C, B, ab, rdie, ddie):
+    """One hit's damage from its two dice, as the hit loop reads them."""
+    r = (rdie * 201) >> 8
+    if r == 200 or r > H:
+        return 0
+    d = tac_roll(B, ddie)
+    return max(1, d - ab) + (d if r <= C else 0)
+
+
+def tac_spell_model(eff, efv, elem, shr, ail, hp, md, res, mult):
+    resisted = res & elem
+    H = max(0, (0 if resisted else 148) + shr - md)
+    new = efv & ~ail & 0xFF
+    if eff == 0x03:
+        return tac_hits(H) if new else 0
+    if eff == 0x04:
+        return tac_hits(H) if mult else 0
+    if eff == 0x12:
+        return 256 if (not resisted and new and hp <= 300) else 0
+    if eff == 0x01:
+        if hp == 0:
+            return 256
+        hpc = min(hp, 2047)
+        E = efv >> 1 if resisted else efv
+        rolls = [E + ((d * ((E + 1) & 0xFF)) >> 8) for d in range(256)]
+        u1 = min(256, sum(min(x, hpc) for x in rolls) // hpc)
+        u2 = min(256, sum(min(2 * x, hpc) for x in rolls) // hpc)
+        return u1 + ((tac_hits(H) * (u2 - u1)) >> 8)
+    return 256
+
+
+def tac_pick_model(mode, U, van, table, state):
+    """(slot, dice used)."""
+    best = max(U)
+    if mode == 2:
+        W = [TAC_SLOTW[i] if U[i] and U[i] == best else 0 for i in range(4)]
+    else:
+        W = [TAC_SLOTW[i] * U[i] for i in range(4)]
+    live = [i for i in range(4) if W[i]]
+    if not live:
+        return van, 0
+    if len(live) == 1:
+        return live[0], 0
+    x = (table[state & 0xFF] * sum(W)) >> 8
+    run = 0
+    for i in range(4):
+        run += W[i]
+        if run > x:
+            return i, 1
+
+
+TAC_OB, TAC_IB, TAC_DRAWN = 0x6100, 0x6800, 0x6AD1
+
+
+def tac_party(bus, party):
+    """party: (class, ailments, HP, evade, absorb, magdef, resist, mult) a
+    slot; dead and stone also in btl_drawflagsA and B, as the battle keeps
+    them."""
+    dead = stone = 0
+    for n, (cls, ail, hp, ev, ab, md, res, mult) in enumerate(party):
+        ob, ib = TAC_OB + 0x40 * n - 0x6000, TAC_IB + 0x12 * n - 0x6000
+        bus.sram[ob], bus.sram[ob + 1] = cls, ail
+        bus.sram[ob + 0x0A], bus.sram[ob + 0x0B] = hp & 0xFF, hp >> 8
+        bus.sram[ib + 7], bus.sram[ib + 8], bus.sram[ib + 6] = ev, ab, md
+        bus.sram[ib + 0x0A], bus.sram[ib + 0x0B] = res, mult
+        dead |= (1 << n) if ail & 0x01 else 0
+        stone |= (1 << n) if ail & 0x02 else 0
+    bus.sram[TAC_DRAWN - 0x6000], bus.sram[TAC_DRAWN + 1 - 0x6000] = dead, stone
+
+
+def tac_live(party):
+    return [0 if p[1] & 0x03 else 1 for p in party]
+
+
+def tac_rng(bus, table, state):
+    at = rw("RW_BATRNG")
+    bus.wram[at:at + 256] = bytes(table)
+    bus.sram[BTL_RNGSTATE - 0x6000] = state
+
+
+def tac_dial(bus, mode, other=0):
+    setblk(bus, OPT_FLAGS + 5, (mode << 5) | other)
+
+
+def tac_u(bus):
+    at = rw("TC_U")
+    return [bus.wram[at + 2 * i] | bus.wram[at + 2 * i + 1] << 8 for i in range(4)]
+
+
+def tac_junk(bus):
+    """The scratch as a console might leave it: nothing is cleared at power
+    on, so a decision must not lean on a zero it did not write."""
+    bus.wram[rw("TC_BASE"):rw("TC_END")] = bytes((0xA5 + 7 * i) & 0xFF for i in range(rw("TC_END") - rw("TC_BASE")))
+
+
+def tac_kept(bus):
+    """Every damage sum kept is the model's, for its base damage."""
+    w = lambda name: bus.wram[rw(name)] | bus.wram[rw(name) + 1] << 8
+    return all(sd == sum(tac_roll(b, d) for d in range(256))
+               for b, sd in ((w("TC_SDB"), w("TC_SD")), (w("TC_SDB2"), w("TC_SD2"))) if b < 256)
+
+
+def tac_swing_case(mode, enemy, atk, party, van, table, state, other=0):
+    """tac_swing on a machine set for it.  atk: (strength, hit rate, crit
+    rate, hits, multiplier, the attacker's ailments).  Out: (slot,
+    battle_defender_index, RNG state after, X kept, scores, the sums kept
+    right)."""
+    bus, cpu = machine()
+    tac_junk(bus)
+    tac_dial(bus, mode, other)
+    enram(bus, enemy, 2)
+    st, hr, cr, nh, mult, eail = atk
+    for name, v in (("btl_attacker_strength", st), ("btl_attacker_hitrate", hr),
+                    ("btl_attacker_critrate", cr), ("btl_attacker_numhits", nh),
+                    ("btl_attacker_numhitsmult", mult)):
+        bus.sram[K[name] - 0x6000] = v
+    bus.sram[K["btl_enemystats"] + 2 * 0x14 + K["en_ailments"] - 0x6000] = eail
+    tac_party(bus, party)
+    tac_rng(bus, table, state)
+    bus.sram[K["battle_defender_index"] - 0x6000] = van
+    cpu.x = 0x5A
+    call(cpu, "tac_swing", bank=TACTICS_BANK, dbr=BANK_0C)
+    return (cpu.a & 0xFF, bus.sram[K["battle_defender_index"] - 0x6000],
+            bus.sram[BTL_RNGSTATE - 0x6000], cpu.x & 0xFF, tac_u(bus), tac_kept(bus))
+
+
+def tac_swing_want(mode, enemy, atk, party, van, table, state):
+    st, hr, cr, nh, mult, eail = atk
+    N = (nh * mult) & 0xFF or 1
+    U = [tac_swing_model(st, hr, cr, N, eail & 0x08, p[1], p[2], p[3], p[4])[1] if live else 0
+         for p, live in zip(party, tac_live(party))]
+    slot, used = tac_pick_model(mode, U, van, table, state)
+    return (slot, slot, (state + used) & 0xFF, 0x5A, U, True)
+
+
+def tac_cast_case(mode, enemy, spell, party, van, table, state, attacker=2):
+    """tac_cast likewise.  spell: (effect, effectivity, element, hit rate).
+    A player's attacker (bit 7) has a boss in the slot it would be without
+    the bit, for a decoy."""
+    bus, cpu = machine()
+    tac_junk(bus)
+    tac_dial(bus, mode)
+    at = K["btl_enemystats"] + (attacker & 0x7F) * 0x14 + K["en_enemyid"] - 0x6000
+    bus.sram[at] = enemy
+    bus.sram[K["btl_attacker"] - 0x6000] = attacker
+    for name, v in zip(("btlmag_effect", "btlmag_effectivity", "btlmag_element", "btlmag_hitrate"), spell):
+        bus.sram[K[name] - 0x6000] = v
+    tac_party(bus, party)
+    tac_rng(bus, table, state)
+    bus.sram[K["btl_randomplayer"] - 0x6000] = van
+    cpu.x, cpu.y = 0x5A, 0xA5
+    call(cpu, "tac_cast", bank=TACTICS_BANK, dbr=BANK_0C)
+    return (cpu.a & 0xFF, bus.sram[K["btl_randomplayer"] - 0x6000],
+            bus.sram[BTL_RNGSTATE - 0x6000], (cpu.x & 0xFF, cpu.y & 0xFF), tac_u(bus))
+
+
+def tac_cast_want(mode, enemy, spell, party, van, table, state):
+    U = [tac_spell_model(*spell, p[1], p[2], p[5], p[6], p[7]) if live else 0
+         for p, live in zip(party, tac_live(party))]
+    slot, used = tac_pick_model(mode, U, van, table, state)
+    return (0x80 | slot, slot, (state + used) & 0xFF, (0x5A, 0xA5), U)
+
+
+def test_bosstactics():
+    """Boss tactics: a boss scores each target and aims by the scores.
+
+    First the model's reading of the game, die by die, against the game's own
+    routines: one swing through the real hit loop for chosen dice; the spell
+    effects through the real BtlMag_Effect_* for every roll.  The model's
+    sums are then its per-die damage summed over all 65536 pairs.  Then
+    tactics.asm against the model, exactly, over hundreds of drawn parties
+    and attacks; what the scores mean, in cases a player would recognise;
+    and both hooks run in place from the game's own code -- with the dial off
+    or a common enemy, the turn is vanilla's, roll for roll."""
+    rnd = random.Random(0xB055)
+    img = BANK_0C & 0x1F
+    lo = img * 0x10000 + 0x8000
+    bank = bytes(ROMDATA[lo:lo + 0x8000])
+    check("tac_swing is called once", jsl_count(img, "tac_swing", TACTICS_BANK), 1)
+    check("tac_cast is called once", jsl_count(img, "tac_cast", TACTICS_BANK), 1)
+    check("the bosses are opt_isboss's: one list", jsl_count(TACTICS_BANK & 0x1F, "opt_isbossfar",
+                                                             CHUNK_OPT_BANK), 1)
+    table = list(range(256))
+    rnd.shuffle(table)
+
+    #  --- The game's hit loop, one swing at a time ---
+    k = bank.find(bytes([0xA2, 0xC8, 0x20]))
+    while k >= 0 and bank[k + 5:k + 13] != bytes([0x8D, 0x5E, 0x68, 0xAD, 0x5E, 0x68, 0xC9, 0xC8]):
+        k = bank.find(bytes([0xA2, 0xC8, 0x20]), k + 1)
+    hitloop = 0x8000 + k - 6
+    tail = bytes([0xCE, 0x5A, 0x68, 0xF0, 0x03, 0x4C, hitloop & 0xFF, hitloop >> 8])
+    check("the hit loop, found by its bytes", (k > 0, bank.count(tail)), (True, 1))
+    after = 0x8000 + bank.find(tail) + len(tail)
+
+    def real_swing(H, C, B, ab, rdie, ddie):
+        bus, cpu = machine()
+        ram = lambda name, v: bus.sram.__setitem__(K[name] - 0x6000, v)
+        ram("math_hitchance", H)
+        ram("math_critchance", C)
+        ram("math_numhits", 1)
+        bus.sram[0x6BAD - 0x6000] = B
+        ram("btl_defender_absorb", ab)
+        ram("battle_defenderisplayer", 1)
+        ram("btl_attacker_attackailment", 0)
+        for name in ("battle_totaldamage", "battle_hitsconnected", "battle_critsconnected"):
+            ram(name, 0)
+        bus.sram[K["battle_totaldamage"] + 1 - 0x6000] = 0
+        tab = [0] * 256
+        tab[40], tab[41] = rdie, ddie
+        tac_rng(bus, tab, 40)
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, hitloop
+        for _ in range(3000):
+            if cpu.pbr == BANK_0C and cpu.pc == after:
+                at = K["battle_totaldamage"] - 0x6000
+                return bus.sram[at] | bus.sram[at + 1] << 8
+            cpu.step()
+        return None
+    bad = []
+    for H, C, B, ab in ((168, 1, 40, 10), (255, 255, 8, 30), (90, 60, 255, 0), (1, 1, 0, 0),
+                        (200, 3, 128, 127), (199, 199, 70, 200)):
+        dice = [(r, d) for r in (0, 1, 2, 127, 128, 254, 255) + tuple(range(0, 256, 9))
+                for d in (0, 1, 128, 255)]
+        dice += [(rnd.randrange(256), rnd.randrange(256)) for _ in range(40)]
+        for r in range(256):                         # every roll at the edges
+            if abs(((r * 201) >> 8) - H) <= 1 or abs(((r * 201) >> 8) - C) <= 1:
+                dice.append((r, rnd.randrange(256)))
+        for r, d in dice:
+            got, want = real_swing(H, C, B, ab, r, d), tac_swing_die(H, C, B, ab, r, d)
+            if got != want:
+                bad.append("H %d C %d B %d abs %d dice %d,%d: %s, model %s" % (H, C, B, ab, r, d, got, want))
+    check("one swing, die by die: the game's hit loop is the model's", bad[:3], [])
+
+    check("the dice's shares in closed form, B under 128",
+          [sum((d * (B + 1)) >> 8 for d in range(256)) for B in range(128)],
+          [(B * 255 + ((B + 1) & -(B + 1)) - 1) // 2 for B in range(128)])
+
+    #  ...and the sums are the per-die damage summed over every pair of dice.
+    bad = []
+    for B, ab, H, C in ((40, 10, 168, 1), (8, 30, 255, 255), (255, 0, 90, 60), (0, 0, 1, 1), (128, 127, 200, 3)):
+        rolls = [tac_roll(B, d) for d in range(256)]
+        lhs = sum(tac_swing_die(H, C, B, ab, r, d) for r in range(256) for d in range(256))
+        rhs = tac_hits(H) * sum(max(1, x - ab) for x in rolls) + tac_hits(C) * sum(rolls)
+        if lhs != rhs:
+            bad.append((B, ab, H, C, lhs, rhs))
+    check("a hit's sums are its dice's damage, all 65536", bad, [])
+    check("tac_hits: the cart's table is the count",
+          [ROMDATA[(TACTICS_BANK & 0x1F) * 0x10000 + SYM["lut_TacHits"] + h] for h in range(199)],
+          [tac_hits(h) for h in range(199)])
+
+    #  --- The game's spell effects, every roll ---
+    dmgundead = SYM["BtlMag_Effect_DamageUndead"]
+    k = bank.find(bytes([dmgundead & 0xFF, dmgundead >> 8]))
+    while k >= 0 and bank[k - 1] in (0x20, 0x4C):
+        k = bank.find(bytes([dmgundead & 0xFF, dmgundead >> 8]), k + 1)
+    jt = k - 4
+    effect = lambda n: bank[jt + 2 * n - 0x0] | bank[jt + 2 * n + 1] << 8
+    check("the magic jump table, found: its 19 entries in this bank",
+          all(0x8000 <= effect(n) < 0xC000 for n in range(19)), True)
+
+    def real_spell(eff, efv, elem, shr, md, res, ail, hp, mult, dice):
+        bus, cpu = machine()
+        ram = lambda name, v: bus.sram.__setitem__(K[name] - 0x6000, v)
+        ram("btlmag_effectivity", efv)
+        ram("btlmag_element", elem)
+        ram("btlmag_hitrate", shr)
+        ram("btlmag_defender_magdef", md)
+        ram("btlmag_defender_elemresist", res)
+        ram("btlmag_defender_elemweakness", 0)
+        ram("btlmag_defender_ailments", ail)
+        ram("btlmag_defender_numhitsmult", mult)
+        at = K["btlmag_defender_hp"] - 0x6000
+        bus.sram[at], bus.sram[at + 1] = hp & 0xFF, hp >> 8
+        ram("btlmag_spellconnected", 0)
+        for m in range(0, 0x14):
+            bus.sram[K["btl_mathbuf"] - 0x6000 + m] = 0
+        tab = [0] * 256
+        tab[40:40 + len(dice)] = dice
+        tac_rng(bus, tab, 40)
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, effect(eff)
+        cpu.push(0xFF); cpu.push(0xFD)
+        for _ in range(5000):
+            if cpu.pbr == BANK_0C and cpu.pc in (0xFFFE, SYM["DrawDamageCombatBox"]):
+                hp2 = bus.sram[at] | bus.sram[at + 1] << 8
+                return (bus.sram[K["btlmag_spellconnected"] - 0x6000],
+                        bus.sram[K["btlmag_defender_numhitsmult"] - 0x6000], hp - hp2)
+            cpu.step()
+        return None
+    bad = []
+    for shr, md, res in ((24, 0, 0), (40, 140, 0), (0, 255, 0), (64, 30, 0x10), (200, 10, 0x10), (107, 100, 0)):
+        H = max(0, (0 if res else 148) + shr - md)
+        for die in range(256):
+            for eff, mult in ((0x03, 1), (0x04, 1), (0x04, 0)):
+                got = real_spell(eff, 0x20, 0x10, shr, md, res, 0, 500, mult, [0x80, die])
+                r = (die * 201) >> 8
+                land = r != 200 and H >= r
+                if eff == 0x03 and got[0] != land:
+                    bad.append("ailment %d/%d/%d die %d: %s" % (shr, md, res, die, got))
+                if eff == 0x04 and got[1] != (0 if land else mult):
+                    bad.append("slow %d/%d/%d die %d mult %d: %s" % (shr, md, res, die, mult, got))
+            #  Damage: the roll die then the crit die.
+            for E in (30, 255, 1):
+                dd = rnd.randrange(256)
+                got = real_spell(0x01, E, 0x10, shr, md, res, 0, 3000, 1, [dd, die])
+                E2 = E >> 1 if res else E
+                dmg = E2 + ((dd * ((E2 + 1) & 0xFF)) >> 8)
+                r = (die * 201) >> 8
+                if r != 200 and H >= r:
+                    dmg *= 2
+                if got[2] != dmg:
+                    bad.append("damage %d %d/%d/%d dice %d,%d: %s, want %d" % (E, shr, md, res, dd, die, got, dmg))
+    check("spells, every roll: the game's effects are the model's", bad[:3], [])
+    bad = []
+    for hp in (1, 299, 300, 301, 999):
+        for res in (0, 0x10):
+            for ail in (0, 0x10):       # one it has already: "Ineffective", drawn
+                got = real_spell(0x12, 0x01, 0x10, 0, 0, res, ail, hp, 1, [0, 0])
+                if got is None or bool(got[0]) != (not res and hp <= 300):
+                    bad.append((hp, res, ail, got))
+    check("XXXX: at or under 300 HP, not resisted", bad, [])
+
+    #  --- tactics.asm against the model ---
+    def drawn_party(n=4):
+        out = []
+        for _ in range(n):
+            ail = rnd.choice((0, 0, 0, 0x08, 0x10, 0x20, 0x40, 0x04, 0x01, 0x02, 0x30, 0x18))
+            hp = rnd.choice((rnd.randrange(1, 40), rnd.randrange(1, 1000), rnd.randrange(250, 350),
+                             rnd.randrange(0, 2600)))
+            out.append((rnd.choice((0, 1, 2, 3, 4, 5, 6, 10)), ail, hp,
+                        rnd.choice((0, 20, 48, 100, 160, 240, 255)),
+                        rnd.choice((0, 1, 6, 15, 30, 44, 70, 120, 255)),
+                        rnd.choice((0, 15, 40, 70, 120, 160, 255)),
+                        rnd.choice((0, 0, 0x10, 0x20, 0xFF, 0x01)), rnd.choice((0, 1, 1, 2))))
+        if all(p[1] & 0x03 for p in out):
+            out[rnd.randrange(4)] = out[0][:1] + (0,) + out[0][2:]
+        return out
+
+    def van_of(party):
+        return rnd.choice([i for i in range(4) if not party[i][1] & 0x03])
+
+    bosses = (15, 105, 113) + tuple(range(118, 128))
+    bad = []
+    for n in range(240):
+        party = drawn_party()
+        atk = (rnd.choice((0, 8, 15, 40, 50, 100, 128, 200, 254, 255)), rnd.choice((0, 2, 49, 200, 255)),
+               rnd.choice((0, 1, 50, 255)), rnd.choice((0, 1, 2, 6, 8, 40)), rnd.choice((0, 1, 2)),
+               rnd.choice((0, 0, 0x08)))
+        mode, enemy = 1 + n % 2, rnd.choice(bosses)
+        van, state = van_of(party), rnd.randrange(256)
+        got = tac_swing_case(mode, enemy, atk, party, van, table, state)
+        want = tac_swing_want(mode, enemy, atk, party, van, table, state)
+        if got != want:
+            bad.append("%s %s %s: %s, model %s" % (("Clever", "Ruthless")[mode - 1], atk, party, got, want))
+    check("tac_swing, 240 drawn turns: the model's scores and aim", bad[:2], [])
+    bad = []
+    #  The cartridge's single-target spells -- HOLD, SLP2, RUB, BRAK, SLO2,
+    #  STUN, XXXX, FIRE -- and some it does not have.
+    spells = ((0x03, 0x10, 0x01, 64), (0x03, 0x20, 0x00, 64), (0x03, 0x01, 0x08, 24), (0x03, 0x02, 0x02, 64),
+              (0x04, 0x00, 0x00, 64), (0x12, 0x10, 0x01, 0), (0x12, 0x01, 0x08, 0), (0x01, 0x0A, 0x10, 24),
+              (0x03, 0x40, 0x20, 0), (0x01, 255, 0x00, 107), (0x01, 4, 0x20, 0), (0x01, 254, 0x10, 200),
+              (0x0E, 0x10, 0x00, 40), (0x11, 0x00, 0x00, 0))
+    for n in range(240):
+        party = drawn_party()
+        mode, enemy, spell = 1 + n % 2, rnd.choice(bosses), rnd.choice(spells)
+        van, state = van_of(party), rnd.randrange(256)
+        got = tac_cast_case(mode, enemy, spell, party, van, table, state)
+        want = tac_cast_want(mode, enemy, spell, party, van, table, state)
+        if got != want:
+            bad.append("%s %s %s: %s, model %s" % (("Clever", "Ruthless")[mode - 1], spell, party, got, want))
+    check("tac_cast, 240 drawn casts: the model's scores and aim", bad[:2], [])
+
+    #  The edges no draw is sure to reach: absorb about B and 2B, where the
+    #  clamp starts and where it takes every die; base damage either side of
+    #  128, where rolls start to cap; hit chances about 199, the last the
+    #  table holds; HP about 300 for XXXX.
+    dead = (0, 0x01, 0, 0, 0, 0, 0, 1)
+    bad = []
+    for B in (0, 1, 2, 7, 8, 15, 63, 64, 100, 127, 128, 129, 160, 200, 254, 255):
+        for ab in sorted({a for a in (B - 2, B - 1, B, B + 1, 2 * B - 3, 2 * B - 2, 2 * B - 1, 2 * B, 2 * B + 1,
+                                      254, 255) if 0 <= a <= 255}):
+            for hr, ev in ((31, 0), (32, 0), (30, 0), (0, 0), (200, 200), (87, 57)):
+                party = ((0, 0, 999, ev, ab, 0, 0, 1), (0, 0x20, 999, ev, ab, 0, 0, 1), dead, dead)
+                atk = (B, hr, 199, 3, 1, 0)
+                got = tac_swing_case(2, 127, atk, party, 0, table, 0)
+                want = tac_swing_want(2, 127, atk, party, 0, table, 0)
+                if got != want:
+                    bad.append("B %d abs %d hit %d/%d: %s, model %s" % (B, ab, hr, ev, got, want))
+    check("tac_swing at the edges of absorb, base damage and hit chance", bad[:3], [])
+    bad = []
+    for shr, md in ((51, 0), (52, 0), (50, 0), (148, 97), (0, 148), (0, 147), (0, 149)):
+        for spell in ((0x03, 0x10, 0x01, shr), (0x01, 200, 0x10, shr), (0x04, 0, 0, shr)):
+            party = tuple((0, 0, hp, 0, 0, md, 0, 1) for hp in (299, 300, 301, 302))
+            got = tac_cast_case(1, 127, spell, party, 0, table, 0)
+            want = tac_cast_want(1, 127, spell, party, 0, table, 0)
+            if got != want:
+                bad.append("%s magdef %d: %s, model %s" % (spell, md, got, want))
+    xxxx = (0x12, 0x01, 0x08, 0)
+    party = tuple((0, 0, hp, 0, 0, 0, 0, 1) for hp in (299, 300, 301, 302))
+    got = tac_cast_case(1, 120, xxxx, party, 3, table, 0)
+    check("XXXX's line: sure at 299 and 300, no use at 301 and 302", got[4], [256, 256, 0, 0])
+    check("tac_cast at the edges of hit chance and HP", bad[:3], [])
+
+    #  --- What the scores mean ---
+    FI, WM, BM = 0, 4, 5
+    knight = (FI, 0, 600, 40, 60, 60, 0, 1)
+    mage = (BM, 0, 420, 20, 8, 80, 0, 1)
+    hurt = (WM, 0, 45, 30, 12, 90, 0, 1)
+    chaos = (100, 200, 1, 2, 1, 0)                  # Chaos's swing
+    U = tac_swing_case(2, 127, chaos, (knight, mage, hurt, knight), 0, table, 0)[4]
+    check("Chaos's swing: it finishes the hurt White Mage, takes most of the mage, little of the knight",
+          (U[2], U[1] > U[0] * 2, U[0] < 128), (256, True, True))
+    check("Ruthless: the White Mage, whoever the roll chose",
+          {tac_swing_case(2, 127, chaos, (knight, mage, hurt, knight), v, table, s)[0]
+           for v in (0, 1, 3) for s in (0, 99, 200)}, {2})
+    asleep = (FI, 0x20, 700, 40, 60, 60, 0, 1)
+    awake = (FI, 0, 700, 40, 60, 60, 0, 1)
+    U = tac_swing_case(2, 127, chaos, (awake, asleep, awake, awake), 0, table, 0)[4]
+    check("...a sleeper takes more: a quarter more damage and no dodging", U[1] > U[0], True)
+    stoned = (FI, 0x02, 1, 0, 0, 0, 0, 1)
+    U = tac_swing_case(2, 127, chaos, (stoned, knight, knight, knight), 1, table, 0)[4]
+    check("...and nothing on the stone or the dead", U[0], 0)
+    #  Clever: alike scores give vanilla's own weights over the 256 dice.
+    same = (FI, 0, 900, 0, 0, 0, 0, 1)
+    seen = [0] * 4
+    for st in range(256):
+        seen[tac_swing_case(1, 127, (20, 0, 0, 1, 1, 0), (same,) * 4, 0, table, st)[0]] += 1
+    check("Clever, four alike: vanilla's half, quarter, eighth, eighth", seen, [128, 64, 32, 32])
+    #  Spells: an ailment's chance, not where it cannot work.
+    ribbon = (WM, 0, 300, 20, 10, 60, 0xFF, 1)
+    held = (FI, 0x10, 300, 20, 10, 60, 0, 1)
+    bare = (FI, 0, 300, 20, 10, 60, 0, 1)
+    hold = (0x03, 0x10, 0x01, 64)                  # HOLD, as the cartridge has it
+    got = {tac_cast_case(2, 121, hold, (ribbon, held, bare, ribbon), v, table, s)[0]
+           for v in (0, 1) for s in range(0, 256, 17)}
+    check("Ruthless: HOLD at the one with neither it nor a resisting ribbon", got, {0x82})
+    got = [tac_cast_case(1, 121, hold, (ribbon, held, bare, ribbon), 0, table, s)[0] for s in range(256)]
+    #  A resisted spell still lands on a roll of 0 -- hit chance 0 is not
+    #  under it -- so Clever now and then tries a ribbon.
+    check("Clever: mostly there, never at the held one",
+          (got.count(0x82) > 200, 0x81 in got), (True, False))
+    big = (FI, 0, 400, 20, 10, 60, 0, 1)
+    small = (BM, 0, 280, 20, 10, 60, 0, 1)
+    xxxx = (0x12, 0x01, 0x00, 0)
+    check("XXXX goes to one at 300 HP or under",
+          {tac_cast_case(2, 120, xxxx, (big, big, small, big), v, table, s)[0]
+           for v in (0, 1, 3) for s in (5, 77)}, {0x82})
+    check("...and with nobody under, the roll stands",
+          tac_cast_case(2, 120, xxxx, (big, big, big, big), 3, table, 9)[:3], (0x83, 3, 9))
+
+    #  --- Off, and not a boss: untouched, roll for roll ---
+    bad = []
+    for n in range(60):
+        party = drawn_party()
+        van, state = van_of(party), rnd.randrange(256)
+        for mode, enemy in ((0, rnd.choice(bosses)), (1, rnd.choice((0, 7, 14, 16, 104, 106, 112, 114, 117))),
+                            (3, rnd.choice(bosses))):
+            got = tac_swing_case(mode, enemy, (50, 30, 1, 2, 1, 0), party, van, table, state)
+            if got[:4] != (van, van, state, 0x5A):
+                bad.append(("swing", mode, enemy, got))
+            got = tac_cast_case(mode, enemy, (0x03, 0x10, 0, 30), party, van, table, state)
+            if got[:4] != (0x80 | van, van, state, (0x5A, 0xA5)):
+                bad.append(("cast", mode, enemy, got))
+    check("off, a stray 3, or not a boss: the roll's slot, no die, registers kept", bad[:3], [])
+    got = tac_cast_case(2, 127, (0x03, 0x10, 0, 30), (bare, bare, bare, ribbon), 1, table, 7, attacker=0x81)
+    check("a player's cast (bit 7): the roll stands", got[:3], (0x81, 1, 7))
+
+    #  Asshat Octopus's aim stands: Kraken at a White Mage, with both on.
+    octo = 0x08
+    wm = (WM, 0, 900, 20, 2, 60, 0, 1)
+    for kraken in (0x7B, 0x7C):
+        got = tac_swing_case(2, kraken, (50, 90, 1, 8, 1, 0), (knight, mage, wm, hurt), 2, table, 0, octo)
+        check("$%02X, Asshat Octopus on, at its White Mage: that stands" % kraken, got[:3], (2, 2, 0))
+        got = tac_swing_case(2, kraken, (50, 90, 1, 8, 1, 0), (knight, mage, wm, hurt), 1, table, 0, octo)
+        check("$%02X, not at a white mage: tactics choose" % kraken, got[0], 3)
+        got = tac_swing_case(2, kraken, (50, 90, 1, 8, 1, 0), (knight, mage, wm, hurt), 2, table, 0)
+        check("$%02X, Asshat Octopus off: tactics choose" % kraken, got[0], 3)
+
+    #  --- In place: the game's own code to the hooks ---
+    b = machine()[0]
+    setsave(b, 1, 0)
+    cpu0 = CPU(b)
+    call(cpu0, "rando_ensure", bank=RANDO_BANK)
+    vt = bytes(b.wram[rw("RW_BATRNG"):rw("RW_BATRNG") + 256])
+    a = SYM["tac_swing"]
+    k = bank.find(bytes([0x22, a & 0xFF, a >> 8, TACTICS_BANK, 0x20]))
+    swing_back = 0x8000 + k + 7
+    bucket = lambda r: 0 if r >= 0x80 else 1 if r >= 0x40 else 2 if r >= 0x20 else 3
+
+    def vanilla(party, s):
+        while True:
+            t = bucket(vt[s & 0xFF])
+            s += 1
+            if not party[t][1] & 0x03:
+                return t, s & 0xFF
+
+    def in_place_swing(mode, enemy, party, s):
+        """ChooseAndAttackPlayer's work done -- the roll, as the model
+        rolls it -- then EnemyAttackPlayer_Physical, to just past the hook."""
+        bus = Bus(ROMDATA)
+        bus.wram[:], bus.sram[:] = b.wram, b.sram
+        tac_junk(bus)
+        tac_dial(bus, mode)
+        tac_party(bus, party)
+        at = K["btl_enemystats"] + 2 * 0x14
+        bus.sram[at - 0x6000 + K["en_enemyid"]] = enemy
+        rom = 0x8520 + enemy * 20
+        bus.sram[at - 0x6000], bus.sram[at - 0x6000 + 1] = rom & 0xFF, rom >> 8
+        bus.sram[at - 0x6000 + K["en_strength"]] = ROMDATA[ENEMIES_ROM + enemy * 20 + 0x0C]
+        bus.sram[at - 0x6000 + K["en_numhitsmult"]] = 1
+        bus.sram[at - 0x6000 + K["en_ailments"]] = 0
+        van, s2 = vanilla(party, s)
+        bus.sram[BTL_RNGSTATE - 0x6000] = s2
+        cpu = CPU(bus)
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, SYM["EnemyAttackPlayer_Physical"]
+        cpu.a, cpu.x = van, 2
+        cpu.push(0xFF); cpu.push(0xFD)
+        for _ in range(60000):
+            if cpu.pbr == BANK_0C and cpu.pc == swing_back:
+                ram = lambda name: bus.sram[K[name] - 0x6000]
+                atk = (ram("btl_attacker_strength"), ram("btl_attacker_hitrate"), ram("btl_attacker_critrate"),
+                       ram("btl_attacker_numhits"), ram("btl_attacker_numhitsmult"), 0)
+                return (van, s2, ram("battle_defender_index"), bus.wram[0x80] | bus.wram[0x81] << 8,
+                        bus.wram[0x82] | bus.wram[0x83] << 8, bus.sram[BTL_RNGSTATE - 0x6000], atk)
+            cpu.step()
+        return None
+    ptrs = lambda t: (0x6800 + 0x12 * t, 0x6100 + 0x40 * t)
+    bad = []
+    for n in range(48):
+        party = drawn_party()
+        s, enemy = rnd.randrange(256), rnd.choice(bosses)
+        r = in_place_swing(0, enemy, party, s)
+        if r is None or (r[2],) + r[3:6] != (r[0],) + ptrs(r[0]) + (r[1],):
+            bad.append(("off", enemy, party, r))
+        for mode in (1, 2):
+            r = in_place_swing(mode, enemy, party, s)
+            if r is None:
+                bad.append(("lost", mode, enemy)); continue
+            van, s2, slot, ib, ob, s3, atk = r
+            st, hr, cr, nh, mult, _ = atk
+            N = (nh * mult) & 0xFF or 1
+            U = [tac_swing_model(st, hr, cr, N, 0, p[1], p[2], p[3], p[4])[1] if live else 0
+                 for p, live in zip(party, tac_live(party))]
+            want, used = tac_pick_model(mode, U, van, vt, s2)
+            if (slot, ib, ob, s3) != (want,) + ptrs(want) + ((s2 + used) & 0xFF,):
+                bad.append((mode, enemy, party, r, want))
+    check("in place, a boss's swing: off the roll's, on the model's, pointers after it", bad[:2], [])
+
+    a = SYM["tac_cast"]
+    k = bank.find(bytes([0x22, a & 0xFF, a >> 8, TACTICS_BANK, 0xEA, 0x8D]))
+    cast_at, cast_back = 0x8000 + k - 3, 0x8000 + k + 8
+    check("Battle_CastMagicOnRandomPlayer: the roll, then the hook", bank[k - 3], 0x20)
+
+    def in_place_cast(mode, enemy, spell, party, s):
+        bus = Bus(ROMDATA)
+        bus.wram[:], bus.sram[:] = b.wram, b.sram
+        tac_junk(bus)
+        tac_dial(bus, mode)
+        tac_party(bus, party)
+        bus.sram[K["btl_enemystats"] + 2 * 0x14 + K["en_enemyid"] - 0x6000] = enemy
+        bus.sram[K["btl_attacker"] - 0x6000] = 2
+        for name, v in zip(("btlmag_effect", "btlmag_effectivity", "btlmag_element", "btlmag_hitrate"), spell):
+            bus.sram[K[name] - 0x6000] = v
+        bus.sram[BTL_RNGSTATE - 0x6000] = s
+        cpu = CPU(bus)
+        cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, cast_at
+        cpu.push(0xFF); cpu.push(0xFD)
+        for _ in range(60000):
+            if cpu.pbr == BANK_0C and cpu.pc == cast_back:
+                return bus.sram[K["btl_defender"] - 0x6000], bus.sram[BTL_RNGSTATE - 0x6000]
+            cpu.step()
+        return None
+    bad = []
+    for n in range(48):
+        party = drawn_party()
+        s, enemy, spell = rnd.randrange(256), rnd.choice(bosses), rnd.choice(spells)
+        van, s2 = vanilla(party, s)
+        if in_place_cast(0, enemy, spell, party, s) != (0x80 | van, s2):
+            bad.append(("off", enemy, spell, party))
+        for mode in (1, 2):
+            U = [tac_spell_model(*spell, p[1], p[2], p[5], p[6], p[7]) if live else 0
+                 for p, live in zip(party, tac_live(party))]
+            want, used = tac_pick_model(mode, U, van, vt, s2)
+            got = in_place_cast(mode, enemy, spell, party, s)
+            if got != (0x80 | want, (s2 + used) & 0xFF):
+                bad.append((mode, enemy, spell, party, got, want))
+    check("in place, a boss's cast: off the roll's, on the model's", bad[:2], [])
+
+    #  --- The dial: bits 45 and 46, the rest of the byte kept ---
+    SEL, TOP = 0x6E, 0x6F
+    bus, cpu = machine()
+    in_vblank(bus)
+    call(cpu, "opt_init")
+    keep = blk(bus, OPT_FLAGS + 5)
+    bus.wram[SEL], bus.wram[TOP] = optrow("Boss tactics"), optrow("Boss tactics") - 10
+    got = []
+    for key in ("RIGHT", "RIGHT", "RIGHT", "LEFT", "LEFT", "LEFT"):
+        cpu.a = K[key]
+        call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+        text = " ".join(pane(bus))
+        got.append((blk(bus, OPT_FLAGS + 5),
+                    [w for w in ("eighth each", "drawn to the front", "take the best") if w in text]))
+    check("the dial: Clever, Ruthless, held there, and back, each with its words, the byte's other bits kept",
+          got, [(keep | 0x20, ["drawn to the front"]), (keep | 0x40, ["take the best"]),
+                (keep | 0x40, ["take the best"]), (keep | 0x20, ["drawn to the front"]),
+                (keep, ["eighth each"]), (keep, ["eighth each"])])
+    check("...with the Improved preset's TRANCE bit there to keep", keep & 0x01, 1)
+
+    #  --- Inside a frame ---
+    worst = 0
+    for enemy, atk in ((15, (8, 2, 1, 1, 1, 0)), (127, (100, 200, 1, 2, 2, 0)), (124, (70, 114, 1, 8, 2, 0x08)),
+                       (118, (128, 200, 1, 2, 1, 0))):
+        for party in ((knight, mage, hurt, asleep), ((FI, 0x20, 900, 0, 9, 0, 0, 1),) * 4,
+                      ((FI, 0, 900, 0, 14, 0, 0, 1), (FI, 0x20, 900, 0, 12, 0, 0, 1),
+                       (FI, 0x08, 900, 0, 10, 0, 0, 1), (FI, 0x10, 900, 0, 11, 0, 0, 1))):
+            bus, cpu = machine()
+            tac_dial(bus, 2)
+            enram(bus, enemy, 2)
+            for name, v in zip(("btl_attacker_strength", "btl_attacker_hitrate", "btl_attacker_critrate",
+                                "btl_attacker_numhits", "btl_attacker_numhitsmult"), atk):
+                bus.sram[K[name] - 0x6000] = v
+            tac_party(bus, party)
+            tac_rng(bus, table, 0)
+            s0 = cpu.steps
+            call(cpu, "tac_swing", bank=TACTICS_BANK, dbr=BANK_0C)
+            worst = max(worst, cpu.steps - s0)
+    print("    boss tactics: the worst swing took %d instructions" % worst)
+    #  WarMECH's 128 against a party half asleep is the worst there is: the
+    #  count's steps peak at base damage 128 and fall away either side.
+    check("a swing's thinking stays near a frame (11000 instructions)", worst < 11000, True)
+
+
 def test_rusestaff():
     """Ruse Staff: the Power Staff casts RUSE when used in battle, its
     equipment text says so, and its name is RUSE and the staff.  Each of the
@@ -5910,6 +6578,7 @@ K = source_consts()
 RANDO_BANK = 0xA1 + K["CHUNK_RANDO"]
 WORLD_BANK = 0xA1 + K["CHUNK_WORLD"]
 ROLL_BANK = 0xA1 + K["CHUNK_ROLL"]
+TACTICS_BANK = 0xA1 + K["CHUNK_TACTICS"]
 RW_BASE = 0x7E0000                       # bus.wram index 0 is $7E:0000
 
 
@@ -9411,7 +10080,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_rusestaff, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_rusestaff, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

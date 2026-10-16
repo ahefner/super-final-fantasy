@@ -52,6 +52,7 @@
 .export opt_shopmax, opt_shopscale
 .export opt_scaleenemies, opt_scaleatk
 .export opt_statmul, opt_isboss, opt_statn   ; for the tests
+.export opt_isbossfar
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
@@ -1642,6 +1643,11 @@ opt_isboss:
   @yes:
     SEC
     RTS
+
+;  The same, for another chunk (Boss tactics): one list of bosses.
+opt_isbossfar:
+    JSR opt_isboss
+    RTL
 
 ;  A = enemy id.  Picks the setting that applies and leaves n in OPTSTATN.
 opt_statn:

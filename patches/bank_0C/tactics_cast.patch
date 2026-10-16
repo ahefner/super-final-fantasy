@@ -1,0 +1,13 @@
+--- OLD
+    JSR GetRandomPlayerTarget       ; set the defender to a random player target
+    LDA btl_randomplayer
+    ORA #$80
+    STA btl_defender
+--- NEW
+.import tac_cast
+    JSR GetRandomPlayerTarget       ; set the defender to a random player target
+    ;  Boss tactics: a boss may aim elsewhere than the roll did
+    ;  (tactics.asm).  Five bytes, as the load and the ORA were.
+    JSL tac_cast + TACTICSFAR       ; A = the slot, bit 7 set
+    NOP
+    STA btl_defender

@@ -257,6 +257,34 @@ lut_Desc_95:  ; Ruse Staff
   FFPAD {"when used in battle like the"}, 28
   FFPAD {"Defense sword."}, 28
 
+lut_Desc_96:  ; Boss tactics, by value
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_96_0, lut_Desc_96_1, lut_Desc_96_2
+  .assert * - lut_Desc_96 = 1 + 2 * BOSSAI_MODES, error, "one Boss tactics description per mode"
+
+lut_Desc_96_0:  ; Boss tactics: Off
+  FFLINES 5
+  FFPAD {"Bosses aim as any enemy"}, 28
+  FFPAD {"does, at the first in line"}, 28
+  FFPAD {"half the time, the second a"}, 28
+  FFPAD {"quarter, the last two an"}, 28
+  FFPAD {"eighth each."}, 28
+
+lut_Desc_96_1:  ; Boss tactics: Clever
+  FFLINES 5
+  FFPAD {"Bosses weigh every target,"}, 28
+  FFPAD {"how much of its HP a swing"}, 28
+  FFPAD {"would take, how likely a"}, 28
+  FFPAD {"spell is to work, but are"}, 28
+  FFPAD {"still drawn to the front."}, 28
+
+lut_Desc_96_2:  ; Boss tactics: Ruthless
+  FFLINES 4
+  FFPAD {"Bosses weigh every target"}, 28
+  FFPAD {"and take the best, the one a"}, 28
+  FFPAD {"swing hurts most or a spell"}, 28
+  FFPAD {"surely works on."}, 28
+
 lut_Desc_92:  ; Asshat Octopus
   FFLINES 3
   FFPAD {"Kraken always targets your"}, 28
@@ -959,7 +987,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65
   .BYTE <lut_Desc_66, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_26, <lut_Desc_46
   .BYTE <lut_Desc_27, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64
-  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_95, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62
+  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
   .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
@@ -980,7 +1008,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65
   .BYTE >lut_Desc_66, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_26, >lut_Desc_46
   .BYTE >lut_Desc_27, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64
-  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_95, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62
+  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71

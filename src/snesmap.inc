@@ -54,6 +54,8 @@ CHUNK_WORLD     = $16           ; entrance shuffle: the shuffle and the seed's l
 WORLDFAR        = (CHUNK0 + CHUNK_WORLD) * $10000
 CHUNK_ROLL      = $17           ; New Game's roll screen: picture, bleeps, fanfare
 ROLLFAR         = (CHUNK0 + CHUNK_ROLL) * $10000
+CHUNK_TACTICS   = $18           ; Boss tactics: where a boss aims
+TACTICSFAR      = (CHUNK0 + CHUNK_TACTICS) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -328,6 +330,17 @@ ENEMY_KRAKEN2   = $7C           ; ...and its return in the Temple of Fiends
 ;  reads off until a preset says otherwise.
 OPTFB_RUSESTAFF = OPT_FLAGS+5
 OPTFM_RUSESTAFF = $10    ; bit 44
+
+;  Boss tactics (user, 2026-10-15; not FFR's): a value row, not a checkbox,
+;  in two bits of the sixth flag byte -- 45 and 46, which no build had set,
+;  so every saved block reads Off and the format stays 9.  tactics.asm.
+OPTFB_BOSSAI    = OPT_FLAGS+5
+OPTFM_BOSSAI    = $60
+BOSSAI_SHIFT    = 5
+BOSSAI_OFF      = 0             ; GetRandomPlayerTarget, as ever
+BOSSAI_CLEVER   = 1             ; vanilla's weights times each target's score
+BOSSAI_RUTHLESS = 2             ; the best score; vanilla's weights among equals
+BOSSAI_MODES    = 3
 ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
 WEAPON_POWERSTAFF = 27          ; ...and its weapon index
 SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
@@ -1834,6 +1847,74 @@ ROLL_YNOTES     = RANDOWRAM+$33DC ; 4 bytes: its notes, as steps of lut_RollPitc
 ROLL_END        = RANDOWRAM+$33E0
 .assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
 .assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
+
+;  Boss tactics' scratch (tactics.asm): one decision's, so nothing here
+;  outlives a turn.  Above the roll screen's and below placement's, neither
+;  of which is live in a battle.  Words throughout, read and written long,
+;  so sixteen-bit code may store any of them whole; TC_U..TC_MD are four
+;  words each, one a party slot.
+TC_BASE         = RANDOWRAM+$3400
+TC_U            = TC_BASE+$00   ; each slot's score, 0-256: 256 sure, 0 no use
+TC_W            = TC_BASE+$08   ; its weight in the pick
+TC_LIVE         = TC_BASE+$10   ; 1 if any attack may be aimed at it
+TC_AIL          = TC_BASE+$18   ; its ailments (the out-of-battle record's)
+TC_HP           = TC_BASE+$20   ; its HP
+TC_EV           = TC_BASE+$28   ; its evade (the in-battle record's)
+TC_ABSS         = TC_BASE+$30   ; its absorb
+TC_MD           = TC_BASE+$38   ; its magic defense
+TC_RES          = TC_BASE+$40   ; its elemental resistance
+TC_MULT         = TC_BASE+$48   ; its hit multiplier
+TC_VAN          = TC_BASE+$50   ; the slot vanilla's roll chose
+TC_MODE         = TC_BASE+$52   ; BOSSAI_CLEVER or BOSSAI_RUTHLESS
+TC_B0           = TC_BASE+$54   ; the attack's base damage (strength)
+TC_HR           = TC_BASE+$56   ; its hit rate
+TC_CR           = TC_BASE+$58   ; its crit rate
+TC_N            = TC_BASE+$5A   ; its hits, multiplier applied
+TC_DARK         = TC_BASE+$5C   ; nonzero if the attacker is in the dark
+TC_B            = TC_BASE+$5E   ; base damage against the slot being scored
+TC_H            = TC_BASE+$60   ; ...the hit chance
+TC_C            = TC_BASE+$62   ; ...the crit chance
+TC_ABS          = TC_BASE+$64   ; ...its absorb
+TC_SD           = TC_BASE+$66   ; over the 256 dice, the damage rolled...
+TC_SX           = TC_BASE+$68   ; ...and what of it gets past absorb
+TC_SDB          = TC_BASE+$6A   ; the base damage TC_SD holds, $FFFF none
+TC_CH           = TC_BASE+$6C   ; dice of 256 that hit
+TC_CC           = TC_BASE+$6E   ; dice of 256 that crit
+TC_P            = TC_BASE+$70   ; 4 bytes: a sum of products
+TC_PR           = TC_BASE+$74   ; 4 bytes: tac_mul's product
+TC_MA           = TC_BASE+$78   ; tac_mul's byte...
+TC_MB           = TC_BASE+$7A   ; ...and word
+TC_NUM          = TC_BASE+$7C   ; 4 bytes: tac_ratio's numerator...
+TC_DEN          = TC_BASE+$80   ; ...and denominator
+TC_Q            = TC_BASE+$82   ; ...and quotient
+TC_BP1          = TC_BASE+$84   ; base damage + 1, the die's multiplier
+TC_EFF          = TC_BASE+$86   ; the spell's effect...
+TC_EFV          = TC_BASE+$88   ; ...effectivity
+TC_ELEM         = TC_BASE+$8A   ; ...element
+TC_SHR          = TC_BASE+$8C   ; ...hit rate
+TC_S1           = TC_BASE+$8E   ; 4 bytes: a damage spell's sum, plain...
+TC_S2           = TC_BASE+$92   ; 4 bytes: ...and doubled
+TC_U1           = TC_BASE+$96   ; ...as scores
+TC_U2           = TC_BASE+$98
+TC_TOT          = TC_BASE+$9A   ; the weights' total
+TC_K            = TC_BASE+$9C   ; tac_shares': base damage + 1...
+TC_QQ           = TC_BASE+$9E   ; ...256 / it...
+TC_RR           = TC_BASE+$A0   ; ...and the remainder
+TC_KR           = TC_BASE+$A2   ; ...k - R
+TC_LAST         = TC_BASE+$A4   ; ...the last share whose roll is not capped
+TC_RN           = TC_BASE+$A6   ; ...the overshoot: dice so far * k - 256 m
+TC_V            = TC_BASE+$A8   ; ...the share's roll
+TC_X1           = TC_BASE+$AA   ; ...and what gets past absorb
+TC_SV           = TC_BASE+$AC   ; ...the rolls, once a share
+TC_SXV          = TC_BASE+$AE   ; ...what gets past, once a share
+TC_SD1          = TC_BASE+$B0   ; ...the rolls again, for each share's Q+1th die
+TC_SX1          = TC_BASE+$B2   ; ...and what gets past
+TC_EXTRA        = TC_BASE+$B4   ; ...how many shares had Q+1
+TC_SDB2         = TC_BASE+$B6   ; a second base damage's SD, kept...
+TC_SD2          = TC_BASE+$B8   ; ...for a party half asleep
+TC_END          = TC_BASE+$BA
+.assert TC_BASE >= ROLL_END, error, "boss tactics' scratch overlaps the roll screen's"
+.assert TC_END <= RP_BASE, error, "boss tactics' scratch runs into placement's memory"
 ROLLSTAGE_PLACE   = 0           ; placing the key items (and before)
 ROLLSTAGE_WIRING  = 1           ; entrance shuffle: dealing the doors
 ROLLSTAGE_LOGIC   = 2           ; ...and working out what they open
