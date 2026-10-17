@@ -509,8 +509,35 @@ repeating while held.  The NES pad has no shoulders, so the HAL reads them:
 combos, files R too, in its own JOY1L bit ($10); the combos are tested
 against L|X|Y and do not see it.  `opt_shoulders` takes the press edge
 against `OPTMENU_SHPREV` and calls `opt_page`, which is the d-pad's paging
-split out of `opt_sideways`.  The save view pages nothing, shoulders
-included.  `test_shoulders`.
+split out of `opt_sideways`.  The save view pages with them too (user,
+2026-10-16, asking for both screens): `opt_page` seeks through
+`opt_row_selectable` and scrolls through `opt_menu_scroll`, which already
+keep the view to its value rows and its window, so the change is only the
+guard that skipped the shoulders there.  The d-pad's left and right page
+the view too (user, the same day: "the left/right d-pad cursoring should
+still work in the saved game screen") -- they never had, since the view
+began (fe1cbd9), because every row there is a value row and the settings
+would step it; the view has no value to step, so `opt_sideways` pages
+whenever the view is up.  The HAL files the shoulders in the frame wait, so
+they are heard a frame after the d-pad.  `test_shoulders`; `test_saveview`
+pages the view to its last row and back with them and with the d-pad, on
+value rows only, the window as saved, nothing written, and a held shoulder
+pages once.
+
+**The hand moves with the page** (user, 2026-10-16: paging back to the top
+of the save view, the cursor "initially lands on either SAVED GAME or SEED
+... and then an instant later jumps down to the Trap Tile line").  A repaint
+takes several frames (`opt_menu_breathe`), and the loop placed the hand only
+after it, so the hand stood at its old screen row beside whatever the new
+window drew there.  A scroll that keeps SEL - TOP hid it; a page, or the
+view's top snapping back to the blank over its heading, did not.
+`opt_menu_repaint` now places the hand and copies it to the HAL's shadow
+before `opt_menu_drawall`, so the repaint's first vblank sends it.  And the
+loop copies the hand before its frame wait rather than after: the NES order
+(wait, then DMA inside vblank) left the copy after the flush here, so every
+move of the cursor showed a frame late.  `test_saveview` records the hand at
+every vblank while it pages down and back up, and holds each to the row the
+page lands on.
 
 **Decision: the elemental bonus is a dial, not a checkbox.**  FFR has both -- a
 checkbox and a "Damage Bonus" slider under it, greyed out until the box is

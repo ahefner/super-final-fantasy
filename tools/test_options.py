@@ -10388,14 +10388,16 @@ def test_saveview():
         nt = K["NESNT"] - 0x7E0000 + (1 + i - bus.wram[TOP]) * 32
         return " ".join("".join(_decode(b) or "?" for b in bus.wram[nt + 2:nt + 31]).split())
 
-    def pad(bus, nes):
-        bus.io[0x4218] = nes & 0x80
+    def pad(bus, nes, lo=0):
+        """The NES buttons as JOY1L/H carry them; lo, JOY1L's own bits -- the
+        shoulders, L $20 and R $10, which the NES pad never had."""
+        bus.io[0x4218] = (nes & 0x80) | lo
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
 
-    def frame(bus, cpu, nes):
+    def frame(bus, cpu, nes, lo=0):
         """Hold the pad as given for the UpdateJoy the screen is stopped at,
         and run to the next.  False once the screen has returned."""
-        pad(bus, nes)
+        pad(bus, nes, lo)
         cpu.step()
         for _ in range(3_000_000):
             if cpu.pc in (UJ, 0xFFFE):
@@ -10403,8 +10405,8 @@ def test_saveview():
             cpu.step()
         raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
 
-    def press(bus, cpu, nes):
-        return frame(bus, cpu, nes) and frame(bus, cpu, 0)
+    def press(bus, cpu, nes, lo=0):
+        return frame(bus, cpu, nes, lo) and frame(bus, cpu, 0)
 
     #  --- opt_savevalid: the game's own tests, in its order.
     bus, cpu = machine()
@@ -10498,9 +10500,9 @@ def test_saveview():
     check("down: Shops", bus.wram[SEL], first + 1)
     check("...described as saved", "dealt out again" in " ".join(pane(bus)), True)
     shops = screen(bus, first + 1)
-    #  One at a time: right then left would step a value and step it back.
-    #  (A is masked too, though on a value row the settings ignore it anyway.)
-    for name, b in (("right", RIGHT), ("left", LEFT), ("A", A_), ("Select", SELECT)):
+    #  A and Select do nothing here.  (A is masked, though on a value row the
+    #  settings ignore it anyway.)  Left and right page: below.
+    for name, b in (("A", A_), ("Select", SELECT)):
         press(bus, cpu, b)
         check("%s changes nothing" % name,
               (bus.wram[SEL], bus.wram[TOP], screen(bus, first + 1), kept()),
@@ -10528,6 +10530,82 @@ def test_saveview():
     check("up again to Trap tiles, the window back at the section's top",
           (bus.wram[SEL], bus.wram[TOP]), (first, top))
     check("...the heading drawn again", screen(bus, head), "SAVED GAME")
+
+    #  The shoulders page the view as they page the settings (user,
+    #  2026-10-16): R down half a screen, L up, landing only where the cursor
+    #  may rest, the window reading as saved, nothing written; held, once.
+    SH_L, SH_R = K["JOYAUX_L"], K["JOYAUX_R"]
+    pages = []
+    for _ in range(12):
+        press(bus, cpu, 0, SH_R)
+        pages.append(bus.wram[SEL])
+        got, want = shown()
+        if got != want:
+            check("R to row %d, each row in the window as saved" % bus.wram[SEL], got, want)
+            break
+    steps = [b - a for a, b in zip([first] + pages, pages) if b != a]
+    check("R pages down to the last row and stays, on value rows only",
+          (pages[-1], pages[-2], set(pages) <= set(vrows), min(steps) > 4, kept()),
+          (COUNT - 1, COUNT - 1, True, True, before))
+    back = []
+    for _ in range(12):
+        press(bus, cpu, 0, SH_L)
+        back.append(bus.wram[SEL])
+    check("L pages back up to Trap tiles and stays, the window at the section's top",
+          (back[-1], back[-2], set(back) <= set(vrows), bus.wram[TOP], kept()), (first, first, True, top, before))
+
+    #  ...and the hand moves with the page, not after it: every vblank of the
+    #  repaint shows it where the loop leaves it, never a frame or more at its
+    #  old screen row -- which, with the window snapping back to the view's
+    #  top, was the Seed or the heading (user, 2026-10-16).
+    OAMDMA, WAIT, OAM = SYM["hal_oamdma"], SYM["hal_waitvbl"], K["oam"]
+
+    def watch(lo, nes=0):
+        seen, last = [], [bus.wram[OAM]]
+        step = cpu.step
+
+        def spy():
+            if cpu.pbr == 0xC0 and cpu.pc == OAMDMA:
+                last[0] = bus.wram[OAM]
+            elif cpu.pbr == 0xC0 and cpu.pc == WAIT:
+                seen.append(last[0])
+            step()
+        cpu.step = spy
+        press(bus, cpu, nes, lo)
+        frame(bus, cpu, 0)
+        cpu.step = step
+        return seen
+    hands = []
+    while bus.wram[SEL] != COUNT - 1:                # down in pages, then back up
+        hands.append(watch(SH_R))
+    while bus.wram[SEL] != first:
+        hands.append(watch(SH_L))
+    check("the hand never shows off its row while a page repaints",
+          [sorted(set(h[1:])) for h in hands], [[h[-1]] for h in hands])
+    #  (h[0] is the vblank whose frame wait files the press into h_joyaux:
+    #  the shoulder has not been heard yet, and the hand is rightly where it was.)
+
+    #  The d-pad's left and right page the view as well (user, 2026-10-16):
+    #  every row is read-only, so there is no value for them to step.
+    pages, hands = [], []
+    while bus.wram[SEL] != COUNT - 1 and len(pages) < 12:
+        hands.append(watch(0, RIGHT))
+        pages.append(bus.wram[SEL])
+    while bus.wram[SEL] != first and len(pages) < 24:
+        hands.append(watch(0, LEFT))
+        pages.append(bus.wram[SEL])
+    check("right pages down to the last row, left back to Trap tiles, on value rows only",
+          (COUNT - 1 in pages, pages[-1], set(pages) <= set(vrows), bus.wram[TOP], kept()),
+          (True, first, True, top, before))
+    check("...the hand with each page", [sorted(set(h)) for h in hands], [[h[-1]] for h in hands])
+    #  (The HAL files the shoulders in the frame wait, so they are heard a
+    #  frame after the d-pad would be.)
+    for _ in range(6):
+        frame(bus, cpu, 0, SH_R)
+    frame(bus, cpu, 0)
+    check("R held for six frames pages once", bus.wram[SEL], pages[0])
+    for _ in range(4):
+        press(bus, cpu, 0, SH_L)
     check("B leaves", frame(bus, cpu, B_) and frame(bus, cpu, 0), False)
     check("...the view's flag down, and nothing written", (bus.sram[VIEW], kept()), (0, before))
 

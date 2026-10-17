@@ -216,10 +216,13 @@ opt_menu_screen:
 
   @loop:
     JSR opt_menu_cursor
-
-    JSR WaitForVBlank_L
+    ;  The hand into the HAL's shadow before the wait, so this frame's flush
+    ;  sends it.  The NES order -- wait, then DMA, inside vblank -- copied it
+    ;  here after the flush and so showed every move a frame late.
     LDA #>oam
     wOAMDMA
+
+    JSR WaitForVBlank_L
 
     ;  cur_bank is where CallMusicPlay swaps *back* to.  It has to name this
     ;  bank, not the one the title screen left in it: the music call switches
@@ -243,20 +246,20 @@ opt_menu_screen:
 
     ;  The shoulders page, as SNES menus do: L up, R down, on any row --
     ;  a value row's left and right belong to its value, so on the dials and
-    ;  the randomization rows these are the only way to page.  Not in the
-    ;  save view, which pages nothing.
-    LDA OPTMENU_VIEW
-    BNE :+
+    ;  the randomization rows these are the only way to page.  In the save
+    ;  view too (user, 2026-10-16): opt_page seeks through opt_row_selectable
+    ;  and scrolls through opt_menu_scroll, and both keep to the view's rows.
     JSR opt_shoulders
     BCC :+
     JMP @loop
 :
-    ;  The save view hears up, down and the ways out, and nothing else: no
-    ;  toggles, no value steps, no paging.
+    ;  The save view hears up, down, left and right, the shoulders above and
+    ;  the ways out, and nothing else: no toggles, no value steps -- left and
+    ;  right page there (opt_sideways), every row being read-only.
     LDA OPTMENU_VIEW
     BEQ @heard
     LDA OPTMENU_EDGE
-    AND #PAD_B | PAD_START | PAD_UP | PAD_DOWN
+    AND #PAD_B | PAD_START | PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT
     STA OPTMENU_EDGE
   @heard:
 
@@ -468,7 +471,7 @@ opt_menu_scroll:
     CMP OPTMENU_TOP
     BCS @bottom                 ; already showing enough above the cursor
     STA OPTMENU_TOP
-    JSR opt_menu_drawall
+    JSR opt_menu_repaint
     SEC
     RTS
 
@@ -482,12 +485,25 @@ opt_menu_scroll:
     SEC
     SBC #OPTLIST_ROWS - 1
     STA OPTMENU_TOP
-    JSR opt_menu_drawall
+    JSR opt_menu_repaint
     SEC
     RTS
   @out:
     CLC
     RTS
+
+;;  The window, repainted at a new TOP -- the hand first.  The repaint takes
+;;  several frames (opt_menu_breathe), and the loop places the hand only once
+;;  it is over, so the hand stood at its old screen row meanwhile, beside
+;;  whatever the new window drew there.  A scroll that keeps SEL - TOP hides
+;;  that; a page, or the save view snapping back to its heading, does not:
+;;  the hand showed on the Seed, then jumped to Trap tiles (user, 2026-10-16).
+;;  Placed and copied to the HAL's shadow here, the first breath sends it.
+opt_menu_repaint:
+    JSR opt_menu_cursor
+    LDA #>oam
+    wOAMDMA
+    JMP opt_menu_drawall
 
 
 ;;  Act on the row under the cursor: a checkbox toggles, a heading toggles its
@@ -1286,6 +1302,8 @@ opt_value_ptr:
 ;;  left and right already are.
 opt_sideways:
     PHA
+    LDA OPTMENU_VIEW            ; the save view: nothing to step, so the
+    BNE :+                      ;   d-pad pages, on every row (user, 2026-10-16)
     JSR opt_menu_rowptr
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
