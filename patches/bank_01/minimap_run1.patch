@@ -1,0 +1,36 @@
+--- OLD
+:   LDA (tmp), Y
+    TAY
+    DEY
+    LDA tmp+2
+
+  @RunLoop:
+    STA mm_mapbuf, X
+    INX
+    DEY
+    BNE @RunLoop
+    LDY #0
+
+  @SingleTile:
+    STA mm_mapbuf, X
+--- NEW
+:   LDA (tmp), Y
+    TAY
+    LDA tmp+2
+    ;  A run of one is its single tile.  The copy of DecompressMap this was
+    ;  made from tested the count before writing; this wrote first, so a
+    ;  length of 1 counted DEY to 0, wrapped, and laid 257 tiles across the
+    ;  row (overworld-notes.md section 4).  The shipped map has no such run,
+    ;  but an edited one may.  Y is 0 on the way out either way, which is why
+    ;  the LDY #0 that followed the loop could give its two bytes to this.
+    DEY
+    BEQ @SingleTile
+
+  @RunLoop:
+    STA mm_mapbuf, X
+    INX
+    DEY
+    BNE @RunLoop                ; leaves Y = 0
+
+  @SingleTile:
+    STA mm_mapbuf, X

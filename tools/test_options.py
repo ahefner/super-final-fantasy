@@ -6148,6 +6148,108 @@ def test_ntflush():
           (worst["col"] < 1150, worst["row"] < 1000, worst), (True, True, worst))
 
 
+def test_minimap():
+    """MinimapDecompress decodes every row as the map does.  Its run loop was a
+    do-while copied from DecompressMap's while: a run of length 1 counted DEY
+    to 0, wrapped, and laid 257 tiles (overworld-notes.md section 4) -- never
+    on the shipped map, which has no such run, but on any edited one.  Rows
+    made here, every run length 0-255 among them, are pointed at through a
+    private copy's lut_OWPtrTbl; both of the routine's halves (the row, into
+    mm_mapbuf, and the next, into mm_mapbuf2) are held to the game's own
+    DecompressMap on the same bytes."""
+    import random, re as _re
+    MAPROW, BUF, BUF2, MAPDATA = 0x41, 0x0600, 0x0700, 0x7000
+    OWBANK = 0xA1 + 0x01                       # BANK_OWMAP's chunk: the table, and the routine
+    PTRS = (OWBANK & 0x1F) * 0x10000 + 0x8000  # lut_OWPtrTbl
+    img = 0xA7 & 0x1F
+    fixed = bytes(ROMDATA[img * 0x10000 + 0xC000:img * 0x10000 + 0x10000])
+    m = list(_re.finditer(rb"\xA0\x00\xB1\x10\x10.\xC9\xFF\xF0.\x29\x7F\x85\x14", fixed, _re.S))
+    check("DecompressMap found once in the fixed bank", len(m), 1)
+    DECOMP = 0xC000 + m[0].start()
+
+    def encode(items):
+        out = bytearray()
+        for kind, tile, n in items:
+            out += bytes([tile]) if kind == "one" else bytes([0x80 | tile, n & 0xFF])
+        return bytes(out + b"\xff")
+
+    def tiles(items):
+        out = []
+        for kind, tile, n in items:
+            out += [tile] if kind == "one" else [tile] * (n or 256)
+        return out
+
+    rnd = random.Random(1017)
+
+    def rowof(lengths):
+        """A row of runs of these lengths, singles filling the rest."""
+        items, left = [], 256
+        for n in lengths:
+            if n > left:
+                break
+            #  $7E at most: a run of $7F would be $FF, the row's end.
+            items.append(("run", rnd.randrange(0x7F) if rnd.randrange(8) else 0x7E, n))
+            left -= n
+            while left and rnd.randrange(3) == 0:
+                items.append(("one", rnd.randrange(0x80), 1))
+                left -= 1
+        items += [("one", rnd.randrange(0x80), 1) for _ in range(left)]
+        return items
+    rows = [rowof([1] * 256), [("run", 5, 0)], rowof([255, 1]), rowof([1, 255]),
+            [("one", t & 0x7F, 1) for t in range(256)], rowof(list(range(1, 23)))]
+    rows += [rowof([rnd.choice((1, 1, 2, 3, rnd.randrange(1, 40))) for _ in range(120)]) for _ in range(40)]
+    check("the rows: every one 256 tiles, the length-1 runs and a length-0 among them",
+          ({len(tiles(r)) for r in rows}, any(k == "run" and n == 1 for r in rows for k, _, n in r),
+           any(k == "run" and n == 0 for r in rows for k, _, n in r)), ({256}, True, True))
+
+    rom = bytearray(ROMDATA)
+    SRC = (0x0A00, 0x0D00)                     # bit 6 clear: DecompressMap's bank test
+
+    def decomp(bus, cpu, at):
+        """The game's own decoder, as LoadOWMapRow runs it into one row."""
+        bus.wram[0x10], bus.wram[0x11] = at & 0xFF, at >> 8
+        bus.wram[0x12], bus.wram[0x13] = MAPDATA & 0xFF, MAPDATA >> 8
+        cpu.dbr = OWBANK
+        cpu.run(0xA7, DECOMP, limit=2_000_000)
+        return list(bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 256])
+    bad = []
+    for i in range(0, len(rows) - 1):
+        for maprow in (5, 127, 255):           # each half of the table, and the wrap
+            a, b = rows[i], rows[i + 1]
+            bus, cpu = machine()
+            bus.rom = rom
+            for k, (row, at) in enumerate(((maprow, SRC[0]), ((maprow + 1) & 0xFF, SRC[1]))):
+                rom[PTRS + row * 2], rom[PTRS + row * 2 + 1] = at & 0xFF, at >> 8
+            ea, eb = encode(a), encode(b)
+            bus.wram[SRC[0]:SRC[0] + len(ea)] = ea
+            bus.wram[SRC[1]:SRC[1] + len(eb)] = eb
+            for z in range(BUF, BUF2 + 256):
+                bus.wram[z] = 0xEE                 # decoys
+            bus.wram[MAPROW] = maprow
+            call(cpu, "MinimapDecompress", bank=OWBANK, dbr=OWBANK)
+            got = (list(bus.wram[BUF:BUF + 256]), list(bus.wram[BUF2:BUF2 + 256]))
+            want = (decomp(bus, cpu, SRC[0]), decomp(bus, cpu, SRC[1]))
+            if got != want or want != (tiles(a), tiles(b)):
+                bad.append("rows %d,%d at map row %d: %s" % (i, i + 1, maprow,
+                           "mm_mapbuf" if got[0] != want[0] else "mm_mapbuf2"))
+    check("each half decodes as DecompressMap, run lengths 0-255", bad[:4], [])
+
+    #  ...and the shipped map, every row, through its own pointers: as it was.
+    bus, cpu = machine()
+    bad = []
+    for maprow in range(0, 256, 2):
+        bus.wram[MAPROW] = maprow
+        call(cpu, "MinimapDecompress", bank=OWBANK, dbr=OWBANK)
+        got = (list(bus.wram[BUF:BUF + 256]), list(bus.wram[BUF2:BUF2 + 256]))
+        want = []
+        for row in (maprow, maprow + 1):
+            ptr = ROMDATA[PTRS + row * 2] | ROMDATA[PTRS + row * 2 + 1] << 8
+            want.append(decomp(bus, cpu, ptr))
+        if got != tuple(want):
+            bad.append(maprow)
+    check("the shipped map's 256 rows, as DecompressMap has them", bad[:4], [])
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -11225,7 +11327,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

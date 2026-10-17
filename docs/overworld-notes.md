@@ -139,10 +139,25 @@ Damage is confined to the row -- `X` is eight bits and `mm_mapbuf` is 256 bytes
 (`$0600`, with `mm_mapbuf2` at `$0700`), so the writes wrap inside the row
 rather than spilling.  A scrambled row, not a crash.
 
-**Fix:** a `BEQ @SingleTile` immediately after each `DEY`.  Two bytes, and the
-routine is copy/pasted so there are two of them; bank `$01` has 30 declared-
-unused bytes directly below.  The complementary fix is an encoder that never
-emits a length-1 run.  Do both.
+**Fixed (2026-10-17, `patches/bank_01/minimap_run1.patch` and `_run2`, one
+for each half):** the tile is loaded before the count, and a `BEQ
+@SingleTile` follows the `DEY`, so a length of 1 goes straight to the single
+tile.  Byte-neutral: the loop leaves `Y` at 0 whichever way it exits, so the
+`LDY #0` after it was redundant and gives its two bytes to the branch; the 30
+unused bytes below are untouched.  A length of 0 still means 256, as in
+`DecompressMap`.  `test_minimap` points a private copy's `lut_OWPtrTbl` at
+rows made in RAM -- every run length 0-255 among them, all-singles, all
+length-1 runs -- and holds both halves (`mm_mapbuf`, `mm_mapbuf2`) to the
+game's own `DecompressMap` on the same bytes, in both halves of the pointer
+table and across the row-255 wrap; and all 256 shipped rows, through their
+own pointers, as they were.  Restoring the bug in either half fails it.
+
+**The encoder rule is now about size, not safety.**  There is no encoder in
+the tree yet; the overworld edits will need one.  A length-1 run costs two
+bytes where the tile alone costs one, so the encoder should still never emit
+one -- but a map that has them now decodes correctly everywhere.  One rule
+it must keep for correctness: **a run of tile `$7F` cannot be written**, since
+`$80 | $7F` is `$FF`, the row's end; `$7F` must go out as single tiles.
 
 ## 5. Alternate maps, if we want them
 

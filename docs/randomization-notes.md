@@ -1413,8 +1413,8 @@ A *dynamically generated* edge list could mean either of two things:
     a 64KB working copy or a streaming row-by-row labeller.  It would
     duplicate on the cart what the oracle does better offline.
 
-Do the minimap run-length-1 fix first (`overworld-notes.md` §4).  It is the
-prerequisite for anything that re-encodes a map.
+The minimap run-length-1 fix (`overworld-notes.md` §4), the prerequisite for
+anything that re-encodes a map, is done (2026-10-17).
 
 Two edits are more than tiles:
 
