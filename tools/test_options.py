@@ -6003,6 +6003,122 @@ def test_palflush():
           (whole - none <= 25, landed), (True, True))
 
 
+def test_ntflush():
+    """The tilemap in VRAM is the HAL's shadow after every flush.  The game's
+    own map draws -- DrawMapRowCol's rows and columns, hal_drawattr's
+    attributes -- and scattered $2007 writes, frame after frame, each flushed
+    by hal_waitvbl with its DMAs run (bus.dma); then every NES row, both
+    halves, checked word for word at its own tilemap row and at its duplicate
+    thirty below.  And what a walking frame's flush costs, bounded."""
+    import random, re as _re
+    NTSHADOW, VRAMMAP = 0x1000, 0x0000
+    img = 0xA7 & 0x1F
+    fixed = bytes(ROMDATA[img * 0x10000 + 0xC000:img * 0x10000 + 0x10000])
+    m = list(_re.finditer(rb"\xA6\x30\xBD..\x85\x10\xBD..\x85\x11\xA5\x31\xC9\x10", fixed, _re.S))
+    check("DrawMapRowCol found once in the fixed bank", len(m), 1)
+    ROWCOL = 0xC000 + m[0].start()
+
+    def clean(bus):
+        for r in range(32):
+            bus.wram[0x0940 + r], bus.wram[0x0960 + r] = 0xFF, 0x00
+        for k, v in ((0x10, 0xFF), (0x11, 0xFF), (0x12, 0), (0x13, 0), (0x16, 0), (0x18, 0), (0x26, 0)):
+            bus.wram[0x0800 + k] = v
+
+    def where(r, c):
+        """The tilemap words NES row r, column c lands on: itself, and its
+        duplicate thirty rows down (rows 30-31 above, then the lower pair of
+        quadrants); the right half a quadrant over."""
+        half = 0x400 if c >= 32 else 0
+        c &= 31
+        dup = (30 + r) * 32 if r < 2 else 0x800 + (r - 2) * 32
+        return VRAMMAP + half + r * 32 + c, VRAMMAP + half + dup + c
+
+    def mismatches(bus):
+        bad = []
+        for r in range(30):
+            for c in range(64):
+                want = bus.wram[NTSHADOW + r * 128 + c * 2] | bus.wram[NTSHADOW + r * 128 + c * 2 + 1] << 8
+                for a in where(r, c):
+                    got = bus.vram[a * 2] | bus.vram[a * 2 + 1] << 8
+                    if got != want:
+                        bad.append((r, c, a, got, want))
+        return bad
+
+    rnd = random.Random(1016)
+    bad = []
+    for seed in range(3):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.dma = True
+        bus.frames()
+        clean(bus)
+        for frame in range(40):
+            kind = rnd.choice(("row", "col", "col", "attr", "writes"))
+            for i in range(0x40):
+                bus.wram[0x0780 + i] = rnd.randrange(256)
+            bus.wram[0x30], bus.wram[0x31] = rnd.randrange(15), rnd.randrange(32)
+            bus.wram[0x2D] = 1 | (2 if kind == "col" else 0)
+            if kind in ("row", "col"):
+                cpu.dbr = 0xA7
+                cpu.run(0xA7, ROWCOL, limit=2_000_000)
+            elif kind == "attr":
+                for i in range(16):
+                    bus.wram[0x07C0 + i] = rnd.randrange(256)
+                    bus.wram[0x07D0 + i] = rnd.choice((0x23, 0x27))
+                    bus.wram[0x07E0 + i] = 0xC0 + rnd.randrange(60)
+                    bus.wram[0x07F0 + i] = 0x03 << 2 * rnd.randrange(4)
+                bus.wram[0x2D] = 1 | (2 if rnd.randrange(2) else 0)
+                call(cpu, "hal_drawattr", bank=0xC0)
+            else:
+                for _ in range(rnd.randrange(1, 12)):
+                    a = rnd.choice((0x2000, 0x2400)) + rnd.randrange(0x3C0)
+                    cpu.a = a >> 8
+                    call(cpu, "hal_w2006", bank=0xC0)
+                    cpu.a = a & 0xFF
+                    call(cpu, "hal_w2006", bank=0xC0)
+                    cpu.a = rnd.randrange(256)
+                    call(cpu, "hal_w2007", bank=0xC0)
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            mm = mismatches(bus)
+            dirty = [r for r in range(32) if (bus.wram[0x0940 + r], bus.wram[0x0960 + r]) != (0xFF, 0x00)]
+            if dirty:
+                bad.append("seed %d frame %d (%s): rows still dirty %s" % (seed, frame, kind, dirty[:6]))
+                break
+            if mm:
+                bad.append("seed %d frame %d (%s): %d words, first %s" % (seed, frame, kind, len(mm), mm[0]))
+                break
+    check("after every flush, VRAM's tilemap is the shadow, and every row clean", bad[:4], [])
+
+    #  What a walking frame's flush costs in vblank, sprites included: a
+    #  sideways step's column was 1713 instructions and a row 700-1060 before
+    #  the scan stopped switching widths a row and the gather was unrolled
+    #  (2026-10-16), and a late-served frame has only 17 lines for it.
+    def cost(kind, x, y):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.frames()
+        clean(bus)
+        for i in range(0x40):
+            bus.wram[0x0780 + i] = rnd.randrange(256)
+        bus.wram[0x30], bus.wram[0x31], bus.wram[0x2D] = y, x, 1 | (2 if kind == "col" else 0)
+        cpu.dbr = 0xA7
+        cpu.run(0xA7, ROWCOL, limit=2_000_000)
+        bus.wram[0x0818] = 1                    # h_oamdirty: the party moved
+        bus.dma = True
+        n = [0]
+        step = cpu.step
+
+        def counted():
+            n[0] += 1
+            step()
+        cpu.step = counted
+        call(cpu, "hal_flush", bank=0xC0)
+        return n[0]
+    worst = {k: max(cost(k, x, y) for x, y in ((0, 4), (13, 14), (25, 9), (31, 0))) for k in ("row", "col")}
+    check("a walking frame's flush: a column under 1150 instructions, a row under 1000",
+          (worst["col"] < 1150, worst["row"] < 1000, worst), (True, True, worst))
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -11002,7 +11118,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

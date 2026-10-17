@@ -134,9 +134,11 @@ class Bus:
             self.vaddr = (self.vaddr & 0x00FF) | (val << 8)
         elif addr in (0x2118, 0x2119):
             self.vram[(self.vaddr * 2 + (addr - 0x2118)) & 0xFFFF] = val
-            step = self.io.get(0x2115, 0) & 0x80
-            if (addr == 0x2119) == bool(step):
-                self.vaddr = (self.vaddr + 1) & 0x7FFF
+            vmain = self.io.get(0x2115, 0)
+            if (addr == 0x2119) == bool(vmain & 0x80):
+                #  VMAIN bits 0-1: step 1, 32 or 128 words -- a column of the
+                #  tilemap goes down by 32, one row per write.
+                self.vaddr = (self.vaddr + (1, 32, 128, 128)[vmain & 3]) & 0x7FFF
         elif addr == 0x2121:
             self.caddr = val * 2
         elif addr == 0x2122:

@@ -1813,6 +1813,30 @@ What made the pieces small enough to be worth splitting:
     instruction count (2004 inside vblank before, 22 after), not yet with the
     ares profiler; `test_palflush` holds it, with the harness's 65816 now
     running general-purpose DMA when a test asks (`bus.dma`) and BRL.
+  - **A walking frame's flush lost a third** (2026-10-16; user: "an
+    occasional (unpredictable) flicker of ~8 forced vblank lines when
+    walking").  The likely cause is the late serve: `hal_waitvbl` serves a
+    vblank it arrives inside of up to line 244 (`LATE_FLUSH_LAST`), 17 lines
+    from the end, on a measured 15 for a walking flush -- and a sideways step
+    cost more.  Measured in the harness with the game's own `DrawMapRowCol`
+    and `hal_drawattr` run into the HAL: a column frame's flush was 1713
+    instructions, a row's 700-1060, an attribute frame's up to 1350, and
+    most of it bookkeeping, not transfer.  `flush_nt`'s dirty-row scan
+    switched the accumulator's width twice a row, clean rows included (435
+    instructions a frame); `column_flush`'s gather was ten instructions an
+    entry, 714 a step; the column path's clean-up marked rows a byte at a
+    time.  Now the scan runs in eight bits, the gather is unrolled (thirty
+    loads and stores), the clean-up goes a word at a time, and short spans
+    go through the port sixteen bits at a store: a column frame is 1070, a
+    row 680-950.  `test_ntflush` runs random row, column, attribute and
+    scattered frames through the flush with the harness's DMA on -- which
+    now steps VMAIN's 32-word increment -- and holds VRAM's tilemap to the
+    shadow word for word, every row and its duplicate, every row clean
+    after, and bounds a walking frame's cost.  Played the same day: "much
+    improved", a band of two or three lines seen once or twice in a session.
+    Not measured on the ares profiler; `LATE_FLUSH_LAST` is unchanged, and
+    a late serve that asked how much the flush holds before taking the frame
+    would be the next step for what is left.
   - **The description box is drawn once.**  It is rows 21-28 and the list is
     rows 1-20, so a repaint of the list cannot damage it.
   - **A checkbox or a value repaints one row**, not the window.  Nothing else

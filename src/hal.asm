@@ -1760,10 +1760,18 @@ flush_nt:
     sta a:h_c0                  ; union of the dirty spans, low water
     stz a:h_c1                  ; ...and high water
     stz a:h_gcount              ; how many rows are dirty
+    stz a:h_rowlo               ; words: the scan below fills the low bytes
+    stz a:h_rowend
+    ;  The scan runs in eight bits throughout.  It used to switch the
+    ;  accumulator's width twice a row, clean rows included -- about fourteen
+    ;  instructions a row, 435 a walking frame before anything was sent, all
+    ;  of it under forced blank in vblank.  Eight-bit indices also make X's
+    ;  high byte zero, which the stores below rely on.
+    sep #$30
+    .a8
+    .i8
     ldx #0
 @scan:
-    sep #$20
-    .a8
     lda a:NTCOLLO,x
     cmp a:NTCOLHI,x
     beq @dirty
@@ -1776,7 +1784,7 @@ flush_nt:
     ;  sending the dirty ones.
     lda a:h_gcount
     bne @seenone
-      stx a:h_rowlo             ; X is sixteen bits here, so this is a word
+      stx a:h_rowlo
 @seenone:
     stx a:h_rowend              ; the last dirty row seen, so far
     inc a:h_gcount
@@ -1790,11 +1798,12 @@ flush_nt:
       sta a:h_c1
 :
 @scannext:
-    rep #$20
-    .a16
     inx
     cpx #30
     bcc @scan
+    rep #$30
+    .a16
+    .i16
 
     lda a:h_gcount
     bne @some
@@ -1816,17 +1825,14 @@ flush_nt:
     cmp #5                      ; and a narrow enough span?
     bcs @byrows
     jsr column_flush
-    ldx #0                      ; every row is clean now
-    sep #$20
-    .a8
-:   lda #$FF
-    sta a:NTCOLLO,x
+    ldx #0                      ; every row is clean now, two at a time
+    lda #$FFFF
+:   sta a:NTCOLLO,x
     stz a:NTCOLHI,x
+    inx
     inx
     cpx #32
     bcc :-
-    rep #$20
-    .a16
     LEAVE16
     rts
     ;  LEAVE16 above asserts .a8/.i8 for the assembler.  Execution only reaches
@@ -1962,23 +1968,14 @@ column_flush:
 @colloop:
     lda a:h_gcol                ; --- collect the column out of the shadow ---
     asl a
-    clc
-    adc #NTSHADOW
-    tax
-    ldy #0
-    lda #30
-    sta a:h_gcount
-@gather:
-    lda a:$0000,x
-    sta a:GATHERBUF,y
-    iny
-    iny
-    txa
-    clc
-    adc #128                    ; the same column, one row down
-    tax
-    dec a:h_gcount
-    bne @gather
+    tax                         ; the column's offset in a shadow row
+    ;  Unrolled: thirty loads a row apart, thirty stores.  As a loop it was
+    ;  ten instructions an entry, three hundred a column and some seven
+    ;  hundred a sideways step, all in vblank.
+  .repeat 30, row
+    lda a:NTSHADOW + row * 128,x
+    sta a:GATHERBUF + row * 2
+  .endrep
 
     sep #$20                    ; --- and push it down the tilemap ---
     .a8
@@ -2126,19 +2123,15 @@ nt_piece:
     bcs @dma
     ;  Short spans -- a sideways scroll gives one or two tiles per row -- cost
     ;  less written straight through the port than programming a DMA channel.
-    sep #$20
-    .a8
+    ;  A sixteen-bit store writes VMDATAL and then VMDATAH, which is the
+    ;  order VMAIN's step-after-high wants.
 @word:
     lda a:$0000,x
     sta a:VMDATAL
     inx
-    lda a:$0000,x
-    sta a:VMDATAH
     inx
     dec a:h_t5
     bne @word
-    rep #$20
-    .a16
     rts
 @dma:
     ;  Long spans -- a vertical scroll redraws a whole 64-tile row -- are the
