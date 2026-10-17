@@ -1033,8 +1033,17 @@ def test_es_tables():
     import graphdata as GD
     b0 = (1 + 0x00) * 0x10000
     rom = lambda a, n: list(ROMDATA[b0 + a:b0 + a + n])
+    #  Bit 7 of a landing's x is its room: FFR's StandardInRoom destinations,
+    #  which the game's own tables never marked (it carried inroom over).
+    ROOM = set(map(tuple, GD.LAND_ROOM))
+    check("the rooms: FFR's seven StandardInRoom landings",
+          sorted(ROOM), [(11, 2, 2), (24, 12, 7), (25, 12, 12), (27, 34, 37), (37, 51, 11), (38, 39, 6), (47, 19, 21)])
+    roomx = lambda xs, ys, ms: [x | (0x80 if (m, x, y) in ROOM else 0) for x, y, m in zip(xs, ys, ms)]
     van = (rom(0xAC00, 32), rom(0xAC20, 32), rom(0xAC40, 32), rom(0xAD00, 64), rom(0xAD40, 64),
            rom(0xAD80, 64), rom(0xAC60, 16), rom(0xAC70, 16))
+    van = (roomx(van[0], van[1], van[2]),) + van[1:3] + (roomx(van[3], van[4], van[5]),) + van[4:]
+    check("...each a landing of the vanilla wiring's normal teleports, none an entrance's",
+          (sum(x >> 7 for x in van[0]), sum(x >> 7 for x in van[3])), (0, 7))
 
     def tables(seed, mode, k, placed=1, ordeals=0):
         bus, cpu = machine()
@@ -1058,33 +1067,44 @@ def test_es_tables():
     check("a mode without a placement: bank $00's tables", tables(1, R.ENTRANCES_FLOORS, 0, placed=0)[2], van)
     for seed, mode, k in ((1, R.ENTRANCES_ONLY, 0), (2, R.ENTRANCES_FLOORS, 1), (0xD1625106, R.ENTRANCES_FLOORS, 0)):
         entrance, normal, exits, _ = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
-        want = ([c[1] for c in entrance], [c[2] for c in entrance], [c[0] for c in entrance],
-                [c[1] for c in normal], [c[2] for c in normal], [c[0] for c in normal],
-                [c[0] for c in exits], [c[1] for c in exits])
+        want = ([c[1] | (0x80 if tuple(c) in ROOM else 0) for c in entrance], [c[2] for c in entrance],
+                [c[0] for c in entrance],
+                [c[1] | (0x80 if tuple(c) in ROOM else 0) for c in normal], [c[2] for c in normal],
+                [c[0] for c in normal], [c[0] for c in exits], [c[1] for c in exits])
         check("mode %d seed %X attempt %d: the save's wiring" % (mode, seed, k), tables(seed, mode, k)[2], want)
 
     #  The hooks, on a shuffled world: each landing's scroll and map.
     bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1)
     sx, sy, ox, oy = K["sm_scroll_x"], K["sm_scroll_y"], K["ow_scroll_x"], K["ow_scroll_y"]
     bad = []
+    IR = K["inroom"]
+    rooms = 0
     for e in range(32):
-        cpu.x = e
-        call(cpu, "rando_entrdest", bank=RANDO_BANK)
-        if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF) != \
-                ((t[0][e] - 7) & 0x3F, (t[1][e] - 7) & 0x3F, t[2][e], e):
-            bad.append(("entrance", e))
+        for before in (0x00, 0x81, 0x84):          # outside, inside, leaving a room
+            bus.wram[IR] = before
+            cpu.x = e
+            call(cpu, "rando_entrdest", bank=RANDO_BANK)
+            if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF, bus.wram[IR]) != \
+                    ((t[0][e] - 7) & 0x3F, (t[1][e] - 7) & 0x3F, t[2][e], e, 0x81 if t[0][e] & 0x80 else 0):
+                bad.append(("entrance", e, before))
+        rooms += t[0][e] >> 7
     for tid in range(64):
-        cpu.x = tid
-        call(cpu, "rando_teledest", bank=RANDO_BANK)
-        if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF) != \
-                ((t[3][tid] - 7) & 0x3F, (t[4][tid] - 7) & 0x3F, t[5][tid], tid):
-            bad.append(("teleport", tid))
+        for before in (0x00, 0x81, 0x84):
+            bus.wram[IR] = before
+            cpu.x = tid
+            call(cpu, "rando_teledest", bank=RANDO_BANK)
+            if (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, cpu.x & 0xFF, bus.wram[IR]) != \
+                    ((t[3][tid] - 7) & 0x3F, (t[4][tid] - 7) & 0x3F, t[5][tid], tid,
+                     0x81 if t[3][tid] & 0x80 else 0):
+                bad.append(("teleport", tid, before))
+        rooms += t[3][tid] >> 7
     for x in range(16):
         cpu.x = x
         call(cpu, "rando_exitdest", bank=RANDO_BANK)
         if (bus.wram[ox], bus.wram[oy]) != ((t[6][x] - 7) & 0xFF, (t[7][x] - 7) & 0xFF):
             bad.append(("exit", x))
-    check("the hooks read the cache's tables", bad[:4], [])
+    check("the hooks read the cache's tables, and set inroom from the landing", bad[:4], [])
+    check("...in rooms and out of them, both", 0 < rooms < 96, True)
     #  ...and build it first, when nothing else has since power-on.
     cold = []
     for hook, x, want in (("rando_entrdest", 5, lambda b, c: (b.wram[sx], c.a & 0xFF)),
@@ -1101,15 +1121,24 @@ def test_es_tables():
     bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1, ordeals=1)
     cpu.x = K["ORD_LOST_TELE"]
     call(cpu, "rando_teledest", bank=RANDO_BANK)
-    check("the Ordeals pillars' teleport still moved, its map the table's",
-          (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF),
-          ((K["ORD_LOST_X"] - 7) & 0x3F, (K["ORD_LOST_Y"] - 7) & 0x3F, t[5][K["ORD_LOST_TELE"]]))
+    bus.wram[K["inroom"]] = 0x81
+    call(cpu, "rando_teledest", bank=RANDO_BANK)
+    check("the Ordeals pillars' teleport still moved, its map the table's, in the open",
+          (bus.wram[sx], bus.wram[sy], cpu.a & 0xFF, bus.wram[K["inroom"]]),
+          ((K["ORD_LOST_X"] - 7) & 0x3F, (K["ORD_LOST_Y"] - 7) & 0x3F, t[5][K["ORD_LOST_TELE"]], 0))
     #  And the fixed bank asks them, rather than bank $00.
     fixed = (1 + 0x0F) * 0x10000 + 0xC000
     body = ROMDATA[fixed:fixed + 0x4000]
     for name in ("rando_entrdest", "rando_exitdest", "rando_teledest"):
         a = SYM[name]
         check("the fixed bank calls %s" % name, body.count(bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])), 1)
+    #  The entrance path's own "LDA #0 / STA inroom" is gone after the call:
+    #  JSL, STA cur_map, TAX, LDA lut_Tilesets,X, STA cur_tileset, then on.
+    a = SYM["rando_entrdest"]
+    at = body.find(bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK]))
+    check("...and the entrance path clears inroom no more",
+          (body[at + 4:at + 7], body[at + 10:at + 12], body[at + 12:at + 16] != bytes([0xA9, 0x00, 0x85, 0x0D])),
+          (bytes([0x85, 0x48, 0xAA]), bytes([0x85, 0x49]), True))
     for tbl, addr in (("lut_EntrTele", 0xAC00), ("lut_NormTele", 0xAD00), ("lut_ExitTele", 0xAC60)):
         reads = sum(body.count(bytes([0xBD, (addr + o) & 0xFF, (addr + o) >> 8])) for o in (0, 0x20, 0x40, 0x10, 0x80))
         check("the fixed bank reads %s no more" % tbl, reads, 0)

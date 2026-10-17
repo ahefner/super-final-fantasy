@@ -2578,7 +2578,9 @@ es_tables:
     PLP
     RTL
 
-;;  Landing A8: A = its map, B (XBA) its y, esLOC its x.  A8, I16.  Y kept.
+;;  Landing A8: A = its map, B (XBA) its y, esLOC its x -- with bit 7 set for
+;;  a landing inside a room, FFR's StandardInRoom, which rando_entrdest and
+;;  rando_teledest turn into inroom.  A8, I16.  Y kept.
 es_landbytes:
     .a8
     REP #$20
@@ -2588,6 +2590,7 @@ es_landbytes:
     SEP #$20
     .a8
     LDA f:LOGICFAR + lut_GrLandX, X
+    ORA f:LOGICFAR + lut_GrLandRoom, X
     STA a:esLOC
     LDA f:LOGICFAR + lut_GrLandY, X
     XBA

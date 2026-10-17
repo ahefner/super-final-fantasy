@@ -188,6 +188,12 @@ def main():
     for t, n in m.tele.items():
         landed[rnum[n]] = rd.normal_tele(m.tidx[t])
     out["LANDED"] = landed
+    #  FFR's StandardInRoom destinations: a party set down at one of these is
+    #  inside a room, and FFR's teleport code sets inroom from the landing
+    #  (StatsTracking.cs, the routine at $0F:9200) rather than carrying it
+    #  over from wherever the party left -- which only ever agreed with the
+    #  landing while the wiring was vanilla.
+    out["LAND_ROOM"] = sorted({(r.map, r.x, r.y) for r in m.records.values() if r.inroom})
     out["LISTS"] = {
         "towns": [m.owti[o] for o in m.lists["towns"]],
         "top": [m.owti[o] for o in m.lists["top"]],
@@ -379,6 +385,10 @@ def write_inc(D):
     table("lut_GrLandX", [c[1] for c in lands])
     table("lut_GrLandY", [c[2] for c in lands])
     table("lut_GrLandMap", [c[0] for c in lands])
+    room = set(D["LAND_ROOM"])
+    assert room <= set(lands), "an in-room destination no wiring lands on: %s" % sorted(room - set(lands))
+    lines.append(";  $80 for a landing inside a room (FFR's StandardInRoom), as bit 7 of its x.")
+    table("lut_GrLandRoom", [0x80 if c in room else 0 for c in lands])
     table("lut_GrLandNodes", csr("lut_GrLand", [D["LAND"][c] for c in lands]))
     lines.append(";  Exit coordinates: where on the overworld, and its regions there.")
     table("lut_GrExitX", [c[0] for c in exits])

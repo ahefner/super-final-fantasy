@@ -1702,6 +1702,27 @@ reference byte for byte by `test_options.py`:
     680,000 in 40 seeds, the re-deals of insane wirings.  That is New Game
     and the first Continue after power-on; a soft reset keeps the cache, so
     its Continue costs nothing new.
+  - **Landing in a room** (2026-10-16; user, under Floors: "entered sky 1,
+    where the entrance is inside a room, but the room wasn't opened, so I
+    was standing on top of the white room mask").  The game never decides
+    whether a landing is inside a room: an overworld entrance clears
+    `inroom`, and a normal teleport carries over whatever it was where the
+    party stood -- right only while each teleport leads where it always did.
+    FFR sets it from the landing instead, for every wiring (its
+    `StatsTracking.cs` routine at $0F:9200: bit 7 of the teleport's x, its
+    `StandardInRoom` destinations), and so does this.  `gengraph.py` emits
+    `lut_GrLandRoom` from FFR's records -- seven landings: Ordeals 1F's
+    back and 2F's maze, Ice Cave B2's floater and B3, Marsh Cave B2, Coneria
+    Castle 2F's Princess, Sky Palace 1F -- `es_landbytes` puts it in bit 7 of
+    the cache's x, and `rando_entrdest` and `rando_teledest` set `inroom` to
+    $81 or $00 from it (`land_room`); `randoentr.patch` drops the entrance
+    path's own clear.  The Ordeals pillars' moved teleport is FFR's
+    `Standard`: in the open.  All seven are normal teleports' landings in
+    the vanilla wiring, and none an entrance's; with the mode Off this is
+    FFR's rule over vanilla's carry-over, which FFR plays everywhere -- not
+    checked tile by tile here.  `test_es_tables` holds the bit in both
+    wirings, and the hooks setting `inroom` from any value before, in rooms
+    and out.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
   - **Placement's tables** (`pTUNE`, `lut_Place*Loose`; `TUNE_LOOSE`;

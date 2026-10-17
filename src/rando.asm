@@ -1272,7 +1272,16 @@ rando_mapedits:
 ;;  on, teleport $3C, tile $54's, lands at FFR's (16, 18) rather than (14, 20).
 ;;
 ;;  In: X = the teleport.  Out: sm_scroll_x and _y, each the landing less 7
-;;  and wrapped, as the code this replaced made them; X kept.  Emulation mode.
+;;  and wrapped, as the code this replaced made them; inroom, from the
+;;  landing (land_room); X kept.  Emulation mode.
+;;
+;;  The game carried inroom over from wherever the party stood, which agreed
+;;  with the landing only while every teleport led where it always had: a
+;;  shuffled one out of the open into Sky Palace 1F's room set the party down
+;;  on the room's mask (user, 2026-10-16), and one out of a room into the
+;;  open would show the inside view outdoors.  FFR sets it from the landing,
+;;  for every wiring, vanilla's included (StatsTracking.cs, $0F:9200); so
+;;  does this.  @NormalTeleport has already pushed the old value for WARP.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_teledest:
@@ -1289,7 +1298,8 @@ rando_teledest:
     BEQ @table
     CMP #ORDEALS_MODES
     BCS @table
-    LDA #ORD_LOST_X
+    LDA #ORD_LOST_X             ; FFR's (16, 18): in the open, as it says
+    JSR land_room
     JSR tele_scroll
     STA sm_scroll_x
     LDA #ORD_LOST_Y
@@ -1298,6 +1308,7 @@ rando_teledest:
     BRA @map
   @table:
     LDA f:RW_NORMX, X
+    JSR land_room
     JSR tele_scroll
     STA sm_scroll_x
     LDA f:RW_NORMY, X
@@ -1319,6 +1330,7 @@ rando_entrdest:
     JSR ensure
     PLX
     LDA f:RW_ENTRX, X
+    JSR land_room               ; the game cleared inroom here; this sets it
     JSR tele_scroll
     STA sm_scroll_x
     LDA f:RW_ENTRY, X
@@ -1345,6 +1357,18 @@ rando_exitdest:
     SBC #7
     STA ow_scroll_y
     JMP leave
+
+;;  A landing's x, bit 7 its room (es_landbytes), into inroom as FFR's
+;;  routine makes it: $81, in a room and showing its inside, or $00.
+;;  In: A8 = the x.  Out: A as it was.
+land_room:
+    PHA
+    AND #$80
+    BEQ :+
+    LDA #$81
+:   STA z:inroom
+    PLA
+    RTS
 
 ;;  A landing coordinate's scroll: 7 back, wrapped to the map.
 tele_scroll:

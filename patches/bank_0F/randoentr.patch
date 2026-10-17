@@ -13,9 +13,23 @@
 
     LDA lut_EntrTele_Map, X ; get the map
     STA cur_map
+
+    TAX                     ; throw map in X
+    LDA lut_Tilesets, X     ; and use it to get the tileset for this map
+    STA cur_tileset
+
+    LDA #0                  ; clear the inroom flag (enter maps outside of rooms)
+    STA inroom
 --- NEW
 .import rando_entrdest
     ;  Where it lands, from the cache's table: vanilla's, or under entrance
     ;  shuffle the save's wiring.  The scroll is set; A is the map.
     JSL rando_entrdest + RANDOFAR
     STA cur_map
+
+    TAX                     ; throw map in X
+    LDA lut_Tilesets, X     ; and use it to get the tileset for this map
+    STA cur_tileset
+
+    ;  inroom is rando_entrdest's, from the landing: a shuffled entrance can
+    ;  set the party down inside a room, as FFR's entrance shuffle can.
