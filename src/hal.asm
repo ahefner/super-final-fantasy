@@ -448,7 +448,41 @@ chr_write:
     cmp a:h_chrhi
     bcc :+
       sta a:h_chrhi
-:   jmp bump_addr
+:
+    ;  ...and list the word, for a frame with only a few to send.  The span
+    ;  alone sent everything between the lowest write and the highest: the
+    ;  minimap's crests and title write one byte to each of forty-odd tiles
+    ;  spread over the table, a frame at a time, and the span over them was
+    ;  8KB -- 47 scanlines of DMA a frame, past the end of vblank (user,
+    ;  2026-10-17).  flush_chr sends the list instead when it is the cheaper.
+    sep #$20
+    .a8
+    lda a:h_chrqn
+    cmp #CHRQ_CAP
+    bcs @full                   ; full, or already given up
+    rep #$20
+    .a16
+    and #$00FF
+    asl a
+    phy
+    tay
+    txa
+    and #$FFFE                  ; the word: plane 0's byte and plane 1's
+    sta a:CHRQUEUE,y
+    ply
+    sep #$20
+    .a8
+    inc a:h_chrqn
+    rep #$20
+    .a16
+    jmp bump_addr
+  @full:
+    .a8
+    lda #$FF                    ; more than the list holds: the span alone
+    sta a:h_chrqn
+    rep #$20
+    .a16
+    jmp bump_addr
 
 ; --- nametable ----------------------------------------------------------
 nt_write:
@@ -1695,6 +1729,50 @@ flush_chr:
     .a8
     lda #$80
     sta a:VMAIN                 ; step one word after each $2119 write
+    rep #$20
+    .a16
+
+    ;  A few words over a wide span go through the port, each set by its own
+    ;  address: a word costs about what twenty bytes of DMA do.  An empty list
+    ;  (nothing wrote through chr_write) or one given up takes the span.
+    lda a:h_chrqn
+    and #$00FF
+    beq @span
+    cmp #CHRQ_CAP + 1
+    bcs @span
+    asl a
+    sta a:h_t1                  ; the list's end, in bytes
+    asl a                       ; words * 4...
+    sta a:h_t0
+    asl a
+    asl a                       ; ...* 16
+    clc
+    adc a:h_t0                  ; = words * 20
+    sta a:h_t0
+    lda a:h_chrhi
+    sec
+    sbc a:h_chrlo               ; the span's bytes, less one
+    cmp a:h_t0
+    bcc @span                   ; the span is the cheaper
+    ldy #0
+@word:
+    ldx a:CHRQUEUE,y
+    txa
+    lsr a
+    clc
+    adc #VRAM_CHR
+    sta a:VMADDL
+    lda f:CHRSHADOW,x
+    sta a:VMDATAL               ; sixteen bits: VMDATAL, then VMDATAH
+    iny
+    iny
+    cpy a:h_t1
+    bcc @word
+    bra @clean
+
+@span:
+    sep #$20
+    .a8
     lda #$01
     sta a:DMAP0                 ; two registers: $2118 then $2119
     lda #$18
@@ -1723,9 +1801,15 @@ flush_chr:
     sta a:MDMAEN
     rep #$20
     .a16
+@clean:
     lda #$FFFF                  ; span is clean again
     sta a:h_chrlo
     stz a:h_chrhi
+    sep #$20
+    .a8
+    stz a:h_chrqn               ; ...and the list empty
+    rep #$20
+    .a16
     LEAVE16
     rts
 
@@ -2890,7 +2974,12 @@ hal_chrload:
     cmp a:h_chrlo
     bcs :+
       sta a:h_chrlo
-:
+:   sep #$20                    ; a bulk load: the list cannot hold it
+    .a8
+    lda #$FF
+    sta a:h_chrqn
+    rep #$20
+    .a16
     ;  Whole aligned tiles take a much shorter path.  The sixteen bytes of a
     ;  tile land at fixed offsets from that tile's base in the shadow -- the
     ;  even ones for plane 0, the odd for plane 1 -- so with the base in X there

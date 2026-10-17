@@ -6250,6 +6250,116 @@ def test_minimap():
     check("the shipped map's 256 rows, as DecompressMap has them", bad[:4], [])
 
 
+def test_chrflush():
+    """The pattern tables in VRAM are the HAL's CHR shadow after every flush.
+    A frame that wrote a few words over a wide span sends them through the
+    port, one address each; anything else -- many words, a bulk load through
+    hal_chrload -- sends the span by DMA.  Frames as the minimap's crests and
+    title write them (one byte to each of forty-odd scattered tiles), as its
+    rows do, scattered at random, past what the list holds, and bulk, each
+    flushed with its DMAs run: VRAM's 16KB of CHR word for word, the list
+    empty after.  And a crest frame's flush costs no DMA and a few hundred
+    instructions, where the span was 8KB -- 47 scanlines, past vblank."""
+    import random
+    CREST = [0x0010, 0x0020, 0x0030, 0x0040, 0x0050, 0x0060, 0x0070, 0x0080, 0x00B0, 0x00C0, 0x00D0,
+             0x00E0, 0x00F0, 0x0700, 0x0710, 0x0720, 0x0730, 0x0740, 0x0750, 0x0760, 0x0800, 0x0810,
+             0x0820, 0x0830, 0x0840, 0x0D00, 0x0D10, 0x0D20, 0x0D30, 0x0D40, 0x0E00, 0x0E10, 0x0E20,
+             0x0E30, 0x0E40, 0x0F00, 0x0F10, 0x0F20, 0x0F30, 0x0F40, 0x0F50, 0x0F60, 0x0F70, 0x0F80,
+             0x0F90, 0x0FA0, 0x0FB0, 0x0FC0]                    # lut_MinimapDecorCHRDest
+    TITLE = [0x0160, 0x0260, 0x02F0, 0x0400, 0x0450, 0x0480, 0x0490, 0x0500, 0x0540, 0x0550, 0x0560,
+             0x0570, 0x0580, 0x0590, 0x0600, 0x0610, 0x0640, 0x0650, 0x0660, 0x0670, 0x0680, 0x0690,
+             0x06A0, 0x07B0, 0x07C0, 0x07F0, 0x08F0, 0x0900, 0x0910, 0x0A00, 0x0A70, 0x0AA0, 0x0B00,
+             0x0B80, 0x0B90, 0x0BA0, 0x0C00, 0x0C20, 0x0C90, 0x0EF0]  # lut_MinimapTitleCHRDest
+    HV, QN, CHRSH, VCHR = 0x0800, K["h_chrqn"] - 0x0800, 0x8000, K["VRAM_CHR"] * 2
+    check("the list: 64 words at $0D00", (K["CHRQUEUE"], K["CHRQ_CAP"]), (0x0D00, 64))
+
+    def clean(bus):
+        for r in range(32):
+            bus.wram[0x0940 + r], bus.wram[0x0960 + r] = 0xFF, 0x00
+        for k, v in ((0x10, 0xFF), (0x11, 0xFF), (0x12, 0), (0x13, 0), (0x16, 0), (0x18, 0), (0x26, 0)):
+            bus.wram[HV + k] = v
+        bus.wram[HV + QN] = 0
+
+    def put(bus, cpu, addr, val):
+        for v in (addr >> 8, addr & 0xFF):
+            cpu.a = v
+            call(cpu, "hal_w2006", bank=0xC0)
+        cpu.a = val
+        call(cpu, "hal_w2007", bank=0xC0)
+
+    rnd = random.Random(1017)
+    bus, cpu = machine()
+    bus.ppu()
+    bus.dma = True
+    bus.frames()
+    clean(bus)
+    END = K["CHRQUEUE"] + 2 * K["CHRQ_CAP"]
+    bus.wram[END:END + 2] = b"\xa5\xa5"            # a decoy just past the list
+    bad = []
+    for frame in range(48):
+        kind = rnd.choice(("crest", "title", "row", "scatter", "many", "bulk", "bulk+few"))
+        if kind in ("crest", "title"):
+            plane = rnd.randrange(16)
+            for d in (CREST if kind == "crest" else TITLE):
+                put(bus, cpu, rnd.choice((0, 0x1000)) + d + plane, rnd.randrange(256))
+        elif kind == "row":
+            page, row = rnd.randrange(16), rnd.randrange(8)
+            for x in range(row, 256, 8):
+                put(bus, cpu, page * 256 + x, rnd.randrange(256))
+        elif kind in ("scatter", "many"):
+            for _ in range(rnd.randrange(1, 20) if kind == "scatter" else rnd.randrange(60, 120)):
+                put(bus, cpu, rnd.randrange(0x2000), rnd.randrange(256))
+        else:
+            if kind == "bulk+few":                 # a few listed words beside it
+                for _ in range(3):
+                    put(bus, cpu, rnd.randrange(0x2000), rnd.randrange(256))
+            src = 0x0300
+            bus.wram[src:src + 256] = bytes(rnd.randrange(256) for _ in range(256))
+            at = rnd.randrange(32) * 256
+            for v in (at >> 8, at & 0xFF):
+                cpu.a = v
+                call(cpu, "hal_w2006", bank=0xC0)
+            bus.wram[0x10], bus.wram[0x11] = src & 0xFF, src >> 8
+            cpu.x, cpu.y = 1, 0
+            call(cpu, "hal_chrload", bank=0xC0)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        if bytes(bus.vram[VCHR:VCHR + 0x4000]) != bytes(bus.wram[CHRSH:CHRSH + 0x4000]) or bus.wram[HV + QN]:
+            diff = next((i for i in range(0x4000) if bus.vram[VCHR + i] != bus.wram[CHRSH + i]), None)
+            bad.append("frame %d (%s): first differing shadow byte %s, list %d" % (frame, kind, diff, bus.wram[HV + QN]))
+            break
+    check("after every flush, VRAM's CHR is the shadow, and the list empty", bad, [])
+    check("...and nothing written past the list's 64 words", bytes(bus.wram[END:END + 2]), b"\xa5\xa5")
+
+    #  A crest frame's flush, and a title frame's: no DMA, a few hundred
+    #  instructions; a minimap row's, a span short enough to DMA.
+    def cost(dests, plane=5):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.frames()
+        clean(bus)
+        for d in dests:
+            put(bus, cpu, d + plane, 0x5A)
+        bus.dma = True
+        dma, n = [0], [0]
+        io, write, step = bus.io, bus.write, cpu.step
+
+        def w(bank, addr, val):
+            if (addr & 0xFFFF) == 0x420B and val & 1:
+                dma[0] += (io.get(0x4305, 0) | io.get(0x4306, 0) << 8) or 0x10000
+            write(bank, addr, val)
+
+        def c():
+            n[0] += 1
+            step()
+        bus.write, cpu.step = w, c
+        call(cpu, "hal_flush", bank=0xC0)
+        return n[0], dma[0]
+    crest, title, row = cost(CREST), cost(TITLE), cost(list(range(0x0500, 0x0600, 8)), 0)
+    check("a crest frame: no DMA, under 800 instructions (706); a title frame the same (610)",
+          (crest[0] < 800, crest[1], title[0] < 800, title[1]), (True, 0, True, 0))
+    check("...a minimap row: its span, by DMA", (row[1] > 0, row[0] < 300), (True, True))
+
+
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
@@ -11327,7 +11437,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

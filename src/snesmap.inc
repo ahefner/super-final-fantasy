@@ -1187,7 +1187,11 @@ PALSTAGE        = $7E4840       ; 128 bytes: the next flush's CGRAM writes,
                                 ;   address twice, then the colour (pal_prep)
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
 h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
+h_chrqn         = HAL_VARS+$CF  ; words in CHRQUEUE; above CHRQ_CAP, too many: the span
 GATHERBUF       = $0C80         ; 128 bytes: one tilemap column, made contiguous
+CHRQUEUE        = $0D00         ; 128 bytes: CHR words written this frame, as
+                                ;   offsets into CHRSHADOW (chr_write, flush_chr)
+CHRQ_CAP        = 64
 h_gcol          = HAL_VARS+$53  ; 2 bytes: column being sent
 h_gcount        = HAL_VARS+$55  ; 2 bytes: loop counter / dirty row tally
 h_ncols         = HAL_VARS+$57  ; 2 bytes: columns left to send

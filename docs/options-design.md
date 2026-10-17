@@ -1864,6 +1864,27 @@ What made the pieces small enough to be worth splitting:
     Not measured on the ares profiler; `LATE_FLUSH_LAST` is unchanged, and
     a late serve that asked how much the flush holds before taking the frame
     would be the next step for what is left.
+  - **CHR goes as a list of words when that is cheaper** (2026-10-17; user:
+    forced blank "after the minimap renders as the crests and final fantasy
+    logo display").  The HAL kept one dirty span over the CHR shadow, lowest
+    write to highest, and the flush sent it whole by DMA.  The minimap draws
+    its crests and title a bitplane row a frame for 16 frames each, one byte
+    to each of 48 (40) tiles spread across the pattern table: a span of
+    tiles $01-$FC, 8034 bytes of 4bpp shadow a frame -- about 47 scanlines
+    of DMA against a 37-line vblank -- for 48 bytes that changed; the title's
+    6946.  Now `chr_write` also lists each word it writes in `CHRQUEUE` (64
+    words at $0D00, `h_chrqn`; one more and the list is given up, as it is
+    by `hal_chrload`'s bulk path), and `flush_chr` writes the listed words
+    through the port, an address each, when twenty times their count is
+    less than the span's bytes -- a word through the port costs about what
+    twenty bytes of DMA do.  A crest frame's flush is 706 instructions and
+    no DMA, a title frame's 610; a minimap row (32 words in a 512-byte span)
+    still goes by DMA.  `test_chrflush` runs crest, title, row, scattered,
+    over-full, bulk and bulk-with-a-few frames through the flush with the
+    DMAs on and holds VRAM's 16KB of CHR to the shadow after every one, the
+    list empty and nothing past it written; and bounds the crest and title
+    frames.  Ten mutations; one equivalent kept (an empty list sends the
+    span, which only a future writer of the span alone could need).
   - **The description box is drawn once.**  It is rows 21-28 and the list is
     rows 1-20, so a repaint of the list cannot damage it.
   - **A checkbox or a value repaints one row**, not the window.  Nothing else
