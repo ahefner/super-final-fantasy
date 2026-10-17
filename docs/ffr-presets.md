@@ -207,7 +207,7 @@ HARM.
     A fifth of the gold chests give XP instead, which needs a new kind of
     chest content.
   - **Thief lockpicking**, in every randomized preset.  A Thief of the set
-    level opens every locked door without the KEY.  *Built 2026-10-15*
+    level opens every locked door without the KEY.  *Built 2026-10-15, played 2026-10-17*
     (options-design.md, Variations): a value row, Super at FFR's 15.
     Placement logic does not count on it, as FFR's does not -- the party
     may have no Thief.

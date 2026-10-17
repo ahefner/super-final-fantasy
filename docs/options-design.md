@@ -763,8 +763,8 @@ last, no build having set it, so the format stays 9.  Nineteen mutations
 caught, one equivalent removed (`opt_itemspell` reloading Y, which nothing
 between had changed).
 
-**Thief lockpicking** (ported 2026-10-15, the batch's own pick; built, not
-yet played) is FFR's `Lockpicking` with its `LockpickingLevelRequirement`:
+**Thief lockpicking** (ported 2026-10-15, the batch's own pick; played
+2026-10-17) is FFR's `Lockpicking` with its `LockpickingLevelRequirement`:
 a locked door opens without the KEY if anyone in the party is a Thief or a
 Ninja of the set level or above.  A value row under Thief and Ninja hit%:
 Off, then levels 1, 5, 10 ... 50 -- FFR takes any of 1-50, and every one
