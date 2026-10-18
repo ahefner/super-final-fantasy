@@ -5,7 +5,7 @@ checkplace.py -- is every placement winnable, on the world graph itself?
     pypy3 tools/checkplace.py [seeds] [shuffled seeds]
 
 randoref.build_placement draws from logicdata.py, the tables genlogic.py
-distilled from ../worldgraph; test_rando_place holds the cartridge to it.
+distilled from worldgraph/; test_rando_place holds the cartridge to it.
 This checks the other side, without the tables: each placement is put into
 the world graph's own locations, and the game played through on the graph
 from what the party starts with, Early flags and all.  The ship is where the
@@ -14,7 +14,7 @@ which give_vehicle reads), or Coneria's when it is free -- and is boarded only
 there, not by FFR's reading, the inner sea from anywhere, which placement's
 own logic uses.  A seed that does not reach Chaos is printed.  Then the same
 under entrance shuffle, both modes: randoref.build_world's wiring, placement
-and dock, on a graph built on that wiring.  It needs ../worldgraph, which is
+and dock, on a graph built on that wiring.  It needs worldgraph/, which is
 why it is not part of test_options.py.
 """
 import os
@@ -24,7 +24,7 @@ from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "worldgraph"))
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "worldgraph"))
 
 import randoref as R  # noqa: E402
 import genlogic as G  # noqa: E402

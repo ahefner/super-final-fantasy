@@ -806,7 +806,7 @@ chests, the reward NPCs and the caravan still give their vanilla contents
 until the rewards change.
 
   - **The logic** is the world graph's, distilled: `tools/genlogic.py`
-    (needs `../worldgraph`) writes, for each of 256 locations -- the 234
+    (needs `worldgraph/`) writes, for each of 256 locations -- the 234
     chests before the Black Orb, the 13 reward NPCs, the caravan, then eight
     events (the Princess rescued, the Vampire, Unne, the four altars, the
     airship raised) -- the minimal sets of key items and events that reach

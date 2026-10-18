@@ -17,7 +17,10 @@ The rest are explorations, written before (or instead of) building something:
     consumables-notes.md    FFR's New Consumables; parked
 
 Paths are relative to the repository root.  `FF1Randomizer/`,
-`FF1Disassembly/`, `overview.txt`, `randomization-concepts.txt`,
-`map-renders/` and `worldgraph/` are the project's working directory, one
-level above the repository, and are not part of it.  Line numbers cite the
+`FF1Disassembly/`, `overview.txt`, `randomization-concepts.txt` and
+`map-renders/` are the project's working directory, one level above the
+repository, and are not part of it.  `worldgraph/`, the world graph the
+logic is distilled from, was there too until 2026-10-18 and is in the
+repository now (user); it finds FFR's source beside the repository, or at
+`FFR_ROOT` for a copy made elsewhere.  Line numbers cite the
 commit each note names, and may have drifted since.

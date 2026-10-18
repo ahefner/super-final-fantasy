@@ -940,7 +940,7 @@ def chest_floors(rom):
 
 # --- entrance shuffle -------------------------------------------------------------
 #  FFR's ShuffleEntrancesAndFloors (EntrancesFloorsShuffle.cs), as
-#  ../worldgraph/wiring.fe_shuffle ports it, over graphdata.py's indices (from
+#  worldgraph//wiring.fe_shuffle ports it, over graphdata.py's indices (from
 #  tools/gengraph.py) and on the cartridge's PRNG: with the same draws the two
 #  give the same wiring (tools/checkentrance.py holds them to it).  FFR's
 #  settings as its Entrance and Floor Shuffle preset has them -- towns fixed,
@@ -1217,7 +1217,7 @@ def es_dock(c, masks, req, roots):
 
 # --- incentive placement ----------------------------------------------------------
 #  FFR's PredictivePlacement (FF1Lib/PredictivePlacement.cs), as
-#  ../worldgraph/placement.py ports it, over the vanilla world's logic
+#  worldgraph//placement.py ports it, over the vanilla world's logic
 #  (logicdata.py, from tools/genlogic.py): each cycle it asks, for every key
 #  item still to place, how many more incentive and other places the party
 #  could reach with it, sorts the items into bins by that, weights the bins by

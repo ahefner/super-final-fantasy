@@ -713,7 +713,7 @@ def test_es_reference():
     and the shuffle in both modes deals a wiring that keeps the towns and the
     tables' shapes.  That the shuffle is FFR's, wiring for wiring, and the
     masks the world graph's, is tools/checkentrance.py's; that the worlds it
-    builds are winnable, tools/checkplace.py's -- both need ../worldgraph."""
+    builds are winnable, tools/checkplace.py's -- both need worldgraph/."""
     import graphdata as GD
     van = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
     bad = []
@@ -1698,7 +1698,7 @@ def test_rando_place():
     in a spot unless the spots ran out, nothing else in one, and the caravan,
     a shop, selling an item if anything.  (That each is
     winnable on the world graph itself is tools/checkplace.py's, which needs
-    ../worldgraph.)"""
+    worldgraph/.)"""
     jobs = [(seed * 7919 + 13, cfg) for cfg in PLACE_CONFIGS.values() for seed in range(12)]
     #  ...and seeds that take a rare path, found by searching randoref with
     #  the path mutated: seed 2 under Beginner weighs the CUBE at between 70
