@@ -16,7 +16,7 @@
 A place is a cluster of its writes no two of which are more than
 CLUSTER tiles apart, largest first.
 """
-import os, re, sys
+import os, re, sys, textwrap
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -24,6 +24,25 @@ sys.path.insert(0, HERE)
 import owedits as O
 
 OUT = os.path.join(ROOT, "gen", "owscreen.inc")
+
+#  What each does, in the order of owedits.SETTINGS; the game's font has no
+#  colon or semicolon.
+DESCRIPTIONS = [
+    "Walk to the Dwarves, and canoe from Pravoka to Crescent.",
+    "Walk the Dwarf Cave's lands to Northwest Castle.",
+    "Docks by Onrac and by the Mirage Tower.",
+    "A dock by the Ryukahn Desert, where the AIRSHIP rises.",
+    "A dock on Bahamut's island, no AIRSHIP to his cave.",
+    "A river dock that reaches Lefein, no AIRSHIP.",
+    "The BRIDGE joins Pravoka and Lefein, Coneria's is land.",
+    "A pass through the mountains to Gaia from Lefein.",
+    "Roads from Lefein to the desert, and on to Ordeals.",
+    "A river from the Dwarf Cave to Melmond, no CANAL.",
+    "A forest walls Sarda off.  Preview only, not in play.",
+    "Walk across the swamp to the AIRSHIP, no CANOE.",
+    "Land from Ordeals through Cardia.  Preview only.",
+    "The SHIP waits in Gaia's drydock.  Preview only.",
+]
 OWS_SITES = 4
 CLUSTER = 6
 
@@ -103,14 +122,6 @@ def main():
         for s in range(n):
             row = [x[k] for x in st[s]] + [0] * (OWS_SITES - len(st[s]))
             lines.append("  .BYTE " + ", ".join("%d" % v for v in row))
-    #  BG3's two checkboxes, 2bpp, colour 1, the right column blank so a name
-    #  can follow straight on; and the ring a site is marked by, a 16x16
-    #  sprite in four 4bpp characters, colour 1.
-    box = ["........", "######..", "#....#..", "#....#..", "#....#..", "#....#..", "######..", "........"]
-    tick = ["........", "######..", "#....#..", "#.##.#..", "#.##.#..", "#....#..", "######..", "........"]
-    lines.append("lut_OwsBoxChr:            ; BG3 characters 1 and 2, 2bpp, a word a row")
-    for g in (box, tick):
-        lines.append("  .WORD " + ", ".join("$%04X" % int(r.replace("#", "1").replace(".", "0"), 2) for r in g))
     ring = [[1 if 5.6 <= ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5 < 7.6 else 0 for x in range(16)] for y in range(16)]
     lines.append("lut_OwsRingChr:           ; OBJ characters 0, 1, 16, 17, 4bpp, 32 bytes each")
     for ty, tx in ((0, 0), (0, 1), (1, 0), (1, 1)):
@@ -120,6 +131,36 @@ def main():
             planes += [r, 0]                         # planes 0 and 1
         planes += [0] * 16                           # planes 2 and 3
         lines.append("  .BYTE " + ", ".join("$%02X" % b for b in planes))
+    #  The settings screen's own two checkbox tiles (optmenu.asm's
+    #  lut_CheckboxCHR, NES 2bpp: a grey ring, 1, on the window's blue, 2,
+    #  filled white, 3, when ticked), as SNES 2bpp for BG3: the ring colour
+    #  2, the fill 3, the blue clear.
+    src = open(os.path.join(ROOT, "src", "optmenu.asm"), encoding="latin-1").read()
+    at = src.index("lut_CheckboxCHR:")
+    cb = []
+    for line in src[at:].split("\n")[1:7]:
+        if ".BYTE" in line:
+            cb += [int(v, 16) for v in re.findall(r"\$([0-9A-Fa-f]{2})", line.split(";")[0])]
+    assert len(cb) == 32, cb
+    lines.append("lut_OwsBoxChr:            ; BG3 characters 1 and 2, the settings screen's boxes")
+    for t in range(2):
+        p0, p1 = cb[t * 16:t * 16 + 8], cb[t * 16 + 8:t * 16 + 16]
+        lines.append("  .WORD " + ", ".join("$%04X" % ((a & b) | (a << 8)) for a, b in zip(p0, p1)))
+    #  Each setting's description, wrapped for the two layouts: two lines of
+    #  30 below the grid, five of 20 beside the zoom's frame.
+    for label, width, count in (("lut_OwsDescWide", 30, 2), ("lut_OwsDescNarrow", 20, 5)):
+        lines.append("%s:" % label)
+        for s_, text in enumerate(DESCRIPTIONS):
+            wrapped = textwrap.wrap(text, width)
+            assert len(wrapped) <= count, (O.SETTINGS[s_], width, wrapped)
+            for k in range(count):
+                lines.append('  FFPAD "%s", %d' % (wrapped[k] if k < len(wrapped) else "", width))
+    #  Each setting's minimap colour for a decoded tile's byte: bits 0-1 the
+    #  colour, bit 2 a marker, bit 3 the selected setting's mark.
+    lines.append("lut_OwsCol16:")
+    lines.append("  .BYTE " + ", ".join("%d" % ((4 if v & 4 else v & 3) | (8 if v & 8 else 0)) for v in range(16)))
+    lines.append("OWS_DESCWIDE = 30")
+    lines.append("OWS_DESCNARROW = 20")
     lines.append("")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     open(OUT, "w").write("\n".join(lines))

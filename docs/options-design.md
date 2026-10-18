@@ -1282,34 +1282,52 @@ tiles the logo borrows (`randomization-notes.md` §9.1).
 ### New Game's map edit screen (prototype)
 
 **Built 2026-10-18; a prototype to judge the layout, not yet played.**  A
-checkbox for each of FFR's fourteen overworld edits and the world's minimap
-as they would make it (user: per-edit toggles on a screen of their own
-during New Game, the Map edits row only standing in).  `owscreen.asm`, a
-native screen in a chunk of its own (`CHUNK_OWS`), in four layouts on four
-branches for the user to compare (`owslayout.inc`): the minimap above a
-two-column grid or beside a single column, with or without a zoom inset of
-the selected edit.  All inside the 30x26 cells a CRT shows.
+checkbox for each of FFR's fourteen overworld edits, the world's minimap as
+they would make it, and a zoom of the selected edit in the game's dialog box
+frame (user: per-edit toggles on a screen of their own during New Game, the
+Map edits row only standing in).  `owscreen.asm`, a native screen in a chunk
+of its own (`CHUNK_OWS`).  The user saw four layouts and kept the two with
+the zoom (2026-10-18), on branches `owscreen-top-inset` (the minimap above a
+two-column grid) and `owscreen-side-inset` (beside a single column), set by
+`owslayout.inc`.  All inside the 30x26 cells a CRT shows.
 
   - It comes up from `rando_newgame` when the Map edits row is not Off,
     starting from the saved game's edits when Continue would load that save
     and it has any (no option block bytes), else the row's.  START keeps
     what is ticked; Sarda's Forest, the Cardia Land Bridge and Ship in
-    Drydock are on it, grey, and preview, but New Game drops them.
+    Drydock are on it, grey, and preview, but New Game drops them.  The
+    title's music plays on through it (`rando_newgame` silences it after,
+    for the roll screen).
+  - As the other menus: the settings screen's own checkbox tiles (from
+    `optmenu.asm`'s `lut_CheckboxCHR`) and the game's hand, two cells before
+    the box.  The names are the user's, up to 13 letters; with the hand,
+    a grid of two columns needs 32 cells, so the hand overlaps the end of a
+    long name in the left column, and in the side layout the minimap's edge
+    (user: rather that than shorter names).  No control hints.
+  - Responsive (user: "the most important problem"): the pad is read and
+    answered every frame -- the hand, a box, the description -- and the
+    pictures follow, a frame drawing at most a pixel row of the minimap or
+    two map rows of the zoom (`BUDGET`, about three quarters of a frame at
+    worst; the first build drew a whole zoom in one go, twelve frames
+    without reading the pad).  The zoom on screen is the last one finished.
   - The minimap is decoded from the game's own RLE rows and edited from
     `world.asm`'s tables, as the game edits its map, so it shows what the
     game will, in the game's minimap colours (bank $09's
-    `lut_MinimapTileset`); it draws two pixel rows a frame, and a tick
-    redraws only its edit's rows.  The selected edit's pixels flash and
-    rings mark its places (`tools/genows.py` clusters each list's writes);
-    the inset shows one place at a time, 28 tiles at two pixels a tile or 56
-    at one when the place is wider.
+    `lut_MinimapTileset`); a row decodes straight to colours, a run's looked
+    up once, with bit 3 marking the selection's tiles.  It draws in over
+    about two seconds, and a tick or a move redraws only the rows its edit
+    writes.  The selection's pixels flash and rings mark its places
+    (`tools/genows.py` clusters each list's writes); the zoom shows one
+    place at a time, 28 tiles at two pixels a tile or 56 at one when the
+    place is wider.
   - Its WRAM is $7F1000-$7F44FF, between the credits' ($7F0000-$7F04BF) and
     the ending's ($7F6800), neither ever up with it; `snesmap.inc` and
     `credits.asm` assert both edges.
-  - `test_owscreen` holds the minimap and the inset to a rendering of
+  - `test_owscreen` holds the minimap and the zoom to a rendering of
     `owedits.apply`'s map, and runs the screen from New Game: the saved
     game's default, A ticking, the held-back dropped, the row Off skipping
-    it.
+    it.  The harness now keeps OAM too, for the pictures the screen was
+    judged from before it went to the user.
 
 ### Respond rate
 
