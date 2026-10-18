@@ -1755,18 +1755,30 @@ reference byte for byte by `test_options.py`:
     FFR sets it from the landing instead, for every wiring (its
     `StatsTracking.cs` routine at $0F:9200: bit 7 of the teleport's x, its
     `StandardInRoom` destinations), and so does this.  `gengraph.py` emits
-    `lut_GrLandRoom` from FFR's records -- seven landings: Ordeals 1F's
-    back and 2F's maze, Ice Cave B2's floater and B3, Marsh Cave B2, Coneria
-    Castle 2F's Princess, Sky Palace 1F -- `es_landbytes` puts it in bit 7 of
-    the cache's x, and `rando_entrdest` and `rando_teledest` set `inroom` to
-    $81 or $00 from it (`land_room`); `randoentr.patch` drops the entrance
-    path's own clear.  The Ordeals pillars' moved teleport is FFR's
-    `Standard`: in the open.  All seven are normal teleports' landings in
-    the vanilla wiring, and none an entrance's; with the mode Off this is
-    FFR's rule over vanilla's carry-over, which FFR plays everywhere -- not
-    checked tile by tile here.  `test_es_tables` holds the bit in both
-    wirings, and the hooks setting `inroom` from any value before, in rooms
-    and out.
+    `lut_GrLandRoom` -- nine landings: Ordeals 1F's back and 2F's maze, Ice
+    Cave B2's floater and B3, Marsh Cave B2, Coneria Castle 2F's Princess,
+    Sky Palace 1F, and the Temple of Fiends Revisited's two -- `es_landbytes`
+    puts it in bit 7 of the cache's x, and `rando_entrdest` and
+    `rando_teledest` set `inroom` to $81 or $00 from it (`land_room`);
+    `randoentr.patch` drops the entrance path's own clear.  The Ordeals
+    pillars' moved teleport is FFR's `Standard`: in the open.  All nine are
+    normal teleports' landings in the vanilla wiring, and none an
+    entrance's.
+  - **The Temple's two** (2026-10-17; user, after the Black Orb: "I again
+    materialized inside a closed room").  FFR's records, which the first
+    seven came from, are the teleports its shuffle deals, and the Temple of
+    Fiends Revisited's are never dealt: the Black Orb's onto 1F's centre
+    room (normal teleport 1, `TempleOfFiends2`) and the one into 2F's small
+    locked room (51, `TempleOfFiends6`).  Vanilla carried the orb room's
+    `inroom` over to the first; setting it from the landing set it to $00.
+    FFR's own `MetroidVaniaMap.cs`, which rewires every teleport, lists all
+    nine in its `inroomTeleporter`; gengraph adds the two (`TOFR_IN_ROOM`).
+    `test_es_tables` now works the set out from the cartridge's maps rather
+    than holding it to a list (`land_in_room`: walking from the landing, a
+    door before any room's closing tile or the map's edge) -- the check
+    whose absence this was -- and holds the bit in both wirings, and the
+    hooks setting `inroom` from any value before, in rooms and out.  Found
+    in play; the fix played and confirmed the same day.
   - **The ship** (`give_vehicle`; `test_rando_shipdock`): moored at the
     save's dock under the shuffle, by map without it.
   - **Placement's tables** (`pTUNE`, `lut_Place*Loose`; `TUNE_LOOSE`;

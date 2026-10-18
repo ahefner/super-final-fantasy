@@ -1024,6 +1024,34 @@ def test_es_place():
            R.build_placement(seed, *cfg) != R.build_placement(seed, *cfg, tune=R.TUNE_LOOSE),
            sv[K["RANDO_ENTRANCES"] - 0x6000]), (True, True, R.ENTRANCES_OFF))
 
+def land_in_room(m, x, y):
+    """Whether a party set down at (x, y) on standard map m is inside a room:
+    walking from there, it meets a door (or a locked one) before any way out --
+    a room's closing tile, or the edge of the map, which only the open air
+    reaches.  Every room's floor is under 80 tiles; a town's open ground,
+    whose shops have doors and no closing tile, runs to its edge."""
+    banks = b"".join(R.nesbank(ROMDATA, n) for n in (4, 5, 6, 7))
+    p = banks[m * 2] | banks[m * 2 + 1] << 8
+    tiles = R.decode_rle(banks, p, 4096)
+    props, ts = R.rom_props(ROMDATA), ROMDATA[R.TILESETS + m]
+    seen, todo, door, out = {(x, y)}, [(x, y)], False, False
+    while todo:
+        cx, cy = todo.pop()
+        out |= cx in (0, 63) or cy in (0, 63)
+        for nx, ny in ((cx + 1) & 63, cy), ((cx - 1) & 63, cy), (cx, (cy + 1) & 63), (cx, (cy - 1) & 63):
+            if (nx, ny) in seen:
+                continue
+            p0 = props[ts * 256 + tiles[ny * 64 + nx] * 2]
+            if p0 & 0x1E in (0x02, 0x04):       # a door, open or locked
+                door = True
+            elif p0 & 0x1E == 0x06:             # a room's closing tile: the way out
+                out = True
+            elif not p0 & 0x01:                 # walkable
+                seen.add((nx, ny))
+                todo.append((nx, ny))
+    return door and not out
+
+
 def owedits_ffr_source():
     """FFR's two edit files and its OverworldMap constructor, comments
     stripped, or None when FFR's source is not beside the tree."""
@@ -1238,17 +1266,23 @@ def test_es_tables():
     import graphdata as GD
     b0 = (1 + 0x00) * 0x10000
     rom = lambda a, n: list(ROMDATA[b0 + a:b0 + a + n])
-    #  Bit 7 of a landing's x is its room: FFR's StandardInRoom destinations,
-    #  which the game's own tables never marked (it carried inroom over).
+    #  Bit 7 of a landing's x is its room, which the game's own tables never
+    #  marked (it carried inroom over).  Which landings are in rooms is worked
+    #  out here from the cartridge's maps, not taken from FFR's lists: FFR's
+    #  StandardInRoom destinations were seven, missing the two in the Temple
+    #  of Fiends Revisited, and the party was set down on 1F's room mask after
+    #  the Black Orb (user, 2026-10-17).
     ROOM = set(map(tuple, GD.LAND_ROOM))
-    check("the rooms: FFR's seven StandardInRoom landings",
-          sorted(ROOM), [(11, 2, 2), (24, 12, 7), (25, 12, 12), (27, 34, 37), (37, 51, 11), (38, 39, 6), (47, 19, 21)])
+    check("the rooms: every landing the maps put inside a room, and no other",
+          sorted(ROOM), sorted(c for c in GD.LAND if c[0] < len(R.MAP_NAMES) and land_in_room(*c)))
+    check("...nine of them, the Black Orb's onto Temple of Fiends (past) 1F among them",
+          (len(ROOM), (52, 20, 17) in ROOM), (9, True))
     roomx = lambda xs, ys, ms: [x | (0x80 if (m, x, y) in ROOM else 0) for x, y, m in zip(xs, ys, ms)]
     van = (rom(0xAC00, 32), rom(0xAC20, 32), rom(0xAC40, 32), rom(0xAD00, 64), rom(0xAD40, 64),
            rom(0xAD80, 64), rom(0xAC60, 16), rom(0xAC70, 16))
     van = (roomx(van[0], van[1], van[2]),) + van[1:3] + (roomx(van[3], van[4], van[5]),) + van[4:]
     check("...each a landing of the vanilla wiring's normal teleports, none an entrance's",
-          (sum(x >> 7 for x in van[0]), sum(x >> 7 for x in van[3])), (0, 7))
+          (sum(x >> 7 for x in van[0]), sum(x >> 7 for x in van[3])), (0, 9))
 
     def tables(seed, mode, k, placed=1, ordeals=0):
         bus, cpu = machine()

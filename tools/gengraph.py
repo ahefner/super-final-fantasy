@@ -57,6 +57,8 @@ import wiring  # noqa: E402
 from model import BIT  # noqa: E402
 
 WIRED = ("entrance ", "teleport ", "exit ")
+#  The normal teleports into rooms that FFR's records leave out (LAND_ROOM).
+TOFR_IN_ROOM = (1, 51)
 
 
 def strip(early=()):
@@ -192,8 +194,17 @@ def main():
     #  inside a room, and FFR's teleport code sets inroom from the landing
     #  (StatsTracking.cs, the routine at $0F:9200) rather than carrying it
     #  over from wherever the party left -- which only ever agreed with the
-    #  landing while the wiring was vanilla.
-    out["LAND_ROOM"] = sorted({(r.map, r.x, r.y) for r in m.records.values() if r.inroom})
+    #  landing while the wiring was vanilla.  Its records leave out two, the
+    #  Temple of Fiends Revisited's, which are never shuffled and so never a
+    #  record: the Black Orb's teleport onto 1F, and the one into 2F's small
+    #  room (TeleportIndex TempleOfFiends2 and TempleOfFiends6).  Setting
+    #  inroom from the landing must know them all the same, or the party is
+    #  set down on 1F's room mask after the Orb (user, 2026-10-17).  FFR's
+    #  MetroidVaniaMap.cs, which rewires every teleport, names all nine in its
+    #  inroomTeleporter; and a flood from each of the game's 96 landings, to
+    #  the doors before any door's way out, finds the same nine.
+    tofr = {rd.normal_tele(t) for t in TOFR_IN_ROOM}
+    out["LAND_ROOM"] = sorted({(r.map, r.x, r.y) for r in m.records.values() if r.inroom} | tofr)
     out["LISTS"] = {
         "towns": [m.owti[o] for o in m.lists["towns"]],
         "top": [m.owti[o] for o in m.lists["top"]],
