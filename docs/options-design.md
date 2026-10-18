@@ -1289,7 +1289,9 @@ Map edits row only standing in).  `owscreen.asm`, a native screen in a chunk
 of its own (`CHUNK_OWS`).  The user saw four layouts and kept the two with
 the zoom (2026-10-18), on branches `owscreen-top-inset` (the minimap above a
 two-column grid) and `owscreen-side-inset` (beside a single column), set by
-`owslayout.inc`.  All inside the 30x26 cells a CRT shows.
+`owslayout.inc`, then chose the side layout; what follows that is on its
+branch alone.  All inside the 30x26 cells a CRT shows; in the side layout
+the column is rows 2-15 beside the minimap's 1-16 (user: aligned with it).
 
   - It comes up from `rando_newgame` when the Map edits row is not Off,
     starting from the saved game's edits when Continue would load that save
@@ -1303,7 +1305,14 @@ two-column grid) and `owscreen-side-inset` (beside a single column), set by
     the box.  The names are the user's, up to 13 letters; with the hand,
     a grid of two columns needs 32 cells, so the hand overlaps the end of a
     long name in the left column, and in the side layout the minimap's edge
-    (user: rather that than shorter names).  No control hints.
+    (user: rather that than shorter names).  No control hints.  The
+    settings screen's chirps: the move's on a move, the select's on a tick.
+  - L + X and L + Y reset from it as from anywhere (user).  Its loop waits
+    on `hal_vblaudio`, not `WaitForVBlank`, so it makes the reset's two
+    calls itself: `hal_auxdetect` (the HAL's look at L, X and Y alone) after
+    its vblank's transfers, then `opt_padreset`, which also stirs the seed's
+    pool as every frame of the menus does -- and when a reset is coming,
+    hands the PPU back to the HAL first, as leaving the screen does.
   - Responsive (user: "the most important problem"): the pad is read and
     answered every frame -- the hand, a box, the description -- and the
     pictures follow, a frame drawing at most a pixel row of the minimap or
@@ -1314,19 +1323,39 @@ two-column grid) and `owscreen-side-inset` (beside a single column), set by
     `world.asm`'s tables, as the game edits its map, so it shows what the
     game will, in the game's minimap colours (bank $09's
     `lut_MinimapTileset`); a row decodes straight to colours, a run's looked
-    up once, with bit 3 marking the selection's tiles.  It draws in over
-    about two seconds, and a tick or a move redraws only the rows its edit
-    writes.  The selection's pixels flash and rings mark its places
+    up once, with bit 3 marking the selection's tiles.  A tick or a move
+    redraws only the rows its edit writes, and of those only the 8-pixel
+    characters an edit list writes in (`lut_OwsCharMask`).
+  - It comes up whole (user: not drawn in while you watch, as the first
+    builds did over about two seconds).  The unedited minimap is in ROM,
+    rendered by `genows.py` from bank $01's rows (`lut_OwsBaked`, 8KB); in
+    forced blank it is copied in, the rows the ticked boxes and the
+    selection change are drawn over it, and the first zoom, before the
+    display goes on: about 117,000 instructions with nothing ticked,
+    223,000 with all eleven that play, a fifth to a third of a second black
+    by a rough rate.  The title's music is kept going meanwhile, a frame of
+    it whenever RDNMI shows a vblank has begun, as the roll screen keeps its
+    sound.  Runs fill by MVN, and the zoom's doubled lines are copied, not
+    packed twice.
+  - The selection's pixels flash and rings mark its places
     (`tools/genows.py` clusters each list's writes); the zoom shows one
     place at a time, 28 tiles at two pixels a tile or 56 at one when the
-    place is wider.
+    place is wider.  What is marked follows the other box where one changes
+    the other (user): Bahamut's dock is its own list, or with the Cardia
+    Land Bridge ticked the two's variant alone -- as `ows_actives` applies
+    them -- not both docks.  The land bridge needs no second view, its own
+    tiles taking in the variant's two.
   - Its WRAM is $7F1000-$7F44FF, between the credits' ($7F0000-$7F04BF) and
     the ending's ($7F6800), neither ever up with it; `snesmap.inc` and
     `credits.asm` assert both edges.
   - `test_owscreen` holds the minimap and the zoom to a rendering of
-    `owedits.apply`'s map, and runs the screen from New Game: the saved
-    game's default, A ticking, the held-back dropped, the row Off skipping
-    it.  The harness now keeps OAM too, for the pictures the screen was
+    `owedits.apply`'s map, the selection's tiles named list by list for
+    Bahamut's dock and the land bridge, and the dock's ring; checks VRAM
+    holds the whole minimap and zoom as the display goes on, a frame of
+    music for each vblank meanwhile; and runs the screen from New Game: the
+    saved game's default, A ticking, the held-back dropped, the row Off
+    skipping it, the chirps, and L + X resetting with the PPU handed back
+    first.  The harness now keeps OAM too, for the pictures the screen was
     judged from before it went to the user.
 
 ### Respond rate

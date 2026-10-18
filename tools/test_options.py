@@ -1291,10 +1291,13 @@ def test_owscreen():
     """New Game's map edit screen (owscreen.asm).  The minimap it draws,
     every pixel row under the boxes ticked and the selection's flashing
     pixels, held to a rendering here of owedits.apply's map in the game's
-    minimap colours; the inset, a place of the selection's; and the screen
-    from rando_newgame, the row at All: its first choice the saved game's,
-    A ticking the selected box, START keeping what is ticked but the three
-    the logic cannot take."""
+    minimap colours -- Bahamut's dock's and the land bridge's as the other
+    box makes them; the inset, a place of the selection's; the screen as it
+    comes up, the minimap and the zoom whole before the display goes on,
+    from the baked minimap, the music kept going; and the screen from
+    rando_newgame, the row at All: its first choice the saved game's, A
+    ticking the selected box, START keeping what is ticked but the three
+    the logic cannot take, the chirps, and L + X resetting from it."""
     import owedits as O
     OWS = 0xA1 + K["CHUNK_OWS"]
     W = lambda name: K[name] - 0x7E0000
@@ -1311,11 +1314,8 @@ def test_owscreen():
                for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
     check("its colours are the game's minimap's", bytes(TS), tl)
 
-    def gates(sel):
-        g = 1 << sel
-        if sel in (O.BAHAMUT_DOCK, O.CARDIA_BRIDGE):
-            g |= 1 << O.LIST_BAHAMUT_BRIDGE
-        return g
+    def lists(*names):
+        return {(x, y) for n in names for x, y, _ in O.LISTS[n]}
 
     def colour(t, hl):
         v = TS[t]
@@ -1333,13 +1333,29 @@ def test_owscreen():
                         out[t * 32 + (16 if plane >= 2 else 0) + (r % 8) * 2 + (plane & 1)] |= 0x80 >> (x % 8)
         return bytes(out)
 
-    def hls(sel):
-        g = gates(sel)
+    import genows as GO
+
+    def hls(sel, flags):
+        g = GO.view_gates(GO.view(sel, flags))
         return {(x, y) for name, gate in O.ORDER if gate != O.LIST_NONE and g >> gate & 1
                 for x, y, _ in O.LISTS[name]}
 
+    #  Which tiles the selection flags, said here by name rather than
+    #  through genows: Bahamut's dock is its own list, or the variant alone
+    #  under the land bridge.  The land bridge is its own either way, which
+    #  takes in the variant's tiles -- the reason it has no second view.
+    want = [(0, 0, lists("VolcanoIceRiver", "ConeriaToDwarves")),
+            (0x0010, O.BAHAMUT_DOCK, lists("BahamutCardiaDock")),
+            (0x1000, O.BAHAMUT_DOCK, lists("CardiaLandBridgeBahamutDock")),
+            (0x1000, O.CARDIA_BRIDGE, lists("CardiaLandBridge")),
+            (0x0010, O.CARDIA_BRIDGE, lists("CardiaLandBridge"))]
+    check("the selection's tiles: Bahamut's dock as the land bridge's box makes it",
+          [(f, sel) for f, sel, hl in want if hls(sel, f) != hl], [])
+    check("...the land bridge's tiles take in the variant's",
+          lists("CardiaLandBridgeBahamutDock") <= lists("CardiaLandBridge"), True)
+
     def expect_minimap(flags, sel):
-        t, hl = O.apply(van, flags), hls(sel)
+        t, hl = O.apply(van, flags), hls(sel, flags)
         rows = []
         for p in range(128):
             row = []
@@ -1353,15 +1369,21 @@ def test_owscreen():
             rows.append(row)
         return pack(rows, 128)
 
+    BAKED = ROMDATA[img + SYM["lut_OwsBaked"]:][:8192]
+
     def setup(bus, flags, sel, site=0):
+        #  OWS_CHR as ows_first leaves it, which ows_prow draws over.
+        bus.wram[W("OWS_CHR"):W("OWS_CHR") + 8192] = BAKED
         bus.wram[W("OWS_VARS"):W("OWS_VARS") + 2] = flags.to_bytes(2, "little")
         bus.wram[W("OWS_VARS") + 6] = sel
+        bus.wram[W("OWS_VARS") + 9] = 0         # the frame: the rings shown
         bus.wram[W("OWS_VARS") + 10] = site
 
     SAFE = K["OWEDIT_SAFE"]
     bus, cpu = machine()
     bad = []
-    for flags, sel in ((0, 0), (SAFE, 6), (0x3FFF, O.CARDIA_BRIDGE), (0x1010, O.BAHAMUT_DOCK)):
+    for flags, sel in ((0, 0), (SAFE, 6), (0x3FFF, O.CARDIA_BRIDGE), (0x1010, O.BAHAMUT_DOCK),
+                       (0x0010, O.BAHAMUT_DOCK), (0x0010, O.CARDIA_BRIDGE)):
         setup(bus, flags, sel)
         for p in range(128):
             cpu.a = p
@@ -1371,17 +1393,12 @@ def test_owscreen():
             bad.append("flags $%04X selection %d" % (flags, sel))
     check("the minimap: owedits.apply's map, the selection's pixels flagged", bad, [])
 
-    import genows as GO
-    bad = []
-    for flags, sel, site in ((SAFE, 6, 0), (SAFE, 6, 2), (0x3FFF, O.CARDIA_BRIDGE, 0), (0, 2, 1)):
-        setup(bus, flags, sel, site)
-        call(cpu, "ows_testinset", bank=OWS)
-        got = bytes(bus.wram[W("OWS_INSETCHR"):W("OWS_INSETCHR") + 49 * 32])
-        cx, cy, w = GO.sites(sel)[site]
+    def expect_inset(flags, sel, site):
+        cx, cy, w = GO.sites(GO.view(sel, flags))[site]
         scale = 1 if w > 28 else 2
         span = 56 // scale
         x0, y0 = (cx - span // 2) & 255, (cy - span // 2) & 255
-        t, hl = O.apply(van, flags), hls(sel)
+        t, hl = O.apply(van, flags), hls(sel, flags)
         rows = []
         for i in range(span):
             y = (y0 + i) & 255
@@ -1390,9 +1407,66 @@ def test_owscreen():
                 x = (x0 + j) & 255
                 row += [colour(t[x + 256 * y], (x, y) in hl)] * scale
             rows += [row] * scale
-        if got != pack(rows, 56):
+        return pack(rows, 56)
+
+    bad = []
+    for flags, sel, site in ((SAFE, 6, 0), (SAFE, 6, 2), (0x3FFF, O.CARDIA_BRIDGE, 0), (0, 2, 1),
+                             (0x1010, O.BAHAMUT_DOCK, 0)):
+        setup(bus, flags, sel, site)
+        call(cpu, "ows_testinset", bank=OWS)
+        got = bytes(bus.wram[W("OWS_INSETCHR"):W("OWS_INSETCHR") + 49 * 32])
+        if got != expect_inset(flags, sel, site):
             bad.append("flags $%04X selection %d place %d" % (flags, sel, site))
     check("the inset: a place of the selection's, at its scale", bad, [])
+    vx = [x for x, _, _ in O.LISTS["CardiaLandBridgeBahamutDock"]]
+    vy = [y for _, y, _ in O.LISTS["CardiaLandBridgeBahamutDock"]]
+    check("...Bahamut's dock under the land bridge: the variant's, alone",
+          GO.sites(GO.view(O.BAHAMUT_DOCK, 0x1000)),
+          [((min(vx) + max(vx)) // 2, (min(vy) + max(vy)) // 2, max(max(vx) - min(vx), max(vy) - min(vy)) + 1)])
+    #  ...and ringed there, one ring, on the minimap at half scale.
+    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
+    bus, cpu = machine()
+    bus.ppu()
+    setup(bus, 0x1010, O.BAHAMUT_DOCK)
+    call(cpu, "ows_testinset", bank=OWS)
+    mc = 1 if side else 10
+    check("...its ring at the variant, the rest hidden",
+          [tuple(bus.oam[4 * k + 4:4 * k + 6]) for k in range(4)],
+          [((min(vx) + max(vx)) // 2 // 2 + mc * 8 - 8, (min(vy) + max(vy)) // 2 // 2 + 8 - 9)] + [(0, 224)] * 3)
+
+    #  The screen as it comes up: VRAM holds the minimap and the zoom whole
+    #  when the display goes on, the unedited rows from lut_OwsBaked, and a
+    #  frame of the music for each vblank the drawing takes.
+    inset = int(re.search(r"^OWS_INSET\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
+    CMP = SYM["CallMusicPlay"]
+    bad, music = [], []
+    for flags in (0, SAFE, 0x3FFF):
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        setup(bus, flags, 0)
+        h0 = bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8
+        cpu.pbr, cpu.pc = OWS, SYM["ows_testsetup"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        plays = 0
+        for _ in range(8_000_000):
+            if cpu.pc == 0xFFFE:
+                break
+            if cpu.pc == CMP:
+                plays += 1
+            cpu.step()
+        frames = (bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8) - h0
+        if bytes(bus.vram[0:8192]) != expect_minimap(flags, 0):
+            bad.append("flags $%04X: the minimap" % flags)
+        if inset and bytes(bus.vram[8192:8192 + 49 * 32]) != expect_inset(flags, 0, 0):
+            bad.append("flags $%04X: the zoom" % flags)
+        if bus.io[0x2100] != 0x0F:
+            bad.append("flags $%04X: the display left off" % flags)
+        music.append((frames, plays))
+    check("the screen up whole: the minimap and the zoom in VRAM as the display goes on", bad, [])
+    check("...a frame of music for every frame sent, more than the first's with much to draw",
+          [f == p for f, p in music] + [music[2][0] > 1], [True] * 4)
 
     #  The screen itself, from New Game.
     UJ = SYM["UpdateJoy"]
@@ -1425,10 +1499,41 @@ def test_owscreen():
     check("the row Off: no screen, no edits", got, (0, 0))
     got = newgame(None, [0, 0, 0x04, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
     check("Open, the selection down one, Extended ticked", got[0], 0x0003)
-    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
     got = newgame(None, [0, 0, 0x01, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
     check("...right: the next in the column, or across the grid",
           got[0], 0x0003 if side else 0x0081)
+
+    #  A frame at a time from the screen's first pad read -- setup's, which
+    #  the loop does not answer -- then DOWN, A, and L + X.  The move chirps, the tick chirps the other way, and the reset is
+    #  taken from the screen's own loop, the PPU handed back to the HAL first.
+    bus, cpu = machine()
+    bus.frames()
+    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    pad(bus, 0)
+    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    MOVE, SEL = SYM["PlaySFX_MenuMove"], SYM["PlaySFX_MenuSel"]
+    CLAIM, RESET = SYM["hal_ppureclaim"], SYM["OnReset"]
+    events = []
+    for frame, (nes, aux) in enumerate(((0, 0), (0, 0), (0x04, 0), (0, 0), (0x80, 0), (0, 0), (0, 0x60), (0, 0))):
+        pad(bus, nes)
+        bus.io[0x4218] |= aux
+        cpu.step()
+        for _ in range(2_000_000):
+            if cpu.pc == UJ:
+                break
+            if cpu.pbr == BANK_0E and cpu.pc in (MOVE, SEL):
+                events.append((frame, "move" if cpu.pc == MOVE else "tick"))
+            if cpu.pbr == 0xC0 and cpu.pc == CLAIM:
+                events.append((frame, "claim"))
+            if cpu.pbr == 0xA1 and cpu.pc == RESET:      # CHUNK0, as opt_padreset enters it
+                events.append((frame, "reset"))
+                break
+            cpu.step()
+        if events and events[-1][1] == "reset":
+            break
+    pad(bus, 0)
+    check("the chirps on a move and a tick, and L + X resetting, the PPU back first",
+          events, [(2, "move"), (4, "tick"), (6, "claim"), (6, "reset")])
 
 
 def test_es_tree():

@@ -45,7 +45,7 @@
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_waitline9
-.export hal_vblaudio, hal_ppureclaim, hal_audioframe
+.export hal_vblaudio, hal_ppureclaim, hal_audioframe, hal_auxdetect
 
 .import OnReset
 
@@ -1384,6 +1384,21 @@ hal_vblaudio:
     inc a:h_frame
     LEAVE16
     ply
+    plx
+    pla
+    plp
+    rtl
+
+;;  hal_auxdetect is hal_waitvbl's look at the reset combo alone, which
+;;  hal_vblaudio leaves out: for a native screen that takes the controller
+;;  reset -- New Game's map edit screen (owscreen.asm) -- once a frame, after
+;;  its vblank's transfers, before it calls opt_padreset to act on
+;;  h_padreset as WaitForVBlank does.  Emulation mode.
+hal_auxdetect:
+    php
+    pha
+    phx
+    jsr aux_detect
     plx
     pla
     plp

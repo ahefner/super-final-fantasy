@@ -16,16 +16,23 @@
 ;  but New Game drops them.  The title's music plays on throughout.
 ;
 ;  The pad is read every frame and answered at once -- the hand moves, a box
-;  ticks, the description changes -- and the pictures follow as the frames
-;  allow (user: crisp and responsive).  Each frame draws at most a pixel row
-;  of the minimap and a map row of the zoom, from queues a press adds to.
+;  ticks, the description changes, the settings screen's chirp -- and the
+;  pictures follow as the frames allow (user: crisp and responsive).  Each
+;  frame draws at most a pixel row of the minimap and a map row of the zoom,
+;  from queues a press adds to.  The screen comes up whole, though (user):
+;  the unedited minimap is in ROM, drawn at build time (lut_OwsBaked), and
+;  only the rows the ticked boxes change are drawn over it, with the first
+;  zoom, before the display goes on.  L + X and L + Y reset from here as
+;  from anywhere (user).
 ;
 ;  The minimap is the world's, decoded here from the game's own RLE rows and
 ;  edited from world.asm's tables as ow_edit edits the game's, so it shows
 ;  what the game will.  A row decodes straight to the game's minimap colours
 ;  (lut_OwsTiles, bank $09's), a run's colour looked up once, with bit 3 set
 ;  on each tile the selected setting writes; a pixel ORs its four tiles'.
-;  The selection's pixels flash, and rings mark its places.
+;  The selection's pixels flash, and rings mark its places.  For Bahamut's
+;  dock and the land bridge, which the other's box changes, what is marked
+;  and zoomed follows that box (genows.py's views).
 ;
 ;  Like the credits and the roll screen it takes the PPU from the HAL and
 ;  gives it back through hal_ppureclaim: mode 1, the minimap and the zoom on
@@ -41,14 +48,17 @@
 .include "fftext.inc"
 .include "nescol.inc"
 .include "owslayout.inc"
+;  CALL0E, for the menu chirps in bank $0E.
+.include "optcall.inc"
 
 .export ows_choose
 ;  For tools/test_options.py.
-.export ows_testprow, ows_testinset, lut_OwsTiles
+.export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
 
 .import UpdateJoy, CallMusicPlay
-.import hal_vblaudio, hal_ppureclaim
-.import opt_savevalidfar
+.import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim
+.import opt_savevalidfar, opt_padreset
+.import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_OweRow, lut_OweEnt
 .importzp OWE_ENTRY
 
@@ -81,7 +91,7 @@ OBJ_HAND  = 2
 ;  that than shorter names).  The zoom in the game's dialog box frame, a
 ;  cell all round (user).
 .if OWS_SIDE
-MAP_COL   = 1
+MAP_COL   = 1                   ; rows 1-16, the column's 2-15 (lut_OwsCell)
 MAP_ROW   = 1
 INSET_COL = 2
 INSET_ROW = 18
@@ -127,11 +137,11 @@ PAD_RIGHT = $01
 OWV       = OWS_VARS
 V_FLAGS   = OWV+$00             ; 2: the boxes ticked, OWEDIT_* bits
 V_ACTIVE  = OWV+$02             ; 2: the lists they apply
-V_HLMASK  = OWV+$04             ; 2: the selected setting's gates
+V_HLMASK  = OWV+$04             ; 2: the selected view's gates
 V_SEL     = OWV+$06             ; the selected setting, 0-13
 V_PREV    = OWV+$07             ; the pad last frame
 V_T       = OWV+$09             ; frames
-V_SITE    = OWV+$0A             ; which of its places the zoom shows
+V_SITE    = OWV+$0A             ; which of the view's places the zoom shows
 V_IACTIVE = OWV+$0B             ; nonzero: the zoom being drawn
 V_INSETD  = OWV+$0C             ; nonzero: send it
 V_NTD     = OWV+$0D             ; nonzero: send BG3's tilemap
@@ -157,7 +167,9 @@ V_BUDGET  = OWV+$3E
 V_R       = OWV+$3F             ; the zoom's next pixel row
 V_VADDR   = OWV+$40             ; 2
 V_K       = OWV+$42
-.assert V_K < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_VIEW    = OWV+$43             ; what the selection shows: lut_OwsGates's, the sites'
+V_MASK    = OWV+$44             ; 2: ows_prow's characters still to pack, a bit each
+.assert V_MASK + 1 < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -172,6 +184,7 @@ aEEND     = .LOWORD(V_EEND)
 aXJ       = .LOWORD(V_XJ)
 aSCALE    = .LOWORD(V_SCALE)
 aR        = .LOWORD(V_R)
+aMASK     = .LOWORD(V_MASK)
 aROW      = .LOWORD(OWS_ROW)
 aROW1     = .LOWORD(OWS_ROW1)
 aCHR      = .LOWORD(OWS_CHR)
@@ -248,9 +261,9 @@ ows_choose:
     RTL
 
 
-;;  For the harness: pixel row A of the minimap, and the whole zoom, as the
-;;  screen draws them, from emulation mode by JSL; V_FLAGS, V_SEL and V_SITE
-;;  as it set them.
+;;  For the harness: pixel row A of the minimap, and the whole zoom and the
+;;  sprites, as the screen draws them, and the screen's setup, as far as the display going
+;;  on; from emulation mode by JSL, V_FLAGS, V_SEL and V_SITE as it set them.
 ows_testprow:
     PHB
     PHK
@@ -266,6 +279,18 @@ ows_testprow:
     JSR ows_select
     PLA
     JSR ows_prow
+    BRA ows_testout
+ows_testsetup:
+    PHB
+    PHK
+    PLB
+    CLC
+    XCE
+    REP #$10
+    .i16
+    SEP #$20
+    .a8
+    JSR ows_setup
     BRA ows_testout
 ows_testinset:
     PHB
@@ -288,6 +313,7 @@ ows_testinset:
     JSR ows_insetrow
     LDA f:V_IACTIVE
     BNE @slice
+    JSR ows_sprites             ; and the hand and the rings
 ows_testout:
     SEP #$30
     .i8
@@ -317,8 +343,9 @@ ows_actives:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Setup: in forced blank, VRAM, CGRAM, OAM and the registers; the text
-;;  drawn, the minimap queued, the display on.  A8 I16, DBR this chunk.
+;;  Setup: in forced blank, VRAM, CGRAM, OAM and the registers; the text,
+;;  the minimap and the zoom drawn and sent, the display on.  A8 I16, DBR
+;;  this chunk.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -499,7 +526,7 @@ ows_setup:
     STZ a:W12SEL
     STZ a:CGWSEL
     STZ a:CGADSUB
-    ;  The state: the first setting selected, the whole minimap to draw.
+    ;  The state: the first setting selected, nothing queued.
     LDA #0
     STA f:V_SEL
     STA f:V_T
@@ -509,14 +536,12 @@ ows_setup:
     LDA #0
     STA f:V_DIRTY
     STA f:V_SCALE               ; its high byte stays zero
-    LDA #$FFFF
     LDX #14
   @q:
     STA f:V_QUEUE, X
     DEX
     DEX
     BPL @q
-    LDA #0
     LDX #0
   @nt:
     STA f:OWS_NT3, X
@@ -527,13 +552,104 @@ ows_setup:
     SEP #$20
     .a8
     JSR ows_actives
-    JSR ows_select              ; V_HLMASK; the zoom started
+    JSR ows_select              ; V_VIEW, V_HLMASK; the zoom started
     LDA #$FF
     STA f:V_PREV                ; nothing counts as pressed until let go
     JSR ows_drawall
-    JSR ows_vblank              ; the tilemap and the hand out, in forced blank
+    JSR ows_first
+    JSR ows_vblank              ; the tilemap, the zoom and the hand out
     LDA #$0F
     STA a:INIDISP
+    RTS
+
+;;  The pictures whole before the display goes on (user: at once, not drawn
+;;  while you watch).  The minimap unedited, from ROM; over it the rows the
+;;  ticked boxes and the selection change; the zoom; and the minimap sent.
+;;  In forced blank, a few frames of it with much ticked, the music kept
+;;  going meanwhile.  A8 I16.
+    .a8
+    .i16
+ows_first:
+    PHB
+    REP #$20
+    .a16
+    LDX #.LOWORD(lut_OwsBaked)
+    LDY #.LOWORD(OWS_CHR)
+    LDA #256 * 32 - 1
+    MVN #^OWSFAR, #^OWSRAM      ; leaves DBR = $7F, which PLB puts back
+    LDA #0                      ; B zero, as the rest expect
+    SEP #$20
+    .a8
+    PLB
+    ;  The rows each ticked box's lists write, and the selection's.
+    LDA #0
+    STA f:V_K
+  @tick:
+    LDA f:V_K
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:OWSFAR + lut_OwsBit16, X
+    AND f:V_FLAGS
+    SEP #$20
+    .a8
+    BEQ :+
+    LDA f:V_K
+    JSR ows_queuerows
+:   LDA f:V_K
+    INC A
+    STA f:V_K
+    CMP #OWS_SETTINGS
+    BCC @tick
+    LDA f:V_SEL
+    JSR ows_queuerows
+  @draw:
+    JSR ows_audio
+    JSR ows_nextrow
+    BCC @draw
+.if OWS_INSET
+  @zoom:
+    JSR ows_audio
+    JSR ows_insetrow            ; the last asks ows_vblank to send it
+    LDA f:V_IACTIVE
+    BNE @zoom
+.endif
+    REP #$20
+    .a16
+    LDA #0
+    STA f:V_DIRTY               ; all of it, now
+    LDA #VR_BG1CHR
+    STA f:V_VADDR
+    LDX #.LOWORD(OWS_CHR)
+    LDY #256 * 32
+    SEP #$20
+    .a8
+    JMP ows_dma
+
+;;  A frame of the title's music, if a vblank has begun since the last look
+;;  (RDNMI's latch), as roll.asm keeps its sound going while the randomizer
+;;  works: for work longer than a frame.  A8 I16 in and out; X and Y not
+;;  kept.
+    .a8
+    .i16
+ows_audio:
+    LDA a:RDNMI
+    BPL @out
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    LDA #CHUNK_OWS
+    STA cur_bank
+    JSR CallMusicPlay
+    JSL hal_audioframe + HALFAR
+    CLC
+    XCE
+    REP #$10
+    .i16
+  @out:
     RTS
 
 ;;  The ring and the hand, OBJ characters 0, 1, 16, 17 and 2, 3, 18, 19: the
@@ -687,6 +803,7 @@ ows_loop:
   @frame:
     JSR ows_wait
     JSR ows_vblank
+    JSR ows_reset
     LDA f:V_T
     INC A
     STA f:V_T
@@ -712,6 +829,33 @@ ows_wait:
     JSR CallMusicPlay
     JSR UpdateJoy
     JSL hal_vblaudio + HALFAR
+    CLC
+    XCE
+    REP #$10
+    .i16
+    RTS
+
+;;  Controller Reset, as WaitForVBlank takes it (waitvbl.patch): the HAL's
+;;  look at L, X and Y, which hal_vblaudio leaves out, then opt_padreset to
+;;  act on it, which stirs the seed's pool too, as every frame of the game's
+;;  menus does.  When it is going to reset, the PPU goes back to the HAL
+;;  first, as leaving the screen gives it back.  After the vblank's
+;;  transfers, which the auto-read is long done by.  A8 I16 in and out; X
+;;  and Y not kept.
+    .a8
+    .i16
+ows_reset:
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    JSL hal_auxdetect + HALFAR
+    LDA a:h_padreset
+    BEQ :+
+    LDA #$80
+    STA a:INIDISP
+    JSL hal_ppureclaim + HALFAR
+:   JSL opt_padreset + OPTFAR   ; no return, if it resets
     CLC
     XCE
     REP #$10
@@ -890,7 +1034,7 @@ ows_sprites:
     LDA #$32                    ; above everything, palette 1
     STA a:OAMDATA
     ;  The rings.
-    LDA f:V_SEL
+    LDA f:V_VIEW
     REP #$20
     .a16
     AND #$00FF
@@ -969,6 +1113,7 @@ ows_input:
     BEQ @move
     PHA
     JSR ows_toggle
+    JSR ows_sfxsel
     PLA
   @move:
     AND #PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT
@@ -985,8 +1130,33 @@ ows_input:
     LDA f:V_SEL
     JSR ows_queuerows
     JSR ows_desc
+    JSR ows_sfxmove
   @out:
     CLC
+    RTS
+
+;;  The settings screen's chirps (optmenu.asm's opt_sfx_move and _sel): the
+;;  game's own, in bank $0E, through the trampoline, in emulation mode.  A8
+;;  I16 in and out; X and Y not kept.
+    .a8
+    .i16
+ows_sfxmove:
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    CALL0E PlaySFX_MenuMove
+    BRA ows_sfxout
+ows_sfxsel:
+    SEP #$30
+    SEC
+    XCE
+    CALL0E PlaySFX_MenuSel
+ows_sfxout:
+    CLC
+    XCE
+    REP #$10
+    .i16
     RTS
 
 ;;  The selection a direction A takes it to.  A8 I16.
@@ -1088,6 +1258,7 @@ OWEDIT_CARDIABRIDGE_BIT = 12
 OWEDIT_BAHAMUTDOCK_BIT  = 4
 .assert OWEDIT_CARDIABRIDGE = 1 << OWEDIT_CARDIABRIDGE_BIT, error, "the land bridge's bit"
 .assert OWEDIT_BAHAMUTDOCK = 1 << OWEDIT_BAHAMUTDOCK_BIT, error, "Bahamut's dock's bit"
+.assert <OWEDIT_CARDIABRIDGE = 0, error, "ows_select reads the land bridge's byte"
 
 ;;  Setting A's minimap rows queued to draw.  A8 I16.
     .a8
@@ -1117,12 +1288,28 @@ ows_queuerows:
     BCC @b
     RTS
 
-;;  The selection's gates for the flashing, its first place for the zoom.
-;;  A8 I16.
+;;  The selection's view, its gates for the flashing, its first place for
+;;  the zoom.  The view is the setting's own, but Bahamut's dock with the
+;;  land bridge ticked is the two's variant alone, as ows_actives applies it
+;;  -- what the game would make of it, not both docks it might mean (user).
+;;  (The land bridge's own tiles take in the variant's two, so it needs no
+;;  second view.)  Only the land bridge's box changes a view, and not while
+;;  its own is selected, so a tick never does.  A8 I16.
     .a8
     .i16
 ows_select:
     LDA f:V_SEL
+    CMP #OWEDIT_BAHAMUTDOCK_BIT
+    BNE @own
+    LDA f:V_FLAGS + 1
+    AND #>OWEDIT_CARDIABRIDGE
+    BEQ @own
+    LDA #OWS_VIEW_BAHAMUTBRIDGE
+    BRA @view
+  @own:
+    LDA f:V_SEL
+  @view:
+    STA f:V_VIEW
     REP #$20
     .a16
     AND #$00FF
@@ -1138,9 +1325,9 @@ ows_select:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The frame's drawing, BUDGET units of it: the zoom's map rows first, a
-;;  unit each, then the minimap's queued pixel rows, two each.  And a setting
-;;  with more than one place shows each in turn.  A8 I16.
+;;  The frame's drawing, BUDGET units of it: the zoom's map rows first,
+;;  COST_ZOOM each, then the minimap's queued pixel rows, COST_ROW each.  And
+;;  a view with more than one place shows each in turn.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1152,7 +1339,7 @@ ows_work:
     LDA f:V_T
     AND #$7F
     BNE @zoom
-    LDA f:V_SEL
+    LDA f:V_VIEW
     REP #$20
     .a16
     AND #$00FF
@@ -1189,6 +1376,15 @@ ows_work:
     RTS
 :   SBC #COST_ROW
     STA f:V_BUDGET
+    JSR ows_nextrow
+    BCC @rows
+    RTS
+
+;;  The first queued pixel row of the minimap: drawn, unqueued, its
+;;  character row marked to send.  C set when nothing is queued.  A8 I16.
+    .a8
+    .i16
+ows_nextrow:
     LDX #$0000
   @byte:
     LDA f:V_QUEUE, X
@@ -1196,7 +1392,7 @@ ows_work:
     INX
     CPX #16
     BCC @byte
-    RTS                         ; nothing queued
+    RTS                         ; C set: nothing queued
   @found:
     LDY #$0000
   @bit:
@@ -1241,7 +1437,8 @@ ows_work:
     STA f:V_DIRTY
     SEP #$20
     .a8
-    BRA @rows
+    CLC
+    RTS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1293,16 +1490,33 @@ ows_decode:
     AND #$00FF
     BNE :+
     LDA #256
-:   TAX
-    LDA #0
+:   DEC A
+    BEQ @one
+    ;  The first, then MVN copying each on to the next: it moves a byte in
+    ;  seven cycles, a loop's store in about thirteen.
+    DEC A                       ; MVN's count: the rest, less one
+    PHA
     SEP #$20
     .a8
     LDA a:aT8
-  @fill:
+    STA a:0, Y
+    REP #$20
+    .a16
+    PLA
+    TYX
+    INY
+    MVN #^OWSRAM, #^OWSRAM      ; Y on past the run; DBR stays $7F
+    LDA #0
+    SEP #$20
+    .a8
+    PLX
+    BRA @next
+  @one:
+    SEP #$20
+    .a8
+    LDA a:aT8
     STA a:0, Y
     INY
-    DEX
-    BNE @fill
     PLX
     BRA @next
   @single:
@@ -1377,8 +1591,10 @@ ows_decode:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  ows_prow -- the minimap's pixel row A into OWS_CHR: map rows 2A and
-;;  2A + 1, a pixel its four tiles' colours ORed, through lut_OwsCol16.  A8
-;;  I16.
+;;  2A + 1, a pixel its four tiles' colours ORed, through lut_OwsCol16.
+;;  Only the characters an edit list writes in (lut_OwsCharMask): the rest
+;;  are the baked minimap's, as ows_first left them, whatever is ticked.
+;;  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1409,11 +1625,36 @@ ows_prow:
     ASL A
     ORA a:aTILE
     STA a:aTILE
+    LDA f:V_PROW
+    AND #$007F
+    ASL A
+    TAX
+    LDA f:OWSFAR + lut_OwsCharMask, X
+    STA a:aMASK
     LDA #0                      ; B zero, for TAX below
     SEP #$20
     .a8
     LDY #$0000                  ; two map tiles a pixel
   @char:
+    REP #$20
+    .a16
+    LSR a:aMASK
+    BCS @pack
+    TYA                         ; the baked one stands: on a character
+    CLC
+    ADC #16
+    TAY
+    LDA a:aTILE
+    CLC
+    ADC #32
+    STA a:aTILE
+    LDA #0
+    SEP #$20
+    .a8
+    BRA @next
+  @pack:
+    SEP #$20
+    .a8
     LDA #8
     STA a:aCOL
   @px:
@@ -1448,9 +1689,10 @@ ows_prow:
     CLC
     ADC #32
     STA a:aTILE
-    BCC :+
+    BCC @next
     INC a:aTILE + 1
-:   CPY #256
+  @next:
+    CPY #256
     BCS :+
     JMP @char
 :   PLB
@@ -1458,7 +1700,7 @@ ows_prow:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The zoom: the selected setting's place V_SITE, around its middle, 28
+;;  The zoom: the selected view's place V_SITE, around its middle, 28
 ;;  tiles across at two pixels a tile, or 56 at one where the place is wider
 ;;  than 28.  ows_insetstart begins it; ows_insetrow draws a map row of it,
 ;;  and when the last is drawn asks for it to be sent.  The zoom on screen
@@ -1470,7 +1712,7 @@ ows_prow:
 ows_insetstart:
     ;  (Worked out without the zoom too, which only the drawing and the
     ;  sending of it need; so the harness can draw one in any layout.)
-    LDA f:V_SEL
+    LDA f:V_VIEW
     ASL A
     ASL A
     ORA f:V_SITE
@@ -1546,7 +1788,7 @@ ows_insetrow:
     CMP #2
     BNE :+
     INC a:aR
-    JSR ows_packline
+    JSR ows_dupline
 :   INC a:aR
     PLB
     LDA f:V_IROW
@@ -1559,6 +1801,35 @@ ows_insetrow:
     LDA #1
     STA f:V_INSETD
 :   RTS
+
+;;  The zoom's pixel row just packed, again on the next (V_R): at two pixels
+;;  a tile the pair is the same.  The packed row is even, so the next is in
+;;  the same characters, a word on.  DBR $7F, A8 I16, B zero.
+    .a8
+    .i16
+ows_dupline:
+    REP #$20
+    .a16
+    LDA a:aTILE                 ; ows_packline's, past its last character
+    SEC
+    SBC #INSET_W * 32
+    TAX
+    LDY #INSET_W
+  @char:
+    LDA a:aINSETCHR, X          ; planes 0 and 1...
+    STA a:aINSETCHR + 2, X
+    LDA a:aINSETCHR + 16, X     ; ...and 2 and 3
+    STA a:aINSETCHR + 18, X
+    TXA
+    CLC
+    ADC #32
+    TAX
+    DEY
+    BNE @char
+    LDA #0
+    SEP #$20
+    .a8
+    RTS
 
 ;;  OWS_ROW1's 56 colours into the zoom's pixel row V_R.  DBR $7F, A8 I16,
 ;;  B zero.
@@ -1908,7 +2179,7 @@ lut_OwsBit16:
 lut_OwsCell:
 .if OWS_SIDE
   .repeat OWS_SETTINGS, i
-    CELL 1 + i, 17              ; the hand over the minimap's last two columns
+    CELL 2 + i, 17              ; the hand over the minimap's last two columns
   .endrep
 .else
   .repeat OWS_SETTINGS, i
@@ -1951,7 +2222,7 @@ lut_OwsName:
   FFPAD "Early Open", NAME_W
   FFPAD "Extended Open", NAME_W
   FFPAD "North Docks", NAME_W
-  FFPAD "Desert Dock", NAME_W
+  FFPAD "Ryukahn Dock", NAME_W
   FFPAD "Bahamut Dock", NAME_W
   FFPAD "Lefein River", NAME_W
   FFPAD "Lefein Bridge", NAME_W
