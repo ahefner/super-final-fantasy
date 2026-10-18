@@ -56,6 +56,8 @@ CHUNK_ROLL      = $17           ; New Game's roll screen: picture, bleeps, fanfa
 ROLLFAR         = (CHUNK0 + CHUNK_ROLL) * $10000
 CHUNK_TACTICS   = $18           ; Boss tactics: where a boss aims
 TACTICSFAR      = (CHUNK0 + CHUNK_TACTICS) * $10000
+CHUNK_OWS       = $19           ; New Game's map edit screen
+OWSFAR          = (CHUNK0 + CHUNK_OWS) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
@@ -63,6 +65,23 @@ TACTICSFAR      = (CHUNK0 + CHUNK_TACTICS) * $10000
 ;  title screen is.  The credits keep to the bottom of the bank regardless.
 ;  Reset zeroes it with the rest of WRAM.
 CREDITSRAM      = $7F0000
+CREDITSRAM_END  = $7F04C0       ; credits.asm's last buffer, CR_YBUF1, ends here
+
+;  The map edit screen's (owscreen.asm), in bank $7F between the credits'
+;  and the ending's, neither of which is ever up with it: New Game's, which
+;  the title's Credits row and the ending are not.  Reset zeroes it.
+OWSRAM          = $7F1000
+OWS_CHR         = OWSRAM+$0000  ; $2000: the minimap's 256 characters, 4bpp
+OWS_INSETCHR    = OWSRAM+$2000  ; $620: the inset's 49
+OWS_ROW         = OWSRAM+$2800  ; $100: a map row, decoded and edited...
+OWS_ROW1        = OWSRAM+$2900  ; $100: ...the next...
+OWS_HL          = OWSRAM+$2A00  ; $100: ...and its tiles the selected setting writes
+OWS_HL1         = OWSRAM+$2B00  ; $100
+OWS_NT3         = OWSRAM+$2C00  ; $700: BG3's tilemap, 28 rows of 32
+OWS_VARS        = OWSRAM+$3400  ; $100: the screen's variables
+OWSRAM_END      = OWSRAM+$3500
+.assert OWSRAM >= CREDITSRAM_END, error, "the map edit screen's WRAM runs into the credits'"
+.assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The ending scene's draw buffer, moved out of PRG-RAM
@@ -88,6 +107,7 @@ CREDITSRAM      = $7F0000
 ;;  now asserts every .INCBIN lands on the address its filename states, so a
 ;;  size change is a build error rather than a corrupted image.
 THEENDBANK      = $7F
+THEENDBUF_AT    = $6800         ; for the assert above, which comes first
 THEENDBUF       = $6800         ; same 16-bit address as before, but in bank
                                 ; $7F.  Keeping the offset identical is what
                                 ; lets TheEnd_SetPixel's "+ $6000" stand and

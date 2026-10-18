@@ -92,6 +92,7 @@ CR_EDGE      = CREDITSRAM+$0C   ; buttons that went down this frame
 CR_YBLANK    = CREDITSRAM+$10   ; 2 bytes: CR_OFFPLANE, for the blank lines
 CR_YBUF0     = CREDITSRAM+$100  ; the two row buffers, a word per line --
 CR_YBUF1     = CREDITSRAM+$300  ;   at most 224 lines, so $1C0 bytes each
+.assert CR_YBUF1 + $1C0 <= CREDITSRAM_END, error, "the credits' WRAM runs past CREDITSRAM_END"
 
 ;  One line of the text: a length and then the characters, in the game's
 ;  encoding.  A line of nothing is a blank row.

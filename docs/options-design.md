@@ -1279,6 +1279,38 @@ And the minimap is wrong with it, by design of the minimap rather than the
 edits: Sarda's Forest and the Cardia Land Bridge put land in blocks whose
 tiles the logo borrows (`randomization-notes.md` §9.1).
 
+### New Game's map edit screen (prototype)
+
+**Built 2026-10-18; a prototype to judge the layout, not yet played.**  A
+checkbox for each of FFR's fourteen overworld edits and the world's minimap
+as they would make it (user: per-edit toggles on a screen of their own
+during New Game, the Map edits row only standing in).  `owscreen.asm`, a
+native screen in a chunk of its own (`CHUNK_OWS`), in four layouts on four
+branches for the user to compare (`owslayout.inc`): the minimap above a
+two-column grid or beside a single column, with or without a zoom inset of
+the selected edit.  All inside the 30x26 cells a CRT shows.
+
+  - It comes up from `rando_newgame` when the Map edits row is not Off,
+    starting from the saved game's edits when Continue would load that save
+    and it has any (no option block bytes), else the row's.  START keeps
+    what is ticked; Sarda's Forest, the Cardia Land Bridge and Ship in
+    Drydock are on it, grey, and preview, but New Game drops them.
+  - The minimap is decoded from the game's own RLE rows and edited from
+    `world.asm`'s tables, as the game edits its map, so it shows what the
+    game will, in the game's minimap colours (bank $09's
+    `lut_MinimapTileset`); it draws two pixel rows a frame, and a tick
+    redraws only its edit's rows.  The selected edit's pixels flash and
+    rings mark its places (`tools/genows.py` clusters each list's writes);
+    the inset shows one place at a time, 28 tiles at two pixels a tile or 56
+    at one when the place is wider.
+  - Its WRAM is $7F1000-$7F44FF, between the credits' ($7F0000-$7F04BF) and
+    the ending's ($7F6800), neither ever up with it; `snesmap.inc` and
+    `credits.asm` assert both edges.
+  - `test_owscreen` holds the minimap and the inset to a rendering of
+    `owedits.apply`'s map, and runs the screen from New Game: the saved
+    game's default, A ticking, the held-back dropped, the row Off skipping
+    it.
+
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen

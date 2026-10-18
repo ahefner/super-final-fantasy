@@ -87,6 +87,7 @@
 .import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright, opt_titlechoose, opt_savevalid
+.export opt_savevalidfar
 .import opt_settings, opt_saveview, credits_screen, VerifyChecksum
 .export opt_commit_body
 
@@ -763,6 +764,15 @@ opt_titlechoose:
     JSL credits_screen + CREDITSFAR
   @shown:
     LDA #$00                    ; Z set
+    RTL
+
+;;  opt_savevalid from another chunk, by JSL (owscreen.asm), emulation mode.
+opt_savevalidfar:
+    PHB
+    PHK
+    PLB
+    JSR opt_savevalid
+    PLB                         ; C kept
     RTL
 
 ;;  C clear if the battery holds a save Continue would load: the game's own

@@ -1052,6 +1052,36 @@ def land_in_room(m, x, y):
     return door and not out
 
 
+def newgame_pressing(bus, cpu, presses=()):
+    """rando_newgame, with the map edit screen's pad (owscreen.asm) held as
+    presses says, one a frame, then START.  Out: how many frames the screen
+    read the pad, 0 if it never came up.  A screen still up after 400 frames
+    is a failure the caller sees as the screen's result never written."""
+    UJ = SYM["UpdateJoy"]
+    if bus.clock is None:
+        bus.frames()
+
+    def pad(nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    pad(0)
+    reads = 0
+    stopped = cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    while stopped:
+        #  Then START, let go between: the screen counts a press only from
+        #  a pad that was let go, so one held as it comes up never ends it.
+        pad(presses[reads] if reads < len(presses) else (0x10 if (reads - len(presses)) & 1 else 0))
+        reads += 1
+        cpu.step()
+        for _ in range(60_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                break
+            cpu.step()
+        stopped = cpu.pc == UJ and reads < 400
+    pad(0)
+    return reads
+
+
 def owedits_ffr_source():
     """FFR's two edit files and its OverworldMap constructor, comments
     stripped, or None when FFR's source is not beside the tree."""
@@ -1231,7 +1261,7 @@ def test_owedits():
             bus.sram[early_at] = early | mode << K["OWEDITS_SHIFT"]
             bus.sram[at:at + 2] = b"\xa5\x5a"                # decoys
             bus.sram[BX], bus.sram[BY] = 0x11, 0x22
-            call(cpu, "rando_newgame", bank=RANDO_BANK)
+            newgame_pressing(bus, cpu)          # the map edit screen, START at once
             got.append((int.from_bytes(bus.sram[at:at + 2], "little"), bus.sram[K["RANDO_EARLY"] - 0x6000],
                         (bus.sram[BX], bus.sram[BY])))
             lefein = flags & K["OWEDIT_BRIDGELEFEIN"]
@@ -1255,6 +1285,150 @@ def test_owedits():
     check("no two of the page's fields share a bit", clash, [])
     check("...each mode fits its field",
           [i for i, (_, mask, bit, count) in enumerate(fields) if (count - 1) << bit & ~mask & 0xFF], [])
+
+
+def test_owscreen():
+    """New Game's map edit screen (owscreen.asm).  The minimap it draws,
+    every pixel row under the boxes ticked and the selection's flashing
+    pixels, held to a rendering here of owedits.apply's map in the game's
+    minimap colours; the inset, a place of the selection's; and the screen
+    from rando_newgame, the row at All: its first choice the saved game's,
+    A ticking the selected box, START keeping what is ticked but the three
+    the logic cannot take."""
+    import owedits as O
+    OWS = 0xA1 + K["CHUNK_OWS"]
+    W = lambda name: K[name] - 0x7E0000
+    b1 = R.nesbank(ROMDATA, 1)
+    van = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        van += R.decode_rle(b1, ptr - 0x8000, 256)
+    img = (OWS & 0x1F) * 0x10000
+    TS = ROMDATA[img + SYM["lut_OwsTiles"]:][:128]
+    src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
+    at = src9.index("lut_MinimapTileset:")
+    tl = bytes(int(v) for l in src9[at:].split("\n")[1:9]
+               for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
+    check("its colours are the game's minimap's", bytes(TS), tl)
+
+    def gates(sel):
+        g = 1 << sel
+        if sel in (O.BAHAMUT_DOCK, O.CARDIA_BRIDGE):
+            g |= 1 << O.LIST_BAHAMUT_BRIDGE
+        return g
+
+    def colour(t, hl):
+        v = TS[t]
+        c = 4 if v & 4 else v & 3
+        return c | (8 if hl else 0)
+
+    def pack(px, width):
+        """Rows of colours, width wide, as 4bpp characters, width / 8 across."""
+        out = bytearray(len(px) // 8 * (width // 8) * 32)
+        for r, row in enumerate(px):
+            for x, c in enumerate(row):
+                t = (r // 8) * (width // 8) + x // 8
+                for plane in range(4):
+                    if c >> plane & 1:
+                        out[t * 32 + (16 if plane >= 2 else 0) + (r % 8) * 2 + (plane & 1)] |= 0x80 >> (x % 8)
+        return bytes(out)
+
+    def hls(sel):
+        g = gates(sel)
+        return {(x, y) for name, gate in O.ORDER if gate != O.LIST_NONE and g >> gate & 1
+                for x, y, _ in O.LISTS[name]}
+
+    def expect_minimap(flags, sel):
+        t, hl = O.apply(van, flags), hls(sel)
+        rows = []
+        for p in range(128):
+            row = []
+            for cx in range(128):
+                cells = ((2 * cx, 2 * p), (2 * cx + 1, 2 * p), (2 * cx, 2 * p + 1), (2 * cx + 1, 2 * p + 1))
+                v = 0
+                for x, y in cells:
+                    v |= TS[t[x + 256 * y]]
+                c = 4 if v & 4 else v & 3
+                row.append(c | (8 if any(cl in hl for cl in cells) else 0))
+            rows.append(row)
+        return pack(rows, 128)
+
+    def setup(bus, flags, sel, site=0):
+        bus.wram[W("OWS_VARS"):W("OWS_VARS") + 2] = flags.to_bytes(2, "little")
+        bus.wram[W("OWS_VARS") + 6] = sel
+        bus.wram[W("OWS_VARS") + 10] = site
+
+    SAFE = K["OWEDIT_SAFE"]
+    bus, cpu = machine()
+    bad = []
+    for flags, sel in ((0, 0), (SAFE, 6), (0x3FFF, O.CARDIA_BRIDGE), (0x1010, O.BAHAMUT_DOCK)):
+        setup(bus, flags, sel)
+        for p in range(128):
+            cpu.a = p
+            call(cpu, "ows_testprow", bank=OWS)
+        got = bytes(bus.wram[W("OWS_CHR"):W("OWS_CHR") + 8192])
+        if got != expect_minimap(flags, sel):
+            bad.append("flags $%04X selection %d" % (flags, sel))
+    check("the minimap: owedits.apply's map, the selection's pixels flagged", bad, [])
+
+    import genows as GO
+    bad = []
+    for flags, sel, site in ((SAFE, 6, 0), (SAFE, 6, 2), (0x3FFF, O.CARDIA_BRIDGE, 0), (0, 2, 1)):
+        setup(bus, flags, sel, site)
+        call(cpu, "ows_testinset", bank=OWS)
+        got = bytes(bus.wram[W("OWS_INSETCHR"):W("OWS_INSETCHR") + 49 * 32])
+        cx, cy, w = GO.sites(sel)[site]
+        scale = 1 if w > 28 else 2
+        span = 56 // scale
+        x0, y0 = (cx - span // 2) & 255, (cy - span // 2) & 255
+        t, hl = O.apply(van, flags), hls(sel)
+        rows = []
+        for i in range(span):
+            y = (y0 + i) & 255
+            row = []
+            for j in range(span):
+                x = (x0 + j) & 255
+                row += [colour(t[x + 256 * y], (x, y) in hl)] * scale
+            rows += [row] * scale
+        if got != pack(rows, 56):
+            bad.append("flags $%04X selection %d place %d" % (flags, sel, site))
+    check("the inset: a place of the selection's, at its scale", bad, [])
+
+    #  The screen itself, from New Game.
+    UJ = SYM["UpdateJoy"]
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def newgame(saved_flags, presses, row=K["OWEDITS_ALL"]):
+        bus, cpu = machine()
+        bus.frames()
+        ow = K["RANDO_OWEDITS"] - 0x6000
+        if saved_flags is not None:
+            bus.sram[ow:ow + 2] = saved_flags.to_bytes(2, "little")
+            cpu.dbr = BANK_0E
+            cpu.run(BANK_0E, SYM["SaveGame"])
+            cpu.dbr = 0xA7
+        bus.sram[K["OPT_NG_EARLY"] - 0x6000] = row << K["OWEDITS_SHIFT"]
+        reads = newgame_pressing(bus, cpu, presses)
+        return int.from_bytes(bytes(bus.sram[ow:ow + 2]), "little"), reads
+
+    got = newgame(0x0402, [0, 0, 0, 0x10])
+    check("the saved game's: Extended Open, and Sarda's Forest dropped", got[0], 0x0002)
+    got = newgame(0x0002, [0, 0, 0x80, 0, 0x10])
+    check("A ticks the selected, Early Open", got[0], 0x0003)
+    got = newgame(None, [0, 0, 0x10])
+    check("no save: the row's, All", got[0], SAFE)
+    check("...the screen up for it", got[1] > 0, True)
+    got = newgame(None, [], row=K["OWEDITS_OFF"])
+    check("the row Off: no screen, no edits", got, (0, 0))
+    got = newgame(None, [0, 0, 0x04, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
+    check("Open, the selection down one, Extended ticked", got[0], 0x0003)
+    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
+    got = newgame(None, [0, 0, 0x01, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
+    check("...right: the next in the column, or across the grid",
+          got[0], 0x0003 if side else 0x0081)
 
 
 def test_es_tree():
@@ -11744,7 +11918,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

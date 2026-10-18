@@ -59,6 +59,7 @@
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
+.import ows_choose
 
 .segment "BANK_RANDO"
 
@@ -628,7 +629,13 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     LDA f:RANDOFAR + lut_OwEditsMode + 1, X
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    ;  ...and, the row not Off, the map edit screen to tick them on
+    ;  (owscreen.asm), from the saved game's or those.
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #OWEDITS_FIELD
+    BEQ :+
+    JSL ows_choose + OWSFAR
+:   LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     AND #OWEDIT_BRIDGELEFEIN
     BEQ :+
     LDA #BRIDGE_LEFEIN_X

@@ -21,6 +21,8 @@
 .export rando_eswire, rando_esmasks, rando_esdock
 ;  The overworld's edits, for the fixed bank.
 .export ow_editrow, mm_editrows
+;  ...and their tables, which New Game's map edit screen draws from.
+.export lut_OweRow, lut_OweEnt, OWE_ENTRY
 
 .segment "BANK_WORLD"
 
