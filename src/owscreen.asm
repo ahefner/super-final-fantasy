@@ -10,10 +10,9 @@
 ;  the row's flags into RANDO_OWEDITS.  The screen starts from the saved
 ;  game's, when Continue would load it and it has any -- so the choice
 ;  carries from game to game without a byte of the option block -- else the
-;  row's.  START ends it, and RANDO_OWEDITS is what is ticked, but for the
-;  three the logic cannot take yet (Sarda's Forest, the Cardia Land Bridge,
-;  Ship in Drydock): those are on the screen to judge it whole, and preview,
-;  but New Game drops them.  The title's music plays on throughout.
+;  row's.  START ends it, and RANDO_OWEDITS is what is ticked: placement's
+;  logic knows every edit (worldgraph/edited.py).  The title's music plays
+;  on throughout.
 ;
 ;  The pad is read every frame and answered at once -- the hand moves, a box
 ;  ticks, the description changes, the settings screen's chirp -- and the
@@ -199,7 +198,7 @@ aINSETCHR = .LOWORD(OWS_INSETCHR)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  ows_choose -- the screen.  In: RANDO_OWEDITS the row's flags.  Out:
-;;  RANDO_OWEDITS as ticked, less the three the logic cannot take.  From
+;;  RANDO_OWEDITS as ticked.  From
 ;;  rando_newgame, by JSL, in emulation mode; out the same, X and Y kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -244,7 +243,7 @@ ows_choose:
     REP #$20
     .a16
     LDA f:V_FLAGS
-    AND #OWEDIT_SAFE
+    AND #OWEDIT_FLAGS
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     SEP #$30
     .a8
@@ -2061,28 +2060,18 @@ ows_desc:
     STA f:V_NTD
     RTS
 
-;;  Setting V_K's line: its box and its name; grey for the three the logic
-;;  cannot take.  A8 I16.
+;;  Setting V_K's line: its box and its name.  A8 I16.
     .a8
     .i16
 ows_item:
+    LDA #0
+    STA f:V_PAL
     LDA f:V_K
     REP #$20
     .a16
     AND #$00FF
     ASL A
     TAX                         ; its word
-    LDA #OWEDIT_SAFE
-    AND f:OWSFAR + lut_OwsBit16, X
-    SEP #$20
-    .a8
-    BNE :+
-    LDA #1                      ; held back: palette 1, grey
-    BRA :++
-:   LDA #0
-:   STA f:V_PAL
-    REP #$20
-    .a16
     LDA f:OWSFAR + lut_OwsBit16, X
     AND f:V_FLAGS
     PHP                         ; Z: not ticked
@@ -2192,9 +2181,9 @@ lut_OwsObjCell:
   .BYTE OBJ_RING, OBJ_RING + 1, OBJ_RING + 16, OBJ_RING + 17
   .BYTE OBJ_HAND, OBJ_HAND + 1, OBJ_HAND + 16, OBJ_HAND + 17
 
-;  CGRAM 0-11: the backdrop and BG3's three palettes -- the text, and the
-;  three held back, each with the settings screen's checkbox colours, its
-;  grey ring and white fill; and the frame, in the game's box colours.  32-47: the minimap's, BG1 palette 2: its four
+;  CGRAM 0-11: the backdrop and BG3's three palettes -- the text, and a grey
+;  one, each with the settings screen's checkbox colours, its grey ring and
+;  white fill; and the frame, in the game's box colours.  32-47: the minimap's, BG1 palette 2: its four
 ;  colours as the game's minimap has them (bank $09's lut_MinimapBGPal), the
 ;  marker, and at 40-44 the flashing ones, which ows_vblank writes from
 ;  lut_OwsFlash's two sets.

@@ -160,8 +160,11 @@ rando_place:
     STY a:pNINCPOOL
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     AND #$00FF
-    BEQ @off
+    BEQ :+
     JMP pl_shuffled
+:   LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    BEQ @off
+    JMP pl_edited
   @off:
     JSR pl_masks
     JSR pl_vanilla
@@ -257,7 +260,10 @@ pl_shuffled:
     STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     REP #$20
     .a16
-    STZ a:pTUNE                 ; the vanilla world's: the safe tables
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    BEQ :+
+    JMP pl_edited               ; the vanilla wiring, its logic the edits'
+:   STZ a:pTUNE                 ; the vanilla world's: the safe tables
     JSR pl_masks
     JSR pl_vanilla
     JSR pl_items
@@ -279,6 +285,58 @@ pl_shuffled:
     JMP leave
 :   JSR pl_store
     JMP leave
+
+
+;;  Map edits without the shuffle (randoref.build_edited): the vanilla
+;;  wiring, but its logic worked out for the seed as the shuffle's is, on
+;;  the graph for every combination of the edits -- the precomputed tables
+;;  are the unedited map's.  One world, es_build's with the mode Off; then
+;;  Off's tries at placement, with its safe tables, on Off's stream; and the
+;;  ship's dock as the shuffle chooses it.  With no world, no placement:
+;;  there is nothing else to fall back on.
+pl_edited:
+    .a16
+    JSR pl_items
+    STZ a:pESK
+    STZ a:pTUNE                 ; the safe tables, as Off's
+    LDA #0
+    JSL es_build + WORLDFAR
+    BCC :+
+    JMP leave
+:   LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_KEYS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_KEYS)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #PLACE_ATTEMPTS
+    STA a:pATT
+  @try:
+    JSR pl_attempt
+    BCS @won
+    JSR pl_yelp
+    DEC a:pATT
+    BNE @try
+    JMP leave
+  @won:
+    JSR pl_store
+    SEP #$20
+    .a8
+    LDA #0
+    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+    LDA f:RANDO_PLACEFAR + PI_SHIP
+    CMP #$FF
+    BEQ :+                      ; a free ship: Coneria's (or the drydock)
+    REP #$20
+    .a16
+    AND #$00FF
+    JSL es_dockfar + WORLDFAR
+    SEP #$20
+    .a8
+    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+:   JMP leave
 
 
 ;;  The vanilla world's bit index, Chaos's masks and spread groups, copied

@@ -67,7 +67,8 @@ esOWN   = .LOWORD(ES_VARS) + $56    ; 4: a location's own requirement
 esQ     = .LOWORD(ES_VARS) + $5A    ; a region's masks' address
 esK     = .LOWORD(ES_VARS) + $5C    ; a count down
 esBIT   = .LOWORD(ES_VARS) + $5E
-.assert esBIT + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
+esOWE   = .LOWORD(ES_VARS) + $60    ; RANDO_OWEDITS, the map edits the logic is of
+.assert esOWE + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
 
 ePMAP   = .LOWORD(ES_PMAP)
 ePFLOOR = .LOWORD(ES_PFLOOR)
@@ -957,7 +958,16 @@ es_exitback:
     TAX
     SEP #$20
     .a8
+    ;  Its entrance's overworld coordinate, which the Cardia Land Bridge
+    ;  moves for six (randoref.es_shuffle).
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    AND #>OWEDIT_CARDIABRIDGE
+    BEQ @owcoord
+    LDA f:LOGICFAR + lut_EsOwCoordCardia, X
+    BRA @owcoorded
+  @owcoord:
     LDA f:LOGICFAR + lut_EsOwCoord, X
+  @owcoorded:
     PHA
     LDA a:esX
     REP #$20
@@ -1175,6 +1185,10 @@ es_entbit:
 ;;  ES_NODEMAX before its last candidate does not count; one larger after it
 ;;  refuses the wiring, as the reference does.
 ;;
+;;  The graph is the one for every combination of the map edits
+;;  (worldgraph/edited.py): an edge or a source whose requirement's cube of
+;;  settings the save's RANDO_OWEDITS does not meet is not there (es_reqmask).
+;;
 ;;  In: A16 = RANDO_EARLY (Early Ordeals waives the thrones' CROWN).  Out: C
 ;;  set if a region needed more than ES_NODEMAX.  A16, I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1183,6 +1197,8 @@ es_fixpoint:
     .a16
     .i16
     STA a:esEARLY
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA a:esOWE
     LDX #$0000
   @clr:
     STZ a:eNREQ, X
@@ -1243,10 +1259,12 @@ es_fixpoint:
     STA a:esD
     LDA f:LOGICFAR + lut_GrEdgeReq, X
     JSR es_reqmask
+    BCS @nextedge               ; not with these map edits
     JSR es_relax
-    BCC :+
+    BCC @nextedge
     RTS
-:   INC a:esEI
+  @nextedge:
+    INC a:esEI
     BRA @edge
   @sources:
     LDA a:esNODE
@@ -1264,7 +1282,9 @@ es_fixpoint:
 :   TAX
     LDA f:LOGICFAR + lut_GrSrcReq, X
     JSR es_reqmask
-    LDX a:esSI
+    BCC :+
+    JMP @nextsrc                ; not with these map edits
+:   LDX a:esSI
     LDA f:LOGICFAR + lut_GrSrcKind, X
     BIT #$0080
     BEQ @kind
@@ -1336,10 +1356,13 @@ es_fixpoint:
     INC a:esSI
     JMP @source
 
-;;  Requirement index A (its low byte): esRM = its mask.  A16.
+;;  Requirement index A (its low byte): esRM = its mask.  Out: C set when
+;;  its cube of map edit settings (lut_GrCondOn, lut_GrCondOff) does not
+;;  hold for esOWE -- every bit of the first, none of the second.  A16.
 es_reqmask:
     .a16
     AND #$00FF
+    PHA
     ASL A
     ASL A
     TAX
@@ -1347,6 +1370,20 @@ es_reqmask:
     STA a:esRM
     LDA f:LOGICFAR + lut_GrMask + 2, X
     STA a:esRM + 2
+    PLA
+    ASL A
+    TAX
+    LDA a:esOWE
+    AND f:LOGICFAR + lut_GrCondOn, X
+    CMP f:LOGICFAR + lut_GrCondOn, X
+    BNE @no
+    LDA a:esOWE
+    AND f:LOGICFAR + lut_GrCondOff, X
+    BNE @no
+    CLC
+    RTS
+  @no:
+    SEC
     RTS
 
 ;;  Region A16's masks' address in ES_REQ: A16 = it.  A region is 24 bytes.
@@ -2252,7 +2289,13 @@ es_dock:
     .a16
     .i16
     STA a:esLOC
-    JSR es_locents              ; esRM: its entrances
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA a:esOWE
+    AND #OWEDIT_DRYDOCK
+    BEQ :+
+    LDA #DOCK_DRYDOCK           ; Ship in Drydock: every ship is moored there
+    RTS
+:   JSR es_locents              ; esRM: its entrances
     LDA #$FFFF                  ; the best so far: kind (0 walk, 1 fly), its
     STA a:esOWN                 ;   distance, the dock
     STA a:esOWN + 2
@@ -2264,8 +2307,19 @@ es_dock:
     BCC :+
     LDA a:esBIT
     RTS
-:   JSR es_dockok
+:   LDA a:esD                   ; a dock under these map edits (Bridge to
+    ASL A                       ;   Lefein deletes Matoya's)
+    TAX
+    LDA a:esOWE
+    AND f:LOGICFAR + lut_GrDockCondOn, X
+    CMP f:LOGICFAR + lut_GrDockCondOn, X
+    BNE @nodock
+    LDA a:esOWE
+    AND f:LOGICFAR + lut_GrDockCondOff, X
+    BNE @nodock
+    JSR es_dockok
     BCS :+
+  @nodock:
     JMP @next
 :   ;  Its distance: the least walk from any of the entrances, else the
     ;  least flight.
@@ -2452,8 +2506,10 @@ rando_esdock:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  es_build -- attempt k's world, for placement (place.inc, pl_shuffled):
-;;  the wiring in the save's mode, its masks under the save's Early flags,
-;;  placement's index of them, the roots and the spread groups.  In: A16 = k;
+;;  the wiring in the save's mode, its masks under the save's Early flags
+;;  and map edits, placement's index of them, the roots and the spread
+;;  groups.  With the mode Off, the vanilla wiring, for map edits without
+;;  the shuffle (pl_edited).  In: A16 = k;
 ;;  native, DBR = $7F, from a JSL.  Out: C set if the attempt is refused.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -2468,7 +2524,13 @@ es_build:
     SEP #$20
     .a8
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    BNE @shuffle
+    JSR es_vanilla              ; map edits without the shuffle: the vanilla
+    CLC                         ;   wiring, its logic the seed's (pl_edited)
+    BRA @wired
+  @shuffle:
     JSR es_wiring
+  @wired:
     REP #$20
     .a16
     BCS @out

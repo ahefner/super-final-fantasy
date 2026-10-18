@@ -1245,12 +1245,12 @@ All, every edit that only adds a way through -- Early and Extended Open
 Progression, the Northern, Ryukahn Desert, Bahamut Cardia and Lefein River
 docks, Bridge to Lefein, Gaia Mountain Pass, Highway to Ordeals, River to
 Melmond and the Hiking Trail.  Not Sarda's Forest, which takes a way away,
-nor the Cardia Land Bridge, which moves Cardia's doors -- each needs the
-logic to know of it -- nor Ship in Drydock, which leaves the ship needing
-the airship.  Independent of Key items: the edits only open the map, so a
-world placed on the vanilla map stays winnable on the edited one, as it
-does with the vanilla progression.  How it works is
-`randomization-notes.md` §9.1.
+nor the Cardia Land Bridge, which moves Cardia's doors, nor Ship in
+Drydock, which leaves the ship useless: those three are the map edit
+screen's to tick (below).  Since 2026-10-18 (built, not yet played)
+placement's logic is the edited map's, every edit known to it, as FFR's is
+-- before, it was the vanilla map's, sound only because the eleven only
+open the map.  How it works is `randomization-notes.md` §9.1.
 
 The row is a field, bits 4-5, of the Early flags' byte (`RANDO_EARLY`,
 `OPT_NG_EARLY`), whose readers each test their own bit; `OPT_NG` has no
@@ -1296,10 +1296,10 @@ the column is rows 2-15 beside the minimap's 1-16 (user: aligned with it).
   - It comes up from `rando_newgame` when the Map edits row is not Off,
     starting from the saved game's edits when Continue would load that save
     and it has any (no option block bytes), else the row's.  START keeps
-    what is ticked; Sarda's Forest, the Cardia Land Bridge and Ship in
-    Drydock are on it, grey, and preview, but New Game drops them.  The
-    title's music plays on through it (`rando_newgame` silences it after,
-    for the roll screen).
+    what is ticked, all fourteen (Sarda's Forest, the Cardia Land Bridge and
+    Ship in Drydock were grey and dropped until the logic knew them,
+    2026-10-18).  The title's music plays on through it (`rando_newgame`
+    silences it after, for the roll screen).
   - As the other menus: the settings screen's own checkbox tiles (from
     `optmenu.asm`'s `lut_CheckboxCHR`) and the game's hand, two cells before
     the box.  The names are the user's, up to 13 letters; with the hand,

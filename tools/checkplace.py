@@ -14,8 +14,13 @@ which give_vehicle reads), or Coneria's when it is free -- and is boarded only
 there, not by FFR's reading, the inner sea from anywhere, which placement's
 own logic uses.  A seed that does not reach Chaos is printed.  Then the same
 under entrance shuffle, both modes: randoref.build_world's wiring, placement
-and dock, on a graph built on that wiring.  It needs worldgraph/, which is
-why it is not part of test_options.py.
+and dock, on a graph built on that wiring.  Then with map edits, with the
+shuffle off and on: randoref.new_world's placement and dock, on a graph
+built on the map the edits make (and the wiring), the BRIDGE where Bridge
+to Lefein puts it, every ship at Gaia's drydock under Ship in Drydock.  It
+needs worldgraph/, which is why it is not part of test_options.py.
+
+    pypy3 tools/checkplace.py [seeds] [shuffled seeds] [edited seeds]
 """
 import os
 import sys
@@ -32,6 +37,7 @@ import logicdata as LD  # noqa: E402
 import analysis  # noqa: E402
 import build  # noqa: E402
 import placement  # noqa: E402
+import owedits as O  # noqa: E402
 import romdata as rd  # noqa: E402
 import wiring  # noqa: E402
 from model import BIT  # noqa: E402
@@ -190,8 +196,64 @@ def main():
                 mname, name, shuffled, stats["won"], stats["unplaced"],
                 dict(sorted(Counter(k + 1 for k in tries.elements()).items())),
                 ", ".join("%s %d" % kv for kv in moored.most_common())))
+    lost += check_edited(int(sys.argv[3]) if len(sys.argv) > 3 else max(seeds // 10, 4))
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
+
+
+#  The map edit combinations played: the row's All and every edit, the
+#  three the logic first held back with and without Bahamut's dock and the
+#  edits that make Ship in Drydock winnable, and a fixed sample.
+def edit_combos():
+    import random
+    safe = 0x0BFF
+    out = [safe, 0x3FFF, 0x0400, 0x1000, 0x1010, 0x1410, 0x2001, 0x2801, 0x3401, 0x0041]
+    rng = random.Random(1018)
+    out += [rng.getrandbits(14) for _ in range(6)]
+    return out
+
+
+def check_edited(seeds):
+    van = rd.vanilla_overworld()
+    lost = 0
+    for f in edit_combos():
+        tiles = O.apply(van, f)
+        stats = Counter()
+        for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY):
+            for name, cfg in CONFIGS.items():
+                names = tuple(n for k, n in enumerate(G.EARLY) if cfg[3] >> k & 1)
+                free = R.place_setup(*cfg)[0]
+                for seed in range(1, seeds + 1):
+                    if mode == R.ENTRANCES_OFF:
+                        built = R.build_edited(seed, *cfg, f)
+                    else:
+                        built = R.build_world(seed, *cfg, mode, owedits=f)
+                    if built is None:
+                        stats["no world"] += 1
+                        continue
+                    k, (entrance, normal, exits), out, dock = built
+                    w = wiring.Wiring({e: entrance[e] for e in range(32)}, {t: normal[t] for t in range(64)},
+                                      {x: exits[x] for x in range(16)})
+                    pos = O.positions(rd.VANILLA_POS, f)
+                    if not f >> O.SHIP_DRYDOCK & 1:
+                        pos["ship"] = LD.DOCKS[dock][1]
+                    g, ow, _, _ = build.build(ow_tiles=tiles, pos=pos, wiring=w, early=names)
+                    idx, _ = G.order(g)
+                    adj = analysis.adjacency(g, [e for e in placement.vehicle_edges(g, ow) if e[2] != BIT["SHIP"]])
+                    for kk in idx[:248]:
+                        g.locations[kk].reward = None
+                    for i, c in enumerate(out):
+                        if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
+                            g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
+                    if winnable(g, adj, free):
+                        stats["won"] += 1
+                    else:
+                        print("  edits $%04X mode %d %s seed %d: Chaos out of reach" % (f, mode, name, seed))
+                        stats["lost"] += 1
+                        lost += 1
+        print("edits $%04X: %d winnable, %d lost, %d with no world" % (
+            f, stats["won"], stats["lost"], stats["no world"]))
+    return lost
 
 
 if __name__ == "__main__":

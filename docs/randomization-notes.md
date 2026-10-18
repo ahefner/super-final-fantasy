@@ -1465,12 +1465,56 @@ arrives on the overworld (the start, every exit's landing, every entrance,
 where a warp sets it down), so no wiring can either: Sarda's Forest makes
 50 such pairs harder and the Cardia Land Bridge 8 (it moves six of Cardia's
 doors, `OverworldMap.ApplyMapEdits`), and Ship in Drydock moors every ship
-at Gaia, which the logic would have to sail from.  The three have bits and
-table entries, and need the logic (phase 2): edges gated on edit bits, and
-for Sarda's an absence.  Until then the logic is the vanilla map's, which
-under Bridge to Lefein still has the BRIDGE leave Coneria rather than reach
-Lefein: placement never counts on the new crossing, and FFR's lighter BRIDGE
-weight under that flag waits for the logic too.
+at Gaia, which the logic would have to sail from.  The row's All is still
+those eleven; the map edit screen offers all fourteen.
+
+**Built 2026-10-18, phase 2 (not yet played): the logic knows the edits.**
+Placement's logic is now the edited map's, for every edit, as FFR's is:
+
+  - **One graph for every combination** (`worldgraph/edited.py`, from
+    `owedits.graph_edits`; worldgraph moved into the repository for it,
+    user).  The tiles no edit writes make vanilla's regions; an edited tile
+    holds one value or another as the settings fall, and the regions of a
+    layer are tiles enterable under exactly the same settings, side by side.
+    Every edge -- two regions joined, boarding, docks, the bridge and canal,
+    landing, entrances -- carries the condition it holds under: cubes of
+    RANDO_OWEDITS bits, every bit of one mask and none of another.  A region
+    there only when a neighbour it always touches is, merges into it (its
+    edges keep their own conditions), so the graph is 201 regions, fewer
+    than vanilla's 210 once regions that lead nowhere named are pruned.
+    Positions move with the settings: the BRIDGE under Bridge to Lefein, the
+    ship's start under Ship in Drydock (`owedits.graph_positions`).
+  - **Proved, not trusted.**  `gengraph.py` checks the tables give each
+    location the masks the edited map's own graph does (worldgraph's
+    overworld.py on the map `owedits.apply` makes) in 152 combinations --
+    none, each alone, every pair, the three with Bahamut's dock, all, and a
+    sample -- besides the vanilla wiring's sixteen Early combinations against
+    logicdata; a scratch run held 421 more.  No combination needs more than
+    four masks to a region, of the cart's six.
+  - **On the cart**, the shuffle's per-seed logic (§9.3) reads each
+    requirement's cube (`lut_GrCondOn`, `lut_GrCondOff`) and skips an edge
+    or a source the save's edits do not meet (`es_reqmask`).  With the
+    shuffle off and any edit on, New Game builds the world the same way on
+    the vanilla wiring (`pl_edited`, `randoref.build_edited`): the seed's
+    masks, spread groups and dock, Off's safe tables and tries; the
+    precomputed tables stay the unedited map's.  A shuffle with no world
+    falls back to that.  `randoref.new_world` is New Game's whole choice.
+  - **The ship.**  Under Ship in Drydock every ship -- placed, Bikke's under
+    Key items Vanilla, a free one -- is moored at Gaia's drydock, which is
+    landlocked: FFR's reading of the ship, sailing from wherever it is
+    found, gives way to boarding only there (`edited.vehicle_edges`), so the
+    SHIP opens nothing.  With other edits, a ship's dock is es_dock's choice,
+    as under the shuffle, Matoya's left out under Bridge to Lefein
+    (`lut_GrDockCondOn`, `lut_GrDockCondOff`).
+  - **The Cardia Land Bridge's doors.**  Its six moved entrances' overworld
+    coordinates move with them for the shuffle's exits
+    (`lut_EsOwCoordCardia`), as FFR's do.
+  - **Played through** (`checkplace.py`'s third pass): 1,536 placements over
+    sixteen combinations, eight settings, the shuffle off and on, on the
+    edited maps' own graphs with the ship boarded only where it is moored:
+    all winnable.  Some combinations with Ship in Drydock have no world at
+    all -- nothing reaches the airship without the ship -- which the
+    unwinnable warning is for.
 
 The minimap is the other thing phase 2 has to change (user, 2026-10-18,
 every edit forced on).  `lut_MinimapNT` shows a block of the minimap only

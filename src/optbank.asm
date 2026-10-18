@@ -3866,6 +3866,13 @@ opt_freestuff:
     STA ship_x                  ;   is across a bridge you would not have
     LDA #FREESHIP_Y
     STA ship_y
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    AND #>OWEDIT_DRYDOCK
+    BEQ @airship
+    LDA #DRYDOCK_X              ; Ship in Drydock: Gaia's drydock, where every
+    STA ship_x                  ;   ship is moored (FFR's UpdateDocks moves the
+    LDA #DRYDOCK_Y              ;   free ship's place too)
+    STA ship_y
   @airship:
     LDA #ITEMROW_AIRSHIP
     JSR opt_isfree

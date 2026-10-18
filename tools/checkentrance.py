@@ -5,7 +5,7 @@ checkentrance.py -- the entrance shuffle's reference against the world graph.
     pypy3 tools/checkentrance.py [seeds]
 
 randoref.es_shuffle is FFR's ShuffleEntrancesAndFloors over graphdata.py's
-indices, on the cartridge's PRNG.  worldgraph//wiring.fe_shuffle is the same
+indices, on the cartridge's PRNG.  worldgraph/wiring.fe_shuffle is the same
 shuffle over FFR's own records, held to FFR's ROMs by run_ffr_fe.py.  Given
 the same draws they must deal the same wiring, table for table, and this
 checks they do, in both modes.  For each wiring it then runs the world

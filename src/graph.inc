@@ -2,10 +2,10 @@
 ;  The world graph without its wiring, and FFR's entrance shuffle data;
 ;  see gengraph.py.  Regions number from 0, the start.
 
-GR_NODES         = 210
-GR_MASKS         = 26
+GR_NODES         = 201
+GR_MASKS         = 50
 GR_LANDINGS      = 95
-GR_EXITXY        = 31
+GR_EXITXY        = 37
 GR_LOCS          = 257
 GR_DOCKS         = 5
 GR_ENTIDS        = 30
@@ -23,16 +23,17 @@ ES_ICECAVE_LOOP_N = 4
 ES_VANILLA_OW_N  = 30
 ES_VANILLA_SM_N  = 40
 
-.global lut_GrMask, lut_GrEdgeOff, lut_GrEdgeDst, lut_GrEdgeReq
-.global lut_GrSrcOff, lut_GrSrcKind, lut_GrSrcId, lut_GrSrcReq
-.global lut_GrLandX, lut_GrLandY, lut_GrLandMap, lut_GrLandRoom
-.global lut_GrLandOff, lut_GrLandNodes, lut_GrExitX, lut_GrExitY
-.global lut_GrExitOff, lut_GrExitNodes, lut_GrLocOff, lut_GrLocNodes
-.global lut_GrLocReq, lut_GrEntIds, lut_GrOwNode, lut_GrDockOff
-.global lut_GrDockNodes, lut_GrEntWalk, lut_GrEntFly, lut_EsRecLoc
+.global lut_GrMask, lut_GrCondOn, lut_GrCondOff, lut_GrEdgeOff
+.global lut_GrEdgeDst, lut_GrEdgeReq, lut_GrSrcOff, lut_GrSrcKind
+.global lut_GrSrcId, lut_GrSrcReq, lut_GrLandX, lut_GrLandY
+.global lut_GrLandMap, lut_GrLandRoom, lut_GrLandOff, lut_GrLandNodes
+.global lut_GrExitX, lut_GrExitY, lut_GrExitOff, lut_GrExitNodes
+.global lut_GrLocOff, lut_GrLocNodes, lut_GrLocReq, lut_GrEntIds
+.global lut_GrOwNode, lut_GrDockOff, lut_GrDockNodes, lut_GrDockCondOn
+.global lut_GrDockCondOff, lut_GrEntWalk, lut_GrEntFly, lut_EsRecLoc
 .global lut_EsRecLand, lut_EsRecExit, lut_EsRecFlags, lut_EsRecTeleOff
 .global lut_EsRecTeles, lut_EsEnter, lut_EsTele, lut_EsTowns
 .global lut_EsTop, lut_EsFreeOw, lut_EsFreeSm, lut_EsIcecaveLoop
-.global lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord, lut_EsStarter
-.global lut_EsSafe, lut_EsConnected, lut_EsStarting, lut_EsDanger
-.global lut_EsVanEnt, lut_EsVanNorm, lut_EsVanExit
+.global lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord, lut_EsOwCoordCardia
+.global lut_EsStarter, lut_EsSafe, lut_EsConnected, lut_EsStarting
+.global lut_EsDanger, lut_EsVanEnt, lut_EsVanNorm, lut_EsVanExit

@@ -39,14 +39,16 @@ EARLY = {"king": "Talk_KingConeria", "sarda": "Talk_Sarda", "sage": "Talk_CanoeS
 GOAL = ("ToFRChaos", "Talk_fight")      # Chaos: the one fight on the last floor
 
 
-def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=()):
+def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=(), edits=None):
     """`wiring` (wiring.Wiring) says where every entrance, teleport and exit
     leads; without it, where the ROM's tables say.  `exits` moves exits for
     an alternate overworld.  `early` names FFR's Early flags that are on,
-    from EARLY's keys."""
+    from EARLY's keys.  `edits` (owedits.graph_edits) builds the overworld
+    for every combination of the map edits at once (edited.py), `pos` then
+    owedits.graph_positions's: a conditional graph."""
     assert set(early) <= set(EARLY), early
     early_npcs = {EARLY[e] for e in early if EARLY[e]}
-    g = Graph()
+    g = Graph(conditional=edits is not None)
     talk = rd.talk_routines()
     ow_tiles = ow_tiles or rd.vanilla_overworld()
     pos = pos or rd.VANILLA_POS
@@ -56,7 +58,12 @@ def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=()):
     exit_at.update(exits or {})
     ent_name = lambda e: rd.MAP_NAMES[entrance(e)[0]]
 
-    ow = Overworld(g, ow_tiles, pos, ent_name)
+    if edits is not None:
+        from edited import EditedOverworld
+        ow = EditedOverworld(g, ow_tiles, pos, ent_name, edits)
+    else:
+        ow = Overworld(g, ow_tiles, pos, ent_name)
+    ent_cond = getattr(ow, "ent_cond", {})
     gates = GATE_TILE_EARLY_ORDEALS if "ordeals" in early else GATE_TILE
     maps = [StandardMap(g, m, talk, gates) for m in range(rd.MAP_COUNT)]
 
@@ -69,7 +76,8 @@ def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=()):
         m, x, y = entrance(eid)
         land = maps[m].node_at(x, y)
         for dst in land:
-            g.edge(src, dst, req, "entrance %d (%s)" % (eid, rd.MAP_NAMES[m]))
+            g.edge(src, dst, req, "entrance %d (%s)" % (eid, rd.MAP_NAMES[m]),
+                   ent_cond.get((eid, src, req, tile)))
         g.entries.append((src, land, m, ("entrance", eid)))
 
     #  Where an exit puts the party.  An exit recomputed to an entrance's own
@@ -102,6 +110,7 @@ def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=()):
             else:
                 #  An alternate overworld moves the exits with it.
                 x, y = exit_at.get(tid, rd.exit_tele(tid))
+                assert edits is None or (x | y << 8) not in ow.edited, "an exit on an edited tile"
                 for dst in exit_nodes(x, y):
                     g.edge(src, dst, req, "exit %d" % tid)
 

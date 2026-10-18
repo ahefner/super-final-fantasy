@@ -791,11 +791,13 @@ def test_es_wiring():
 
 def es_cart_masks(job):
     """rando_esmasks: (stage refused, each location's masks as a sorted list,
-    Chaos's, the bit index's lists)."""
-    seed, mode, k, early = job
+    Chaos's, the bit index's lists).  A fifth member, the map edits."""
+    seed, mode, k, early, *owe = job
     bus, cpu = machine()
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    ow = K["RANDO_OWEDITS"] - 0x6000
+    bus.sram[ow:ow + 2] = (owe[0] if owe else 0).to_bytes(2, "little")
     cpu.a, cpu.x, cpu.y = mode, k, early
     call(cpu, "rando_esmasks", bank=WORLD_BANK)
     stage = bus.wram[rw("ES_VARS") + 0x0D]
@@ -819,7 +821,8 @@ def test_es_masks():
     """es_fixpoint, es_locmasks and es_bybit give randoref.es_masks's masks,
     location for location, and Chaos's, with placement's index of them --
     on the vanilla wiring in every Early combination (logicdata's own), and
-    on shuffled wirings in both modes."""
+    on shuffled wirings in both modes; and with map edits, on both, the
+    graph's conditions (graphdata.CONDS) taken as the reference takes them."""
     jobs = [(1, R.ENTRANCES_OFF, 0, e) for e in range(16)]
     jobs += [(seed, mode, k, e) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
              for seed in (1, 2, 3, 0xD1625106) for k in (0, 1) for e in (0, 0x0F, 0x01)]
@@ -827,15 +830,25 @@ def test_es_masks():
     #  about one in a hundred has one (found by searching the reference).
     jobs += [(9, R.ENTRANCES_ONLY, 0, 0x0F), (55, R.ENTRANCES_ONLY, 0, 0x0F),
              (342, R.ENTRANCES_FLOORS, 0, 0x0F), (452, R.ENTRANCES_FLOORS, 0, 0x0F)]
+    #  Map edits: the three the logic once held back in every combination
+    #  with Bahamut's dock, the row's All, every edit, on the vanilla wiring;
+    #  and on shuffled wirings, the land bridge's moved doors among them.
+    held = [K["OWEDIT_SARDAS"], K["OWEDIT_CARDIABRIDGE"], K["OWEDIT_DRYDOCK"], K["OWEDIT_BAHAMUTDOCK"]]
+    combos = sorted({sum(b for j, b in enumerate(held) if n >> j & 1) for n in range(16)} |
+                    {K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x0001, 0x0041})
+    jobs += [(1, R.ENTRANCES_OFF, 0, e, f) for f in combos for e in (0, 0x0F)]
+    jobs += [(seed, mode, 0, 0x0F, f) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+             for seed in (1, 2) for f in (K["OWEDIT_CARDIABRIDGE"], K["OWEDIT_FLAGS"], 0x1410)]
     got = pmap(es_cart_masks, jobs)
     import graphdata as GD
     bad = []
-    for (seed, mode, k, early), cart in zip(jobs, got):
+    for (seed, mode, k, early, *owe), cart in zip(jobs, got):
+        f = owe[0] if owe else 0
         if mode == R.ENTRANCES_OFF:
             w = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
         else:
-            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
-        mm = R.es_masks(w[0], w[1], w[2], early) if w else None
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode, f)
+        mm = R.es_masks(w[0], w[1], w[2], early, f) if w else None
         if mm is None:
             if cart[0] == 0:
                 bad.append((seed, mode, k, early, "the cart did not refuse"))
@@ -852,11 +865,14 @@ def test_es_masks():
 
 def es_cart_world(job):
     """rando_esmasks then rando_esdock for each pool location: (stage refused,
-    each region's roots, the groups, each location's dock)."""
-    seed, mode, k, early = job
+    each region's roots, the groups, each location's dock).  A fifth member,
+    the map edits."""
+    seed, mode, k, early, *owe = job
     bus, cpu = machine()
     at = K["RANDO_SAVE"] - 0x6000
     bus.sram[at:at + 4] = seed.to_bytes(4, "little")
+    ow = K["RANDO_OWEDITS"] - 0x6000
+    bus.sram[ow:ow + 2] = (owe[0] if owe else 0).to_bytes(2, "little")
     cpu.a, cpu.x, cpu.y = mode, k, early
     call(cpu, "rando_esmasks", bank=WORLD_BANK)
     stage = bus.wram[rw("ES_VARS") + 0x0D]
@@ -878,19 +894,24 @@ def es_cart_world(job):
 def test_es_world():
     """es_roots, es_groups and es_dock give randoref's: each region's
     entrances, the spread groups (logicdata's on the vanilla wiring), and for
-    a ship at each pool location, its dock."""
+    a ship at each pool location, its dock -- and with map edits, no dock
+    Bridge to Lefein deletes, and only Gaia's under Ship in Drydock."""
     import graphdata as GD
     jobs = [(1, R.ENTRANCES_OFF, 0, 0)]
     jobs += [(seed, mode, 0, e) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
              for seed in (1, 2, 0xD1625106) for e in (0, 0x0F)]
+    BL, DRY = K["OWEDIT_BRIDGELEFEIN"], K["OWEDIT_DRYDOCK"]
+    jobs += [(1, R.ENTRANCES_OFF, 0, 0, f) for f in (BL, K["OWEDIT_SAFE"], 0x1410, DRY)]
+    jobs += [(seed, R.ENTRANCES_ONLY, 0, 0x0F, f) for seed in (1, 2) for f in (BL, K["OWEDIT_FLAGS"])]
     got = pmap(es_cart_world, jobs)
     bad = []
-    for (seed, mode, k, early), cart in zip(jobs, got):
+    for (seed, mode, k, early, *owe), cart in zip(jobs, got):
+        f = owe[0] if owe else 0
         if mode == R.ENTRANCES_OFF:
             w = (GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, GD.VANILLA_EXIT)
         else:
-            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
-        masks, chaos, req = R.es_masks(w[0], w[1], w[2], early)
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode, f)
+        masks, chaos, req = R.es_masks(w[0], w[1], w[2], early, f)
         roots = R.es_roots(w[0], w[1])
         groups = R.es_groups(roots, masks)
         if cart[0]:
@@ -900,18 +921,21 @@ def test_es_world():
             bad.append((seed, mode, early, "roots", [n for n in range(GD.NODES) if cart[1][n] != roots[n]][:3]))
         if cart[2] != groups:
             bad.append((seed, mode, early, "groups", [c for c in range(248) if cart[2][c] != groups[c]][:3]))
-        docks = [R.es_dock(c, masks, req, roots) for c in range(248)]
+        docks = [R.es_dock(c, masks, req, roots, f) for c in range(248)]
         if cart[3] != docks:
             bad.append((seed, mode, early, "docks", [c for c in range(248) if cart[3][c] != docks[c]][:3]))
+        if f & BL and 4 in docks or f & DRY and set(docks) != {5}:
+            bad.append((seed, mode, early, "edits $%04X: docks %s" % (f, sorted(set(docks)))))
     check("es_roots, es_groups and es_dock on the cart", bad[:4], [])
     check("the vanilla wiring's groups are logicdata's", got[0][2] == R._L.SPREAD, True)
 
 def es_place_cart(job):
     """rando_place with entrance shuffle: (placed, placement, k, dock, the
-    mode the save is left with)."""
-    seed, (keyitems, items3, gear2, early), mode = job
+    mode the save is left with).  A fourth member, the map edits."""
+    seed, (keyitems, items3, gear2, early), mode, *owe = job
     bus, cpu = machine()
     s = bus.sram
+    s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = (owe[0] if owe else 0).to_bytes(2, "little")
     at = K["RANDO_SAVE"] - 0x6000
     s[at:at + 4] = seed.to_bytes(4, "little")
     s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
@@ -931,21 +955,21 @@ def es_place_cart(job):
 def test_es_place():
     """New Game under entrance shuffle: rando_place takes randoref.build_world's
     attempt, placement and dock, and keeps them in the save; with no world it
-    falls back to Off's placement and clears the mode."""
+    falls back to Off's placement and clears the mode.  With map edits, with
+    the shuffle or without, randoref.new_world's: the vanilla wiring's logic
+    the seed's, not the unedited map's tables."""
     cfgs = [PLACE_CONFIGS[n] for n in ("beginner", "wide-loose", "bridge", "all-loose")]
     jobs = [(seed * 7919 + 13, cfg, mode) for cfg in cfgs for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
             for seed in range(3)]
     jobs += [(0xD1625106, PLACE_CONFIGS["wide-loose"], R.ENTRANCES_FLOORS)]
+    edits = [K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x1410, K["OWEDIT_SARDAS"], 0x2041]
+    jobs += [(seed * 104729 + 7, cfg, mode, f) for cfg in cfgs[:2] for f in edits
+             for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
     got = pmap(es_place_cart, jobs)
     bad = []
-    for (seed, cfg, mode), cart in zip(jobs, got):
-        built = R.build_world(seed, *cfg, mode)
-        if built is not None:
-            k, w, out, dock = built
-            want = (1, out, k, dock, mode)
-        else:
-            out = R.build_placement(seed, *cfg)
-            want = (1 if out else 0, out, 0, 0, R.ENTRANCES_OFF)
+    for (seed, cfg, mode, *owe), cart in zip(jobs, got):
+        mode_after, k, out, dock = R.new_world(seed, *cfg, mode, owe[0] if owe else 0)
+        want = (1 if out else 0, out, k, dock, mode_after)
         if (cart[0], cart[1] if cart[0] else None, cart[2], cart[3], cart[4]) != \
                 (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
             bad.append((seed, cfg[0], mode, cart[2:], want[2:]))
@@ -1052,11 +1076,12 @@ def land_in_room(m, x, y):
     return door and not out
 
 
-def newgame_pressing(bus, cpu, presses=()):
-    """rando_newgame, with the map edit screen's pad (owscreen.asm) held as
-    presses says, one a frame, then START.  Out: how many frames the screen
-    read the pad, 0 if it never came up.  A screen still up after 400 frames
-    is a failure the caller sees as the screen's result never written."""
+def newgame_pressing(bus, cpu, presses=(), entry="rando_newgame"):
+    """rando_newgame -- or `entry`, opt_freestuff, which runs it -- with the
+    map edit screen's pad (owscreen.asm) held as presses says, one a frame,
+    then START.  Out: how many frames the screen read the pad, 0 if it never
+    came up.  A screen still up after 400 frames is a failure the caller sees
+    as the screen's result never written."""
     UJ = SYM["UpdateJoy"]
     if bus.clock is None:
         bus.frames()
@@ -1066,7 +1091,8 @@ def newgame_pressing(bus, cpu, presses=()):
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
     pad(0)
     reads = 0
-    stopped = cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    stopped = cpu.run(RANDO_BANK if entry == "rando_newgame" else CHUNK_OPT_BANK, SYM[entry],
+                      stop=UJ, limit=60_000_000)
     while stopped:
         #  Then START, let go between: the screen counts a press only from
         #  a pad that was let go, so one held as it comes up never ends it.
@@ -1268,6 +1294,17 @@ def test_owedits():
             want.append((flags, early | mode << K["OWEDITS_SHIFT"],
                          (O.BRIDGE_LEFEIN_XY if lefein else (0x11, 0x22))))
     check("New Game: each mode's flags, the Early byte as set, the BRIDGE moved under All only", got, want)
+    #  Ship in Drydock, ticked on the map edit screen (up from the first line
+    #  is the last): the ship moored at Gaia's drydock before anyone has it --
+    #  Bikke's, under Key items Vanilla, only shows it where it is.
+    SX = K["ship_x"] - 0x6000
+    bus, cpu = machine()
+    bus.sram[early_at] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    bus.sram[SX], bus.sram[SX + 1] = 0x11, 0x22
+    newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0])
+    check("New Game, Ship in Drydock ticked: the ship at Gaia's drydock",
+          (int.from_bytes(bus.sram[at:at + 2], "little"), (bus.sram[SX], bus.sram[SX + 1])),
+          (K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"], O.DRYDOCK_XY))
 
     #  The row: a field of OPT_NG_EARLY above the four Early flags, which
     #  share the byte -- and no two of the page's fields overlap, read from
@@ -1296,8 +1333,8 @@ def test_owscreen():
     comes up, the minimap and the zoom whole before the display goes on,
     from the baked minimap, the music kept going; and the screen from
     rando_newgame, the row at All: its first choice the saved game's, A
-    ticking the selected box, START keeping what is ticked but the three
-    the logic cannot take, the chirps, and L + X resetting from it."""
+    ticking the selected box, START keeping what is ticked, the chirps,
+    and L + X resetting from it."""
     import owedits as O
     OWS = 0xA1 + K["CHUNK_OWS"]
     W = lambda name: K[name] - 0x7E0000
@@ -1489,7 +1526,7 @@ def test_owscreen():
         return int.from_bytes(bytes(bus.sram[ow:ow + 2]), "little"), reads
 
     got = newgame(0x0402, [0, 0, 0, 0x10])
-    check("the saved game's: Extended Open, and Sarda's Forest dropped", got[0], 0x0002)
+    check("the saved game's: Extended Open and Sarda's Forest", got[0], 0x0402)
     got = newgame(0x0002, [0, 0, 0x80, 0, 0x10])
     check("A ticks the selected, Early Open", got[0], 0x0003)
     got = newgame(None, [0, 0, 0x10])
@@ -1593,11 +1630,12 @@ def test_es_tables():
     check("...each a landing of the vanilla wiring's normal teleports, none an entrance's",
           (sum(x >> 7 for x in van[0]), sum(x >> 7 for x in van[3])), (0, 9))
 
-    def tables(seed, mode, k, placed=1, ordeals=0):
+    def tables(seed, mode, k, placed=1, ordeals=0, owedits=0):
         bus, cpu = machine()
         s = bus.sram
         at = K["RANDO_SAVE"] - 0x6000
         s[at:at + 4] = seed.to_bytes(4, "little")
+        s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = owedits.to_bytes(2, "little")
         s[K["RANDO_ENTRANCES"] - 0x6000] = mode
         s[K["RANDO_ESK"] - 0x6000] = k
         s[K["RANDO_PLACED"] - 0x6000] = placed
@@ -1620,6 +1658,23 @@ def test_es_tables():
                 [c[1] | (0x80 if tuple(c) in ROOM else 0) for c in normal], [c[2] for c in normal],
                 [c[0] for c in normal], [c[0] for c in exits], [c[1] for c in exits])
         check("mode %d seed %X attempt %d: the save's wiring" % (mode, seed, k), tables(seed, mode, k)[2], want)
+    #  The Cardia Land Bridge moves six entrances, and an exit wired to one
+    #  sets the party down where it is now (FFR's OverworldMap.ApplyMapEdits):
+    #  the first seed whose wiring has such an exit, with the bridge and
+    #  without it.
+    CB = K["OWEDIT_CARDIABRIDGE"]
+    for seed in range(1, 400):
+        a = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), R.ENTRANCES_FLOORS, CB)
+        b = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), R.ENTRANCES_FLOORS)
+        if a and b and a[2] != b[2]:
+            break
+    check("the land bridge: a seed whose exits it moves", a[2] != b[2], True)
+    got = tables(seed, R.ENTRANCES_FLOORS, 0, owedits=CB)[2]
+    check("...the exits where the reference has them, the moved ones the bridge's",
+          (got[6], got[7]), ([c[0] for c in a[2]], [c[1] for c in a[2]]))
+    check("...a moved one among them",
+          any((x, y) in set(GD.OW_COORDS_CARDIA.values()) - set(GD.OW_COORDS.values())
+              for x, y in zip(got[6], got[7])), True)
 
     #  The hooks, on a shuffled world: each landing's scroll and map.
     bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1)
@@ -1937,8 +1992,11 @@ def test_rando_shipdock():
     entrance) wherever FFR names a dock, Ice Cave to Pravoka among them; the
     Temple of Fiends Revisited to Coneria's, since nothing there can hold the
     ship; every map to one of FFR's five; and without placement, untouched.
-    Under Bridge to Lefein, whose edits delete Matoya's dock, a ship for it
-    moors at Coneria's, as FFR's UpdateDocks has it; no other edit moves one."""
+    With map edits, whose logic is the seed's (pl_edited), the dock New Game
+    chose, whatever the map, as under entrance shuffle -- and a dock 4 under
+    Bridge to Lefein, whose edits delete Matoya's, Coneria's, as FFR's
+    UpdateDocks has it.  Under Ship in Drydock, Gaia's drydock, on every map,
+    placed or not."""
     SHIP_VIS, SHIP_X, SHIP_Y = 0x6000, 0x6001, 0x6002
     CONERIA, PRAVOKA, ELFLAND = (152, 169), (210, 153), (141, 211)
     DWARF, MATOYA = (121, 139), (158, 142)
@@ -1952,10 +2010,11 @@ def test_rando_shipdock():
            20: MATOYA,                              # Matoya's Cave (21)
            8: CONERIA, 24: CONERIA, 12: CONERIA}    # Coneria Castle, the Temple: FFR's default
 
-    def give(m, placed=1, edits=0):
+    def give(m, placed=1, edits=0, dock=0):
         bus, cpu = machine()
         s = bus.sram
         s[K["RANDO_PLACED"] - 0x6000] = placed
+        s[K["RANDO_SHIPDOCK"] - 0x6000] = dock
         s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = edits.to_bytes(2, "little")
         s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0x11, 0x22      # decoys
         bus.wram[K["cur_map"]] = m
@@ -1988,23 +2047,25 @@ def test_rando_shipdock():
     order = [CONERIA, PRAVOKA, ELFLAND, DWARF, MATOYA]
     check("entrance shuffle: the save's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
           [(order[d], 0x5A) for d in range(5)])
-    #  Bridge to Lefein: Matoya's dock is gone.  Every other edit together,
-    #  and the flags no mode sets, move nothing.
-    BRIDGE = K["OWEDIT_BRIDGELEFEIN"]
-    others = 0xFFFF & ~BRIDGE
+    #  Map edits: the save's dock.  Bridge to Lefein: Matoya's is gone.
+    BRIDGE, DRY = K["OWEDIT_BRIDGELEFEIN"], K["OWEDIT_DRYDOCK"]
+    others = 0xFFFF & ~BRIDGE & ~DRY
     matoya = [m for m in got if got[m][0] == MATOYA]
     check("Matoya's dock: Matoya's Cave's alone", matoya, [20])
-    check("Bridge to Lefein: Matoya's Cave's ship moors at Coneria's",
-          give(20, edits=BRIDGE)[0], CONERIA)
-    check("...with every other edit too", give(20, edits=0xFFFF)[0], CONERIA)
-    check("...and no other map's moves",
-          [m for m in got if m != 20 and give(m, edits=0xFFFF)[0] != got[m][0]], [])
-    check("every other edit: Matoya's dock still", give(20, edits=others)[0], MATOYA)
+    check("map edits: the save's dock, whatever the map",
+          [give(m, edits=others, dock=d)[0] for d, m in enumerate((15, 1, 20, 4, 8))], order)
+    check("...Bridge to Lefein: dock 4 is Coneria's, the rest their own",
+          [give(m, edits=BRIDGE, dock=d)[0] for d, m in enumerate((15, 1, 20, 4, 8))],
+          [order[d] if d != 4 else CONERIA for d in range(5)])
     check("entrance shuffle, Bridge to Lefein: dock 4 is Coneria's, the rest their own",
           [shuffled(m, d, edits=BRIDGE) for d, m in enumerate((15, 1, 20, 4, 8))],
           [(order[d] if d != 4 else CONERIA, 0x5A) for d in range(5)])
     check("entrance shuffle, every other edit: Matoya's still",
           shuffled(8, 4, edits=others), (MATOYA, 0x5A))
+    DRYDOCK = (211, 31)
+    check("Ship in Drydock: Gaia's, on every map, placed or not, shuffled or not",
+          {give(m, edits=DRY, dock=2)[0] for m in range(61)} | {give(15, placed=0, edits=DRY)[0]} |
+          {shuffled(8, 2, edits=DRY)[0]} | {give(20, edits=0xFFFF)[0]}, {DRYDOCK})
 
 
 def ff_decode(body):
@@ -7474,6 +7535,14 @@ def test_treasures():
           coords(0), (0xD2, 0x99, 0xDD, 0xED))
     check("a free ship moves to Coneria's dock",
           coords(1 << FREE_BIT["ship_vis"])[:2], (152, 169))
+    #  ...but under Ship in Drydock, ticked on the map edit screen, to Gaia's
+    #  drydock: FFR's UpdateDocks moves the free ship's place with the rest.
+    bus, cpu = machine()
+    set_free(bus, 1 << FREE_BIT["ship_vis"])
+    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0], entry="opt_freestuff")
+    check("...and under Ship in Drydock to Gaia's drydock", (bus.sram[1], bus.sram[2], bus.sram[0]),
+          (211, 31, 1))
     check("a free ship leaves the airship where it was",
           coords(1 << FREE_BIT["ship_vis"])[2:], (0xDD, 0xED))
     check("a free airship parks where the party starts",

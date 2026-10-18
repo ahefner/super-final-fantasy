@@ -57,25 +57,49 @@ class Location:
 
 
 class Graph:
-    def __init__(self):
+    def __init__(self, conditional=False):
         self.nodes = []
         self.edges = []             # (src, dst, req, why)
         self._seen = set()
         self.locations = []
         self.start = None
+        #  A conditional graph (edited.py's, for every combination of the
+        #  map edits) keeps each edge's condition: (src, dst, req) -> its
+        #  cubes, any of which holding makes the edge (edited.py).
+        self.conditional = conditional
+        self.cond = {}
 
     def node(self, kind, where, label, tiles):
         n = Node(len(self.nodes), kind, where, label, tiles)
         self.nodes.append(n)
         return n.id
 
-    def edge(self, src, dst, req, why):
+    def edge(self, src, dst, req, why, cond=None):
         #  The overworld scan proposes the same edge once per pair of
-        #  neighbouring tiles along a whole coastline; keep the first.
-        if src is None or dst is None or src == dst or (src, dst, req) in self._seen:
+        #  neighbouring tiles along a whole coastline; keep the first, and in
+        #  a conditional graph every condition it comes with.
+        if src is None or dst is None or src == dst:
+            return
+        if self.conditional:
+            c = self.cond.setdefault((src, dst, req), [])
+            for cube in (cond if cond is not None else [(0, 0)]):
+                if cube not in c:
+                    c.append(cube)
+        if (src, dst, req) in self._seen:
             return
         self._seen.add((src, dst, req))
         self.edges.append((src, dst, req, why))
+
+    def edge_cond(self, src, dst, req):
+        return self.cond.get((src, dst, req), [(0, 0)])
+
+    def under(self, flags, edges=None):
+        """The edges -- g.edges', or `edges` with their conditions as a fifth
+        member -- that hold under the edit settings `flags`."""
+        if edges is not None:
+            return [e[:4] for e in edges if any(flags & on == on and not flags & off for on, off in e[4])]
+        return [e for e in self.edges
+                if any(flags & on == on and not flags & off for on, off in self.edge_cond(*e[:3]))]
 
     def location(self, kind, ident, label, nodes, req, reward):
         nodes = sorted(set(n for n in nodes if n is not None))

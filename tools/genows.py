@@ -48,10 +48,10 @@ DESCRIPTIONS = [
     "A pass through the mountains to Gaia from Lefein.",
     "Roads from Lefein to the desert, and on to Ordeals.",
     "A river from the Dwarf Cave to Melmond, no CANAL.",
-    "A forest walls Sarda off.  Preview only, not in play.",
+    "A forest hides Sarda, reached only through Titan's Tunnel.",
     "Walk across the swamp to the AIRSHIP, no CANOE.",
-    "Land from Ordeals through Cardia.  Preview only.",
-    "The SHIP waits in Gaia's drydock.  Preview only.",
+    "Land from Ordeals through Cardia to the Waterfall river.",
+    "The SHIP sits useless in a drydock at the Gaia Fjord.",
 ]
 OWS_SITES = 4
 CLUSTER = 6

@@ -643,6 +643,16 @@ rando_newgame:
     STA f:BRIDGEFAR
     LDA #BRIDGE_LEFEIN_Y
     STA f:BRIDGEFAR + 1
+:   ;  ...and Ship in Drydock's ship, moored at Gaia's before anyone has it:
+    ;  Bikke's, under Key items Vanilla, only makes it visible where it is.
+    ;  (give_vehicle and a free ship moor it there too.)
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    AND #>OWEDIT_DRYDOCK
+    BEQ :+
+    LDA #DRYDOCK_X
+    STA f:SHIPFAR
+    LDA #DRYDOCK_Y
+    STA f:SHIPFAR + 1
 :
     JSR DisableAPU              ; the fixed bank's, stamped into this chunk
     ;  This game's reward NPCs run from rando_talk's table, and none has given.
@@ -667,6 +677,7 @@ rando_newgame:
 
 TITLEMUSIC = $41                ; IntroTitlePrepare's, which party creation hears
 BRIDGEFAR  = (CHUNK0 * $10000) + bridge_x   ; and bridge_y after it
+SHIPFAR    = (CHUNK0 * $10000) + ship_x     ; and ship_y
 .assert bridge_y = bridge_x + 1, error, "bridge_y follows bridge_x"
 
 ;  Each Map edits mode's flags, in RANDO_OWEDITS; the field's fourth value,
@@ -1861,14 +1872,20 @@ give_vehicle:
     RTS
   @ship:
     INC ship_vis
+    PHX
+    LDX #DOCK_DRYDOCK           ; Ship in Drydock: every ship is moored at
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1   ;   Gaia's, placed
+    AND #>OWEDIT_DRYDOCK        ;   or not (FFR's UpdateDocks)
+    BNE @moor
     LDA f:RANDO_PLACEDFAR
     CMP #1
-    BNE :+
-    PHX
+    BNE @kept
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     BEQ @bymap
-    ;  Under entrance shuffle the dock New Game chose for the wiring
-    ;  (es_dock): no map is where it was.
+    ;  Under entrance shuffle or map edits, the dock New Game chose for the
+    ;  world (es_dock): the maps' choices are the vanilla world's.
     LDA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
     BRA @dock
   @bymap:
@@ -1887,8 +1904,9 @@ give_vehicle:
     STA ship_x
     LDA f:LOGICFAR + lut_DockY, X
     STA ship_y
+  @kept:
     PLX
-:   LDA #NAME_SHIP
+    LDA #NAME_SHIP
     RTS
 
 ;;  Gold A ($6C-$AF), given as a chest gives it: its price added with the

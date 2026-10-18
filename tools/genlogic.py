@@ -441,8 +441,11 @@ def write_inc(rows, chaos_masks, docks, groups):
         f.write(";  Chaos: reached when every key item placed, the seed is winnable.\n")
         emit(f, "lut_LogicChaos", [b for m in chaos_masks for b in m.to_bytes(4, "little")])
         f.write(";  The docks a found ship is moored at (FFR's), as the sea tile it sits on.\n")
-        emit(f, "lut_DockX", [xy[0] for _, xy in DOCKS])
-        emit(f, "lut_DockY", [xy[1] for _, xy in DOCKS])
+        #  ...and a sixth, Gaia's drydock, where Ship in Drydock moors every
+        #  ship (DOCK_DRYDOCK): no map's choice, so not in DOCKS.
+        import owedits
+        emit(f, "lut_DockX", [xy[0] for _, xy in DOCKS] + [owedits.DRYDOCK_XY[0]])
+        emit(f, "lut_DockY", [xy[1] for _, xy in DOCKS] + [owedits.DRYDOCK_XY[1]])
         f.write(";  Each pool place's spread group (pl_forward): the chests of one dungeon\n"
                 ";  behind one set of requirements; LOGIC_NOGROUP for an NPC or the caravan.\n")
         emit(f, "lut_LogicGroup", groups)

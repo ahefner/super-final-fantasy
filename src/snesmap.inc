@@ -477,10 +477,10 @@ OWEDIT_BRIDGELEFEIN  = $0040      ; Bridge to Lefein: the BRIDGE moves there, Ma
 OWEDIT_GAIAPASS      = $0080      ; Gaia Mountain Pass
 OWEDIT_HIGHWAY       = $0100      ; Highway to Ordeals
 OWEDIT_RIVERMELMOND  = $0200      ; River to Melmond
-OWEDIT_SARDAS        = $0400      ; Sarda's Forest -- not yet
+OWEDIT_SARDAS        = $0400      ; Sarda's Forest: a way taken away
 OWEDIT_HIKE          = $0800      ; Hiking Trail to Airship
-OWEDIT_CARDIABRIDGE  = $1000      ; Cardia Land Bridge -- not yet
-OWEDIT_DRYDOCK       = $2000      ; Ship in Drydock -- not yet
+OWEDIT_CARDIABRIDGE  = $1000      ; Cardia Land Bridge: six of Cardia's doors moved
+OWEDIT_DRYDOCK       = $2000      ; Ship in Drydock: every ship moored at Gaia's, landlocked
 OWEDIT_FLAGS         = $3FFF
 OWEDIT_SAFE          = OWEDIT_FLAGS & ~(OWEDIT_SARDAS | OWEDIT_CARDIABRIDGE | OWEDIT_DRYDOCK)
 ;  The active-list mask's one bit that is no flag's (ow_lists): FFR applies
@@ -494,6 +494,9 @@ BRIDGE_LEFEIN_X = 230
 BRIDGE_LEFEIN_Y = 123
 DOCK_CONERIA    = 0
 DOCK_MATOYA     = 4
+DOCK_DRYDOCK    = 5             ; Ship in Drydock's, every ship's (lut_DockX's sixth)
+DRYDOCK_X       = 211           ; ...which is Gaia's (FFR's Dock.GaiaDrydock)
+DRYDOCK_Y       = 31
 ;  Early Ordeals' two tiles: the thrones, in the Castle tileset.
 TS_CASTLE       = 1
 THRONE_TILE1    = $61

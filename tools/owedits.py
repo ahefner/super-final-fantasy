@@ -69,8 +69,47 @@ ORDER = [  # FFR's application order, and each list's gate
 #  FFR's other effects of the settings, the ones this port carries: Bridge
 #  to Lefein moves the BRIDGE there (Overworld.cs) and, since its edits
 #  delete Matoya's dock, moors a ship that would have berthed there at
-#  Coneria's instead (ShipLocations.UpdateDocks).
+#  Coneria's instead (ShipLocations.UpdateDocks); Ship in Drydock moors
+#  every ship at Gaia's drydock (Dock.GaiaDrydock, the same routine).
 BRIDGE_LEFEIN_XY = (230, 123)
+DRYDOCK_XY = (211, 31)
+
+
+def list_cubes(gate):
+    """When a list with this gate applies, as worldgraph's conditions have
+    it: cubes (on, off) of RANDO_OWEDITS bits, the settings with every bit
+    of `on` and none of `off` -- active_lists's two Cardia rules spelled
+    out."""
+    if gate == LIST_NONE:
+        return []
+    if gate == LIST_BAHAMUT_BRIDGE:
+        return [(1 << BAHAMUT_DOCK | 1 << CARDIA_BRIDGE, 0)]
+    if gate == BAHAMUT_DOCK:
+        return [(1 << BAHAMUT_DOCK, 1 << CARDIA_BRIDGE)]
+    return [(1 << gate, 0)]
+
+
+def graph_edits():
+    """Every list in FFR's order with when it applies: what worldgraph's
+    edited overworld is built from."""
+    return [(list_cubes(gate), LISTS[name]) for name, gate in ORDER]
+
+
+def graph_positions(vanilla):
+    """worldgraph's positions (romdata.VANILLA_POS) as the settings move
+    them, each a list of (cube, (x, y)): the BRIDGE under Bridge to Lefein,
+    the ship under Ship in Drydock."""
+    pos = {k: [((0, 0), xy)] for k, xy in vanilla.items()}
+    bl, dd = 1 << BRIDGE_LEFEIN, 1 << SHIP_DRYDOCK
+    pos["bridge"] = [((0, bl), vanilla["bridge"]), ((bl, 0), BRIDGE_LEFEIN_XY)]
+    pos["ship"] = [((0, dd), vanilla["ship"]), ((dd, 0), DRYDOCK_XY)]
+    return pos
+
+
+def positions(vanilla, settings):
+    """The same, for one combination of settings: plain (x, y)."""
+    return {k: [xy for (on, off), xy in v if settings & on == on and not settings & off][0]
+            for k, v in graph_positions(vanilla).items()}
 
 
 def active_lists(settings):

@@ -940,7 +940,7 @@ def chest_floors(rom):
 
 # --- entrance shuffle -------------------------------------------------------------
 #  FFR's ShuffleEntrancesAndFloors (EntrancesFloorsShuffle.cs), as
-#  worldgraph//wiring.fe_shuffle ports it, over graphdata.py's indices (from
+#  worldgraph/wiring.fe_shuffle ports it, over graphdata.py's indices (from
 #  tools/gengraph.py) and on the cartridge's PRNG: with the same draws the two
 #  give the same wiring (tools/checkentrance.py holds them to it).  FFR's
 #  settings as its Entrance and Floor Shuffle preset has them -- towns fixed,
@@ -988,11 +988,13 @@ def _sane(shuffled):
     return titans and starter and danger <= 3
 
 
-def es_shuffle(rng, mode):
+def es_shuffle(rng, mode, owedits=0):
     """One shuffle: (entrance, normal, exits, roots), or None if FFR's sanity
     check fails ES_SANITY times.  roots: each record dealt -> the entrance
     its chain hangs from."""
     rec = _GD.RECORDS
+    #  The Cardia Land Bridge moves six entrances' coordinates (gengraph).
+    coords = _GD.OW_COORDS_CARDIA if owedits >> 12 & 1 else _GD.OW_COORDS
     vanilla_ow = {o: _GD.ENTER[o] for o in _GD.LISTS["vanilla_ow"]}
     vanilla_sm = {t: _GD.TELE[t] for t in _GD.LISTS["vanilla_sm"]}
     placed_maps = {o: r for o, r in vanilla_ow.items() if 1 <= o <= 8}     # Coneria..Lefein
@@ -1042,7 +1044,7 @@ def es_shuffle(rng, mode):
             shuffled[o] = d
             roots[d] = o
             if rec[d][3] is not None:
-                exits_out[rec[d][3]] = _GD.OW_COORDS[o]
+                exits_out[rec[d][3]] = coords[o]
             pending = list(rec[d][2])
             while pending:
                 t = pending.pop(rng.randrange(len(pending)))
@@ -1054,7 +1056,7 @@ def es_shuffle(rng, mode):
                 floors_out[t] = f
                 roots[f] = o
                 if rec[f][3] is not None:
-                    exits_out[rec[f][3]] = _GD.OW_COORDS[o]
+                    exits_out[rec[f][3]] = coords[o]
         if _sane(shuffled):
             break
     else:
@@ -1095,12 +1097,21 @@ def _minimal(ms):
     return sorted(out)
 
 
-def es_masks(entrance, normal, exits, early):
+def _holds(r, owedits):
+    """Requirement r's cube of map edit settings holds (graphdata.CONDS)."""
+    on, off = _GD.CONDS[r]
+    return owedits & on == on and not owedits & off
+
+
+def es_masks(entrance, normal, exits, early, owedits=0):
     M = _GD.MASKS
     adj = [[] for _ in range(_GD.NODES)]
     for src, dst, r in _GD.EDGES:
-        adj[src].append((dst, M[r]))
+        if _holds(r, owedits):
+            adj[src].append((dst, M[r]))
     for e, src, r in _GD.ENT_SRC:
+        if not _holds(r, owedits):
+            continue
         for dst in _GD.LAND[tuple(entrance[e])]:
             adj[src].append((dst, M[r]))
     for t, src, r, ordeals in _GD.TELE_SRC:
@@ -1193,13 +1204,22 @@ def es_groups(roots, masks):
 #  regions' -- the nearest to the entrances c hangs from: overworld steps on
 #  foot and by canoe if any can be walked to, else as the airship flies.
 #  Coneria's is boarded from the start's region, so it always qualifies.
-def es_dock(c, masks, req, roots):
+DOCK_DRYDOCK = 5                # snesmap.inc's: lut_DockX's sixth, Gaia's
+OWEDIT_DRYDOCK = 1 << 13        # Ship in Drydock (owedits.SHIP_DRYDOCK)
+
+
+def es_dock(c, masks, req, roots, owedits=0):
+    if owedits & OWEDIT_DRYDOCK:
+        return DOCK_DRYDOCK         # every ship is moored there
     ship = _BIT["SHIP"]
     ents = 0
     for n in _GD.LOC_NODES[c]:
         ents |= roots[n]
     best = None
     for d in range(len(_GD.DOCKS)):
+        on, off = _GD.DOCK_COND[d]
+        if owedits & on != on or owedits & off:
+            continue                # Bridge to Lefein deletes Matoya's
         board = _minimal([m for n in _GD.DOCK_BOARD[d] for m in req[n]])
         if not all(any(b & ~m == 0 for b in board) for m in masks[c] if not m & ship):
             continue
@@ -1217,7 +1237,7 @@ def es_dock(c, masks, req, roots):
 
 # --- incentive placement ----------------------------------------------------------
 #  FFR's PredictivePlacement (FF1Lib/PredictivePlacement.cs), as
-#  worldgraph//placement.py ports it, over the vanilla world's logic
+#  worldgraph/placement.py ports it, over the vanilla world's logic
 #  (logicdata.py, from tools/genlogic.py): each cycle it asks, for every key
 #  item still to place, how many more incentive and other places the party
 #  could reach with it, sorts the items into bins by that, weights the bins by
@@ -1604,15 +1624,15 @@ ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
 
 
-def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE):
+def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE, owedits=0):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE) or entrances == ENTRANCES_OFF:
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
     for k in range(ES_ATTEMPTS):
-        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances)
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances, owedits)
         if w is None:
             continue
-        mm = es_masks(w[0], w[1], w[2], early)
+        mm = es_masks(w[0], w[1], w[2], early, owedits)
         if mm is None:
             continue
         masks, chaos, req = mm
@@ -1625,9 +1645,55 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
                               attempts=ES_PLACE_ATTEMPTS, tune=tune)
         if out is None:
             continue
-        dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots)
+        dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
         return k, w[:3], out, dock
     return None
+
+
+#  A New Game's world with map edits and no Map shuffle: the vanilla
+#  wiring's, but its logic worked out for the seed as the shuffle's is, on
+#  the graph for every combination of the edits (graphdata.CONDS) -- the
+#  precomputed tables are the unedited map's.  Its masks, Chaos's and spread
+#  groups, then placement with Off's safe tables and tries, and the ship's
+#  dock as the shuffle chooses it.  (0, the wiring, placement, dock), or None
+#  -- no world, and then no placement: the logic has nothing else to fall
+#  back on.
+def build_edited(seed, keyitems, items3, gear2, early, owedits):
+    if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
+        return None
+    ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
+    w = (list(_GD.VANILLA_ENTRANCE), list(_GD.VANILLA_NORMAL), list(_GD.VANILLA_EXIT))
+    mm = es_masks(w[0], w[1], w[2], early, owedits)
+    if mm is None:
+        return None
+    masks, chaos, req = mm
+    roots = es_roots(w[0], w[1])
+    groups = es_groups(roots, masks)
+    if groups is None:
+        return None
+    out = build_placement(seed, keyitems, items3, gear2, early, world=(masks, chaos, groups),
+                          tune=TUNE_SAFE)
+    if out is None:
+        return None
+    dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
+    return 0, w, out, dock
+
+
+def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0):
+    """rando_place's whole choice: (the Map shuffle mode the game keeps, the
+    attempt k, the placement or None, the ship's dock).  The shuffle when it
+    is on and finds a world, else the vanilla wiring: the precomputed tables
+    without map edits, the seed's own logic with them."""
+    if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
+        return ENTRANCES_OFF, 0, None, 0
+    if entrances != ENTRANCES_OFF:
+        w = build_world(seed, keyitems, items3, gear2, early, entrances, owedits=owedits)
+        if w is not None:
+            return entrances, w[0], w[2], w[3]
+    if owedits:
+        w = build_edited(seed, keyitems, items3, gear2, early, owedits)
+        return (ENTRANCES_OFF, 0, None, 0) if w is None else (ENTRANCES_OFF, 0, w[2], w[3])
+    return ENTRANCES_OFF, 0, build_placement(seed, keyitems, items3, gear2, early), 0
 
 
 #  A wiring as a party walks it, for reading a seed: each overworld entrance,
