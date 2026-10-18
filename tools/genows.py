@@ -53,6 +53,12 @@ DESCRIPTIONS = [
     "Land from Ordeals through Cardia to the Waterfall river.",
     "The SHIP sits useless in a drydock at the Gaia Fjord.",
 ]
+#  The unwinnable warning's, by rando_winnable's reason: 0 anything, 1
+#  (WIN_AIRSHIP) the airship never raised though the FLOATER is there.
+WARNINGS = [
+    "This can't be won.  The way to Chaos never opens.",
+    "This can't be won.  The AIRSHIP never rises.",
+]
 OWS_SITES = 4
 CLUSTER = 6
 
@@ -238,11 +244,15 @@ def main():
     for t in range(2):
         p0, p1 = cb[t * 16:t * 16 + 8], cb[t * 16 + 8:t * 16 + 16]
         lines.append("  .WORD " + ", ".join("$%04X" % ((a & b) | (a << 8)) for a, b in zip(p0, p1)))
-    #  Each setting's description, wrapped for the two layouts: two lines of
-    #  30 below the grid, five of 20 beside the zoom's frame.
-    for label, width, count in (("lut_OwsDescWide", 30, 2), ("lut_OwsDescNarrow", 20, 5)):
+    #  Each setting's description, and each warning, wrapped for the two
+    #  layouts: two lines of 30 below the grid, five of 20 beside the zoom's
+    #  frame.
+    for label, width, count, texts in (("lut_OwsDescWide", 30, 2, DESCRIPTIONS),
+                                       ("lut_OwsDescNarrow", 20, 5, DESCRIPTIONS),
+                                       ("lut_OwsWarnWide", 30, 2, WARNINGS),
+                                       ("lut_OwsWarnNarrow", 20, 5, WARNINGS)):
         lines.append("%s:" % label)
-        for s_, text in enumerate(DESCRIPTIONS):
+        for s_, text in enumerate(texts):
             wrapped = textwrap.wrap(text, width)
             assert len(wrapped) <= count, (O.SETTINGS[s_], width, wrapped)
             for k in range(count):

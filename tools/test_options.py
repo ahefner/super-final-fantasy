@@ -724,6 +724,111 @@ def test_rando_remove():
     check("...and given without it", plain[2][6][0], 1)
 
 
+def winnable_cart(job):
+    """rando_winnable on a save with these settings: (winnable, reason)."""
+    keyitems, items3, early, owedits = job
+    bus, cpu = machine()
+    s = bus.sram
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = owedits.to_bytes(2, "little")
+    call(cpu, "rando_winnable", bank=WORLD_BANK)
+    return (not cpu.p & C, cpu.a & 0xFF)
+
+
+def test_winnable():
+    """The unwinnable warning (user).  rando_winnable gives randoref.winnable's
+    answer and reason over Key items Vanilla, Standard and Wide, the SHIP and
+    the FLOATER removed or not, Early flags and map edits -- winnable and not,
+    both reasons among them.  The map edit screen will not take START on
+    edits that cannot be won: it says why where the description goes, the
+    music going on through the check, and takes START once they can; and New
+    Game brings it up for that alone, the Map edits row Off, when the
+    settings as they are cannot be won."""
+    rows = [[0x00, 0, 0], [0x20, 0, 0], [0x23, 0, 0], [0x2C, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
+    edits = [0, K["OWEDIT_SAFE"], 0x2000, 0x2001, 0x1341, 0x3FFF, 0x0402, 0x1000]
+    jobs = [(ki, r, e, f) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits]
+    got = pmap(winnable_cart, jobs)
+    want = [R.winnable(ki, r, e, f) for ki, r, e, f in jobs]
+    check("rando_winnable: randoref's, every setting", [j for j, g, w in zip(jobs, got, want)
+                                                        if (g[0], g[1] if not g[0] else 0) !=
+                                                        (w[0], w[1] if not w[0] else 0)][:4], [])
+    check("...both answers, both reasons among them",
+          sorted({(w[0], w[1]) for w in want}), [(False, 0), (False, 1), (True, 0)])
+
+    import genows as GO
+    def text_at(bus, n):
+        """The description area's lines, as text."""
+        side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(),
+                             re.M).group(1))
+        col, row, w = (11, 20, 20) if side else (1, 25, 30)
+        nt = rw("OWS_NT3")
+        return [("".join(_decode(bus.wram[nt + 2 * (32 * (row + k) + col + i)]) or "?" for i in range(w))).rstrip()
+                for k in range(n)]
+    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(),
+                         re.M).group(1))
+    import textwrap
+    width = 20 if side else 30
+    warn1 = textwrap.wrap(GO.WARNINGS[1], width)
+    warn0 = textwrap.wrap(GO.WARNINGS[0], width)
+
+    #  The screen, Key items Vanilla, Early Open: tick Ship in Drydock (up
+    #  from the first line), START -- refused, the airship never rising --
+    #  untick it, START.
+    bus, cpu = machine()
+    bus.frames()
+    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    UJ, CMP_ = SYM["UpdateJoy"], SYM["CallMusicPlay"]
+    def pad(nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    pad(0)
+    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    WIN, TICK = SYM["rando_winnable"], SYM["ows_tick"]
+    OWS = 0xA1 + K["CHUNK_OWS"]
+    seen, checks, plays, ended = [], 0, 0, False
+    for frame, nes in enumerate((0, 0, 0x08, 0, 0x80, 0, 0x10, 0, 0, 0x80, 0, 0x10, 0)):
+        pad(nes)
+        cpu.step()
+        for _ in range(20_000_000):
+            if cpu.pc == UJ or cpu.pc == 0xFFFE:
+                break
+            if cpu.pbr == WORLD_BANK and cpu.pc == WIN:
+                checks += 1
+            if cpu.pbr == OWS and cpu.pc == TICK:       # only rando_yield calls it
+                plays += 1
+            cpu.step()
+        else:
+            break
+        if cpu.pc != UJ:
+            ended = True
+            break
+        seen.append(text_at(bus, len(warn1)))
+    ow = int.from_bytes(bus.sram[K["RANDO_OWEDITS"] - 0x6000:][:2], "little")
+    check("the screen: START refused on Ship in Drydock under Vanilla, why where the description goes",
+          seen[6] if len(seen) > 6 else None, warn1)
+    check("...the music on through the check (ows_tick)", plays > 0, True)
+    check("...and START taken once it is unticked: Early Open alone",
+          (ended, checks, ow), (True, 2, K["OWEDIT_OPENPROG"]))
+
+    #  New Game, the row Off, the FLOATER removed, Key items Standard: the
+    #  screen up for the warning, from the row's edits, none.
+    bus, cpu = machine()
+    bus.frames()
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+    bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes([0x2C, 0, 0])
+    pad(0)
+    up = cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    for _ in range(2):                  # setup's pad read, then the loop's first
+        cpu.step()
+        while cpu.pc not in (UJ, 0xFFFE):
+            cpu.step()
+    V = rw("OWS_VARS")
+    check("New Game, Map edits Off, the FLOATER removed: the screen up, saying why, no edit ticked",
+          (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8), (True, warn0, 0))
+
+
 def test_rando_early():
     """FFR's Early flags.  Early King, Sarda and Sage waive what each of those
     NPCs waits for in rando_talk's table, and nothing else; Early Ordeals is a
@@ -1404,6 +1509,7 @@ def test_owedits():
     SX = K["ship_x"] - 0x6000
     bus, cpu = machine()
     bus.sram[early_at] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]   # winnable: Vanilla is not
     bus.sram[SX], bus.sram[SX + 1] = 0x11, 0x22
     newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0])
     check("New Game, Ship in Drydock ticked: the ship at Gaia's drydock",
@@ -7644,6 +7750,7 @@ def test_treasures():
     bus, cpu = machine()
     set_free(bus, 1 << FREE_BIT["ship_vis"])
     bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]   # winnable: Vanilla is not
     newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0], entry="opt_freestuff")
     check("...and under Ship in Drydock to Gaia's drydock", (bus.sram[1], bus.sram[2], bus.sram[0]),
           (211, 31, 1))
@@ -12198,7 +12305,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

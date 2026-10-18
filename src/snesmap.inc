@@ -1976,6 +1976,13 @@ ROLL_YNOTES     = RANDOWRAM+$33DC ; 4 bytes: its notes, as steps of lut_RollPitc
 ROLL_END        = RANDOWRAM+$33E0
 .assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
 .assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
+;  The map edit screen's twin of ROLL_ON (owscreen.asm): 1 while its
+;  unwinnable check runs, so rando_yield ticks its music (ows_tick).  Past
+;  the roll screen's, which roll_begin clears up to ROLL_END, and zero but
+;  then as ROLL_ON is: power-on zeroes it, the screen clears it after.
+OWS_TICKON      = ROLL_END
+OWS_FORCED      = $80             ; ows_choose's A: up only for the warning, its reason below
+.assert OWS_TICKON + 2 <= RANDOWRAM + $3400, error, "OWS_TICKON runs into boss tactics' scratch"
 
 ;  Boss tactics' scratch (tactics.asm): one decision's, so nothing here
 ;  outlives a turn but the latch.  Above the roll screen's and below

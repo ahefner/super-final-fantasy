@@ -11,8 +11,12 @@
 ;  game's, when Continue would load it and it has any -- so the choice
 ;  carries from game to game without a byte of the option block -- else the
 ;  row's.  START ends it, and RANDO_OWEDITS is what is ticked: placement's
-;  logic knows every edit (worldgraph/edited.py).  The title's music plays
-;  on throughout.
+;  logic knows every edit (worldgraph/edited.py) -- but not on edits that,
+;  with the rest of the settings, make a world that cannot be won
+;  (rando_winnable, user): then the description says so, and the screen
+;  stays.  New Game brings it up for that alone, the row Off, when the
+;  settings as they are cannot be won.  The title's music plays on
+;  throughout, the check's frames too (ows_tick).
 ;
 ;  The pad is read every frame and answered at once -- the hand moves, a box
 ;  ticks, the description changes, the settings screen's chirp -- and the
@@ -50,13 +54,13 @@
 ;  CALL0E, for the menu chirps in bank $0E.
 .include "optcall.inc"
 
-.export ows_choose
+.export ows_choose, ows_tick
 ;  For tools/test_options.py.
 .export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim
-.import opt_savevalidfar, opt_padreset
+.import opt_savevalidfar, opt_padreset, rando_winnable
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_OweRow, lut_OweEnt
 .importzp OWE_ENTRY
@@ -168,7 +172,8 @@ V_VADDR   = OWV+$40             ; 2
 V_K       = OWV+$42
 V_VIEW    = OWV+$43             ; what the selection shows: lut_OwsGates's, the sites'
 V_MASK    = OWV+$44             ; 2: ows_prow's characters still to pack, a bit each
-.assert V_MASK + 1 < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_FORCED  = OWV+$46             ; ows_choose's A: OWS_FORCED and the warning's reason, or 0
+.assert V_FORCED < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -197,8 +202,10 @@ aINSETCHR = .LOWORD(OWS_INSETCHR)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  ows_choose -- the screen.  In: RANDO_OWEDITS the row's flags.  Out:
-;;  RANDO_OWEDITS as ticked.  From
+;;  ows_choose -- the screen.  In: RANDO_OWEDITS the row's flags; A = 0, or
+;;  OWS_FORCED and rando_winnable's reason, up only because the settings
+;;  cannot be won: the row's flags then, not the saved game's, and the
+;;  warning at once.  Out: RANDO_OWEDITS as ticked.  From
 ;;  rando_newgame, by JSL, in emulation mode; out the same, X and Y kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -210,6 +217,9 @@ ows_choose:
     PHK
     PLB                         ; this chunk's low half is the I/O map
     SEP #$30
+    STA f:V_FORCED
+    CMP #OWS_FORCED
+    BCS @forced                 ; the row's, not the saved game's
     JSL opt_savevalidfar + OPTFAR       ; C clear: a save Continue would load
     LDA #0
     ROL A
@@ -225,6 +235,16 @@ ows_choose:
     LDA f:SAVEDOWE
     ORA f:SAVEDOWE + 1
     BEQ @row
+    BRA @saved
+  @forced:
+    CLC
+    XCE
+    REP #$10
+    .i16
+    SEP #$20
+    .a8
+    BRA @row
+  @saved:
     REP #$20
     .a16
     LDA f:SAVEDOWE
@@ -289,6 +309,8 @@ ows_testsetup:
     .i16
     SEP #$20
     .a8
+    LDA #0
+    STA f:V_FORCED
     JSR ows_setup
     BRA ows_testout
 ows_testinset:
@@ -555,7 +577,11 @@ ows_setup:
     LDA #$FF
     STA f:V_PREV                ; nothing counts as pressed until let go
     JSR ows_drawall
-    JSR ows_first
+    LDA f:V_FORCED              ; up for the warning: it, not the description
+    BPL :+
+    AND #$7F
+    JSR ows_warn
+:   JSR ows_first
     JSR ows_vblank              ; the tilemap, the zoom and the hand out
     LDA #$0F
     STA a:INIDISP
@@ -1106,7 +1132,13 @@ ows_input:
     PLA
     BIT #PAD_START
     BEQ :+
-    SEC
+    JSR ows_wincheck            ; the ticked edits, won?
+    BCS @lost
+    SEC                         ; START ends it
+    RTS
+  @lost:
+    JSR ows_warn                ; no: why, and the screen stays
+    CLC
     RTS
 :   BIT #PAD_A
     BEQ @move
@@ -1133,6 +1165,84 @@ ows_input:
   @out:
     CLC
     RTS
+
+;;  The ticked edits with the rest of the settings, checked as New Game
+;;  will build the world (rando_winnable): RANDO_OWEDITS written for it --
+;;  ows_choose writes it again leaving -- and the title's music kept going
+;;  meanwhile, rando_yield ticking ows_tick while OWS_TICKON is set.  Out: C
+;;  clear if winnable; else A = the reason.  A8 I16.
+    .a8
+    .i16
+ows_wincheck:
+    REP #$20
+    .a16
+    LDA f:V_FLAGS
+    AND #OWEDIT_FLAGS
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    SEP #$30
+    .a8
+    .i8
+    LDA #1
+    STA f:OWS_TICKON
+    SEC
+    XCE
+    JSL rando_winnable + WORLDFAR
+    PHA                         ; the reason
+    PHP                         ; C: not winnable
+    LDA #0
+    STA f:OWS_TICKON
+    CLC
+    XCE
+    PLP
+    PLA
+    REP #$10                    ; (C kept)
+    .i16
+    RTS
+
+;;  ows_tick -- a frame of the title's music, from rando_yield when a vblank
+;;  has begun while rando_winnable works for this screen: as ows_wait's,
+;;  CallMusicPlay then the HAL's frame of sound (hal_audioframe, as the roll
+;;  screen's tick sends it).  cur_bank this chunk for the call, as it was
+;;  after.  From native code, any widths, by JSL; everything kept.
+ows_tick:
+    PHP
+    REP #$30
+    .a16
+    .i16
+    PHA
+    PHX
+    PHY
+    PHB
+    PHD
+    LDA #$0000
+    TCD
+    SEP #$30
+    .a8
+    .i8
+    PHK
+    PLB
+    LDA cur_bank
+    PHA
+    SEC
+    XCE
+    LDA #CHUNK_OWS
+    STA cur_bank
+    JSR CallMusicPlay
+    JSL hal_audioframe + HALFAR
+    PLA
+    STA cur_bank
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    PLD
+    PLB
+    PLY
+    PLX
+    PLA
+    PLP
+    RTL
 
 ;;  The settings screen's chirps (optmenu.asm's opt_sfx_move and _sel): the
 ;;  game's own, in bank $0E, through the trampoline, in emulation mode.  A8
@@ -2010,6 +2120,19 @@ ows_frame:
     TXY
     RTS
 
+;;  The warning for rando_winnable's reason A, where the description goes,
+;;  until a move puts that back.  A8 I16.
+    .a8
+    .i16
+ows_warn:
+    STA f:V_K
+    LDA #0
+    STA f:V_PAL
+    REP #$20
+    .a16
+    LDA #.LOWORD(lut_OwsWarn)
+    BRA ows_text_n
+
 ;;  The selected setting's description.  A8 I16.
     .a8
     .i16
@@ -2021,6 +2144,9 @@ ows_desc:
     REP #$20
     .a16
     LDA #.LOWORD(lut_OwsDesc)
+    ;  Text V_K of the table at A16, DESC_N lines of DESC_W.
+ows_text_n:
+    .a16
   @find:
     TAX
     SEP #$20
@@ -2225,8 +2351,10 @@ lut_OwsName:
 
 .if OWS_SIDE
 lut_OwsDesc = lut_OwsDescNarrow
+lut_OwsWarn = lut_OwsWarnNarrow
 .else
 lut_OwsDesc = lut_OwsDescWide
+lut_OwsWarn = lut_OwsWarnWide
 .endif
 
 lut_OwsTitle:

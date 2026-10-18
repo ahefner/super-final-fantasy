@@ -59,7 +59,7 @@
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
-.import ows_choose
+.import ows_choose, ows_tick, rando_winnable
 
 .segment "BANK_RANDO"
 
@@ -457,18 +457,24 @@ rando_belowfar:
 ;;  fixpoint -- it ticks the screen when the screen is up and a vblank has
 ;;  begun since the last tick, which RDNMI latches; otherwise it is nine
 ;;  instructions.  ROLL_ON is zero but while the screen is up, so the cache
-;;  build at @Begin, and the harness, never tick.  Native, any widths;
-;;  everything kept.
+;;  build at @Begin, and the harness, never tick.  The map edit screen's
+;;  unwinnable check ticks its music the same way (OWS_TICKON).  Native, any
+;;  widths; everything kept.
 rando_yield:
     PHP
     SEP #$20
     .a8
     PHA
     LDA f:ROLL_ON
+    ORA f:OWS_TICKON
     BEQ @out
     LDA f:RDNMI
     BPL @out
-    JSL roll_tick + ROLLFAR
+    LDA f:OWS_TICKON            ; the map edit screen's check (rando_winnable):
+    BEQ :+                      ;   its music
+    JSL ows_tick + OWSFAR
+    BRA @out
+:   JSL roll_tick + ROLLFAR
   @out:
     PLA
     PLP
@@ -631,12 +637,41 @@ rando_newgame:
     LDA f:RANDOFAR + lut_OwEditsMode + 1, X
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     ;  ...and, the row not Off, the map edit screen to tick them on
-    ;  (owscreen.asm), from the saved game's or those.
+    ;  (owscreen.asm), from the saved game's or those; it will not end on
+    ;  edits that cannot be won.  With the row Off, the settings as they are
+    ;  checked (rando_winnable): a world that cannot be won -- a removed
+    ;  FLOATER on the unedited map -- brings the screen up all the same,
+    ;  saying why, from the row's edits.
     LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
     AND #OWEDITS_FIELD
-    BEQ :+
+    BEQ @owoff
+    LDA #0
     JSL ows_choose + OWSFAR
-:   LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    BRA @owdone
+  @owoff:
+    ;  No edits: the unedited map, which only a removed item can leave
+    ;  unwinnable -- the SHIP's row or the AIRSHIP's at Remove.  Checked then
+    ;  alone, the title's music ticking through it as on the screen.
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_SHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_SHIP)
+    BEQ :+
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_AIRSHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_AIRSHIP)
+    BNE @owdone
+:   LDA #1
+    STA f:OWS_TICKON
+    JSL rando_winnable + WORLDFAR
+    PHA
+    LDA #0
+    STA f:OWS_TICKON
+    PLA
+    BCC @owdone
+    ORA #OWS_FORCED
+    JSL ows_choose + OWSFAR
+  @owdone:
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     AND #OWEDIT_BRIDGELEFEIN
     BEQ :+
     LDA #BRIDGE_LEFEIN_X

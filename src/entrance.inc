@@ -68,7 +68,10 @@ esQ     = .LOWORD(ES_VARS) + $5A    ; a region's masks' address
 esK     = .LOWORD(ES_VARS) + $5C    ; a count down
 esBIT   = .LOWORD(ES_VARS) + $5E
 esOWE   = .LOWORD(ES_VARS) + $60    ; RANDO_OWEDITS, the map edits the logic is of
-.assert esOWE + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
+esGONE  = .LOWORD(ES_VARS) + $62    ; 4: rando_winnable's: the removed items' bits...
+esHAVE  = .LOWORD(ES_VARS) + $66    ; 4: ...what is held...
+esPLCD  = .LOWORD(ES_VARS) + $6A    ; ...nonzero under Key items Standard or Wide
+.assert esPLCD + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
 
 ePMAP   = .LOWORD(ES_PMAP)
 ePFLOOR = .LOWORD(ES_PFLOOR)
@@ -1966,6 +1969,299 @@ rando_esmasks:
   @out2:
     STA a:esTRY + 1
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_winnable -- can the save's settings make a world that is won?
+;;  (randoref.winnable; the unwinnable warning, owscreen.asm and
+;;  rando_newgame.)
+;;
+;;  The vanilla wiring's logic under the save's map edits and Early flags
+;;  (es_vanilla, es_fixpoint, es_locmasks).  Under Key items Standard or
+;;  Wide, owning every key item there is -- all but a removed one, the
+;;  airship too if it is free -- and every event that reaches, is Chaos
+;;  reached?  Placement finds a world exactly then, over every setting
+;;  checkplace.py tries; a shuffle with no world falls back to this wiring.
+;;  Under Vanilla the items are where they always are: a sweep from the free
+;;  ones, each place reached giving its vanilla item (lut_LogicVanBit), but
+;;  a removed one.  A logic that will not fit, which none does, is not this
+;;  check's to refuse: winnable.
+;;
+;;  From emulation mode, by JSL; out the same.  Out: C clear if winnable;
+;;  else C set and A = the reason: WIN_AIRSHIP when the airship is never
+;;  raised though the FLOATER is there, 0 otherwise.  X and Y clobbered.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+WIN_AIRSHIP = 1
+LOGIC_EVENT = 3                 ; lut_LogicKind's: an event, its bit its ident
+
+rando_winnable:
+    PHB
+    JSR enter
+    REP #$10
+    .i16
+    SEP #$20
+    .a8
+    JSR es_vanilla
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #$00FF
+    JSR es_fixpoint
+    BCC :+
+    JMP @won                    ; (refused: not this check's to say)
+:   JSR es_locmasks
+    BCC :+
+    JMP @won
+:   ;  The rows: what is removed, and what is free.
+    STZ a:esGONE
+    STZ a:esGONE + 2
+    STZ a:esHAVE
+    STZ a:esHAVE + 2
+    STZ a:esK                   ; the row
+  @row:
+    SEP #$20
+    .a8
+    LDX a:esK
+    JSR es_rowval
+    CMP #ITEM_REMOVE
+    BNE @free
+    CPX #ITEMROW_AIRSHIP + 1
+    BCS @nextrow                ; (a value this build does not know)
+    LDY #esGONE
+    BRA @set
+  @free:
+    CMP #ITEM_FREE
+    BNE @nextrow
+    LDY #esHAVE
+    CPX #ITEMROW_AIRSHIP
+    BNE @set
+    REP #$20
+    .a16
+    LDA #LBIT_AIRSHIP           ; a free airship: raised already
+    JSR es_setbit
+    LDY #esHAVE
+    LDX a:esK
+  @set:
+    REP #$20
+    .a16
+    LDA f:WORLDFAR + lut_EsRowBit, X
+    AND #$00FF
+    JSR es_setbit
+  @nextrow:
+    REP #$20
+    .a16
+    INC a:esK
+    LDA a:esK
+    CMP #ITEMROW_OTHER
+    BCC @row
+    ;  Placed: every key item there is, LUTE..CANAL, but the removed.
+    STZ a:esPLCD
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    AND #$00FF
+    CMP #KEYITEMS_STANDARD
+    BEQ :+
+    CMP #KEYITEMS_WIDE
+    BNE @sweep
+:   INC a:esPLCD
+    LDA a:esGONE
+    EOR #$FFFF
+    ORA a:esHAVE
+    STA a:esHAVE
+    LDA a:esGONE + 2
+    EOR #$FFFF
+    AND #$000F                  ; bits 16-19: CANOE, SHIP, BRIDGE, CANAL
+    ORA a:esHAVE + 2
+    STA a:esHAVE + 2
+    .assert LBIT_CANAL = 19 && LBIT_LUTE = 0, error, "LUTE..CANAL are bits 0-19"
+  @sweep:
+    STZ a:esCHG
+    STZ a:esLOC
+  @loc:
+    JSL rando_yieldfar + RANDOFAR   ; the map edit screen's music, if due
+    LDX a:esLOC
+    LDA f:LOGICFAR + lut_LogicVanBit, X
+    AND #$00FF
+    BEQ @nextloc
+    DEC A
+    STA a:esBIT
+    LDA a:esPLCD                ; placed: the items held; events alone to reach
+    BEQ :+
+    LDA f:LOGICFAR + lut_LogicKind, X
+    AND #$00FF
+    CMP #LOGIC_EVENT
+    BNE @nextloc
+:   LDA a:esBIT
+    JSR es_bitmask              ; A = its mask in word Y
+    AND a:esHAVE, Y
+    BNE @nextloc                ; held already
+    LDA a:esBIT
+    JSR es_bitmask
+    AND a:esGONE, Y
+    BNE @nextloc                ; removed: its home gives gold
+    LDA a:esLOC
+    ASL A
+    TAX
+    LDA a:eMOFF + 2, X
+    STA a:esLE
+    LDA a:eMOFF, X
+  @mask:
+    CMP a:esLE
+    BCS @nextloc
+    TAX
+    LDA a:esHAVE
+    EOR #$FFFF
+    AND a:eMASK, X
+    BNE @nomask
+    LDA a:esHAVE + 2
+    EOR #$FFFF
+    AND a:eMASK + 2, X
+    BNE @nomask
+    LDA a:esBIT                 ; reached: it gives its bit
+    LDY #esHAVE
+    JSR es_setbit
+    INC a:esCHG
+    BRA @nextloc
+  @nomask:
+    TXA
+    CLC
+    ADC #4
+    BRA @mask
+  @nextloc:
+    INC a:esLOC
+    LDA a:esLOC
+    CMP #LOGIC_LOCS
+    BCS :+
+    JMP @loc
+:   LDA a:esCHG
+    BEQ :+
+    JMP @sweep
+:   ;  Chaos: one of its masks held.
+    LDX #$0000
+    STZ a:esK
+  @chaos:
+    LDA a:esK
+    CMP a:eNCHAOS
+    BCS @lost
+    LDA a:esHAVE
+    EOR #$FFFF
+    AND a:eCHAOS, X
+    BNE :+
+    LDA a:esHAVE + 2
+    EOR #$FFFF
+    AND a:eCHAOS + 2, X
+    BEQ @won
+:   INX
+    INX
+    INX
+    INX
+    INC a:esK
+    BRA @chaos
+  @won:
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLB
+    LDA #0
+    CLC
+    RTL
+  @lost:
+    .a16
+    .i16
+    ;  The reason: the airship never raised, though the FLOATER is there.
+    LDY #$0000
+    LDA a:esHAVE + (LBIT_AIRSHIP / 16) * 2
+    AND #1 << (LBIT_AIRSHIP .MOD 16)
+    BNE @why
+    LDA a:esGONE + (LBIT_FLOATER / 16) * 2
+    AND #1 << (LBIT_FLOATER .MOD 16)
+    BNE @why
+    LDY #WIN_AIRSHIP
+  @why:
+    TYA
+    SEP #$30
+    .a8
+    .i8
+    PHA
+    SEC
+    XCE
+    PLA
+    PLB
+    SEC
+    RTL
+
+;;  Row X's value (RANDO_ITEMS, two bits a row).  A8, I16; X kept.
+es_rowval:
+    .a8
+    .i16
+    PHX
+    REP #$20
+    .a16
+    TXA
+    LSR A
+    LSR A
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE), X
+    PHA
+    REP #$20
+    .a16
+    LDA 2, S                    ; the row
+    AND #$0003
+    TAX
+    SEP #$20
+    .a8
+    PLA
+  @shift:
+    DEX
+    BMI @field
+    LSR A
+    LSR A
+    BRA @shift
+  @field:
+    AND #$03
+    PLX
+    RTS
+
+;;  Bit A16 (0-31) of the 32-bit variable at Y (DBR's): set.  A16; X
+;;  clobbered.
+es_setbit:
+    .a16
+    STY a:esQ                   ; the variable
+    JSR es_bitmask              ; A = the mask, Y = its word's offset
+    PHA
+    TYA
+    CLC
+    ADC a:esQ
+    TAY
+    PLA
+    ORA a:0, Y
+    STA a:0, Y
+    RTS
+
+;;  Bit A16 (0-31): A16 = its mask within its word, Y = that word's offset
+;;  (0 or 2).  X clobbered.
+es_bitmask:
+    .a16
+    LDY #$0000
+    CMP #16
+    BCC :+
+    SBC #16
+    LDY #$0002
+:   ASL A
+    TAX
+    LDA f:WORLDFAR + esBit16, X
+    RTS
+
+;;  Each key item row's logic bit, ITEMROW_* order: the AIRSHIP row's item is
+;;  the FLOATER.
+lut_EsRowBit:
+  .BYTE LBIT_SHIP, LBIT_FLOATER, LBIT_BRIDGE, LBIT_CANAL, LBIT_CANOE, LBIT_KEY
+  .BYTE LBIT_CHIME, LBIT_CROWN, LBIT_LUTE, LBIT_TAIL, LBIT_ROD
+.assert ITEMROW_SHIP = 0 && ITEMROW_AIRSHIP = 1 && ITEMROW_ROD = 10, error, "lut_EsRowBit's order"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

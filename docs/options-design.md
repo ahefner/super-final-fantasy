@@ -1326,6 +1326,28 @@ the column is rows 2-15 beside the minimap's 1-16 (user: aligned with it).
     long name in the left column, and in the side layout the minimap's edge
     (user: rather that than shorter names).  No control hints.  The
     settings screen's chirps: the move's on a move, the select's on a tick.
+  - **The unwinnable warning** (user, 2026-10-18; built, not yet played).
+    START is not taken on edits that, with the rest of the settings, make a
+    world that cannot be won: the description's place says why -- "This
+    can't be won.  The AIRSHIP never rises." when the airship is never
+    raised though the FLOATER is there, "The way to Chaos never opens."
+    otherwise -- until a move puts the description back.  The check,
+    `rando_winnable` (`randoref.winnable`), works out the vanilla wiring's
+    logic under the edits and Early flags, then under Key items Standard or
+    Wide asks whether Chaos is reached owning every key item there is --
+    all but a removed one -- and every event that reaches: placement finds
+    a world exactly then, over every setting `checkplace.py` tries.  Under
+    Key items Vanilla the items stay home, so it sweeps from the free ones,
+    each place reached giving its vanilla item (`lut_LogicVanBit`) but a
+    removed one; Ship in Drydock with Early Open is winnable placed and not
+    at home, where the CANOE waits on the Earth Orb.  130,000 to 265,000
+    instructions, the title's music ticked through it (`OWS_TICKON`,
+    `ows_tick`, from `rando_yield` as the roll screen's).  With the Map
+    edits row Off New Game checks only when the SHIP or the FLOATER is
+    removed -- nothing else can leave the unedited map unwinnable -- and if
+    so brings the screen up all the same, from no edits, saying why; L + X
+    leaves it.  `test_winnable` holds the cart to the reference over Key
+    items, removals, Early flags and edits, and the screen's three ways.
   - L + X and L + Y reset from it as from anywhere (user).  Its loop waits
     on `hal_vblaudio`, not `WaitForVBlank`, so it makes the reset's two
     calls itself: `hal_auxdetect` (the HAL's look at L, X and Y alone) after

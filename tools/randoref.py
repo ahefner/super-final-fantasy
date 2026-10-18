@@ -1716,6 +1716,53 @@ def build_edited(seed, keyitems, items3, gear2, early, owedits):
     return 0, w, out, dock
 
 
+#  The unwinnable warning (rando_winnable): can the settings make a world
+#  that is won?  The vanilla wiring's logic under the map edits and the Early
+#  flags; then under Key items Standard or Wide, owning every key item there
+#  is -- all but a removed one, the airship too if it is free -- and every
+#  event that reaches, is Chaos reached?  Placement finds a world exactly
+#  then, over every setting checkplace tries.  Under Vanilla the items are
+#  where they always are: a sweep from the free ones, each place reached
+#  giving its vanilla item but a removed one.  (winnable, reason): reason 1
+#  when the airship is never raised though the FLOATER is there, else 0.
+WIN_AIRSHIP = 1
+
+
+def winnable(keyitems, items3, early, owedits):
+    masks, chaos, req = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)
+    rows = item_rows(items3)
+    gone, free = set(), 0
+    for k, name in enumerate(ITEMROW_ITEM):
+        v = row_value(rows, k)
+        if v == ITEM_REMOVE:
+            gone.add(_BIT[name])
+        elif v == ITEM_FREE:
+            free |= _BIT.get(name, 0) | (_BIT_AIRSHIP if name == "FLOATER" else 0)
+    placed = keyitems in (KEYITEMS_STANDARD, KEYITEMS_WIDE)
+    if placed:
+        owned = free
+        for b in range(20):                 # LUTE..CANAL: every key item there is
+            if 1 << b not in gone:
+                owned |= 1 << b
+    else:
+        owned = free
+    while True:
+        new = owned
+        for c, l in enumerate(_L.LOCS):
+            vb = _L.VANBIT[c]
+            if not vb or (placed and l[0] != 3) or 1 << (vb - 1) in gone:
+                continue
+            if any(m & ~owned == 0 for m in masks[c]):
+                new |= 1 << (vb - 1)
+        if new == owned:
+            break
+        owned = new
+    if any(m & ~owned == 0 for m in chaos):
+        return True, 0
+    floater = _BIT["FLOATER"]
+    return False, WIN_AIRSHIP if not owned & _BIT_AIRSHIP and floater not in gone else 0
+
+
 def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0):
     """rando_place's whole choice: (the Map shuffle mode the game keeps, the
     attempt k, the placement or None, the ship's dock).  The shuffle when it

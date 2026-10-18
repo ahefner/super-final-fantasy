@@ -15,9 +15,9 @@
 .include "variables.inc"
 
 .import rando_belowfar, rando_warmfar, rando_yieldfar
-.import lut_LogicKind, lut_LogicFlags
+.import lut_LogicKind, lut_LogicFlags, lut_LogicVanBit
 ;  For tools/test_options.py.
-.export es_build, es_dockfar, es_tables
+.export es_build, es_dockfar, es_tables, rando_winnable
 .export rando_eswire, rando_esmasks, rando_esdock
 ;  The overworld's edits, for the fixed bank.
 .export ow_editrow, mm_editrows

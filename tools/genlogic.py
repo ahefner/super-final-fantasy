@@ -343,6 +343,10 @@ def main():
                 flags |= F_WIDE
         early = EARLY.index(clears[c]) + 1 if c in clears else 0
         rows.append((kind, ident, flags, early, sorted(base[k]), l.label))
+    #  What each gives in the vanilla game, as a logic bit, for the
+    #  unwinnable warning's sweep under Key items Vanilla (rando_winnable).
+    global VANBIT
+    VANBIT = [REQS.index(locs[k].reward) + 1 if locs[k].reward in BIT else 0 for k in idx]
     chaos_masks = sorted(base[chaos])
     assert chaos not in [k for k in idx] and chaos_early(clears) is None
     assert sum(1 for r in rows if r[2] & F_STANDARD) == 21
@@ -387,6 +391,8 @@ def write_py(rows, chaos_masks, docks, groups):
         f.write("#  Each pool place's spread group: one dungeon, one set of requirements;\n"
                 "#  $FF for a place that is not a chest.\n")
         f.write("SPREAD = %r\n" % (groups,))
+        f.write("#  What each gives in the vanilla game: its logic bit + 1, or 0.\n")
+        f.write("VANBIT = %r\n" % (VANBIT,))
 
 
 def write_inc(rows, chaos_masks, docks, groups):
@@ -438,6 +444,9 @@ def write_inc(rows, chaos_masks, docks, groups):
         emit(f, "lut_LogicByBitLo", [o & 0xFF for o in boffs])
         emit(f, "lut_LogicByBitHi", [o >> 8 for o in boffs])
         emit(f, "lut_LogicByBit", [c for l in lists for c in l])
+        f.write(";  What each gives in the vanilla game: its logic bit + 1, or 0 (the\n"
+                ";  unwinnable warning's sweep under Key items Vanilla).\n")
+        emit(f, "lut_LogicVanBit", VANBIT)
         f.write(";  Chaos: reached when every key item placed, the seed is winnable.\n")
         emit(f, "lut_LogicChaos", [b for m in chaos_masks for b in m.to_bytes(4, "little")])
         f.write(";  The docks a found ship is moored at (FFR's), as the sea tile it sits on.\n")
