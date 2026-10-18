@@ -5,5 +5,5 @@
 ;  OWS_SIDE   1: the minimap at the left, the fourteen in a column beside
 ;             it; 0: the minimap above, the fourteen in a grid below.
 ;  OWS_INSET  1: a zoom of the selected edit beside the minimap.
-OWS_SIDE  = 0
-OWS_INSET = 0
+OWS_SIDE  = 1
+OWS_INSET = 1
