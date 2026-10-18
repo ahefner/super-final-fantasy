@@ -1225,6 +1225,12 @@ stat rules and the renaming are FFR's (`RandomWeaponBonus`,
     ROM's pointer or `OPTNAMEBUF`.  It consults the cache, and so builds it,
     only for gear: class names come through the same lookup on the party
     creation screen, before `@Begin` has built anything.
+  - **Masmune is Masa** when blursed (user, 2026-10-17): "Masa" with the
+    sign and digit straight after it, Masa+1 and Masa-2, where FFR's rule --
+    the last two letters, there being no icon -- made it Masmu+1.
+    `lut_MasaName` in `rando_nameptr`, and randoref's `blursed_name_bytes`;
+    `test_rando_gearnames` spells out Masa+2, Masa-3 and an unblursed
+    Masmune.
   - The shadow-record question in the paragraph above, whether any caller
     holds two equipment pointers at once, did not arise.  Each adjuster reads
     one record and is done with it.

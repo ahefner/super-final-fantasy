@@ -331,6 +331,7 @@ ENEMY_KRAKEN2   = $7C           ; ...and its return in the Temple of Fiends
 OPTFB_RUSESTAFF = OPT_FLAGS+5
 OPTFM_RUSESTAFF = $10    ; bit 44
 
+ITEM_MASMUNE    = $43           ; the Masmune's item id: blursed, it is "Masa"
 ITEM_POWERSTAFF = $37           ; the Power Staff's item id...
 WEAPON_POWERSTAFF = 27          ; ...and its weapon index
 SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it

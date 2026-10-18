@@ -1994,6 +1994,10 @@ lut_VehicleNames:
   .BYTE $8B, $9B, $92, $8D, $90, $8E, $00, $00   ; BRIDGE
   .BYTE $8C, $8A, $97, $8A, $95, $00, $00, $00   ; CANAL
 
+;;  The Masmune's blursed name: Masa, then the sign and digit at 4 and 5.
+lut_MasaName:
+  .BYTE $96, $A4, $B6, $A4, $FF, $FF, $FF, $00   ; Masa
+
 ;;  The RUSE Staff's name (OPTFM_RUSESTAFF) and the NUKE Stick's
 ;;  (OPTFM_NUKESTICK): the spell's, padded to six, and the staff's own icon,
 ;;  as FFR writes it.
@@ -3658,7 +3662,22 @@ rando_nameptr:
     LDA a:wNAMEB
     BNE :+
     JMP @rom
-:
+:   LDA a:wNAMEID
+    CMP #ITEM_MASMUNE
+    BNE @romname
+    ;  The Masmune, blursed: "Masa" and its sign and digit, Masa+1, Masa-2
+    ;  (user, 2026-10-17) -- seven letters and no icon, the general rule
+    ;  made it Masmu+1.
+    LDX #$0000
+  @masa:
+    LDA f:RANDOFAR + lut_MasaName, X
+    STA f:NAMEBUFFAR, X
+    INX
+    CPX #8
+    BCC @masa
+    LDX #$0005                  ; the digit's place, the sign's before it
+    JMP @place
+  @romname:
     LDX a:wNAMEPTR
     LDY #$0000
   @copy:

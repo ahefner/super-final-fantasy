@@ -7628,14 +7628,14 @@ def test_equipcursor():
 #  src/optmenu.asm has an OPTLABEL macro that fails the assembly instead, which
 #  is the better guard; this covers the rows that predate it.
 def test_rowlabels():
-    STRIDE, LBL, W, COUNT = 32, 2, 22, 66
+    STRIDE, LBL, W, COUNT = K["OPTROW_STRIDE"], 2, 22, K["OPTROW_COUNT"]
     at = SYM.get("lut_OptRows")
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
         return
     base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + at
     #  A value row with a wide readout gives its label fewer columns: the
-    #  field starts 1 << shift - 4 columns early.
+    #  field starts 1 << shift - 4 columns early, over the gap column first.
     shift = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValShift"]
     over = []
     for i in range(COUNT):
@@ -7644,7 +7644,10 @@ def test_rowlabels():
             break
         width = W
         if row[0] == 2:
-            width = W + 4 - (1 << ROMDATA[shift + row[1]])
+            #  The readout ends VALFIELD (4) past the gap column after the
+            #  label's 22, so a field of w columns covers the gap and the
+            #  label's last w - 5: 11 left beside a sixteen, 19 beside an eight.
+            width = min(W, W + 1 + 4 - (1 << ROMDATA[shift + row[1]]))
         spill = row[LBL + width: STRIDE]
         if any(b != 0xFF for b in spill):
             drawn = "".join(_decode(b) or "?" for b in row[LBL:LBL + W])
@@ -7770,7 +7773,8 @@ def source_consts():
     env = {}
     files = [os.path.join(ROOT, "game", "Constants.inc"),
              os.path.join(ROOT, "game", "variables.inc"),
-             os.path.join(ROOT, "src", "snesmap.inc")]
+             os.path.join(ROOT, "src", "snesmap.inc"),
+             os.path.join(ROOT, "src", "optmenu.inc")]
     for f in files:
         for line in open(f, encoding="latin-1"):
             #  Indented too: variables.inc indents the record offsets (en_*,
@@ -8970,7 +8974,7 @@ def optrow(label):
     way rather than by number, which every row added above them changed."""
     base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_OptRows"]
     for r in range(128):
-        raw = ROMDATA[base + r * 32 + 2:][:22]
+        raw = ROMDATA[base + r * K["OPTROW_STRIDE"] + 2:][:22]
         if "".join(_decode(b) or "?" for b in raw).strip() == label:
             return r
     raise KeyError(label)
@@ -9689,6 +9693,29 @@ def form_cache(bus):
     at = rw("RW_DOMAINS")
     return bytes(bus.wram[at:at + 1024])
 
+    #  The Masmune, blursed, is Masa: Masa+2, Masa-3 (user, 2026-10-17) --
+    #  written out here, not taken from randoref, which has the same rule.
+    MAS = 0x43 - 0x1C
+    seen = {}
+    for seed in range(1, 600):
+        b = R.build_gear(ROMDATA, seed, 5, 5)[1][MAS]
+        if b in (2, -3, 0) and b not in seen:
+            seen[b] = seed
+        if len(seen) == 3:
+            break
+    got = {}
+    for b, seed in seen.items():
+        bus, cpu = machine()
+        setgear(bus, seed, 5, 5)
+        warm(bus)
+        cpu.a, cpu.y = 0x43, 0x5A
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        p = (cpu.a & 0xFF) | cpu.x << 8
+        got[b] = bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(8))
+    text = lambda t: bytes({"+": 0xC1, "-": 0xC2, " ": 0xFF}.get(c, 0x80 + int(c)) if not c.isalpha()
+                           else (0x8A + ord(c) - 65 if c.isupper() else 0xA4 + ord(c) - 97) for c in t)
+    check("the Masmune: Masa+2, Masa-3, and Masmune unblursed",
+          (got[2], got[-3], got[0][:7]), (text("Masa+2 ") + b"\0", text("Masa-3 ") + b"\0", text("Masmune")))
 
 def test_rando_formations():
     vanilla = bytes(ROMDATA[DOMAINS_ROM:DOMAINS_ROM + 1024])
@@ -10564,7 +10591,8 @@ def test_saveview():
     optimg = (OPT & 0x1F) * 0x10000
 
     #  The rows, found by reading the table rather than taken from the asm.
-    rows = [ROMDATA[optimg + SYM["lut_OptRows"] + i * 32:][:32] for i in range(COUNT)]
+    ST = K["OPTROW_STRIDE"]
+    rows = [ROMDATA[optimg + SYM["lut_OptRows"] + i * ST:][:ST] for i in range(COUNT)]
     head = next(i for i, r in enumerate(rows) if r[0] == 0 and "RANDOMIZATION" in
                 "".join(_decode(b) or "?" for b in r[2:24]))
     first, top = head + 2, head - 1

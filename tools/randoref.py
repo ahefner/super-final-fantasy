@@ -397,6 +397,9 @@ def build_itemmagic(rom, seed, mode):
     return deal
 
 
+ITEM_MASMUNE = 0x43
+
+
 def blursed_name_bytes(rom, item, b):
     """The name's bytes as drawn: the last two before an icon made the sign
     and the digit, FFR's rule for the icon being a seventh byte above 200
@@ -405,7 +408,13 @@ def blursed_name_bytes(rom, item, b):
     p = bank + 0xB700 + item * 2
     at = bank + (rom[p] | rom[p + 1] << 8)
     name = bytearray(rom[at:at + 7])
-    if b:
+    if b and item == ITEM_MASMUNE:
+        #  "Masa" and the sign and digit after it: Masa+1, Masa-2 (user,
+        #  2026-10-17), where the rule below made the seven letters Masmu+1.
+        name = bytearray(b"\x96\xa4\xb6\xa4\xff\xff\xff")
+        name[5] = 0x80 + abs(b)
+        name[4] = 0xC1 if b > 0 else 0xC2
+    elif b:
         i = 5 if (name[6] > 200 and name[6] != 0xFF) else 6
         name[i] = 0x80 + abs(b)
         name[i - 1] = 0xC1 if b > 0 else 0xC2
