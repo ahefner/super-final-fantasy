@@ -2,10 +2,9 @@
 ;  owscreen.asm -- New Game's map edit screen (CHUNK_OWS).
 ;
 ;  Each of FFR's fourteen overworld edits a checkbox, and the world's minimap
-;  above or beside them as the boxes ticked would make it (user, 2026-10-18).
-;  A prototype, built in the four layouts the user is comparing
-;  (owslayout.inc): the minimap above a grid or beside a column, with or
-;  without a zoom of the selected edit.
+;  as the boxes ticked would make it (user, 2026-10-18), with a zoom of the
+;  selected edit.  Two layouts, on two branches (owslayout.inc): the minimap
+;  above a grid, or beside a column.
 ;
 ;  From rando_newgame when the Map edits row is not Off, which then writes
 ;  the row's flags into RANDO_OWEDITS.  The screen starts from the saved
@@ -14,19 +13,24 @@
 ;  row's.  START ends it, and RANDO_OWEDITS is what is ticked, but for the
 ;  three the logic cannot take yet (Sarda's Forest, the Cardia Land Bridge,
 ;  Ship in Drydock): those are on the screen to judge it whole, and preview,
-;  but New Game drops them.
+;  but New Game drops them.  The title's music plays on throughout.
+;
+;  The pad is read every frame and answered at once -- the hand moves, a box
+;  ticks, the description changes -- and the pictures follow as the frames
+;  allow (user: crisp and responsive).  Each frame draws at most a pixel row
+;  of the minimap and a map row of the zoom, from queues a press adds to.
 ;
 ;  The minimap is the world's, decoded here from the game's own RLE rows and
 ;  edited from world.asm's tables as ow_edit edits the game's, so it shows
-;  what the game will: two map rows a pixel row, each pixel the game's
-;  minimap colour for the four tiles (lut_OwsTiles, bank $09's).  A pixel row
-;  the selected edit writes is drawn with its pixels in the flashing colours,
-;  and rings mark each of its places.  It draws two pixel rows a frame, top
-;  to bottom, and a tick redraws only the rows its edit writes.
+;  what the game will.  A row decodes straight to the game's minimap colours
+;  (lut_OwsTiles, bank $09's), a run's colour looked up once, with bit 3 set
+;  on each tile the selected setting writes; a pixel ORs its four tiles'.
+;  The selection's pixels flash, and rings mark its places.
 ;
 ;  Like the credits and the roll screen it takes the PPU from the HAL and
-;  gives it back through hal_ppureclaim: mode 1, the minimap and the inset on
-;  BG1, the text on BG3 in the game's font, the rings as sprites.
+;  gives it back through hal_ppureclaim: mode 1, the minimap and the zoom on
+;  BG1, the text on BG3 in the game's font with the settings screen's
+;  checkboxes, the hand and the rings as sprites.
 ; ---------------------------------------------------------------------------
 .p816
 .a8
@@ -42,7 +46,7 @@
 ;  For tools/test_options.py.
 .export ows_testprow, ows_testinset, lut_OwsTiles
 
-.import UpdateJoy
+.import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_ppureclaim
 .import opt_savevalidfar
 .import lut_OweRow, lut_OweEnt
@@ -53,42 +57,63 @@
 .include "owscreen.inc"
 
 MENUCHR   = (CHUNK0 + BANK_MENUCHR) * $10000 + $8800    ; the font, tiles $80-$FF
+HANDCHR   = (CHUNK0 + BANK_BTLCHR) * $10000 + lut_BatObjCHR + ($F0 - $80) * 16
 OWMAP     = (CHUNK0 + BANK_OWMAP) * $10000             ; its $8000: the rows' pointers
 SAVEDOWE  = (CHUNK0 * $10000) + sram + (RANDO_OWEDITS - unsram)   ; the saved game's
 
 ;  VRAM, in words.
-VR_BG1CHR = $0000               ; the minimap's 256 characters, then the inset's 49
+VR_BG1CHR = $0000               ; the minimap's 256 characters, then the zoom's 49
 VR_BG3CHR = $2000               ; the font at its own numbers, the boxes at 1 and 2
 VR_BG1MAP = $3000
 VR_BG3MAP = $3400
-VR_OBJCHR = $4000
+VR_OBJCHR = $4000               ; the ring at 0, the hand at 2
 BG1_BLANK = 511                 ; a character nothing writes
+FRAME_CHR = 3                   ; BG3: the frame's eight, $F7-$FE in order
+FRAME_PAL = 2
 INSET_CHR = 256
+OBJ_RING  = 0
+OBJ_HAND  = 2
 
-;  Where things are, in BG cells, inside the 30x26 that a CRT shows.
+;  Where things are, in BG cells, inside the 30x26 a CRT shows.  A
+;  setting's line: the hand two cells before its box, the name straight
+;  after -- the hand over the minimap's edge, or over the end of a long
+;  name in the grid's left column, where the 30 run out (user: rather
+;  that than shorter names).  The zoom in the game's dialog box frame, a
+;  cell all round (user).
 .if OWS_SIDE
 MAP_COL   = 1
 MAP_ROW   = 1
-INSET_COL = 1
+INSET_COL = 2
 INSET_ROW = 18
-  .if OWS_INSET
-HINT_COL  = 10
-  .else
-HINT_COL  = 1
-  .endif
-HINT_ROW  = 19
+TITLE_COL = 11
+TITLE_ROW = 18
+DESC_COL  = 11
+DESC_ROW  = 20
+DESC_W    = OWS_DESCNARROW
+DESC_N    = 5
 .else
-MAP_COL   = 8
+MAP_COL   = 10
 MAP_ROW   = 1
-INSET_COL = 1
+INSET_COL = 2
 INSET_ROW = 5
-HINT_COL  = 24
-HINT_ROW  = 6
-.endif
-DESC_ROW  = 25
+TITLE_COL = 26
+TITLE_ROW = 6
 DESC_COL  = 1
+DESC_ROW  = 25
+DESC_W    = OWS_DESCWIDE
+DESC_N    = 2
+.endif
+NAME_W    = 13
 INSET_W   = 7                   ; cells
 INSET_PX  = INSET_W * 8
+.assert INSET_COL >= 2 && INSET_COL + INSET_W <= 30, error, "the zoom's frame inside the 30 columns"
+
+;  Work a frame, in units of about 2000 instructions: a pixel row of the
+;  minimap is three, a map row of the zoom two.  Four leaves the heaviest
+;  frame near three quarters of one.
+BUDGET    = 4
+COST_ROW  = 3
+COST_ZOOM = 2
 
 ;  The game's pad bits.
 PAD_A     = $80
@@ -106,32 +131,30 @@ V_HLMASK  = OWV+$04             ; 2: the selected setting's gates
 V_SEL     = OWV+$06             ; the selected setting, 0-13
 V_PREV    = OWV+$07             ; the pad last frame
 V_T       = OWV+$09             ; frames
-V_SITE    = OWV+$0A             ; which of its places the inset shows
-V_INSET   = OWV+$0B             ; nonzero: draw the inset
+V_SITE    = OWV+$0A             ; which of its places the zoom shows
+V_IACTIVE = OWV+$0B             ; nonzero: the zoom being drawn
 V_INSETD  = OWV+$0C             ; nonzero: send it
 V_NTD     = OWV+$0D             ; nonzero: send BG3's tilemap
 V_QUEUE   = OWV+$10             ; 16: pixel rows to draw, a bit each
 V_DIRTY   = OWV+$20             ; 2: character rows to send, a bit each
-V_V       = OWV+$22
 V_P0      = OWV+$23             ; ...$26: a character row's four planes
 V_COL     = OWV+$27
 V_TILE    = OWV+$28             ; 2
 V_X0      = OWV+$2A
 V_Y0      = OWV+$2B
-V_SCALE   = OWV+$2C
-V_SPAN    = OWV+$2D
-V_I       = OWV+$2E
-V_XJ      = OWV+$2F
+V_SCALE   = OWV+$2C             ; 2: 1 or 2, its high byte zero
+V_SPAN    = OWV+$2E
+V_IROW    = OWV+$2F             ; the zoom's next map row
 V_ROWNUM  = OWV+$30
 V_N       = OWV+$31
 V_T8      = OWV+$32
+V_XJ      = OWV+$33
 V_DST     = OWV+$34             ; 2
-V_END     = OWV+$36             ; 2
 V_EEND    = OWV+$38             ; 2
-V_GATE    = OWV+$3A             ; 2
 V_PROW    = OWV+$3C
 V_PAL     = OWV+$3D
-V_R       = OWV+$3F
+V_BUDGET  = OWV+$3E
+V_R       = OWV+$3F             ; the zoom's next pixel row
 V_VADDR   = OWV+$40             ; 2
 V_K       = OWV+$42
 .assert V_K < OWS_VARS + $100, error, "the screen's variables outgrow their page"
@@ -139,30 +162,20 @@ V_K       = OWV+$42
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
 aHLMASK   = .LOWORD(V_HLMASK)
-aV        = .LOWORD(V_V)
 aP0       = .LOWORD(V_P0)
 aCOL      = .LOWORD(V_COL)
 aTILE     = .LOWORD(V_TILE)
 aROWNUM   = .LOWORD(V_ROWNUM)
-aN        = .LOWORD(V_N)
 aT8       = .LOWORD(V_T8)
 aDST      = .LOWORD(V_DST)
-aEND      = .LOWORD(V_END)
 aEEND     = .LOWORD(V_EEND)
-aGATE     = .LOWORD(V_GATE)
 aXJ       = .LOWORD(V_XJ)
-aSPAN     = .LOWORD(V_SPAN)
 aSCALE    = .LOWORD(V_SCALE)
-aI        = .LOWORD(V_I)
 aR        = .LOWORD(V_R)
-aK        = .LOWORD(V_K)
 aROW      = .LOWORD(OWS_ROW)
 aROW1     = .LOWORD(OWS_ROW1)
-aHL       = .LOWORD(OWS_HL)
-aHL1      = .LOWORD(OWS_HL1)
 aCHR      = .LOWORD(OWS_CHR)
 aINSETCHR = .LOWORD(OWS_INSETCHR)
-.assert OWS_HL - OWS_ROW = $200 && OWS_HL1 - OWS_ROW1 = $200, error, "ows_decode: a row's flags $200 after it"
 
 .macro DB_RAM
     LDA #^OWSRAM
@@ -235,8 +248,9 @@ ows_choose:
     RTL
 
 
-;;  For the harness: ows_prow, pixel row A, and ows_inset, from emulation
-;;  mode by JSL, V_FLAGS, V_SEL and V_SITE as it set them.
+;;  For the harness: pixel row A of the minimap, and the whole zoom, as the
+;;  screen draws them, from emulation mode by JSL; V_FLAGS, V_SEL and V_SITE
+;;  as it set them.
 ows_testprow:
     PHB
     PHK
@@ -264,8 +278,16 @@ ows_testinset:
     SEP #$20
     .a8
     JSR ows_actives
+    LDA f:V_SITE                ; ows_select starts at the first place
+    PHA
     JSR ows_select
-    JSR ows_inset
+    PLA
+    STA f:V_SITE
+    JSR ows_insetstart
+  @slice:
+    JSR ows_insetrow
+    LDA f:V_IACTIVE
+    BNE @slice
 ows_testout:
     SEP #$30
     .i8
@@ -274,8 +296,8 @@ ows_testout:
     PLB
     RTL
 
-;;  The lists V_FLAGS applies, as owedits.py's active_lists.  A8 I16 in and
-;;  out.
+
+;;  The lists V_FLAGS applies, as owedits.py's active_lists.
     .a8
     .i16
 ows_actives:
@@ -296,8 +318,7 @@ ows_actives:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Setup: in forced blank, VRAM, CGRAM, OAM and the registers; the text
-;;  drawn, the minimap queued, the display on.  Native, A8 I16, DBR this
-;;  chunk.
+;;  drawn, the minimap queued, the display on.  A8 I16, DBR this chunk.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -307,7 +328,7 @@ ows_setup:
     LDA #$80
     STA a:INIDISP
     STZ a:HDMAEN
-    ;  VRAM all zero: every character blank, every map entry character 0.
+    ;  VRAM all zero: every character blank.
     LDA #$80
     STA a:VMAIN
     REP #$20
@@ -326,9 +347,8 @@ ows_setup:
     STA a:BBAD0
     LDA #$01
     STA a:MDMAEN
-    ;  The font: NES CHR, a plane then the other, its glyphs colour 3 on 2.
-    ;  As SNES 2bpp, a row's two planes a word: the glyph colour 1, the rest
-    ;  0 and so clear, whatever is behind it.
+    ;  The font: NES CHR, its glyphs colour 3 on 2.  As SNES 2bpp, a row's
+    ;  planes a word: the glyph colour 1, the rest 0, so clear.
     REP #$20
     .a16
     LDA #VR_BG3CHR + $80 * 8
@@ -371,63 +391,37 @@ ows_setup:
     BCC @box
     SEP #$20
     .a8
-    JSR ows_ringchr             ; the ring, OBJ characters 0, 1, 16 and 17
+    ;  The dialog box frame, characters 3-10: the font's $F7-$FE, all four
+    ;  colours, as DrawBox draws them.
     REP #$20
     .a16
-    ;  BG1's map: blank everywhere but the minimap's 16x16 and the inset's.
-    REP #$20
-    .a16
-    LDA #VR_BG1MAP
+    LDA #VR_BG3CHR + FRAME_CHR * 8
     STA a:VMADDL
-    LDX #$0000
-  @bg1:
-    LDA #BG1_BLANK
-    STA a:VMDATAL
-    INX
-    CPX #32 * 32
-    BCC @bg1
-    LDY #$0000                  ; the minimap's cell, 0-255
-  @mmrow:
-    TYA
-    AND #$00F0
-    ASL A                       ; its row, times 32
-    CLC
-    ADC #VR_BG1MAP + MAP_ROW * 32 + MAP_COL
-    STA a:VMADDL
-    LDX #16
-  @mmcell:
-    TYA
-    ORA #$0800                  ; palette 2
-    STA a:VMDATAL
-    INY
-    DEX
-    BNE @mmcell
-    CPY #256
-    BCC @mmrow
-.if OWS_INSET
-    LDY #$0000                  ; the inset's cell, 0-48
-    LDA #VR_BG1MAP + INSET_ROW * 32 + INSET_COL
-    STA f:V_VADDR
-  @inrow:
-    LDA f:V_VADDR
-    STA a:VMADDL
-    CLC
-    ADC #32
-    STA f:V_VADDR
-    LDX #INSET_W
-  @incell:
-    TYA
-    CLC
-    ADC #INSET_CHR | $0800
-    STA a:VMDATAL
-    INY
-    DEX
-    BNE @incell
-    CPY #INSET_W * INSET_W
-    BCC @inrow
-.endif
     SEP #$20
     .a8
+    LDX #($F7 - $80) * 16
+  @frame:
+    LDY #8
+  @framerow:
+    LDA f:MENUCHR, X
+    STA a:VMDATAL
+    LDA f:MENUCHR + 8, X
+    STA a:VMDATAH
+    INX
+    DEY
+    BNE @framerow
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #8
+    TAX
+    SEP #$20
+    .a8
+    CPX #($FE - $80 + 1) * 16
+    BCC @frame
+    JSR ows_objchr
+    JSR ows_bg1map
     ;  CGRAM.
     STZ a:CGADD
     LDX #$0000
@@ -444,9 +438,9 @@ ows_setup:
     LDA f:OWSFAR + lut_OwsObjPal, X
     STA a:CGDATA
     INX
-    CPX #8
+    CPX #lut_OwsObjPalEnd - lut_OwsObjPal
     BCC @objpal
-    ;  OAM: every sprite below the picture; the first four large.
+    ;  OAM: every sprite below the picture; the hand and four rings large.
     STZ a:OAMADDL
     STZ a:OAMADDH
     LDX #$0000
@@ -463,7 +457,9 @@ ows_setup:
     BCC @oam
     LDA #$AA                    ; sprites 0-3 large
     STA a:OAMDATA
-    LDX #$0001
+    LDA #$02                    ; and 4
+    STA a:OAMDATA
+    LDX #$0002
   @oamhi:
     STZ a:OAMDATA
     INX
@@ -506,13 +502,13 @@ ows_setup:
     ;  The state: the first setting selected, the whole minimap to draw.
     LDA #0
     STA f:V_SEL
-    STA f:V_SITE
     STA f:V_T
     STA f:V_INSETD
     REP #$20
     .a16
     LDA #0
     STA f:V_DIRTY
+    STA f:V_SCALE               ; its high byte stays zero
     LDA #$FFFF
     LDX #14
   @q:
@@ -520,15 +516,6 @@ ows_setup:
     DEX
     DEX
     BPL @q
-    SEP #$20
-    .a8
-    JSR ows_actives
-    JSR ows_select              ; V_HLMASK, the inset asked for
-    LDA #$FF
-    STA f:V_PREV                ; nothing counts as pressed until let go
-    ;  BG3's tilemap: blank, then every line.
-    REP #$20
-    .a16
     LDA #0
     LDX #0
   @nt:
@@ -539,73 +526,159 @@ ows_setup:
     BCC @nt
     SEP #$20
     .a8
+    JSR ows_actives
+    JSR ows_select              ; V_HLMASK; the zoom started
+    LDA #$FF
+    STA f:V_PREV                ; nothing counts as pressed until let go
     JSR ows_drawall
-    JSR ows_vblank              ; the tilemap out, in forced blank
+    JSR ows_vblank              ; the tilemap and the hand out, in forced blank
     LDA #$0F
     STA a:INIDISP
     RTS
 
-;;  The ring's four characters.  A8 I16.
+;;  The ring and the hand, OBJ characters 0, 1, 16, 17 and 2, 3, 18, 19: the
+;;  ring from lut_OwsRingChr, 4bpp; the hand the game's (battle object CHR
+;;  $F0-$F3, which DrawCursor draws), NES 2bpp as planes 0 and 1.  A8 I16.
     .a8
     .i16
-ows_ringchr:
+ows_objchr:
     LDY #$0000
   @tile:
     REP #$20
     .a16
     TYA
-    AND #$0002                  ; the second pair is 16 characters on
+    TAX
+    LDA f:OWSFAR + lut_OwsObjCell, X
+    AND #$00FF
     ASL A
     ASL A
     ASL A
     ASL A
-    ASL A
-    ASL A
-    ASL A                       ; x 128 words... (16 characters x 8)
-    STA f:V_VADDR
-    TYA
-    AND #$0001
-    ASL A
-    ASL A
-    ASL A
-    ASL A                       ; x 16 words, a character
     CLC
-    ADC f:V_VADDR
     ADC #VR_OBJCHR
     STA a:VMADDL
     TYA
+    CMP #4
+    BCS @hand
     ASL A
     ASL A
     ASL A
     ASL A
-    ASL A                       ; its 32 bytes
-    TAX
-    SEP #$20
-    .a8
+    ASL A
+    TAX                         ; the ring's 32 bytes
     LDA #16
     STA f:V_K
-  @word:
-    REP #$20
-    .a16
+  @ring:
     LDA f:OWSFAR + lut_OwsRingChr, X
     STA a:VMDATAL
     INX
     INX
-    SEP #$20
-    .a8
     LDA f:V_K
     DEC A
     STA f:V_K
-    BNE @word
+    BNE @ring
+    BRA @next
+  @hand:
+    SEC
+    SBC #4
+    ASL A
+    ASL A
+    ASL A
+    ASL A                       ; the hand's 16 NES bytes
+    TAX
+    LDA #8
+    STA f:V_K
+  @handrow:
+    SEP #$20
+    .a8
+    LDA f:HANDCHR, X
+    STA a:VMDATAL
+    LDA f:HANDCHR + 8, X
+    STA a:VMDATAH
+    REP #$20
+    .a16
+    INX
+    LDA f:V_K
+    DEC A
+    STA f:V_K
+    BNE @handrow
+    LDX #8
+  @zero:
+    STZ a:VMDATAL
+    DEX
+    BNE @zero
+  @next:
+    SEP #$20
+    .a8
     INY
-    CPY #4
+    CPY #8
     BCC @tile
+    RTS
+
+;;  BG1's map: blank everywhere but the minimap's 16x16 and the zoom's 7x7.
+;;  A8 I16.
+    .a8
+    .i16
+ows_bg1map:
+    REP #$20
+    .a16
+    LDA #VR_BG1MAP
+    STA a:VMADDL
+    LDX #$0000
+  @bg1:
+    LDA #BG1_BLANK
+    STA a:VMDATAL
+    INX
+    CPX #32 * 32
+    BCC @bg1
+    LDY #$0000                  ; the minimap's cell, 0-255
+  @mmrow:
+    TYA
+    AND #$00F0
+    ASL A                       ; its row, times 32
+    CLC
+    ADC #VR_BG1MAP + MAP_ROW * 32 + MAP_COL
+    STA a:VMADDL
+    LDX #16
+  @mmcell:
+    TYA
+    ORA #$0800                  ; palette 2
+    STA a:VMDATAL
+    INY
+    DEX
+    BNE @mmcell
+    CPY #256
+    BCC @mmrow
+.if OWS_INSET
+    LDY #$0000                  ; the zoom's cell, 0-48
+    LDA #VR_BG1MAP + INSET_ROW * 32 + INSET_COL
+    STA f:V_VADDR
+  @inrow:
+    LDA f:V_VADDR
+    STA a:VMADDL
+    CLC
+    ADC #32
+    STA f:V_VADDR
+    LDX #INSET_W
+  @incell:
+    TYA
+    CLC
+    ADC #INSET_CHR | $0800
+    STA a:VMDATAL
+    INY
+    DEX
+    BNE @incell
+    CPY #INSET_W * INSET_W
+    BCC @inrow
+.endif
+    SEP #$20
+    .a8
     RTS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The loop: a frame, its vblank's transfers, the pad, and then as much
-;;  drawing as a frame holds.  Out when START is pressed.  A8 I16.
+;;  The loop: a frame, its vblank's transfers, the pad, then this frame's
+;;  share of the drawing.  Out when START is pressed.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -624,8 +697,9 @@ ows_loop:
   @done:
     RTS
 
-;;  The game's pad reader, then the top of the next vblank: both game code in
-;;  emulation mode.  A8 I16 in and out.
+;;  The title's music on, the game's pad reader, then the top of the next
+;;  vblank: all game code in emulation mode.  cur_bank is where
+;;  CallMusicPlay swaps back to.  A8 I16 in and out.
     .a8
     .i16
 ows_wait:
@@ -633,6 +707,9 @@ ows_wait:
     .i8
     SEC
     XCE
+    LDA #CHUNK_OWS
+    STA cur_bank
+    JSR CallMusicPlay
     JSR UpdateJoy
     JSL hal_vblaudio + HALFAR
     CLC
@@ -641,13 +718,12 @@ ows_wait:
     .i16
     RTS
 
-;;  The vblank's work: the flash, the tilemap, the inset, character rows of
-;;  the minimap as many as fit, the rings.  A8 I16, DBR this chunk.
+;;  The vblank's work: the flash, the tilemap, the zoom or two character rows
+;;  of the minimap, the hand and the rings.  A8 I16, DBR this chunk.
     .a8
     .i16
 ows_vblank:
-    ;  The selected edit's pixels flash, sixteen frames each way.
-    LDA #40
+    LDA #40                     ; the selection's pixels flash, sixteen frames each way
     STA a:CGADD
     LDX #$0000
     LDA f:V_T
@@ -689,7 +765,7 @@ ows_vblank:
     SEP #$20
     .a8
     JSR ows_dma
-    BRA @rings                  ; that is the vblank's worth
+    BRA @sprites                ; that is the vblank's worth
 .endif
   @rows:
     LDA #2
@@ -716,12 +792,10 @@ ows_vblank:
   @rowsdone:
     SEP #$20
     .a8
-  @rings:
-    JSR ows_rings
-    RTS
+  @sprites:
+    JMP ows_sprites
 
-;;  Character row X of the minimap to VRAM, and its dirty bit cleared.  A8
-;;  I16.
+;;  Character row X of the minimap to VRAM, its dirty bit cleared.  A8 I16.
     .a8
     .i16
 ows_sendrow:
@@ -751,8 +825,7 @@ ows_sendrow:
     .a8
     JMP ows_dma
 
-;;  X bytes at bank $7F's Y... rather: Y bytes from bank $7F's X, to VRAM
-;;  V_VADDR.  A8 I16.
+;;  Y bytes from bank $7F's X to VRAM V_VADDR.  A8 I16.
     .a8
     .i16
 ows_dma:
@@ -776,27 +849,62 @@ ows_dma:
     STA a:MDMAEN
     RTS
 
-;;  The selected edit's places ringed, blinking.  A8 I16.
+;;  OAM: the hand at the selected line, two cells before its box, as the
+;;  settings screen has it; then the selection's places ringed, blinking.
+;;  A8 I16.
     .a8
     .i16
-ows_rings:
+ows_sprites:
     STZ a:OAMADDL
     STZ a:OAMADDH
     LDA f:V_SEL
     REP #$20
     .a16
     AND #$00FF
-    TAX                         ; the setting
+    ASL A
+    TAX
+    LDA f:OWSFAR + lut_OwsCell, X   ; the box's tilemap byte: (row * 32 + col) * 2
+    LSR A
+    PHA
+    SEP #$20
+    .a8
+    AND #31                     ; its column
+    ASL A
+    ASL A
+    ASL A
+    SEC
+    SBC #16
+    STA a:OAMDATA               ; x: two cells before the box
+    REP #$20
+    .a16
+    PLA
+    LSR A
+    LSR A
+    AND #$FFF8                  ; its row, times eight
+    SEP #$20
+    .a8
+    DEC A
+    STA a:OAMDATA               ; y: the line's top, less one
+    LDA #OBJ_HAND
+    STA a:OAMDATA
+    LDA #$32                    ; above everything, palette 1
+    STA a:OAMDATA
+    ;  The rings.
+    LDA f:V_SEL
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
     SEP #$20
     .a8
     LDA f:OWSFAR + lut_OwsSiteN, X
-    STA f:V_N                   ; its places
+    STA f:V_N
     REP #$20
     .a16
     TXA
     ASL A
     ASL A
-    TAX                         ; its first
+    TAX                         ; its first place
     SEP #$20
     .a8
     LDA #0
@@ -825,8 +933,8 @@ ows_rings:
     LDA #224
     STA a:OAMDATA
   @tile:
-    LDA #0
-    STA a:OAMDATA               ; character 0
+    LDA #OBJ_RING
+    STA a:OAMDATA
     LDA #$30                    ; above everything, palette 0
     STA a:OAMDATA
     INX
@@ -839,7 +947,8 @@ ows_rings:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The pad.  C set when START ends the screen.  A8 I16.
+;;  The pad, answered at once: the text and the hand this frame, the
+;;  pictures queued.  C set when START ends the screen.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -869,15 +978,13 @@ ows_input:
     BEQ @out
     PHA
     LDA f:V_SEL
-    JSR ows_queuerows           ; its highlight off...
+    JSR ows_queuerows           ; its flashing off...
     PLA
     STA f:V_SEL
-    LDA #0
-    STA f:V_SITE
     JSR ows_select              ; ...and the new one's on
     LDA f:V_SEL
     JSR ows_queuerows
-    JSR ows_drawall
+    JSR ows_desc
   @out:
     CLC
     RTS
@@ -947,7 +1054,8 @@ ows_dir:
 :   RTS
 .endif
 
-;;  A ticks or unticks the selected box; its rows drawn again.  A8 I16.
+;;  A ticks or unticks the selected box: the box at once, its rows queued,
+;;  the zoom again.  A8 I16.
     .a8
     .i16
 ows_toggle:
@@ -964,6 +1072,9 @@ ows_toggle:
     .a8
     JSR ows_actives
     LDA f:V_SEL
+    STA f:V_K
+    JSR ows_item
+    LDA f:V_SEL
     JSR ows_queuerows
     ;  The land bridge decides which of Bahamut's docks there is.
     LDA f:V_SEL
@@ -971,9 +1082,7 @@ ows_toggle:
     BNE :+
     LDA #OWEDIT_BAHAMUTDOCK_BIT
     JSR ows_queuerows
-:   LDA #1
-    STA f:V_INSET
-    JMP ows_drawall
+:   JMP ows_insetstart
 
 OWEDIT_CARDIABRIDGE_BIT = 12
 OWEDIT_BAHAMUTDOCK_BIT  = 4
@@ -1008,8 +1117,8 @@ ows_queuerows:
     BCC @b
     RTS
 
-;;  The selection's gates for the highlight, and its inset asked for.  A8
-;;  I16.
+;;  The selection's gates for the flashing, its first place for the zoom.
+;;  A8 I16.
     .a8
     .i16
 ows_select:
@@ -1023,24 +1132,26 @@ ows_select:
     STA f:V_HLMASK
     SEP #$20
     .a8
-    LDA #1
-    STA f:V_INSET
-    RTS
+    LDA #0
+    STA f:V_SITE
+    JMP ows_insetstart
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The frame's drawing: the inset when asked, else two queued pixel rows;
-;;  and the inset's places taken in turn.  A8 I16.
+;;  The frame's drawing, BUDGET units of it: the zoom's map rows first, a
+;;  unit each, then the minimap's queued pixel rows, two each.  And a setting
+;;  with more than one place shows each in turn.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
     .i16
 ows_work:
+    LDA #BUDGET
+    STA f:V_BUDGET
 .if OWS_INSET
-    ;  A setting with more than one place shows each in turn.
     LDA f:V_T
     AND #$7F
-    BNE @asked
+    BNE @zoom
     LDA f:V_SEL
     REP #$20
     .a16
@@ -1050,7 +1161,7 @@ ows_work:
     .a8
     LDA f:OWSFAR + lut_OwsSiteN, X
     CMP #2
-    BCC @asked
+    BCC @zoom
     STA f:V_K
     LDA f:V_SITE
     INC A
@@ -1058,22 +1169,26 @@ ows_work:
     BCC :+
     LDA #0
 :   STA f:V_SITE
-    LDA #1
-    STA f:V_INSET
-  @asked:
-    LDA f:V_INSET
+    JSR ows_insetstart
+  @zoom:
+    LDA f:V_IACTIVE
     BEQ @rows
-    LDA #0
-    STA f:V_INSET
-    JSR ows_inset
-    LDA #1
-    STA f:V_INSETD
+    LDA f:V_BUDGET
+    CMP #COST_ZOOM
+    BCS :+
     RTS
+:   SBC #COST_ZOOM
+    STA f:V_BUDGET
+    JSR ows_insetrow
+    BRA @zoom
 .endif
   @rows:
-    LDA #2
-    STA f:V_K
-  @next:
+    LDA f:V_BUDGET
+    CMP #COST_ROW
+    BCS :+
+    RTS
+:   SBC #COST_ROW
+    STA f:V_BUDGET
     LDX #$0000
   @byte:
     LDA f:V_QUEUE, X
@@ -1112,7 +1227,7 @@ ows_work:
     TYA
     ORA f:V_PROW
     JSR ows_prow
-    LDA f:V_PROW                ; its character row: the pixel row's top four bits
+    LDA f:V_PROW
     LSR A
     LSR A
     LSR A
@@ -1126,17 +1241,14 @@ ows_work:
     STA f:V_DIRTY
     SEP #$20
     .a8
-    LDA f:V_K
-    DEC A
-    STA f:V_K
-    BNE @next
-    RTS
+    BRA @rows
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  ows_decode -- map row A, from the game's RLE rows, into the 256 bytes at
-;;  bank $7F's X, edited by V_ACTIVE's lists; and at X + $200 a nonzero byte
-;;  for each tile a list of V_HLMASK's writes, applied or not.  A8 I16.
+;;  bank $7F's X as minimap colours (lut_OwsTiles), edited by V_ACTIVE's
+;;  lists, with bit 3 set on each tile a list of V_HLMASK's writes, applied
+;;  or not.  A run's colour is looked up once.  A8 I16; out with B zero.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1150,10 +1262,6 @@ ows_decode:
     STX a:aDST
     REP #$20
     .a16
-    TXA
-    CLC
-    ADC #256
-    STA a:aEND
     LDA a:aROWNUM
     AND #$00FF
     ASL A
@@ -1161,44 +1269,51 @@ ows_decode:
     LDA f:OWMAP + $8000, X      ; the row's pointer, an address in the bank
     TAX
     LDY a:aDST
+    LDA #0                      ; B zero, for TAX below
     SEP #$20
     .a8
   @next:
-    CPY a:aEND
-    BCS @flags
     LDA f:OWMAP, X
     INX
     CMP #$80
     BCC @single
     CMP #$FF
-    BEQ @flags
+    BEQ @edits
     AND #$7F
-    STA a:aT8
-    LDA f:OWMAP, X              ; the run's length, 0 for 256
+    PHX
+    TAX
+    LDA f:OWSFAR + lut_OwsTiles, X
+    STA a:aT8                   ; the run's colour
+    PLX
+    LDA f:OWMAP, X              ; its length, 0 for 256
     INX
-    STA a:aN
-  @run:
+    PHX
+    REP #$20
+    .a16
+    AND #$00FF
+    BNE :+
+    LDA #256
+:   TAX
+    LDA #0
+    SEP #$20
+    .a8
     LDA a:aT8
+  @fill:
     STA a:0, Y
     INY
-    CPY a:aEND
-    BCS @flags
-    DEC a:aN
-    BNE @run
+    DEX
+    BNE @fill
+    PLX
     BRA @next
   @single:
+    PHX
+    TAX
+    LDA f:OWSFAR + lut_OwsTiles, X
+    PLX
     STA a:0, Y
     INY
     BRA @next
-  @flags:
-    LDY a:aDST
-    LDA #0
-  @clr:
-    STA a:$200, Y
-    INY
-    CPY a:aEND
-    BCC @clr
-    ;  The row's edits.
+  @edits:
     REP #$20
     .a16
     LDA a:aROWNUM
@@ -1212,30 +1327,38 @@ ows_decode:
   @ent:
     CPX a:aEEND
     BCS @done
-    LDA f:WORLDFAR + lut_OweEnt, X
-    STA a:aGATE
-    LDA f:WORLDFAR + lut_OweEnt + 2, X  ; its x
+    LDA f:WORLDFAR + lut_OweEnt + 2, X  ; its x...
     AND #$00FF
     CLC
     ADC a:aDST
     TAY
-    LDA a:aGATE
+    LDA f:WORLDFAR + lut_OweEnt, X      ; ...and its gate
     AND a:aACTIVE
-    BEQ @hl
+    BEQ @mark
+    ;  Applied: the tile's colour, the mark kept.
+    LDA f:WORLDFAR + lut_OweEnt + 2, X
+    XBA
+    AND #$00FF
+    PHX
+    TAX
     SEP #$20
     .a8
-    LDA f:WORLDFAR + lut_OweEnt + 3, X  ; its tile
+    LDA a:0, Y
+    AND #8
+    ORA f:OWSFAR + lut_OwsTiles, X
     STA a:0, Y
     REP #$20
     .a16
-  @hl:
-    LDA a:aGATE
+    PLX
+  @mark:
+    LDA f:WORLDFAR + lut_OweEnt, X
     AND a:aHLMASK
     BEQ @nx
     SEP #$20
     .a8
-    LDA #1
-    STA a:$200, Y
+    LDA a:0, Y
+    ORA #8
+    STA a:0, Y
     REP #$20
     .a16
   @nx:
@@ -1245,29 +1368,17 @@ ows_decode:
     TAX
     BRA @ent
   @done:
+    LDA #0
     SEP #$20
     .a8
     PLB
     RTS
 
 
-;;  A tile's colour into A: lut_OwsTiles' two bits, a marker 4 for the
-;;  marker bit; nothing touches B, which is zero.  In: A the four tiles' ORed
-;;  table bytes.  A8.
-.macro COLOUR
-    BIT #4
-    BEQ :+
-    LDA #4
-    BRA :++
-:   AND #3
-:
-.endmacro
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  ows_prow -- the minimap's pixel row A into OWS_CHR: map rows 2A and
-;;  2A + 1, a pixel the four tiles' colour, plus 8 where the selected edit
-;;  writes one of them.  A8 I16.
+;;  2A + 1, a pixel its four tiles' colours ORed, through lut_OwsCol16.  A8
+;;  I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1307,34 +1418,11 @@ ows_prow:
     STA a:aCOL
   @px:
     LDA a:aROW, Y
+    ORA a:aROW + 1, Y
+    ORA a:aROW1, Y
+    ORA a:aROW1 + 1, Y
     TAX
-    LDA f:OWSFAR + lut_OwsTiles, X
-    STA a:aV
-    LDA a:aROW + 1, Y
-    TAX
-    LDA f:OWSFAR + lut_OwsTiles, X
-    ORA a:aV
-    STA a:aV
-    LDA a:aROW1, Y
-    TAX
-    LDA f:OWSFAR + lut_OwsTiles, X
-    ORA a:aV
-    STA a:aV
-    LDA a:aROW1 + 1, Y
-    TAX
-    LDA f:OWSFAR + lut_OwsTiles, X
-    ORA a:aV
-    COLOUR
-    STA a:aV
-    LDA a:aHL, Y
-    ORA a:aHL + 1, Y
-    ORA a:aHL1, Y
-    ORA a:aHL1 + 1, Y
-    BEQ :+
-    LDA a:aV
-    ORA #8
-    STA a:aV
-:   LDA a:aV
+    LDA f:OWSFAR + lut_OwsCol16, X
     LSR A
     ROL a:aP0
     LSR A
@@ -1370,14 +1458,18 @@ ows_prow:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  ows_inset -- the selected edit's place V_SITE, around its middle: 28
+;;  The zoom: the selected setting's place V_SITE, around its middle, 28
 ;;  tiles across at two pixels a tile, or 56 at one where the place is wider
-;;  than 28.  A8 I16.
+;;  than 28.  ows_insetstart begins it; ows_insetrow draws a map row of it,
+;;  and when the last is drawn asks for it to be sent.  The zoom on screen
+;;  is the last one finished.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
     .i16
-ows_inset:
+ows_insetstart:
+    ;  (Worked out without the zoom too, which only the drawing and the
+    ;  sending of it need; so the harness can draw one in any layout.)
     LDA f:V_SEL
     ASL A
     ASL A
@@ -1411,22 +1503,23 @@ ows_inset:
     SBC f:V_K
     STA f:V_Y0
     LDA #0
-    STA f:V_I                   ; the map row of the span
-    STA f:V_R                   ; the inset's pixel row
-  @row:
+    STA f:V_IROW
+    STA f:V_R
+    LDA #1
+    STA f:V_IACTIVE
+    RTS
+
+    .a8
+    .i16
+ows_insetrow:
     LDA f:V_Y0
     CLC
-    ADC f:V_I
+    ADC f:V_IROW
     LDX #.LOWORD(OWS_ROW)
-    JSR ows_decode
+    JSR ows_decode              ; out with B zero
     PHB
     DB_RAM
     ;  The line: each tile's colour, V_SCALE times, into OWS_ROW1.
-    REP #$20
-    .a16
-    LDA #0
-    SEP #$20
-    .a8
     LDA f:V_X0
     STA a:aXJ
     LDY #$0000
@@ -1434,30 +1527,20 @@ ows_inset:
     LDA a:aXJ
     TAX
     LDA a:aROW, X
-    PHX
+    AND #$0F
     TAX
-    LDA f:OWSFAR + lut_OwsTiles, X
-    PLX
-    COLOUR
-    STA a:aV
-    LDA a:aHL, X
-    BEQ :+
-    LDA a:aV
-    ORA #8
-    STA a:aV
-:   LDA a:aV
+    LDA f:OWSFAR + lut_OwsCol16, X
     STA a:aROW1, Y
     INY
-    LDA a:aSCALE
-    CMP #2
-    BNE :+
-    LDA a:aV
+    LDX a:aSCALE                ; 1 or 2, its high byte zero
+    CPX #2
+    BCC :+
     STA a:aROW1, Y
     INY
 :   INC a:aXJ
     CPY #INSET_PX
     BCC @tile
-    ;  ...packed into the inset's characters at pixel row V_R, twice at two.
+    ;  ...packed into the zoom's characters at pixel row V_R, twice at two.
     JSR ows_packline
     LDA a:aSCALE
     CMP #2
@@ -1466,15 +1549,18 @@ ows_inset:
     JSR ows_packline
 :   INC a:aR
     PLB
-    LDA f:V_I
+    LDA f:V_IROW
     INC A
-    STA f:V_I
+    STA f:V_IROW
     CMP f:V_SPAN
-    BCS :+
-    JMP @row
+    BCC :+
+    LDA #0
+    STA f:V_IACTIVE
+    LDA #1
+    STA f:V_INSETD
 :   RTS
 
-;;  OWS_ROW1's 56 colours into the inset's pixel row V_R.  DBR $7F, A8 I16,
+;;  OWS_ROW1's 56 colours into the zoom's pixel row V_R.  DBR $7F, A8 I16,
 ;;  B zero.
     .a8
     .i16
@@ -1484,7 +1570,6 @@ ows_packline:
     LSR A
     LSR A
     LSR A
-    STA a:aK
     REP #$20
     .a16
     AND #$00FF
@@ -1547,8 +1632,9 @@ ows_packline:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The text, into BG3's tilemap in WRAM: the fourteen, the selected one's
-;;  description, the hints.  Sent next vblank.  A8 I16.
+;;  The text, into BG3's tilemap in WRAM, sent next vblank: every line and
+;;  the title at the start, then only what a press changes -- a line's box,
+;;  or the description.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1563,65 +1649,149 @@ ows_drawall:
     STA f:V_K
     CMP #OWS_SETTINGS
     BCC @item
-    ;  The description: two lines of the selected one's.
-    LDA f:V_SEL
-    REP #$20
-    .a16
-    AND #$00FF
-    STA f:V_VADDR
-    ASL A
-    ASL A
-    ASL A
-    ASL A                       ; x 60: x 64 less x 4
-    ASL A
-    ASL A
-    STA f:V_DST
-    LDA f:V_VADDR
-    ASL A
-    ASL A
-    EOR #$FFFF
-    SEC
-    ADC f:V_DST
-    CLC
-    ADC #.LOWORD(lut_OwsDesc)
-    TAX                         ; the string
-    LDY #(DESC_ROW * 32 + DESC_COL) * 2
-    SEP #$20
-    .a8
     LDA #0
     STA f:V_PAL
-    LDA #30
+    LDX #.LOWORD(lut_OwsTitle)
+    LDY #(TITLE_ROW * 32 + TITLE_COL) * 2
+.if OWS_SIDE
+    LDA #9                      ; "MAP EDITS", a line
     JSR ows_text
+.else
+    LDA #3                      ; "MAP", then "EDITS" under it
+    JSR ows_text
+    INX                         ; past the space
+    LDY #((TITLE_ROW + 1) * 32 + TITLE_COL) * 2
+    LDA #5
+    JSR ows_text
+.endif
+.if OWS_INSET
+    JSR ows_frame
+.endif
+    JMP ows_desc
+
+;;  The zoom's frame, round its 7x7 cells, in the game's dialog box tiles.
+;;  A8 I16.
+    .a8
+    .i16
+ows_frame:
+    LDA #FRAME_PAL
+    STA f:V_PAL
+    LDY #((INSET_ROW - 1) * 32 + INSET_COL - 1) * 2
+    LDA #FRAME_CHR + 0          ; the top: its corner, edge and corner
+    JSR @line
+    LDA #INSET_W
+    STA f:V_K
+  @side:
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #64 - (INSET_W + 2) * 2
+    TAY
+    SEP #$20
+    .a8
+    TYX
+    LDA #FRAME_CHR + 3          ; the left...
+    JSR ows_putch
     REP #$20
     .a16
     TXA
-    LDY #((DESC_ROW + 1) * 32 + DESC_COL) * 2
+    CLC
+    ADC #INSET_W * 2
+    TAX
     SEP #$20
     .a8
-    LDA #30
+    LDA #FRAME_CHR + 4          ; ...and the right
+    JSR ows_putch
+    TXY
+    LDA f:V_K
+    DEC A
+    STA f:V_K
+    BNE @side
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #64 - (INSET_W + 2) * 2
+    TAY
+    SEP #$20
+    .a8
+    LDA #FRAME_CHR + 5          ; the bottom
+  @line:
+    ;  A three-character line from Y: A, then A + 1 across, then A + 2.
+    PHA
+    TYX
+    JSR ows_putch
+    PLA
+    INC A
+    PHA
+    LDA #INSET_W
+    STA f:V_N
+  @mid:
+    LDA 1, S
+    JSR ows_putch
+    LDA f:V_N
+    DEC A
+    STA f:V_N
+    BNE @mid
+    PLA
+    INC A
+    JSR ows_putch
+    TXY
+    RTS
+
+;;  The selected setting's description.  A8 I16.
+    .a8
+    .i16
+ows_desc:
+    LDA #0
+    STA f:V_PAL
+    LDA f:V_SEL
+    STA f:V_K
+    REP #$20
+    .a16
+    LDA #.LOWORD(lut_OwsDesc)
+  @find:
+    TAX
+    SEP #$20
+    .a8
+    LDA f:V_K
+    BEQ @have
+    DEC A
+    STA f:V_K
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #DESC_W * DESC_N
+    BRA @find
+  @have:
+    .a8                         ; (the loop above leaves the assembler at 16)
+    LDY #(DESC_ROW * 32 + DESC_COL) * 2
+    LDA #DESC_N
+    STA f:V_K
+  @line:
+    PHY
+    LDA #DESC_W
     JSR ows_text
-    ;  The hints.
-    LDX #.LOWORD(lut_OwsHint)
-    LDY #(HINT_ROW * 32 + HINT_COL) * 2
-    LDA #7
-    JSR ows_text
-    LDY #((HINT_ROW + 1) * 32 + HINT_COL) * 2
-    LDA #7
-    JSR ows_text
-    LDY #((HINT_ROW + 3) * 32 + HINT_COL) * 2
-    LDA #7
-    JSR ows_text
-    LDY #((HINT_ROW + 4) * 32 + HINT_COL) * 2
-    LDA #7
-    JSR ows_text
-    LDY #((HINT_ROW + 5) * 32 + HINT_COL) * 2
-    LDA #7
-    JSR ows_text
+    REP #$20
+    .a16
+    PLA
+    CLC
+    ADC #64
+    TAY
+    SEP #$20
+    .a8
+    LDA f:V_K
+    DEC A
+    STA f:V_K
+    BNE @line
     LDA #1
     STA f:V_NTD
     RTS
 
-;;  Setting V_K's line: its box and its name, in its colours.  A8 I16.
+;;  Setting V_K's line: its box and its name; grey for the three the logic
+;;  cannot take.  A8 I16.
     .a8
     .i16
 ows_item:
@@ -1636,23 +1806,17 @@ ows_item:
     SEP #$20
     .a8
     BNE :+
-    LDA #2                      ; a held-back one, grey
+    LDA #1                      ; held back: palette 1, grey
     BRA :++
 :   LDA #0
 :   STA f:V_PAL
-    LDA f:V_K
-    CMP f:V_SEL
-    BNE :+
-    LDA f:V_PAL
-    ORA #1                      ; selected
-    STA f:V_PAL
-:   REP #$20
+    REP #$20
     .a16
     LDA f:OWSFAR + lut_OwsBit16, X
     AND f:V_FLAGS
     PHP                         ; Z: not ticked
     LDA f:OWSFAR + lut_OwsCell, X
-    TAX                         ; the cell
+    TAX                         ; the box's cell
     PLP
     SEP #$20
     .a8
@@ -1660,11 +1824,8 @@ ows_item:
     LDA #2                      ; ticked
     BRA :++
 :   LDA #1
-:   PHX
-    JSR ows_putch
-    PLY
-    INY
-    INY                         ; the name, the cell after
+:   JSR ows_putch               ; X on to the name's first cell
+    TXY
     LDA f:V_K
     REP #$20
     .a16
@@ -1673,18 +1834,24 @@ ows_item:
     ASL A
     ASL A
     ASL A
-    ASL A
+    ASL A                       ; x 16...
     SEC
     SBC f:V_VADDR
+    SEC
     SBC f:V_VADDR
-    SBC f:V_VADDR
+    SEC
+    SBC f:V_VADDR               ; ...less three, x 13
     CLC
-    ADC #.LOWORD(lut_OwsName)   ; x 13
+    ADC #.LOWORD(lut_OwsName)
     TAX
     SEP #$20
     .a8
-    LDA #13
-    JMP ows_text
+    LDA #NAME_W
+    JSR ows_text
+    LDA #1
+    STA f:V_NTD
+    RTS
+.assert NAME_W = 13, error, "ows_item multiplies by thirteen"
 
 ;;  A characters from the chunk's X into the tilemap at byte Y, in V_PAL.
 ;;  Out: X past the string.  A8 I16.
@@ -1721,12 +1888,6 @@ ows_putch:
     INX
     RTS
 
-;;  Box A at the tilemap's byte X.  A8 I16.
-    .a8
-    .i16
-ows_putcell:
-    JMP ows_putch
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Tables
@@ -1739,32 +1900,38 @@ lut_OwsBit16:
   .WORD $0001, $0002, $0004, $0008, $0010, $0020, $0040, $0080
   .WORD $0100, $0200, $0400, $0800, $1000, $2000, $4000, $8000
 
-;  Each setting's box, as a byte of BG3's tilemap.
+;  Each setting's box, as a byte of BG3's tilemap: the hand two cells
+;  before it, the name straight after.
 .macro CELL r, c
   .WORD ((r) * 32 + (c)) * 2
 .endmacro
 lut_OwsCell:
 .if OWS_SIDE
   .repeat OWS_SETTINGS, i
-    CELL 1 + i, 17
+    CELL 1 + i, 17              ; the hand over the minimap's last two columns
   .endrep
 .else
   .repeat OWS_SETTINGS, i
-    CELL 18 + i .MOD 7, 1 + 15 * (i / 7)
+    CELL 17 + i .MOD 7, 3 + 14 * (i / 7)
   .endrep
 .endif
 
-;  CGRAM 0-15: the backdrop and BG3's four palettes -- the text, the
-;  selected, the held-back, the held-back selected.  32-47: the minimap's, BG1
-;  palette 2: its four colours as the game's minimap has them (bank $09's
-;  lut_MinimapBGPal), the marker, and at 40-44 the flashing ones, which
-;  ows_vblank writes from lut_OwsFlash's two sets.
+;  OBJ characters: the ring's four, then the hand's.
+lut_OwsObjCell:
+  .BYTE OBJ_RING, OBJ_RING + 1, OBJ_RING + 16, OBJ_RING + 17
+  .BYTE OBJ_HAND, OBJ_HAND + 1, OBJ_HAND + 16, OBJ_HAND + 17
+
+;  CGRAM 0-11: the backdrop and BG3's three palettes -- the text, and the
+;  three held back, each with the settings screen's checkbox colours, its
+;  grey ring and white fill; and the frame, in the game's box colours.  32-47: the minimap's, BG1 palette 2: its four
+;  colours as the game's minimap has them (bank $09's lut_MinimapBGPal), the
+;  marker, and at 40-44 the flashing ones, which ows_vblank writes from
+;  lut_OwsFlash's two sets.
 lut_OwsPal:
-  .WORD NESCOL_02, NESCOL_30, NESCOL_0F, NESCOL_0F
-  .WORD NESCOL_02, NESCOL_28, NESCOL_0F, NESCOL_0F
-  .WORD NESCOL_02, NESCOL_00, NESCOL_0F, NESCOL_0F
-  .WORD NESCOL_02, NESCOL_37, NESCOL_0F, NESCOL_0F
-  .RES 32, 0
+  .WORD NESCOL_02, NESCOL_30, NESCOL_10, NESCOL_30
+  .WORD NESCOL_02, NESCOL_00, NESCOL_10, NESCOL_30
+  .WORD NESCOL_02, NESCOL_00, NESCOL_01, NESCOL_30   ; the frame, as the game's boxes
+  .RES 40, 0
   .WORD NESCOL_02, NESCOL_1B, NESCOL_38, NESCOL_2B, NESCOL_16, 0, 0, 0
   .WORD NESCOL_02, NESCOL_1B, NESCOL_38, NESCOL_2B, NESCOL_16
 lut_OwsPalEnd:
@@ -1772,59 +1939,35 @@ lut_OwsPalEnd:
 lut_OwsFlash:
   .WORD NESCOL_21, NESCOL_30, NESCOL_30, NESCOL_30, NESCOL_27
 .assert lut_OwsFlash - (lut_OwsPal + 80) = 10, error, "ows_vblank: the flash's two sets ten bytes apart"
+;  OBJ palettes 0, the rings, and 1, the hand: the game's cursor colours
+;  (sprite palette 3 of LoadBattleSpritePalettes).
 lut_OwsObjPal:
   .WORD NESCOL_0F, NESCOL_30, NESCOL_16, NESCOL_0F
+  .RES 24, 0
+  .WORD NESCOL_0F, NESCOL_30, NESCOL_10, NESCOL_00
+lut_OwsObjPalEnd:
 
 lut_OwsName:
-  FFPAD "Early Open", 13
-  FFPAD "Extended Open", 13
-  FFPAD "North Docks", 13
-  FFPAD "Desert Dock", 13
-  FFPAD "Bahamut Dock", 13
-  FFPAD "Lefein River", 13
-  FFPAD "Lefein Bridge", 13
-  FFPAD "Gaia Pass", 13
-  FFPAD "Ordeals Road", 13
-  FFPAD "Melmond River", 13
-  FFPAD "Sarda Forest", 13
-  FFPAD "Airship Trail", 13
-  FFPAD "Cardia Bridge", 13
-  FFPAD "Ship Drydock", 13
+  FFPAD "Early Open", NAME_W
+  FFPAD "Extended Open", NAME_W
+  FFPAD "North Docks", NAME_W
+  FFPAD "Desert Dock", NAME_W
+  FFPAD "Bahamut Dock", NAME_W
+  FFPAD "Lefein River", NAME_W
+  FFPAD "Lefein Bridge", NAME_W
+  FFPAD "Gaia Pass", NAME_W
+  FFPAD "Ordeals Road", NAME_W
+  FFPAD "Melmond River", NAME_W
+  FFPAD "Sarda Forest", NAME_W
+  FFPAD "Airship Trail", NAME_W
+  FFPAD "Cardia Bridge", NAME_W
+  FFPAD "Ship Drydock", NAME_W
 
-lut_OwsDesc:
-  FFPAD "Walk Coneria to the Dwarves,", 30
-  FFPAD "canoe Pravoka to Crescent.", 30
-  FFPAD "Walk the Dwarf Cave's lands", 30
-  FFPAD "to Northwest Castle.", 30
-  FFPAD "Docks by Onrac and by the", 30
-  FFPAD "Mirage Tower.", 30
-  FFPAD "A dock by the Ryukahn Desert,", 30
-  FFPAD "where the AIRSHIP rises.", 30
-  FFPAD "A dock on Bahamut's island,", 30
-  FFPAD "no AIRSHIP to his cave.", 30
-  FFPAD "A river dock reaching Lefein", 30
-  FFPAD "without the AIRSHIP.", 30
-  FFPAD "The BRIDGE joins Pravoka and", 30
-  FFPAD "Lefein, Coneria's is land.", 30
-  FFPAD "A pass through the mountains", 30
-  FFPAD "to Gaia from Lefein's side.", 30
-  FFPAD "Roads from Lefein to Mirage's", 30
-  FFPAD "desert, and on to Ordeals.", 30
-  FFPAD "A river from the Dwarf Cave", 30
-  FFPAD "to Melmond, no CANAL.", 30
-  FFPAD "A forest walls Sarda off.", 30
-  FFPAD "Preview only -- not in play.", 30
-  FFPAD "Walk to the AIRSHIP's desert", 30
-  FFPAD "without the CANOE.", 30
-  FFPAD "Land from Ordeals through", 30
-  FFPAD "Cardia.  Preview only.", 30
-  FFPAD "The SHIP waits in Gaia's", 30
-  FFPAD "drydock.  Preview only.", 30
-.assert * - lut_OwsDesc = 60 * OWS_SETTINGS, error, "two lines a setting"
+.if OWS_SIDE
+lut_OwsDesc = lut_OwsDescNarrow
+.else
+lut_OwsDesc = lut_OwsDescWide
+.endif
 
-lut_OwsHint:
-  FFPAD "MAP", 7
-  FFPAD "EDITS", 7
-  FFPAD "A  Tick", 7
-  FFPAD "START", 7
-  FFPAD " Done", 7
+lut_OwsTitle:
+  FFPAD "MAP EDITS", 9

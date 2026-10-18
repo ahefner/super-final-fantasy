@@ -580,9 +580,11 @@ rando_stir:
 ;;  GameStart's @Begin, which follows it, finds the cache whole and only
 ;;  compares the tag.
 ;;
-;;  Nothing calls the music driver meanwhile, and the SPC700 would hold the
-;;  title's last note through it: silence first, as @Begin does.  Party
-;;  creation turns the channels back on as it starts (its LDA #$0F, $4015).
+;;  The map edit screen, when it comes up, plays the title's music on
+;;  (owscreen.asm).  Nothing calls the music driver after it, and the SPC700
+;;  would hold the title's last note through the rest: silence then, as
+;;  @Begin does.  Party creation turns the channels back on as it starts (its
+;;  LDA #$0F, $4015).
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -591,7 +593,6 @@ rando_stir:
 rando_newgame:
     PHP
     PHX
-    JSR DisableAPU              ; the fixed bank's, stamped into this chunk
 .ifdef FORCE_SEED
     ;  FFSEED=xxxxxxxx ./build.sh: every new game gets this seed, so a world
     ;  can be reproduced on a console without a battery file.
@@ -643,6 +644,7 @@ rando_newgame:
     LDA #BRIDGE_LEFEIN_Y
     STA f:BRIDGEFAR + 1
 :
+    JSR DisableAPU              ; the fixed bank's, stamped into this chunk
     ;  This game's reward NPCs run from rando_talk's table, and none has given.
     LDA #1
     STA f:RANDO_TALKFAR

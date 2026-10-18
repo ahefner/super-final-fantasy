@@ -36,13 +36,17 @@ class Bus:
         self.clock = [0, every, 0]
 
     def ppu(self):
-        """VRAM and CGRAM as the CPU's ports write them: $2115-$2119 with the
-        step after the high byte (VMAIN bit 7) or the low, $2121-$2122.  DMA
-        is not run, so only what code writes itself lands here."""
+        """VRAM, CGRAM and OAM as the CPU's ports write them: $2115-$2119 with
+        the step after the high byte (VMAIN bit 7) or the low, $2121-$2122,
+        and $2102-$2104 a byte at a time (the hardware's pairing of the low
+        table's writes comes to the same once both are written).  DMA runs
+        only with bus.dma set."""
         self.vram = bytearray(0x10000)
         self.cgram = bytearray(0x200)
+        self.oam = bytearray(0x220)
         self.vaddr = 0
         self.caddr = 0
+        self.oaddr = 0
 
     def _rom(self, bank, addr):
         image = bank & 0x1F                 # 2MB, so the bank number wraps at 32
@@ -87,7 +91,7 @@ class Bus:
         if addr == 0x4203:
             self.mul_b = val
             return
-        if self.vram is not None and 0x2115 <= addr <= 0x2122:
+        if self.vram is not None and 0x2102 <= addr <= 0x2122:
             self._ppu_write(addr, val)
         if addr < 0x6000:
             self.io[addr] = val
@@ -128,7 +132,14 @@ class Bus:
             self.io[reg + 5] = self.io[reg + 6] = 0
 
     def _ppu_write(self, addr, val):
-        if addr == 0x2116:
+        if addr == 0x2102:
+            self.oaddr = (self.oaddr & 0x200) | val << 1
+        elif addr == 0x2103:
+            self.oaddr = (val & 1) << 9 | (self.oaddr & 0x1FE)
+        elif addr == 0x2104:
+            self.oam[self.oaddr % 0x220] = val
+            self.oaddr = (self.oaddr + 1) % 0x220
+        elif addr == 0x2116:
             self.vaddr = (self.vaddr & 0xFF00) | val
         elif addr == 0x2117:
             self.vaddr = (self.vaddr & 0x00FF) | (val << 8)
