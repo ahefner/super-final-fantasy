@@ -286,9 +286,15 @@ def moving_chests(table):
             if c not in UNUSED_CHESTS and table[c] >= ITEM_QTY_START]
 
 
-def build_chests(rom, seed, chests):
-    """Every chest's contents as the cache holds them: 256 bytes by id."""
+def build_chests(rom, seed, chests, items3=(0, 0, 0)):
+    """Every chest's contents as the cache holds them: 256 bytes by id.  With
+    the FLOATER removed (the AIRSHIP row's Remove), its chest holds gold
+    instead, drawn as build_rewards draws a removed item's, before the
+    Chests row deals -- so the gold is dealt with the rest."""
     table = bytearray(rom_chests(rom))
+    if row_value(item_rows(items3), 1) == ITEM_REMOVE:
+        c = next(c for c in range(256) if c not in UNUSED_CHESTS and table[c] == PLACE_CODE[_NAME.index("FLOATER")])
+        table[c] = SPARE_GOLD[Stream(seed, STREAM_GOLD).below(len(SPARE_GOLD))]
     if 0 < chests < CHESTS_MODES:
         rng = Stream(seed, STREAM_CHESTS)
         locs = moving_chests(table)
@@ -988,7 +994,7 @@ def _sane(shuffled):
     return titans and starter and danger <= 3
 
 
-def es_shuffle(rng, mode, owedits=0):
+def es_shuffle(rng, mode, owedits=0, nofloater=False):
     """One shuffle: (entrance, normal, exits, roots), or None if FFR's sanity
     check fails ES_SANITY times.  roots: each record dealt -> the entrance
     its chain hangs from."""
@@ -998,6 +1004,19 @@ def es_shuffle(rng, mode, owedits=0):
     vanilla_ow = {o: _GD.ENTER[o] for o in _GD.LISTS["vanilla_ow"]}
     vanilla_sm = {t: _GD.TELE[t] for t in _GD.LISTS["vanilla_sm"]}
     placed_maps = {o: r for o, r in vanilla_ow.items() if 1 <= o <= 8}     # Coneria..Lefein
+    #  FFR, the FLOATER removed (and so the airship not free): the doors only
+    #  the airship reaches stay put -- Titan's Tunnel's west end; Cardia's
+    #  but under the land bridge, which walks to them; and of those the first
+    #  and Bahamut's but under Bahamut's dock, which sails there.
+    if nofloater:
+        keep = _GD.NOFLOATER_KEEP
+        ents = list(keep["titan"])
+        if not owedits >> 12 & 1:
+            ents += keep["cardia"]
+            if not owedits >> 4 & 1:
+                ents += keep["cardia_dock"]
+        for o in ents:
+            placed_maps[o] = _GD.ENTER[o]
     placed_floors = dict(vanilla_sm)
     placed_floors.pop(_GD.SEASHRINE1, None)
     if mode == ENTRANCES_FLOORS:
@@ -1291,7 +1310,23 @@ W1 = 1024                       # a weight of 1.0
 ITEMROW_ITEM = ["SHIP", "FLOATER", "BRIDGE", "CANAL", "CANOE", "KEY", "CHIME", "CROWN", "LUTE",
                 "TAIL", "ROD"]
 OTHER_ITEMS = ["CRYSTAL", "HERB", "TNT", "ADAMANT", "SLAB", "RUBY", "CUBE", "BOTTLE", "OXYALE"]
-ITEM_INCENTIVE, ITEM_LOOSE, ITEM_FREE = 0, 1, 2
+ITEM_INCENTIVE, ITEM_LOOSE, ITEM_FREE, ITEM_REMOVE = 0, 1, 2, 3
+#  The rows with a fourth value, Remove: the SHIP's and the AIRSHIP's, whose
+#  item is the FLOATER (FFR's NoFloater).
+REMOVE_ROWS = (0, 1)
+
+
+def row_value(rows, k):
+    """Row k's value, as placement and the rewards read it: one this build
+    does not know -- Remove on a row without it -- as Incentive."""
+    v = rows[k]
+    if v == ITEM_REMOVE and k in REMOVE_ROWS:
+        return v
+    return v if v < 3 else ITEM_INCENTIVE
+
+
+def floater_removed(items3):
+    return row_value(item_rows(items3), 1) == ITEM_REMOVE
 KEYITEMS_VANILLA, KEYITEMS_STANDARD, KEYITEMS_WIDE = 0, 1, 2
 _NAME = [n for n, _ in PLACE_ITEMS]
 _BIT = {n: 1 << _L.BITS.index(n) for n in _NAME[:PLACE_KEYS]}
@@ -1313,7 +1348,9 @@ def place_setup(keyitems, items3, gear2, early):
     free, items, inc = 0, [], set()
     for k, name in enumerate(ITEMROW_ITEM):
         i = _NAME.index(name)
-        v = rows[k] if rows[k] < 3 else ITEM_INCENTIVE
+        v = row_value(rows, k)
+        if v == ITEM_REMOVE:
+            continue                    # in no place, and never held
         if v == ITEM_FREE:
             if name in _BIT:
                 free |= _BIT[name]
@@ -1629,7 +1666,7 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
     for k in range(ES_ATTEMPTS):
-        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances, owedits)
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances, owedits, floater_removed(items3))
         if w is None:
             continue
         mm = es_masks(w[0], w[1], w[2], early, owedits)
@@ -1801,7 +1838,7 @@ def build_rewards(rom, seed, chests, place, items3):
 
     placed = {loc_slot(c): PLACE_CODE[i] for i, c in enumerate(place) if c != 0xFF}
     rows = item_rows(items3)
-    free = [ITEMROW_ITEM[k] for k in range(11) if rows[k] == ITEM_FREE]
+    free = [ITEMROW_ITEM[k] for k in range(11) if row_value(rows, k) in (ITEM_FREE, ITEM_REMOVE)]
     homes = [home(PLACE_CODE[i]) for i, c in enumerate(place) if c != 0xFF] + \
         [home(PLACE_CODE[_NAME.index(n)]) for n in free]
     gold_rng = Stream(seed, STREAM_GOLD)

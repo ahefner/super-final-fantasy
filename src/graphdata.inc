@@ -500,6 +500,11 @@ lut_EsOwCoord:
   .BYTE $20, $08, $10, $04, $12, $1D, $02, $13, $1F, $03, $01, $0F, $15, $16, $FF, $FF
 
 ;  ...and under the Cardia Land Bridge, which moves six of them.
+;  FFR's keepers with the FLOATER removed: Cardia's four, then the first and
+;  Bahamut's (ES_KEEP_TITAN apart).
+lut_EsKeepCardia:
+  .BYTE $11, $1B, $1C, $1D, $00, $12
+
 lut_EsOwCoordCardia:
   .BYTE $09, $1B, $21, $1A, $0A, $22, $23, $05, $24, $1C, $19, $14, $17, $18, $06, $1E
   .BYTE $20, $07, $0B, $04, $12, $1D, $02, $13, $1F, $03, $01, $0C, $0D, $11, $FF, $FF

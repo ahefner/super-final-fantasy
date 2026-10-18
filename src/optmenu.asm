@@ -2074,11 +2074,13 @@ lut_ValBossAI:
   FFPAD "  Clever", 8           ; BOSSAI_CLEVER
   FFPAD "Ruthless", 8           ; BOSSAI_RUTHLESS
 
-;  The item rows, and Other items, which stops at Loose.
+;  The item rows, and Other items, which stops at Loose; the SHIP's and the
+;  AIRSHIP's go on to Remove.
 lut_ValIncentive:
   FFPAD "       Incentive", 16   ; ITEM_INCENTIVE
   FFPAD "           Loose", 16   ; ITEM_LOOSE
   FFPAD "            Free", 16   ; ITEM_FREE
+  FFPAD "          Remove", 16   ; ITEM_REMOVE
 
 ;  The gear rows.  Treasure, not Off, which would read as the piece taken out.
 lut_ValGear:
@@ -2172,7 +2174,8 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE STATUS_MODES, AI_MODES, AI_MODES, RNG_MODES
               .BYTE THIEFHIT_STEPS, STARTITEMS_SETS, ORDEALS_MODES
               .BYTE KEYITEMS_MODES
-              .REPEAT ITEMROWS - 1
+              .BYTE ITEMVEHICLE_MODES, ITEMVEHICLE_MODES  ; the SHIP's and the AIRSHIP's
+              .REPEAT ITEMROWS - 3
               .BYTE ITEM_MODES
               .ENDREP
               .BYTE ITEMOTHER_MODES

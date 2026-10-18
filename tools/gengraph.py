@@ -276,6 +276,10 @@ def main():
         "vanilla_ow": [m.owti[o] for o in m.lists["vanilla_ow"]],
         "vanilla_sm": [m.tidx[t] for t in m.lists["vanilla_sm"]],
     }
+    #  FFR's keepers with the FLOATER removed (EntrancesFloorsShuffle.cs).
+    out["NOFLOATER_KEEP"] = {"titan": [m.owti["TitansTunnelWest"]],
+                             "cardia": [m.owti[n] for n in ("Cardia2", "Cardia4", "Cardia5", "Cardia6")],
+                             "cardia_dock": [m.owti[n] for n in ("Cardia1", "BahamutCave1")]}
     out["UNUSED1"] = m.owti["Unused1"]
     out["SEASHRINE1"] = m.tidx["SeaShrine1"]
     out["OW_COORDS"] = owc
@@ -570,6 +574,9 @@ def write_inc(D):
     const("ES_RECORDS", len(recs))
     const("ES_LOCATIONS", len(locs))
     const("ES_UNUSED1", D["UNUSED1"])
+    nk = D["NOFLOATER_KEEP"]
+    assert len(nk["titan"]) == 1 and len(nk["cardia"]) == 4 and len(nk["cardia_dock"]) == 2
+    const("ES_KEEP_TITAN", nk["titan"][0])
     const("ES_SEASHRINE1", D["SEASHRINE1"])
     const("ES_LOC_TITANEAST", lnum["TitansTunnelEast"])
     const("ES_LOC_TITANWEST", lnum["TitansTunnelWest"])
@@ -587,6 +594,9 @@ def write_inc(D):
         table(lab, D["LISTS"][name])
     table("lut_EsOwCoord", [xidx[D["OW_COORDS"][e]] if e in D["OW_COORDS"] else 0xFF for e in range(32)])
     lines.append(";  ...and under the Cardia Land Bridge, which moves six of them.")
+    lines.append(";  FFR's keepers with the FLOATER removed: Cardia's four, then the first and")
+    lines.append(";  Bahamut's (ES_KEEP_TITAN apart).")
+    table("lut_EsKeepCardia", nk["cardia"] + nk["cardia_dock"])
     table("lut_EsOwCoordCardia", [xidx[D["OW_COORDS_CARDIA"][e]] if e in D["OW_COORDS_CARDIA"] else 0xFF
                                   for e in range(32)])
     #  The sanity check's sets: locations as a bitset over location ids,

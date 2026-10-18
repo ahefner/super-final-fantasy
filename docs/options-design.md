@@ -1135,7 +1135,8 @@ and shown by the save view with them:
     Key items        Vanilla / Standard / Wide
     Map shuffle      Off / Entrances / Floors     (below)
     Map edits        Off / Open / All             (below)
-    SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows
+    SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows; the
+                     (SHIP, AIRSHIP: ... / Remove) SHIP's and AIRSHIP's go on
     Other items      Incentive / Loose            the nine with no Free
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
     Early King, Sarda, Sage, Ordeals   Off / On
@@ -1157,6 +1158,24 @@ that opens nothing waits while others open something, places reached early
 lose weight with every draw, and a dungeon that has taken an item is less
 likely to take the next, so loose items spread through the game instead of
 piling up where the party begins.
+
+**Remove** (user, 2026-10-18; built, not yet played): the SHIP and AIRSHIP
+rows' last value, the SHIP or the FLOATER in no place and never held --
+FFR's NoFloater for the second, the airship never rising.  Placement places
+neither (`pl_items`, `randoref.place_setup`); its home turns to gold as a
+Free item's does (`deal_rewards`, `build_rewards`).  Under Key items Vanilla
+too: the FLOATER's chest holds gold before the Chests row deals
+(`nofloater_gold`, `build_chests`), and Bikke keeps his ship, the removed one
+reading as held (`talk_holds`).  With the FLOATER gone Map shuffle keeps
+FFR's doors the airship alone reaches -- Titan's Tunnel's west end, Cardia's
+but under the Cardia Land Bridge, the first and Bahamut's but under Bahamut's
+dock (`EntrancesFloorsShuffle.cs`; `es_wiring`, `es_shuffle`).  Either alone
+leaves the unedited map unwinnable, as in FFR, where they go with map edits:
+FFR's walking set -- Early Open, River to Melmond, Highway to Ordeals, Bridge
+to Lefein, the land bridge -- places with both removed.  The unwinnable
+warning is for the rest.  The two rows have four values (`ITEMVEHICLE_MODES`)
+in the same two-bit fields, so no byte moves.  `test_rando_remove` holds it
+all to the reference; `checkplace.py` plays the settings on the edited maps.
 
 **The Early flags** are FFR's, under Key items Vanilla too.  Early King,
 Sarda and Sage waive what that NPC waits for in `rando_talk`'s table

@@ -466,14 +466,22 @@ pl_masks:
 
 
 ;;  RP_FREE, RP_ITEMS and RP_INC0 from the key item rows in the save: a Free
-;;  row's bit is owned from the start (AIRSHIP's the airship's too), every
-;;  other row's item is placed, an incentive unless it is Loose.  Other items
-;;  is nine items at once; a gear row is placed only as an incentive.
+;;  row's bit is owned from the start (AIRSHIP's the airship's too), a
+;;  removed row's item is neither placed nor held (the SHIP's and the
+;;  AIRSHIP's), every other row's item is placed, an incentive unless it is
+;;  Loose.  Other items is nine items at once; a gear row is placed only as
+;;  an incentive.
 pl_items:
     STZ a:pT
   @row:
     JSR pl_rowval
-    CMP #ITEM_MODES
+    CMP #ITEM_REMOVE
+    BNE :+
+    LDX a:pT
+    CPX #ITEMROW_AIRSHIP + 1
+    BCS :+
+    JMP @next                   ; removed: nowhere, and never held
+:   CMP #ITEM_MODES
     BCC :+
     LDA #ITEM_INCENTIVE         ; a value this build does not know
 :   STA a:pT2

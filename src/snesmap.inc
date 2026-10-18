@@ -410,11 +410,15 @@ ENTRANCES_ONLY  = 1               ; FFR's entrance shuffle, floors kept
 ENTRANCES_FLOORS = 2              ; ...and its floor shuffle
 ENTRANCES_MODES = 3
 ;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
-;  Other items, the nine with no Free, has the first two only.
+;  Other items, the nine with no Free, has the first two only; the SHIP and
+;  AIRSHIP rows a fourth, Remove (user): the SHIP, or the FLOATER, in no
+;  place and never held -- its home gold instead -- as FFR's NoFloater.
 ITEM_INCENTIVE  = 0
 ITEM_LOOSE      = 1
 ITEM_FREE       = 2
+ITEM_REMOVE     = 3
 ITEM_MODES      = 3
+ITEMVEHICLE_MODES = 4             ; the SHIP's and the AIRSHIP's rows
 ITEMOTHER_MODES = 2
 ITEMROW_SHIP    = 0
 ITEMROW_AIRSHIP = 1               ; its item is the FLOATER

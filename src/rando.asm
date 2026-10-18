@@ -867,6 +867,7 @@ build:
     JSR deal_rewards
     BRA @magic
   @tier1:
+    JSR nofloater_gold          ; the FLOATER removed: gold in its chest
     LDA f:RANDO_SAVEFAR + (RANDO_CHESTS - RANDO_SAVE)
     BEQ @magic                  ; CHESTS_OFF
     CMP #CHESTS_MODES
@@ -1764,7 +1765,13 @@ talk_holds:
     LDA items, Y
     RTS
   @ship:
-    LDA ship_vis
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_SHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_SHIP)
+    BNE :+
+    LDA #1                      ; removed: as if held, so Bikke gives nothing
+    RTS                         ;   (placement places it nowhere at all)
+:   LDA ship_vis
     RTS
   @bridge:
     LDA bridge_vis

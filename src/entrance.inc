@@ -158,6 +158,15 @@ rando_eswire:
     JMP leave
 
 
+;;  Entrance X pinned to where it leads in the vanilla game.  A8, I16.
+es_keep:
+    .a8
+    .i16
+    LDA f:LOGICFAR + lut_EsEnter, X
+    STA a:ePMAP, X
+    RTS
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  es_vanilla -- the vanilla wiring, as indices.  A8, I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -233,6 +242,40 @@ es_wiring:
 :   INY
     CPY #ES_VANILLA_OW_N
     BCC @pinmap
+    ;  FFR, the FLOATER removed: the doors only the airship reaches stay put
+    ;  (randoref.es_shuffle) -- Titan's Tunnel's west end; Cardia's but under
+    ;  the land bridge, which walks to them; and of those the first and
+    ;  Bahamut's but under Bahamut's dock, which sails there.
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_AIRSHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_AIRSHIP)
+    BNE @kept
+    LDX #ES_KEEP_TITAN
+    JSR es_keep
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    AND #>OWEDIT_CARDIABRIDGE
+    BNE @kept
+    LDY #4                      ; Cardia's four...
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    AND #OWEDIT_BAHAMUTDOCK
+    BNE :+
+    LDY #6                      ; ...and the first and Bahamut's
+:   STY a:esN
+    LDY #$0000
+  @keep:
+    TYX
+    LDA f:LOGICFAR + lut_EsKeepCardia, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    JSR es_keep
+    INY
+    CPY a:esN
+    BCC @keep
+  @kept:
     LDA a:esMODE
     CMP #ENTRANCES_FLOORS
     BEQ @icecave

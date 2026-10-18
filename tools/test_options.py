@@ -532,6 +532,7 @@ def talk_sequence(job):
     per talk, everything the game could see afterwards."""
     name, bits, generic = job[:3]
     early = job[3] if len(job) > 3 else 0
+    items3 = job[4] if len(job) > 4 else (0, 0, 0)
     obj, state = TALK_NPCS[name]
     bus, cpu = machine()
     s = bus.sram
@@ -556,6 +557,7 @@ def talk_sequence(job):
                     s[CH_WEAPONS - 0x6000 + c * 0x40 + w] = 1 if on else 0
     s[K["RANDO_TALK"] - 0x6000] = 1 if generic else 0
     s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
     if generic and name in TALK_IMPLIES_GIVEN and bits >> TALK_IMPLIES_GIVEN[name] & 1:
         n = TALK_ENTRY[name]
         s[K["RANDO_GIVEN"] - 0x6000 + n // 8] |= 1 << n % 8
@@ -618,6 +620,108 @@ def test_rando_talk():
     #  that never matched its object would fall through to the vanilla handler
     #  and pass every comparison above.
     check("talk: every reward NPC gives from some state", sorted(gave), sorted(TALK_NPCS))
+
+
+def test_rando_remove():
+    """The SHIP and AIRSHIP rows' Remove (user): the SHIP, or the FLOATER, in
+    no place and never held.  rando_place takes randoref.new_world's
+    placement -- on the vanilla tables, and on the seed's own logic with map
+    edits, the shuffle among them, which pins FFR's keepers when the FLOATER
+    is gone -- and neither item is placed; alone each leaves no world on the
+    unedited map, which is the unwinnable warning's.  Its home turns to gold
+    with placement (deal_rewards); without it, under Key items Vanilla, the
+    FLOATER's chest holds gold before the Chests row deals, and Bikke keeps
+    his ship -- the removed one reads as held."""
+    SHIP, FLOATER = (R._NAME.index(n) for n in ("SHIP", "FLOATER"))
+    def cfg(b0, keyitems=1):
+        return (keyitems, [b0, 0, 0], [0x81, 0], 0x0F)
+    WALK = 0x1341               # FFR's walking and canoeing edits, the land bridge among them
+    jobs = [(seed * 7919 + 3, cfg(0x2B), R.ENTRANCES_OFF, 0) for seed in range(3)]      # no SHIP, AIRSHIP free
+    jobs += [(seed * 7919 + 3, cfg(0x2C), R.ENTRANCES_OFF, WALK) for seed in range(2)]  # no FLOATER
+    jobs += [(seed * 7919 + 3, cfg(0x2F), R.ENTRANCES_OFF, WALK) for seed in range(2)]  # neither
+    jobs += [(seed * 7919 + 3, cfg(0x2C), R.ENTRANCES_ONLY, 0x1FFF) for seed in range(2)]
+    jobs += [(seed * 7919 + 3, cfg(0x2C), R.ENTRANCES_FLOORS, 0x0BFF) for seed in range(2)]
+    #  ...and with neither the land bridge nor Bahamut's dock, so every keeper
+    #  is kept.
+    jobs += [(seed * 7919 + 3, cfg(0x2C), R.ENTRANCES_ONLY, 0x0BEF) for seed in range(2)]
+    jobs += [(5, cfg(0x23), R.ENTRANCES_OFF, 0), (5, cfg(0x2C), R.ENTRANCES_OFF, 0)]
+    got = pmap(es_place_cart, jobs)
+    bad, none = [], []
+    for (seed, c, mode, f), cart in zip(jobs, got):
+        mode_after, k, out, dock = R.new_world(seed, *c, mode, f)
+        want = (1 if out else 0, out, k, dock, mode_after)
+        if (cart[0], cart[1] if cart[0] else None, cart[2], cart[3], cart[4]) != \
+                (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
+            bad.append((seed, c[1][0], mode, f))
+        if out is None:
+            none.append((c[1][0], f))
+        elif (c[1][0] & 3 == 3 and out[SHIP] != 0xFF) or (c[1][0] >> 2 & 3 == 3 and out[FLOATER] != 0xFF):
+            bad.append((seed, c[1][0], mode, f, "a removed item placed"))
+    check("rando_place with the SHIP or the FLOATER removed: randoref's, neither placed", bad, [])
+    check("...each alone, on the unedited map, no world", none, [(0x23, 0), (0x2C, 0)])
+
+    #  FFR's keepers: with the FLOATER gone the doors only the airship reaches
+    #  lead where they always did -- and under the land bridge Cardia's are
+    #  dealt, which it walks to.
+    import graphdata as GD
+    keep = GD.NOFLOATER_KEEP
+    bad = []
+    for seed in range(1, 9):
+        for f, kept in ((0, keep["titan"] + keep["cardia"] + keep["cardia_dock"]),
+                        (K["OWEDIT_BAHAMUTDOCK"], keep["titan"] + keep["cardia"]),
+                        (K["OWEDIT_CARDIABRIDGE"], keep["titan"])):
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), R.ENTRANCES_ONLY, f, True)
+            if w and any(w[0][o] != GD.VANILLA_ENTRANCE[o] for o in kept):
+                bad.append((seed, f))
+    check("the FLOATER removed: FFR's keepers lead where they always did", bad, [])
+
+    #  The homes: with placement, gold (randoref.build_rewards).
+    bad = []
+    for seed in range(2):
+        out = R.new_world(seed, *cfg(0x2F), R.ENTRANCES_OFF, WALK)[2]
+        bus, cpu = machine()
+        sv = bus.sram
+        sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+        sv[K["RANDO_KEYITEMS"] - 0x6000] = 1
+        sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes([0x2F, 0, 0])
+        sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes([0x81, 0])
+        sv[K["RANDO_EARLY"] - 0x6000] = 0x0F
+        sv[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = WALK.to_bytes(2, "little")
+        sv[K["RANDO_PLACED"] - 0x6000] = 1
+        p = K["RANDO_PLACE"] - 0x6000
+        sv[p:p + K["PLACE_ITEMS"]] = bytes(out)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        w = lambda name, n: bytes(bus.wram[rw(name):rw(name) + n])
+        want_c, want_t, _ = R.build_rewards(ROMDATA, seed, 0, out, [0x2F, 0, 0])
+        if (w("RW_CHESTS", 256), w("RW_TALKREW", 13)) != (want_c, want_t):
+            bad.append(seed)
+        if {R.PLACE_CODE[SHIP], R.PLACE_CODE[FLOATER]} & (set(want_c) | set(want_t)):
+            bad.append((seed, "a removed item given somewhere"))
+    check("...with placement, the rewards as randoref deals them, neither item anywhere", bad, [])
+
+    #  Without placement: the FLOATER's chest gold, before the Chests row.
+    bad = []
+    for seed, chests in ((3, 0), (4, 1), (5, 1)):
+        bus, cpu = machine()
+        sv = bus.sram
+        sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+        sv[K["RANDO_CHESTS"] - 0x6000] = chests
+        sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes([0x0C, 0, 0])
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        got = bytes(bus.wram[rw("RW_CHESTS"):rw("RW_CHESTS") + 256])
+        want = R.build_chests(ROMDATA, seed, chests, [0x0C, 0, 0])
+        if got != want or R.PLACE_CODE[FLOATER] in want:
+            bad.append((seed, chests))
+    check("Key items Vanilla, the FLOATER removed: no FLOATER, gold, as randoref has it", bad, [])
+
+    #  ...and Bikke, beaten: with the SHIP removed he talks as to a party that
+    #  holds it, and gives nothing; without, he gives it.
+    gone = talk_sequence(("Bikke", 1, True, 0, (0x03, 0, 0)))
+    held = talk_sequence(("Bikke", 3, True, 0))
+    plain = talk_sequence(("Bikke", 1, True, 0))
+    check("Key items Vanilla, the SHIP removed: Bikke's lines as when it is held, the ship not given",
+          ([t[0] for t in gone], gone[2][6][0]), ([t[0] for t in held], 0))
+    check("...and given without it", plain[2][6][0], 1)
 
 
 def test_rando_early():
@@ -9296,7 +9400,9 @@ def test_rando_options():
     #  shift or a wrong mask would disturb.
     for name, byte, shift, width, count in (
             ("Key items", "OPT_NG_KEYITEMS", 0, 8, 3),
-            ("SHIP", "OPT_NG_ITEMS", 0, 2, 3),
+            ("SHIP", "OPT_NG_ITEMS", 0, 2, 4),           # the SHIP and AIRSHIP rows to Remove
+            ("AIRSHIP", "OPT_NG_ITEMS", 2, 2, 4),
+            ("BRIDGE", "OPT_NG_ITEMS", 4, 2, 3),
             ("CHIME", "OPT_NG_ITEMS", 4, 2, 3),          # ITEMROW_CHIME 6: byte 1, bits 4-5
             ("ROD", "OPT_NG_ITEMS", 4, 2, 3),            # ITEMROW_ROD 10: byte 2, bits 4-5
             ("Other items", "OPT_NG_ITEMS", 6, 2, 2),    # byte 2, bits 6-7, two values
@@ -9335,7 +9441,7 @@ def test_rando_options():
     #  and one at a time: two rows aliasing one field would read each other.
     spec = {22: ("OPT_NG_KEYITEMS", 0, 0, 3)}
     for k in range(12):
-        spec[23 + k] = ("OPT_NG_ITEMS", k // 4, 2 * (k % 4), 3 if k < 11 else 2)
+        spec[23 + k] = ("OPT_NG_ITEMS", k // 4, 2 * (k % 4), 4 if k < 2 else 3 if k < 11 else 2)
     for g in range(9):
         spec[35 + g] = ("OPT_NG_GEAR", g // 8, g % 8, 2)
     for e in range(4):
@@ -12092,7 +12198,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,

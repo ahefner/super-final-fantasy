@@ -931,13 +931,26 @@ lut_DescItemLoose:  ; an item row: Loose
 
 lut_Desc_74:  ; SHIP, by value
   .BYTE DESC_BYVALUE
-  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_34
-  .assert * - lut_Desc_74 = 1 + 2 * ITEM_MODES, error, "one SHIP description per value"
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_34, lut_DescRemoveShip
+  .assert * - lut_Desc_74 = 1 + 2 * ITEMVEHICLE_MODES, error, "one SHIP description per value"
 
 lut_Desc_75:  ; AIRSHIP, by value
   .BYTE DESC_BYVALUE
-  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_35
-  .assert * - lut_Desc_75 = 1 + 2 * ITEM_MODES, error, "one AIRSHIP description per value"
+  .WORD lut_DescItemInc, lut_DescItemLoose, lut_Desc_35, lut_DescRemoveFloater
+  .assert * - lut_Desc_75 = 1 + 2 * ITEMVEHICLE_MODES, error, "one AIRSHIP description per value"
+
+lut_DescRemoveShip:  ; SHIP: Remove
+  FFLINES 3
+  FFPAD {"There is no ship.  Where it"}, 28
+  FFPAD {"would be found there is gold"}, 28
+  FFPAD {"instead.  Bikke keeps his."}, 28
+
+lut_DescRemoveFloater:  ; AIRSHIP: Remove, the FLOATER
+  FFLINES 4
+  FFPAD {"There is no FLOATER, so the"}, 28
+  FFPAD {"airship never rises.  Where"}, 28
+  FFPAD {"it would be found there is"}, 28
+  FFPAD {"gold instead."}, 28
 
 lut_Desc_76:  ; BRIDGE, by value
   .BYTE DESC_BYVALUE

@@ -101,7 +101,7 @@ deal_rewards:
     CPX #PLACE_ITEMS
     BCC @placed
 
-    ;  The Free items' homes, which become gold.
+    ;  The Free items' homes, and the removed ones', which become gold.
     REP #$20
     .a16
     STZ a:rvNGOLD
@@ -120,7 +120,12 @@ deal_rewards:
     JSR rv_rowval               ; A = row X's value
     PLX
     CMP #ITEM_FREE
+    BEQ @gone
+    CMP #ITEM_REMOVE            ; ...or removed, the SHIP's and the AIRSHIP's
     BNE @fnext
+    CPX #ITEMROW_AIRSHIP + 1
+    BCS @fnext
+  @gone:
     PHX
     LDA f:RANDOFAR + lut_ItemRowItem, X
     REP #$20
@@ -389,6 +394,59 @@ rv_home:
     INX
     BRA @slot
   @found:
+    RTS
+
+;;  nofloater_gold -- with no placement and the FLOATER removed (the AIRSHIP
+;;  row's Remove), its chest holds gold instead, drawn as deal_rewards draws
+;;  a removed item's, before the Chests row deals (randoref.build_chests).
+;;  A8, I16, DBR = $7F.  X clobbered.
+nofloater_gold:
+    .a8
+    .i16
+    LDX #ITEMROW_AIRSHIP
+    JSR rv_rowval
+    CMP #ITEM_REMOVE
+    BNE @out
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_GOLD)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_GOLD)
+    STA a:wRNG + 2
+    JSR rando_warm
+    LDX #ITEMROW_AIRSHIP
+    LDA f:RANDOFAR + lut_ItemRowItem, X
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RANDOFAR + lut_PlaceCode, X
+    STA a:rvCODE
+    LDX #$0000
+  @find:
+    LDA a:wCHESTS, X
+    CMP a:rvCODE
+    BEQ @found
+    INX
+    CPX #256
+    BCC @find
+  @out:
+    RTS
+  @found:
+    PHX
+    LDA #SPARE_GOLDS
+    JSR rando_below
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RANDOFAR + lut_SpareGold, X
+    PLX
+    STA a:wCHESTS, X
     RTS
 
 ;;  Is slot X one a map places?  C set if so: every NPC and the caravan, and

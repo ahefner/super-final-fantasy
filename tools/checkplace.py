@@ -57,6 +57,11 @@ CONFIGS = {
     #  The first playtest's (seed D1625106): Wide, every key item loose but
     #  the free BRIDGE and KEY, four gear incentives, Early King.
     "wide-loose": (2, [0x65, 0x59, 0x55], [0x39, 0x00], 0x01),
+    #  The SHIP removed and the AIRSHIP free; the FLOATER removed; both --
+    #  the last two winnable only with map edits.
+    "noship-air": (1, [0x2B, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "nofloater":  (1, [0x2C, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "neither":    (1, [0x2F, 0x00, 0x00], [0x81, 0x00], 0x0F),
 }
 
 
@@ -207,7 +212,7 @@ def main():
 def edit_combos():
     import random
     safe = 0x0BFF
-    out = [safe, 0x3FFF, 0x0400, 0x1000, 0x1010, 0x1410, 0x2001, 0x2801, 0x3401, 0x0041]
+    out = [safe, 0x3FFF, 0x0400, 0x1000, 0x1010, 0x1410, 0x2001, 0x2801, 0x3401, 0x0041, 0x1341, 0x0BEF]
     rng = random.Random(1018)
     out += [rng.getrandbits(14) for _ in range(6)]
     return out

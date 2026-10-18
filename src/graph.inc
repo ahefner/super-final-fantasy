@@ -12,6 +12,7 @@ GR_ENTIDS        = 30
 ES_RECORDS       = 72
 ES_LOCATIONS     = 69
 ES_UNUSED1       = 30
+ES_KEEP_TITAN    = 26
 ES_SEASHRINE1    = 32
 ES_LOC_TITANEAST = 66
 ES_LOC_TITANWEST = 67
@@ -34,6 +35,7 @@ ES_VANILLA_SM_N  = 40
 .global lut_EsRecLand, lut_EsRecExit, lut_EsRecFlags, lut_EsRecTeleOff
 .global lut_EsRecTeles, lut_EsEnter, lut_EsTele, lut_EsTowns
 .global lut_EsTop, lut_EsFreeOw, lut_EsFreeSm, lut_EsIcecaveLoop
-.global lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord, lut_EsOwCoordCardia
-.global lut_EsStarter, lut_EsSafe, lut_EsConnected, lut_EsStarting
-.global lut_EsDanger, lut_EsVanEnt, lut_EsVanNorm, lut_EsVanExit
+.global lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord, lut_EsKeepCardia
+.global lut_EsOwCoordCardia, lut_EsStarter, lut_EsSafe, lut_EsConnected
+.global lut_EsStarting, lut_EsDanger, lut_EsVanEnt, lut_EsVanNorm
+.global lut_EsVanExit
