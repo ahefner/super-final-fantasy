@@ -1148,6 +1148,36 @@ def test_owedits():
           (O.active_lists(0x1010), O.active_lists(0x0010), O.active_lists(0x1000), O.active_lists(0xFFFF)),
           (0x5000, 0x0010, 0x1000, 0x7FEF))
 
+    #  The minimap: its nametable shows a block of the map only where vanilla
+    #  has land in it, and lends 88 of the 89 others' pattern tiles to the
+    #  crests and the logo -- so land an edit puts in one of those is never
+    #  drawn on the map, and shows in the logo until the logo covers it.  No
+    #  flag a mode offers may: each alone and all eleven together (the lists
+    #  touch no tile in common, so any of them together is covered).  Sarda's
+    #  Forest and the Cardia Land Bridge do, in two of the logo's (user,
+    #  2026-10-18, with every edit forced on): the New Game screen that offers
+    #  them has to move the logo, as FFR's QuickMiniMap does, or do without.
+    b9 = ROMDATA[(1 + 0x09) * 0x10000 + 0x8000:][:0x4000]
+    mmnt = b9[0x3000:0x3000 + 960]                                  # lut_MinimapNT, $B000
+    src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
+    at = src9.index("lut_MinimapTileset:")
+    tl = bytes(int(v) for l in src9[at:].split("\n")[1:9]
+               for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
+    check("lut_MinimapTileset: 128 bytes, once in bank $09", (len(tl), b9.count(tl)), (128, 1))
+    hidden = {b for b in range(256) if mmnt[32 * (6 + b // 16) + 8 + b % 16] != b}
+    def landblocks(t):
+        return {(x // 16) + 16 * (y // 16) for y in range(0, 256, 2) for x in range(0, 256, 2)
+                if (tl[t[y * 256 + x]] | tl[t[y * 256 + x + 1]] | tl[t[(y + 1) * 256 + x]]
+                    | tl[t[(y + 1) * 256 + x + 1]]) & 3}
+    vanland = landblocks(van) & hidden
+    check("the minimap hides 89 blocks", len(hidden), 89)
+    offered = [1 << i for i in range(len(O.SETTINGS)) if SAFE >> i & 1] + [SAFE]
+    check("no mode's edits put land in a block the minimap hides",
+          [hex(f) for f in offered if landblocks(O.apply(van, f)) & hidden - vanland], [])
+    check("...as Sarda's Forest and the Cardia Land Bridge do, one of the logo's each",
+          [sorted(landblocks(O.apply(van, 1 << b)) & hidden - vanland) for b in (O.SARDAS_FOREST, O.CARDIA_BRIDGE)],
+          [[0xC2], [0x26]])
+
     MAPFLAGS, MAPDRAW_Y, MAPROW = K["mapflags"], K["mapdraw_y"], K["mm_maprow"]
     WIN, BUF, BUF2 = 0x7000, 0x0600, 0x0700
     at = K["RANDO_OWEDITS"] - 0x6000

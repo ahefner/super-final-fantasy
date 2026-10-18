@@ -1472,6 +1472,18 @@ under Bridge to Lefein still has the BRIDGE leave Coneria rather than reach
 Lefein: placement never counts on the new crossing, and FFR's lighter BRIDGE
 weight under that flag waits for the logic too.
 
+The minimap is the other thing phase 2 has to change (user, 2026-10-18,
+every edit forced on).  `lut_MinimapNT` shows a block of the minimap only
+where the vanilla map has land, and lends 88 of the other 89 blocks' pattern
+tiles to the crests and the logo.  Sarda's Forest puts land in one of the
+logo's blocks ($C2), and the Cardia Land Bridge in another ($26): that land
+is never drawn on the map, so the bridge's caves float in ocean, and until
+the logo draws over them its tiles show the land, a red patch at the top of
+the screen.  No flag a mode offers does (`test_owedits` holds it).  FFR's
+`QuickMiniMap` builds the minimap's tiles and nametable from the edited map
+at generation, and drops the dragons and the logo when there is no room for
+them; the cart would rebuild the nametable at the minimap, or move the logo.
+
 ### 9.2 Alternate maps
 
 Measured with the vanilla RLE encoder, without length-1 runs, including the
