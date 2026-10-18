@@ -1,0 +1,18 @@
+--- OLD
+lut_MinimapTitleCHRDest_lo:
+  .BYTE <$0160,<$0260,<$02F0,<$0400, <$0450,<$0480,<$0490,<$0500
+  .BYTE <$0540,<$0550,<$0560,<$0570, <$0580,<$0590,<$0600,<$0610
+  .BYTE <$0640,<$0650,<$0660,<$0670, <$0680,<$0690,<$06A0,<$07B0
+  .BYTE <$07C0,<$07F0,<$08F0,<$0900, <$0910,<$0A00,<$0A70,<$0AA0
+  .BYTE <$0B00,<$0B80,<$0B90,<$0BA0, <$0C00,<$0C20,<$0C90,<$0EF0
+
+lut_MinimapTitleCHRDest_hi:
+  .BYTE >$0160,>$0260,>$02F0,>$0400, >$0450,>$0480,>$0490,>$0500
+  .BYTE >$0540,>$0550,>$0560,>$0570, >$0580,>$0590,>$0600,>$0610
+  .BYTE >$0640,>$0650,>$0660,>$0670, >$0680,>$0690,>$06A0,>$07B0
+  .BYTE >$07C0,>$07F0,>$08F0,>$0900, >$0910,>$0A00,>$0A70,>$0AA0
+  .BYTE >$0B00,>$0B80,>$0B90,>$0BA0, >$0C00,>$0C20,>$0C90,>$0EF0
+--- NEW
+;  As tools/genowedits.py lays the minimap out with the map edits in it:
+;  the logo's tiles where the edits leave room (gen/minimap_titledest.inc).
+  .include "minimap_titledest.inc"

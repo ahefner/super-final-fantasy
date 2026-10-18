@@ -1413,15 +1413,20 @@ def test_owedits():
           (O.active_lists(0x1010), O.active_lists(0x0010), O.active_lists(0x1000), O.active_lists(0xFFFF)),
           (0x5000, 0x0010, 0x1000, 0x7FEF))
 
-    #  The minimap: its nametable shows a block of the map only where vanilla
-    #  has land in it, and lends 88 of the 89 others' pattern tiles to the
-    #  crests and the logo -- so land an edit puts in one of those is never
-    #  drawn on the map, and shows in the logo until the logo covers it.  No
-    #  flag a mode offers may: each alone and all eleven together (the lists
-    #  touch no tile in common, so any of them together is covered).  Sarda's
-    #  Forest and the Cardia Land Bridge do, in two of the logo's (user,
-    #  2026-10-18, with every edit forced on): the New Game screen that offers
-    #  them has to move the logo, as FFR's QuickMiniMap does, or do without.
+    #  The minimap draws each 8x8 block of the map into the pattern tile of its
+    #  number, and shows a block only where vanilla has land, lending the
+    #  others' tiles to the "FINAL FANTASY" logo and the crests, drawn after.
+    #  Sarda's Forest and the Cardia Land Bridge put land in two of those
+    #  (user, 2026-10-18: the bridge's caves floating in ocean, a red patch on
+    #  the logo).  genowedits.minimap_layout gives each block an edit changes
+    #  its tile back and moves the logo's there into the tiles of blocks no
+    #  edit touches whose pictures twin another's.  Held from the ROM: every
+    #  block shows a tile drawn with its picture, under every map; a hidden
+    #  block is as vanilla has it; no lent tile is a shown block's; and the
+    #  logo and the crests whole, each cell showing the tile its graphic is
+    #  drawn into.  The nametable at $B000, the logo's destinations at $BB8A,
+    #  the crests' at $BCE9 -- the crests' as the source has them, which
+    #  places both tables.
     b9 = ROMDATA[(1 + 0x09) * 0x10000 + 0x8000:][:0x4000]
     mmnt = b9[0x3000:0x3000 + 960]                                  # lut_MinimapNT, $B000
     src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
@@ -1429,19 +1434,45 @@ def test_owedits():
     tl = bytes(int(v) for l in src9[at:].split("\n")[1:9]
                for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
     check("lut_MinimapTileset: 128 bytes, once in bank $09", (len(tl), b9.count(tl)), (128, 1))
-    hidden = {b for b in range(256) if mmnt[32 * (6 + b // 16) + 8 + b % 16] != b}
-    def landblocks(t):
-        return {(x // 16) + 16 * (y // 16) for y in range(0, 256, 2) for x in range(0, 256, 2)
-                if (tl[t[y * 256 + x]] | tl[t[y * 256 + x + 1]] | tl[t[(y + 1) * 256 + x]]
-                    | tl[t[(y + 1) * 256 + x + 1]]) & 3}
-    vanland = landblocks(van) & hidden
-    check("the minimap hides 89 blocks", len(hidden), 89)
-    offered = [1 << i for i in range(len(O.SETTINGS)) if SAFE >> i & 1] + [SAFE]
-    check("no mode's edits put land in a block the minimap hides",
-          [hex(f) for f in offered if landblocks(O.apply(van, f)) & hidden - vanland], [])
-    check("...as Sarda's Forest and the Cardia Land Bridge do, one of the logo's each",
-          [sorted(landblocks(O.apply(van, 1 << b)) & hidden - vanland) for b in (O.SARDAS_FOREST, O.CARDIA_BRIDGE)],
-          [[0xC2], [0x26]])
+
+    def dests(label, at, n):
+        i = src9.index(label + "_lo:")
+        src = [int(v, 16) >> 4 for v in re.findall(r"<\$([0-9A-Fa-f]{4})", src9[i:])[:n]]
+        rom = [(b9[at + n + k] << 8 | b9[at + k]) >> 4 for k in range(n)]
+        return src, rom
+    decor_src, decor = dests("lut_MinimapDecorCHRDest", 0x3CE9, 48)
+    title_src, title = dests("lut_MinimapTitleCHRDest", 0x3B8A, 40)
+    check("the crests' destinations where the source has them, as it has them", decor, decor_src)
+    vnt = open(os.path.join(ROOT, "game", "bin", "minimap_nt.nam"), "rb").read()[:960]
+    cell = lambda b: 32 * (6 + b // 16) + 8 + b % 16
+    hidden = {b for b in range(256) if vnt[cell(b)] != b}
+    check("the vanilla minimap hides 89 blocks", len(hidden), 89)
+
+    def pic(t, b):
+        x0, y0 = (b % 16) * 16, (b // 16) * 16
+        return tuple((tl[t[y * 256 + x]] | tl[t[y * 256 + x + 1]] | tl[t[(y + 1) * 256 + x]]
+                      | tl[t[(y + 1) * 256 + x + 1]]) & 3
+                     for y in range(y0, y0 + 16, 2) for x in range(x0, x0 + 16, 2))
+    maps = [van] + [O.apply(van, 1 << i) for i in range(len(O.SETTINGS))] + \
+        [O.apply(van, 0x3FFF), O.apply(van, 1 << O.CARDIA_BRIDGE | 1 << O.BAHAMUT_DOCK)]
+    lent = set(title) | set(decor)
+    bad = []
+    for b in range(256):
+        t = mmnt[cell(b)]
+        if t in lent:
+            bad.append("block %02X shows lent tile %02X" % (b, t))
+        elif t == 0 and b in hidden:
+            bad += ["block %02X hidden, edited" % b for m in maps[1:] if pic(m, b) != pic(van, b)][:1]
+        else:
+            bad += ["block %02X shows %02X's tile" % (b, t) for m in maps if pic(m, b) != pic(m, t)][:1]
+    check("the minimap: every block as every map draws it, none showing a lent tile", bad, [])
+    check("...Sarda's Forest's block and the land bridge's shown, their own tiles",
+          (mmnt[cell(0xC2)], mmnt[cell(0x26)]), (0xC2, 0x26))
+    whole = [k for n, (old, new) in (("logo", (title_src, title)), ("crests", (decor_src, decor)))
+             for k in range(len(old)) if {i for i in range(960) if vnt[i] == old[k]} !=
+             {i for i in range(960) if mmnt[i] == new[k]}]
+    check("...the logo and the crests whole: each cell the tile its graphic is drawn into", whole, [])
+    check("...the 88 lent tiles all different", len(lent), 88)
 
     MAPFLAGS, MAPDRAW_Y, MAPROW = K["mapflags"], K["mapdraw_y"], K["mm_maprow"]
     WIN, BUF, BUF2 = 0x7000, 0x0600, 0x0700

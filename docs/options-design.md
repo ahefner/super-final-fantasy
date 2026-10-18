@@ -1294,9 +1294,11 @@ has the edits it was started with.  To look at the edited map with any save
 turns every edit on whatever the save says, all fourteen, the three no mode
 offers among them (user, 2026-10-18, for a first look before the New Game
 screen).  It edits only the map: the BRIDGE stays where the save built it.
-And the minimap is wrong with it, by design of the minimap rather than the
+The minimap was wrong with it, by design of the minimap rather than the
 edits: Sarda's Forest and the Cardia Land Bridge put land in blocks whose
-tiles the logo borrows (`randomization-notes.md` §9.1).
+tiles the logo borrowed.  Fixed 2026-10-18 (built, not yet played; user):
+those blocks have their tiles back and the logo's moved into twins' --
+`randomization-notes.md` §9.1.
 
 ### New Game's map edit screen (prototype)
 

@@ -11,6 +11,20 @@ as each row is decompressed.
                   lut_OweRow[r + 1] of lut_OweEnt
     lut_OweEnt    four bytes an entry: its list's gate as a bit of the
                   active-list mask (a word), its x, its tile
+
+And the minimap's layout with the edits in it (minimap_layout): the
+nametable gen/minimap_nt.nam and the logo's and crests' destinations
+gen/minimap_titledest.inc and gen/minimap_decordest.inc, which bank $09
+takes in place of its own (patches/bank_09/minimap_*.patch).  The minimap draws each 8x8 block of the map into
+the pattern tile of its number, and its nametable shows a block only where
+the vanilla map has land, lending the other blocks' tiles to the crests and
+the "FINAL FANTASY" logo, which are drawn after.  Sarda's Forest and the
+Cardia Land Bridge put land in two of those (user, 2026-10-18: the bridge's
+caves floating in ocean, a red patch over the logo).  So each block an edit
+puts land in gets its own tile back: the logo's tile there moves into the
+tile of a block no edit touches whose picture is the same as another's --
+that block shown with the other's tile instead -- so the logo is whole and
+every vanilla block looks as it did.
 """
 import os, sys
 
@@ -54,6 +68,105 @@ def main():
     lines.append("")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     open(OUT, "w").write("\n".join(lines))
+    minimap_layout()
+
+
+GAME = os.path.join(ROOT, "game")
+MAP_COL, MAP_ROW = 8, 6             # where the minimap's 16x16 blocks start in its nametable
+
+
+def dest_table(src, label, n):
+    """A bank $09 CHR destination table's tile ids, from its source."""
+    at = src.index(label + ":")
+    vals = []
+    for line in src[at:].split("\n")[1:]:
+        vals += [int(v, 16) >> 4 for v in __import__("re").findall(r"<\$([0-9A-Fa-f]{4})", line)]
+        if len(vals) >= n:
+            return vals[:n]
+
+
+def block_pixels(tiles, ts, b):
+    """Block b's 8x8 pixels as Minimap_PrepRow draws them: four map tiles'
+    lut_MinimapTileset colours ORed, the low two bits."""
+    bx, by = b & 15, b >> 4
+    out = []
+    for r in range(8):
+        y = (by * 8 + r) * 2
+        for c in range(8):
+            x = (bx * 8 + c) * 2
+            v = ts[tiles[x + 256 * y]] | ts[tiles[x + 1 + 256 * y]] | ts[tiles[x + 256 * (y + 1)]] \
+                | ts[tiles[x + 1 + 256 * (y + 1)]]
+            out.append(v & 3)
+    return tuple(out)
+
+
+def edit_maps(van):
+    """Every list alone, every edit at once, and the Cardia group's other
+    combinations: since the lists share no tile but within that group, the
+    blocks any combination can change are these maps' blocks."""
+    out = [O.apply(van, 1 << i) for i in range(len(O.SETTINGS))]
+    out += [O.apply(van, f) for f in ((1 << len(O.SETTINGS)) - 1, 1 << O.CARDIA_BRIDGE | 1 << O.BAHAMUT_DOCK)]
+    return out
+
+
+def minimap_layout():
+    import genows
+    van = genows.vanilla()
+    ts = genows.minimap_tiles()
+    src9 = open(os.path.join(GAME, "bank_09.asm"), encoding="latin-1").read()
+    nt = bytearray(open(os.path.join(GAME, "bin", "minimap_nt.nam"), "rb").read())
+    title = dest_table(src9, "lut_MinimapTitleCHRDest_lo", 40)
+    decor = dest_table(src9, "lut_MinimapDecorCHRDest_lo", 48)
+    cell = lambda b: (MAP_ROW + (b >> 4)) * 32 + MAP_COL + (b & 15)
+    shown = {b for b in range(256) if nt[cell(b)] == b}
+    maps = edit_maps(van)
+    touched = {b for b in range(256) if any(block_pixels(m, ts, b) != block_pixels(van, ts, b) for m in maps)}
+    #  (The vanilla minimap hides a little land of its own; what matters is a
+    #  hidden block an edit changes.)
+    need = sorted(touched - shown)
+    #  Blocks free to share: shown, never touched, a picture another such
+    #  block has; the first of each keeps its tile, the rest give theirs up.
+    by_pic = {}
+    for b in sorted(shown - touched - {0}):
+        by_pic.setdefault(block_pixels(van, ts, b), []).append(b)
+    spare = [(b, g[0]) for g in by_pic.values() for b in g[1:]]
+    assert len(spare) >= len(need), (need, spare)
+    for b, (f, keep) in zip(need, spare):
+        lent = title if b in title else decor if b in decor else None
+        if lent is not None:
+            k = lent.index(b)
+            lent[k] = f                       # the logo's (or a crest's) tile into f...
+            for i in range(960):
+                if nt[i] == b:
+                    nt[i] = f                 # ...wherever it is shown
+        nt[cell(f)] = keep                    # f's block shown with its twin's tile
+        nt[cell(b)] = b                       # and the edited block with its own
+    #  Every block shown shows a tile drawn with its picture, under every map;
+    #  every block hidden is as vanilla has it under every map; no lent tile is
+    #  a block's that is shown; the 88 lent tiles all different.
+    lent_all = set(title) | set(decor)
+    assert len(lent_all) == 88
+    for b in range(256):
+        t = nt[cell(b)]
+        if t in lent_all:
+            assert False, "block %02X shows a lent tile" % b
+        for m in [van] + maps:
+            if t == 0 and b not in shown:
+                assert block_pixels(m, ts, b) == block_pixels(van, ts, b), "block %02X hidden, edited" % b
+            elif t != 0 or b == 0:
+                assert block_pixels(m, ts, b) == block_pixels(m, ts, t), "block %02X shows %02X's" % (b, t)
+    for t in lent_all:
+        assert nt[cell(t)] != t, "lent tile %02X is its block's" % t
+    open(os.path.join(ROOT, "gen", "minimap_nt.nam"), "wb").write(bytes(nt))
+    for fname, label, ids in (("minimap_titledest.inc", "lut_MinimapTitleCHRDest", title),
+                              ("minimap_decordest.inc", "lut_MinimapDecorCHRDest", decor)):
+        lines = [";  Generated by tools/genowedits.py -- do not edit.",
+                 ";  The minimap's lent tiles, as the edits leave room for them.", ""]
+        for half, sh in (("lo", "<"), ("hi", ">")):
+            lines.append("%s_%s:" % (label, half))
+            for i in range(0, len(ids), 8):
+                lines.append("  .BYTE " + ", ".join("%s$%04X" % (sh, t << 4) for t in ids[i:i + 8]))
+        open(os.path.join(ROOT, "gen", fname), "w").write("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":

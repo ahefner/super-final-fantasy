@@ -1,0 +1,8 @@
+--- OLD
+lut_MinimapNT:
+  .INCBIN "bin/minimap_nt.nam"
+--- NEW
+lut_MinimapNT:
+;  As tools/genowedits.py lays it out with the map edits in it: every block
+;  an edit puts land in shown with its own tile (gen/minimap_nt.nam).
+  .INCBIN "minimap_nt.nam"

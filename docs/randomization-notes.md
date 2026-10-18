@@ -1516,17 +1516,31 @@ Placement's logic is now the edited map's, for every edit, as FFR's is:
     all -- nothing reaches the airship without the ship -- which the
     unwinnable warning is for.
 
-The minimap is the other thing phase 2 has to change (user, 2026-10-18,
+The minimap was the other thing phase 2 had to change (user, 2026-10-18,
 every edit forced on).  `lut_MinimapNT` shows a block of the minimap only
 where the vanilla map has land, and lends 88 of the other 89 blocks' pattern
-tiles to the crests and the logo.  Sarda's Forest puts land in one of the
-logo's blocks ($C2), and the Cardia Land Bridge in another ($26): that land
-is never drawn on the map, so the bridge's caves float in ocean, and until
-the logo draws over them its tiles show the land, a red patch at the top of
-the screen.  No flag a mode offers does (`test_owedits` holds it).  FFR's
-`QuickMiniMap` builds the minimap's tiles and nametable from the edited map
-at generation, and drops the dragons and the logo when there is no room for
-them; the cart would rebuild the nametable at the minimap, or move the logo.
+tiles to the crests and the logo, drawn after the map.  Sarda's Forest puts
+land in one of the logo's blocks ($C2), and the Cardia Land Bridge in
+another ($26): that land was never drawn on the map, so the bridge's caves
+floated in ocean, and until the logo drew over them its tiles showed the
+land, a red patch at the top of the screen.  FFR's `QuickMiniMap` rebuilds
+the minimap's tiles and nametable from the edited map, and drops the dragons
+and the logo when there is no room.
+
+**Fixed 2026-10-18 (built, not yet played), with room, not dropping
+anything.**  None of the 88 lent tiles is a duplicate or blank, but the
+map's own blocks have twins: blocks no edit touches whose pictures are the
+same (`$1C`, `$6D` and `$B5`; `$62` and `$C3`; `$7D` and `$E9`).
+`genowedits.minimap_layout` gives each block an edit changes its own tile
+back, moves the logo's tile that was there into the tile of a twin, and
+shows that twin with its sibling's tile: six nametable bytes and two of the
+logo's destinations (`gen/minimap_nt.nam`, `gen/minimap_titledest.inc`,
+`patches/bank_09/minimap_*.patch`), bank $09 otherwise byte for byte.  The
+two blocks are open sea in vanilla, as the blank tile is, so the unedited
+minimap looks as it did.  The generator asserts, and `test_owedits` holds
+from the ROM, that every block shows a tile drawn with its picture under
+every edit, a hidden block stays as vanilla has it, no shown block shows a
+lent tile, and the logo and crests are whole.
 
 ### 9.2 Alternate maps
 
