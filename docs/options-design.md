@@ -1269,6 +1269,13 @@ mutations, 24 caught; the two missed are equivalent (the window's slot
 masked to five bits, `$70` already holding the fifth; the canal list, gated
 on a bit no mask holds, in the table).
 
+The row acts at New Game, which writes `RANDO_OWEDITS`; a save continued
+has the edits it was started with.  To look at the edited map with any save
+-- flying it in the airship, the minimap -- `FFDEBUG=owedits ./build.sh`
+turns every edit on whatever the save says, all fourteen, the three no mode
+offers among them (user, 2026-10-18, for a first look before the New Game
+screen).  It edits only the map: the BRIDGE stays where the save built it.
+
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen

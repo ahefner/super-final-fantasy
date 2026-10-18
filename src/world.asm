@@ -111,11 +111,14 @@ mm_editrows:
 ;;  costs a few dozen cycles.  Emulation mode in and out.  A, X, Y clobbered.
 ow_edit:
     TAY                         ; the row, while A asks whether there is work
+.ifndef OWEDITS_FORCE
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     BNE :+
     RTS
-:   CLC
+:
+.endif
+    CLC
     XCE                         ; native: the entries run past 256 bytes
     REP #$30
     .a16
@@ -168,8 +171,12 @@ ow_edit:
 ;;  CardiaLandBridgeBahamutDock instead.  Out: A16.
 ow_lists:
     .a16
+.ifdef OWEDITS_FORCE
+    LDA #OWEDIT_FLAGS           ; FFDEBUG=owedits: every edit, whatever the save
+.else
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     AND #OWEDIT_FLAGS
+.endif
     BIT #OWEDIT_CARDIABRIDGE
     BEQ :+
     BIT #OWEDIT_BAHAMUTDOCK

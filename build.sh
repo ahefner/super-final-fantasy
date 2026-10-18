@@ -36,6 +36,15 @@ case "$FFDEBUG" in
   *tone*) CA65EXTRA="$CA65EXTRA -DAUDIOTEST" ;;
 esac
 
+#  FFDEBUG=...,owedits turns every overworld map edit on, whatever the save
+#  says -- all fourteen of FFR's, the three no Map edits mode offers among
+#  them -- so a save that has the airship can fly round the edited map and
+#  open the minimap.  Only the map: a save started without Bridge to Lefein
+#  keeps its BRIDGE where it was built.
+case "$FFDEBUG" in
+  *owedits*) CA65EXTRA="$CA65EXTRA -DOWEDITS_FORCE" ;;
+esac
+
 #  FFDEBUG=...,trisweep replaces the tone pattern with a sweep of the triangle
 #  through every pitch it can be given, so a capture can say which ones click.
 case "$FFDEBUG" in
