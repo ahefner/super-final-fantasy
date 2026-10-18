@@ -23,6 +23,7 @@ python3 tools/gencrawl.py
 python3 tools/genroll.py
 python3 tools/gentactics.py
 python3 tools/genitemmagic.py
+python3 tools/genowedits.py
 python3 tools/convert.py
 
 #  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged

@@ -1781,6 +1781,8 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"Key items"}
   .BYTE $02, 48    ; Map shuffle   (scalar 48)
   OPTLABEL {"Map shuffle"}
+  .BYTE $02, 53    ; Map edits   (scalar 53: OPT_NG_EARLY bits 4-5)
+  OPTLABEL {"Map edits"}
   .BYTE $02, 23    ; SHIP   (scalar 23)
   OPTLABEL {"SHIP"}
   .BYTE $02, 24    ; AIRSHIP   (scalar 24)
@@ -2090,6 +2092,13 @@ lut_ValItemMagic:
   FFPAD "Balanced", 8
 .assert * - lut_ValItemMagic = 8 * ITEMMAGIC_MODES, error, "a readout per item magic mode"
 
+;  Map edits: which of FFR's overworld edits New Game turns on.
+lut_ValOwEdits:
+  FFPAD " Off", 4                ; OWEDITS_OFF
+  FFPAD "Open", 4                ; OWEDITS_OPEN: Early Open Progression
+  FFPAD " All", 4                ; OWEDITS_ALL: every one that only adds a way
+.assert * - lut_ValOwEdits = 4 * OWEDITS_MODES, error, "a readout per map edits mode"
+
 ;  Thief lockpicking: Off, then the level a Thief or Ninja needs.
 lut_ValLockpick:
   FFPAD " Off", 4
@@ -2134,6 +2143,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValOnOff
               .BYTE <lut_ValLockpick
               .BYTE <lut_ValItemMagic
+              .BYTE <lut_ValOwEdits
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2155,6 +2165,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValOnOff
               .BYTE >lut_ValLockpick
               .BYTE >lut_ValItemMagic
+              .BYTE >lut_ValOwEdits
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2176,6 +2187,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE CASTER_MODES
               .BYTE LOCKPICK_STEPS
               .BYTE ITEMMAGIC_MODES
+              .BYTE OWEDITS_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2186,6 +2198,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 2                                         ; Starting caster item
               .BYTE 2                                         ; Thief lockpicking
               .BYTE 3                                         ; Item magic
+              .BYTE 2                                         ; Map edits
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2210,6 +2223,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_STARTITEMS                           ; above the set
               .BYTE <OPT_THIEFHIT                             ; above Thief hit
               .BYTE <OPT_NG_MAGIC                             ; above Magic levels
+              .BYTE <OPT_NG_EARLY                             ; above the Early flags
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2226,6 +2240,7 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE CASTER_SHIFT                              ; Starting caster item
               .BYTE LOCKPICK_SHIFT                            ; Thief lockpicking
               .BYTE ITEMMAGIC_SHIFT                           ; Item magic
+              .BYTE OWEDITS_SHIFT                             ; Map edits
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
               .RES 10, $FF
@@ -2244,7 +2259,8 @@ lut_ValMask:  .RES 8, $FF
               .BYTE STARTITEMS_CASTER                         ; Starting caster item
               .BYTE LOCKPICK_FIELD                            ; Thief lockpicking
               .BYTE ITEMMAGIC_FIELD                           ; Item magic
-VALSCALARS = 53
+              .BYTE OWEDITS_FIELD                             ; Map edits
+VALSCALARS = 54
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
 .assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"

@@ -1,0 +1,19 @@
+--- OLD
+    LDA #<mapdata    ;   the row will be decompressed to $7x00-$7xFF
+    STA tmp+2        ;   where 'x' is the low 4 bits of the row number
+                     ;  (tmp+2) is now our dest pointer for the row
+
+           ; no RTS or JMP -- code seamlessly runs into DecompressMap
+--- NEW
+    LDA #<mapdata    ;   the row will be decompressed to $7x00-$7xFF
+    STA tmp+2        ;   where 'x' is the low 4 bits of the row number
+                     ;  (tmp+2) is now our dest pointer for the row
+
+.import ow_editrow
+.export LoadOWMapRow                ; for the harness
+    ;  Map edits: the row unpacked, then the overworld's edits written into it
+    ;  (world.asm), where this ran on into DecompressMap.  The map's bank
+    ;  stays switched in, as it did.
+    JSR DecompressMap
+    JSL ow_editrow + WORLDFAR
+    RTS

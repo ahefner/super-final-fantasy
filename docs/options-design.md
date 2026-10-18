@@ -1133,6 +1133,7 @@ and shown by the save view with them:
 
     Key items        Vanilla / Standard / Wide
     Map shuffle      Off / Entrances / Floors     (below)
+    Map edits        Off / Open / All             (below)
     SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows
     Other items      Incentive / Loose            the nine with no Free
     Masmune .. Xcalber   Treasure / Incentive     nine gear rows
@@ -1229,6 +1230,43 @@ each under the floor it is reached from -- FFR's location name beside the
 map's where it says more, which of Cardia's six, which floor holds Lich --
 and which floors have a way back out.  The full dump shows it too whenever
 Map shuffle is on.  `test_es_tree` holds it to the shuffle's own roots.
+
+### Map edits
+
+**Built 2026-10-17; not yet played.**  FFR's overworld map edits, one row
+standing in for its fourteen flags until New Game has a screen of its own
+(user: "don't mess up labels on the existing options screen just for the
+sake of toggling map edits, as the long term plan is to put those toggles
+on their own screen during new game creation").  Off; Open, FFR's Early
+Open Progression, the one edit its randomized presets turn on (Coneria to
+the Dwarf Cave on foot, the Volcano's and the Ice Cave's rivers joined);
+All, every edit that only adds a way through -- Early and Extended Open
+Progression, the Northern, Ryukahn Desert, Bahamut Cardia and Lefein River
+docks, Bridge to Lefein, Gaia Mountain Pass, Highway to Ordeals, River to
+Melmond and the Hiking Trail.  Not Sarda's Forest, which takes a way away,
+nor the Cardia Land Bridge, which moves Cardia's doors -- each needs the
+logic to know of it -- nor Ship in Drydock, which leaves the ship needing
+the airship.  Independent of Key items: the edits only open the map, so a
+world placed on the vanilla map stays winnable on the edited one, as it
+does with the vanilla progression.  How it works is
+`randomization-notes.md` §9.1.
+
+The row is a field, bits 4-5, of the Early flags' byte (`RANDO_EARLY`,
+`OPT_NG_EARLY`), whose readers each test their own bit; `OPT_NG` has no
+byte to spare.  New Game expands it into `RANDO_OWEDITS`, two bytes
+appended to the save block with a bit per FFR flag, which is all the game
+reads -- so the screen to come can set them one by one, and zero, no edits,
+is every older save.  Neither `OPT_FORMAT` nor `SAVEVER` moves.  Bridge to
+Lefein also sets the BRIDGE down at (230, 123), as FFR does, and moors a
+ship that would have berthed at Matoya's dock, which its edits delete, at
+Coneria's (FFR's `UpdateDocks`).  Four columns of readout, one description
+per value.  `test_owedits` holds the transcription to FFR's source (beside
+the tree), the cart's rows, window and minimap, to `owedits.apply` flag by
+flag, New Game's expansion and the BRIDGE, and the row's field, with no two
+of the page's fields sharing a bit; `test_rando_shipdock` the dock.  26
+mutations, 24 caught; the two missed are equivalent (the window's slot
+masked to five bits, `$70` already holding the fifth; the canal list, gated
+on a bit no mask holds, in the table).
 
 ### Respond rate
 
@@ -2327,8 +2365,8 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   250 free    the scarce one; stamped into every chunk.  7
-                             declared, and 243 at the end: the randomizer's
+    BANK_FIXED   238 free    the scarce one; stamped into every chunk.  7
+                             declared, and 231 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
                              GetBattleFormation (26) and EnterBattle's
@@ -2347,7 +2385,10 @@ text region in the game references.
                              rando_entrdest and rando_exitdest, and the
                              teleport's map, of rando_teledest, gave back 34;
                              @Begin's cold build, one JSL to the
-                             randomizer's rando_coldbuild, gave back 3
+                             randomizer's rando_coldbuild, gave back 3;
+                             the overworld's edits took 12, LoadOWMapRow's
+                             JSR and JSL where it ran on into DecompressMap,
+                             and CallMinimapDecompress's JSL
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
@@ -2364,7 +2405,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     223 free   once the descriptions moved out, the None, the
+    BANK_OPT     172 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2387,20 +2428,22 @@ text region in the game references.
                              lockpicking (176: its row, readouts and
                              scalar, opt_lockpick, Thief hit's mask), and
                              Item magic (59: its row, readouts and scalar;
-                             opt_itemspell shrank, asking the readers) --
+                             opt_itemspell shrank, asking the readers), and
+                             Map edits (51: its row, readouts and scalar) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  3232 free  the settings screen's descriptions; Map
+    BANK_OPTTEXT  2884 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
-                             lockpicking's 115, Item magic's 115
+                             lockpicking's 115, Item magic's 115, Map
+                             edits' three 348
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   2949 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   2881 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2419,14 +2462,18 @@ text region in the game references.
                              Staff's name 57, and the NUKE Stick's beside
                              it 32; the caster item's draw 43; Item
                              magic 416 -- its two pools 104, the deal,
-                             gear_spellat and the dealt names
+                             gear_spellat and the dealt names; Map edits'
+                             New Game, BRIDGE and Matoya's dock 68
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only
-    BANK_WORLD  11914 free  entrance shuffle's code (4430): the wiring, the
+    BANK_WORLD   7539 free  entrance shuffle's code (4430): the wiring, the
                              seed's logic, roots, groups, the dock, and the
-                             landing tables; the roll screen's yields 40
+                             landing tables; the roll screen's yields 40;
+                             the overworld's edits 4375 -- every FFR list's
+                             writes by row (4230, tools/genowedits.py) and
+                             ow_edit
     BANK_ROLL    9233 free  New Game's roll screen (7151): its code, and
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their

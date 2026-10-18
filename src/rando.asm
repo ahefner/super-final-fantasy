@@ -616,6 +616,26 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
+    ;  Map edits: the row's mode as the flags it stands for, which are all
+    ;  the game reads; and Bridge to Lefein's BRIDGE where FFR puts it.
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #OWEDITS_FIELD
+    LSR A
+    LSR A
+    LSR A                       ; the mode, in words
+    TAX
+    LDA f:RANDOFAR + lut_OwEditsMode, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:RANDOFAR + lut_OwEditsMode + 1, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    AND #OWEDIT_BRIDGELEFEIN
+    BEQ :+
+    LDA #BRIDGE_LEFEIN_X
+    STA f:BRIDGEFAR
+    LDA #BRIDGE_LEFEIN_Y
+    STA f:BRIDGEFAR + 1
+:
     ;  This game's reward NPCs run from rando_talk's table, and none has given.
     LDA #1
     STA f:RANDO_TALKFAR
@@ -637,6 +657,16 @@ rando_newgame:
     RTL
 
 TITLEMUSIC = $41                ; IntroTitlePrepare's, which party creation hears
+BRIDGEFAR  = (CHUNK0 * $10000) + bridge_x   ; and bridge_y after it
+.assert bridge_y = bridge_x + 1, error, "bridge_y follows bridge_x"
+
+;  Each Map edits mode's flags, in RANDO_OWEDITS; the field's fourth value,
+;  which the row never sets, none.  Open is the one FFR's presets turn on;
+;  All is every edit that only adds a way through (OWEDIT_SAFE).
+lut_OwEditsMode:
+  .WORD 0, OWEDIT_OPENPROG, OWEDIT_SAFE, 0
+.assert OWEDITS_FIELD >> OWEDITS_SHIFT = 3, error, "lut_OwEditsMode: a word for each value of the field"
+.assert OWEDITS_SHIFT = 4, error, "rando_newgame turns the field into a word index with three shifts"
 
 ;;  A cold cache at @Begin -- a Continue the first after power-on, the save's
 ;;  world not in WRAM -- built as New Game builds it, the roll screen up and
@@ -1837,6 +1867,13 @@ give_vehicle:
     LDA f:LOGICFAR + lut_ShipDock, X
   @dock:
     TAX
+    CPX #DOCK_MATOYA            ; Bridge to Lefein deletes Matoya's dock: a
+    BNE @moor                   ;   ship for it moors at Coneria's, as FFR's
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)   ; UpdateDocks has it
+    AND #OWEDIT_BRIDGELEFEIN
+    BEQ @moor
+    LDX #DOCK_CONERIA
+  @moor:
     LDA f:LOGICFAR + lut_DockX, X
     STA ship_x
     LDA f:LOGICFAR + lut_DockY, X

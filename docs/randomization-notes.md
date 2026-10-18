@@ -1301,11 +1301,13 @@ touched):
     VolcanoIceRiver       9  (3)     AirshipHike          11  (4)
     CanalSoftLockMountain 6  (2)     GaiaMountainPass     46 (15)
     DwarvesNorthwestGrass 3  (1)     GaiaDrydock          11  (3)
-    BahamutCardiaDock     9  (3)     CardiaLandBridge    549 (44)
+    BahamutCardiaDock     9  (3)     CardiaLandBridge    555 (44)
     LefeinRiverDock      14  (5)     ...BahamutDock         2  (1)
 
-With every compatible edit on, that is 926 tile writes over 98 rows, at
-most 34 in any one row.  It is under 3KB as `(x, y, tile)`, and less as runs
+Every list but CanalSoftLockMountain, which FFR defines and never applies,
+is 929 tile writes over 96 rows, at most 34 in any one row.  (The first
+count here had the land bridge at 549 and 926 over 98; the parser that
+made tools/owedits.py counts each `new MapEdit` and checks the count.)  It is under 3KB as `(x, y, tile)`, and less as runs
 per row.  **Space is a non-issue.**  `MapOpenProgression` is VolcanoIceRiver
 plus ConeriaToDwarves.
 
@@ -1433,6 +1435,42 @@ Two edits are more than tiles:
 
 Everything else is additive, so as you note, a placement made without the
 edits stays valid with them.
+
+**Built 2026-10-17, phase 1 (not yet played): the Map edits row**
+(`options-design.md`).  Mechanism (b):
+
+  - `tools/owedits.py` transcribes every list, in FFR's order, with the
+    flag each is applied under and FFR's two Cardia rules (`active_lists`)
+    and an `apply` that edits a decoded map as FFR does; `test_owedits`
+    holds it to FFR's source when that is beside the tree.
+  - `tools/genowedits.py` sorts the writes by row and, within a row, into
+    FFR's order (`gen/owedits.inc`: a row table and four-byte entries, the
+    list's gate as a mask bit, x, tile), so writing a row's active entries
+    in turn leaves FFR's map.  4,230 bytes in the world chunk.
+  - `LoadOWMapRow` no longer runs on into `DecompressMap`: it calls it, then
+    `JSL ow_editrow` (`owedits_row.patch`), and `CallMinimapDecompress` calls
+    `mm_editrows` after `MinimapDecompress` (`owedits_minimap.patch`) -- 12
+    fixed-bank bytes.  The map's bank stays switched in after each, as it
+    was.  `ow_edit` reads `RANDO_OWEDITS` from the save each time: two
+    loads and out for a save without edits, so nothing is cached and the
+    soft-reset path is untouched; with edits, native mode for the walk over
+    the row's entries, under a hundred cycles for a row nothing touches.
+  - New Game expands the row's mode into `RANDO_OWEDITS`, sets the BRIDGE
+    down at (230, 123) under Bridge to Lefein, and `give_vehicle` moors a
+    ship bound for Matoya's dock at Coneria's under it.
+
+The modes offer eleven of FFR's fourteen flags, the ones a fixpoint over
+gengraph's stripped graph shows make nothing harder from anywhere a party
+arrives on the overworld (the start, every exit's landing, every entrance,
+where a warp sets it down), so no wiring can either: Sarda's Forest makes
+50 such pairs harder and the Cardia Land Bridge 8 (it moves six of Cardia's
+doors, `OverworldMap.ApplyMapEdits`), and Ship in Drydock moors every ship
+at Gaia, which the logic would have to sail from.  The three have bits and
+table entries, and need the logic (phase 2): edges gated on edit bits, and
+for Sarda's an absence.  Until then the logic is the vanilla map's, which
+under Bridge to Lefein still has the BRIDGE leave Coneria rather than reach
+Lefein: placement never counts on the new crossing, and FFR's lighter BRIDGE
+weight under that flag waits for the logic too.
 
 ### 9.2 Alternate maps
 

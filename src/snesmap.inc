@@ -430,6 +430,50 @@ EARLY_SARDA     = $02
 EARLY_SAGE      = $04
 EARLY_ORDEALS   = $08
 EARLY_MODES     = 2               ; each a row, Off / On
+;  Map edits, the field above the Early flags in RANDO_EARLY, whose readers
+;  all test their own bit: one row standing in for FFR's overworld edit flags
+;  until New Game has a screen of its own.  New Game expands it into
+;  RANDO_OWEDITS (lut_OwEditsMode), which is all the game reads.
+OWEDITS_OFF     = 0
+OWEDITS_OPEN    = 1               ; Early Open Progression, FFR's presets' one edit
+OWEDITS_ALL     = 2               ; every edit the logic can take as it stands
+OWEDITS_MODES   = 3
+OWEDITS_FIELD   = $30
+OWEDITS_SHIFT   = 4
+;  RANDO_OWEDITS: a bit per FFR flag, as its overworld tab names them
+;  (tools/owedits.py's SETTINGS).  Each edits the map as the game unpacks a
+;  row of it (world.asm's ow_edit).  The three marked "not yet" have no mode
+;  that sets them: Sarda's Forest takes paths away and the land bridge moves
+;  Cardia's doors, which the logic would have to know, and in drydock the ship
+;  needs the airship.  Every other edit only adds ways through, wherever the
+;  doors lead, so a world placed on the vanilla map stays winnable with it.
+OWEDIT_OPENPROG      = $0001      ; Early Open Progression: VolcanoIceRiver, ConeriaToDwarves
+OWEDIT_EXTENDED      = $0002      ; Extended Open Progression: DwarvesNorthwestGrass
+OWEDIT_DOCKS         = $0004      ; Northern Docks: OnracDock, MirageDock
+OWEDIT_AIRSHIPDOCK   = $0008      ; Ryukahn Desert Dock
+OWEDIT_BAHAMUTDOCK   = $0010      ; Bahamut Cardia Dock
+OWEDIT_LEFEINRIVER   = $0020      ; Lefein River Dock
+OWEDIT_BRIDGELEFEIN  = $0040      ; Bridge to Lefein: the BRIDGE moves there, Matoya's dock goes
+OWEDIT_GAIAPASS      = $0080      ; Gaia Mountain Pass
+OWEDIT_HIGHWAY       = $0100      ; Highway to Ordeals
+OWEDIT_RIVERMELMOND  = $0200      ; River to Melmond
+OWEDIT_SARDAS        = $0400      ; Sarda's Forest -- not yet
+OWEDIT_HIKE          = $0800      ; Hiking Trail to Airship
+OWEDIT_CARDIABRIDGE  = $1000      ; Cardia Land Bridge -- not yet
+OWEDIT_DRYDOCK       = $2000      ; Ship in Drydock -- not yet
+OWEDIT_FLAGS         = $3FFF
+OWEDIT_SAFE          = OWEDIT_FLAGS & ~(OWEDIT_SARDAS | OWEDIT_CARDIABRIDGE | OWEDIT_DRYDOCK)
+;  The active-list mask's one bit that is no flag's (ow_lists): FFR applies
+;  CardiaLandBridgeBahamutDock with both of its flags, and BahamutCardiaDock
+;  only without the land bridge.
+OWE_BAHAMUTBRIDGE    = $4000
+;  Bridge to Lefein's BRIDGE (FFR's Overworld.cs), and the dock it deletes,
+;  whose ships it moors at Coneria's (ShipLocations.UpdateDocks): genlogic.py's
+;  DOCKS.
+BRIDGE_LEFEIN_X = 230
+BRIDGE_LEFEIN_Y = 123
+DOCK_CONERIA    = 0
+DOCK_MATOYA     = 4
 ;  Early Ordeals' two tiles: the thrones, in the Castle tileset.
 TS_CASTLE       = 1
 THRONE_TILE1    = $61
@@ -1554,7 +1598,7 @@ RANDO_KEYITEMS  = RANDO_SAVE+$13  ; KEYITEMS_* below: whether key items move, an
 RANDO_ITEMS     = RANDO_SAVE+$14  ; 3 bytes, two bits per row, ITEM_* below, rows ITEMROW_* in
                                   ;   order from bit 0 of the first byte
 RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in order: set, an incentive
-RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
+RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags; Map edits above
 RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
 ;  What New Game made of the settings, under entrance shuffle (rando_place):
 ;  which attempt's wiring the game has, so the cache can draw it again, and
@@ -1563,8 +1607,12 @@ RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
 ;  in every save made before them.
 RANDO_ESK       = RANDO_SAVE+$1B  ; the attempt k whose wiring placed
 RANDO_SHIPDOCK  = RANDO_SAVE+$1C  ; the ship's dock, 0..4 (es_dock)
+;  ...and the overworld's edits, OWEDIT_* bits, from the Map edits field of
+;  RANDO_EARLY.  A bit each, so a New Game screen can set them one by one;
+;  zero, no edit, in every save made before them.
+RANDO_OWEDITS   = RANDO_SAVE+$1D  ; 2 bytes
 RANDO_SETTINGS_SIZE = $1B
-RANDO_SAVE_SIZE = $1D
+RANDO_SAVE_SIZE = $1F
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1766,6 +1814,7 @@ SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 RANDOWRAM       = $7F8000
 RW_TAG          = RANDOWRAM+$0000 ; RW_TAG_VAL once the cache below is whole
 RW_TAGBLK       = RANDOWRAM+$00C0 ; the save block the cache was built from
+.assert RANDO_SAVE_SIZE <= $40, error, "the save block outgrows the cache's copy of it"
 RW_RNG          = RANDOWRAM+$0010 ; 4 bytes: the stream being drawn from
 RW_T            = RANDOWRAM+$0014 ; 2 bytes of scratch for the PRNG
 RW_LEN          = RANDOWRAM+$0016 ; 2 bytes: entries left in RW_LIST

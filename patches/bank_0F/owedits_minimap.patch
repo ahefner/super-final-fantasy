@@ -1,0 +1,10 @@
+--- OLD
+    JSR MinimapDecompress
+    LDA #BANK_MINIMAP
+    JMP SwapPRG_L
+--- NEW
+    JSR MinimapDecompress
+.import mm_editrows
+    JSL mm_editrows + WORLDFAR  ; Map edits: the two rows, edited (world.asm)
+    LDA #BANK_MINIMAP
+    JMP SwapPRG_L

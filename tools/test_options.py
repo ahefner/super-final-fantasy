@@ -1024,6 +1024,181 @@ def test_es_place():
            R.build_placement(seed, *cfg) != R.build_placement(seed, *cfg, tune=R.TUNE_LOOSE),
            sv[K["RANDO_ENTRANCES"] - 0x6000]), (True, True, R.ENTRANCES_OFF))
 
+def owedits_ffr_source():
+    """FFR's two edit files and its OverworldMap constructor, comments
+    stripped, or None when FFR's source is not beside the tree."""
+    ffr = os.path.join(os.path.dirname(ROOT), "FF1Randomizer", "FF1Lib")
+    names = ("OverworldMapEdits.cs", "OverworldCardiaLandBridge.cs", "OverworldMap.cs")
+    if not all(os.path.exists(os.path.join(ffr, n)) for n in names):
+        return None
+    def strip(t):
+        t = re.sub(r"/\*.*?\*/", "", t, flags=re.S)
+        return re.sub(r"//[^\n]*", "", t)
+    return [strip(open(os.path.join(ffr, n), encoding="utf-8-sig").read()) for n in names]
+
+
+def test_owedits():
+    """FFR's overworld map edits (owedits.py; world.asm's ow_edit): the
+    transcription held to FFR's source when it is beside the tree -- every
+    list's writes in order, the order FFR applies the lists in, and the flags
+    each is applied under; the cart's rows, as LoadOWMapRow leaves them in the
+    window and CallMinimapDecompress in the minimap's two buffers, the map as
+    owedits.apply edits it, flag by flag and together; and New Game, which
+    expands the Map edits row into RANDO_OWEDITS and moves the BRIDGE under
+    Bridge to Lefein."""
+    import owedits as O
+    src = owedits_ffr_source()
+    if src is None:
+        print("   (FFR's source is not beside the tree: the transcription is not checked)")
+    else:
+        edits, _, ctor = src
+        e0 = edits.index("enum OwTiles")
+        enum = {m.group(1): int(m.group(2), 0) for m in
+                re.finditer(r"(\w+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)", edits[e0:edits.index("}", e0)])}
+        lists = {}
+        for text in src[:2]:
+            for m in re.finditer(r"List<MapEdit>\s+(\w+)\s*=\s*new List<MapEdit>\s*\{(.*?)\};", text, re.S):
+                out = []
+                for it in re.findall(r"new MapEdit\s*\{(.*?)\}", m.group(2), re.S):
+                    f = dict(re.findall(r"(X|Y|Tile)\s*=\s*([^,]+?)\s*(?:,|$)", it.strip()))
+                    val = lambda v: (enum[v.split(".")[-1]] if "OwTiles." in v else int(v, 0))
+                    out.append((val(f["X"]), val(f["Y"]), val(f["Tile"].strip())))
+                lists[m.group(1)] = out
+        check("owedits.py: every list FFR defines, each write as FFR has it, in order",
+              lists, O.LISTS)
+        body = ctor[ctor.index("if (!flags.DisableOWMapModifications)") + 38:]
+        body = body[:body.index("public static Dictionary<Palette")]
+        stack, pending, adds = [], None, []
+        for m in re.finditer(r"if\s*\(((?:[^()]|\([^()]*\))*)\)|\{|\}|MapEditsToApply\.Add\((\w+)\)", body):
+            t = m.group(0)
+            if t.startswith("if"):
+                pending = m.group(1)
+            elif t == "{":
+                stack.append(pending)
+                pending = None
+            elif t == "}":
+                if stack:
+                    stack.pop()
+            else:
+                conds = " ".join(c for c in stack + [pending] if c)
+                adds.append((m.group(2), set(re.findall(r"(?<!!)\(bool\)flags\.(\w+)", conds)),
+                             set(re.findall(r"!\(bool\)flags\.(\w+)", conds))))
+                pending = None
+        check("...the lists in the order FFR applies them",
+              [n for n, _, _ in adds], [n for n, g in O.ORDER if g != O.LIST_NONE])
+        want = []
+        for n, g in O.ORDER:
+            if g == O.BAHAMUT_DOCK:
+                want.append((n, {"MapBahamutCardiaDock"}, {"MapCardiaLandBridge"}))
+            elif g == O.LIST_BAHAMUT_BRIDGE:
+                want.append((n, {"MapCardiaLandBridge", "MapBahamutCardiaDock"}, set()))
+            elif g != O.LIST_NONE:
+                want.append((n, {O.SETTINGS[g]}, set()))
+        check("...each under the flags its gate says", adds, want)
+    check("the cart's flag bits are owedits.py's",
+          [K["OWEDIT_" + n] for n in ("OPENPROG", "EXTENDED", "DOCKS", "AIRSHIPDOCK", "BAHAMUTDOCK",
+                                      "LEFEINRIVER", "BRIDGELEFEIN", "GAIAPASS", "HIGHWAY",
+                                      "RIVERMELMOND", "SARDAS", "HIKE", "CARDIABRIDGE", "DRYDOCK")],
+          [1 << i for i in range(len(O.SETTINGS))])
+    check("...and the Cardia rule's bit", K["OWE_BAHAMUTBRIDGE"], 1 << O.LIST_BAHAMUT_BRIDGE)
+    SAFE = K["OWEDIT_SAFE"]
+    check("All: every flag but Sarda's Forest, the Cardia land bridge and drydock",
+          [O.SETTINGS[i] for i in range(len(O.SETTINGS)) if not SAFE >> i & 1],
+          ["MapSardasForest", "MapCardiaLandBridge", "ShipDrydock"])
+
+    #  The shipped map, decoded here from bank $01's pointers.
+    b1 = R.nesbank(ROMDATA, 1)
+    van = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        van += R.decode_rle(b1, ptr - 0x8000, 256)
+    check("the shipped map: 256 rows of 256", len(van), 65536)
+    touched = {y for lst in O.LISTS.values() for _, y, _ in lst}
+    for i in range(len(O.SETTINGS)):
+        check("flag %s edits the map" % O.SETTINGS[i], O.apply(van, 1 << i) != van, True)
+    check("Cardia's two rules: the dock without the land bridge, its variant with it",
+          (O.active_lists(0x1010), O.active_lists(0x0010), O.active_lists(0x1000), O.active_lists(0xFFFF)),
+          (0x5000, 0x0010, 0x1000, 0x7FEF))
+
+    MAPFLAGS, MAPDRAW_Y, MAPROW = K["mapflags"], K["mapdraw_y"], K["mm_maprow"]
+    WIN, BUF, BUF2 = 0x7000, 0x0600, 0x0700
+    at = K["RANDO_OWEDITS"] - 0x6000
+    singles = [1 << i for i in range(len(O.SETTINGS))]
+    cases = [(0, range(256)), (K["OWEDIT_OPENPROG"], range(256)), (SAFE, range(256)),
+             (0xFFFF, range(256)), (0x1010, sorted(touched))] + [(b, sorted(touched)) for b in singles]
+    bus, cpu = machine()
+    bad = []
+    for flags, rows in cases:
+        bus.sram[at:at + 2] = flags.to_bytes(2, "little")
+        want = O.apply(van, flags)
+        for r in rows:
+            bus.wram[MAPFLAGS] = 0                          # the overworld
+            bus.wram[MAPDRAW_Y] = r
+            slot = WIN - 0x6000 + (r & 15) * 256
+            bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096] = b"\xee" * 4096   # decoys
+            call(cpu, "LoadOWMapRow")
+            got = list(bus.sram[slot:slot + 256])
+            others = bytes(bus.sram[WIN - 0x6000:slot]) + bytes(bus.sram[slot + 256:WIN - 0x6000 + 4096])
+            if got != want[r * 256:r * 256 + 256] or others.strip(b"\xee"):
+                bad.append("flags $%04X row %d%s" % (flags, r, "" if got != want[r * 256:r * 256 + 256]
+                                                    else ": another slot written"))
+    check("the window: each row as owedits.apply edits it, and only its slot", bad[:4], [])
+    bus.sram[at:at + 2] = b"\0\0"
+    bus.wram[MAPFLAGS] = 1                                  # a standard map: untouched
+    bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096] = b"\xee" * 4096
+    call(cpu, "LoadOWMapRow")
+    check("...and nothing on a standard map", bytes(bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096]).strip(b"\xee"), b"")
+
+    bad = []
+    for flags in (0, SAFE, 0xFFFF):
+        bus.sram[at:at + 2] = flags.to_bytes(2, "little")
+        want = O.apply(van, flags)
+        for r in range(0, 256, 2):
+            bus.wram[MAPROW] = r
+            call(cpu, "CallMinimapDecompress", bank=0xA1 + 0x09)
+            got = list(bus.wram[BUF:BUF + 256]) + list(bus.wram[BUF2:BUF2 + 256])
+            if got != want[r * 256:r * 256 + 512]:
+                bad.append("flags $%04X rows %d,%d" % (flags, r, r + 1))
+    check("the minimap: both rows as owedits.apply edits them", bad[:4], [])
+
+    #  New Game: the row's mode, in RANDO_EARLY above the Early flags, as
+    #  the flags it stands for; the Early flags copied as they were.
+    BX, BY = K["bridge_x"] - 0x6000, K["bridge_y"] - 0x6000
+    early_at = K["OPT_NG_EARLY"] - 0x6000
+    modes = {K["OWEDITS_OFF"]: 0, K["OWEDITS_OPEN"]: K["OWEDIT_OPENPROG"], K["OWEDITS_ALL"]: SAFE, 3: 0}
+    got, want = [], []
+    for mode, flags in sorted(modes.items()):
+        for early in (0, K["EARLY_KING"] | K["EARLY_ORDEALS"]):
+            bus, cpu = machine()
+            bus.sram[early_at] = early | mode << K["OWEDITS_SHIFT"]
+            bus.sram[at:at + 2] = b"\xa5\x5a"                # decoys
+            bus.sram[BX], bus.sram[BY] = 0x11, 0x22
+            call(cpu, "rando_newgame", bank=RANDO_BANK)
+            got.append((int.from_bytes(bus.sram[at:at + 2], "little"), bus.sram[K["RANDO_EARLY"] - 0x6000],
+                        (bus.sram[BX], bus.sram[BY])))
+            lefein = flags & K["OWEDIT_BRIDGELEFEIN"]
+            want.append((flags, early | mode << K["OWEDITS_SHIFT"],
+                         (O.BRIDGE_LEFEIN_XY if lefein else (0x11, 0x22))))
+    check("New Game: each mode's flags, the Early byte as set, the BRIDGE moved under All only", got, want)
+
+    #  The row: a field of OPT_NG_EARLY above the four Early flags, which
+    #  share the byte -- and no two of the page's fields overlap, read from
+    #  the tables rather than from what this row should be.
+    optimg = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    tbl = lambda name, i: ROMDATA[optimg + SYM[name] + i]
+    n = (SYM["lut_ValTabHi"] - SYM["lut_ValTabLo"])
+    fields = [(tbl("lut_ValOff", i), tbl("lut_ValMask", i), tbl("lut_ValBit", i), tbl("lut_ValCount", i))
+              for i in range(n)]
+    me = [i for i, f in enumerate(fields) if f[0] == (K["OPT_NG_EARLY"] & 0xFF) and f[2] == K["OWEDITS_SHIFT"]]
+    check("Map edits: one scalar, bits 4-5 of the Early byte, three modes",
+          [fields[i][1:] for i in me], [(K["OWEDITS_FIELD"], 4, 3)])
+    clash = [(i, j) for i in range(n) for j in range(i) if fields[i][0] == fields[j][0]
+             and fields[i][1] & fields[j][1]]
+    check("no two of the page's fields share a bit", clash, [])
+    check("...each mode fits its field",
+          [i for i, (_, mask, bit, count) in enumerate(fields) if (count - 1) << bit & ~mask & 0xFF], [])
+
+
 def test_es_tree():
     """randoref's wiring dump (es_tree, randoref.py SRM --map): each floor once,
     under the entrance the shuffle hung it from, and every floor a wiring
@@ -1418,7 +1593,9 @@ def test_rando_shipdock():
     Held to FFR's ShipLocations (FF1Lib/maps/default.json, by overworld
     entrance) wherever FFR names a dock, Ice Cave to Pravoka among them; the
     Temple of Fiends Revisited to Coneria's, since nothing there can hold the
-    ship; every map to one of FFR's five; and without placement, untouched."""
+    ship; every map to one of FFR's five; and without placement, untouched.
+    Under Bridge to Lefein, whose edits delete Matoya's dock, a ship for it
+    moors at Coneria's, as FFR's UpdateDocks has it; no other edit moves one."""
     SHIP_VIS, SHIP_X, SHIP_Y = 0x6000, 0x6001, 0x6002
     CONERIA, PRAVOKA, ELFLAND = (152, 169), (210, 153), (141, 211)
     DWARF, MATOYA = (121, 139), (158, 142)
@@ -1432,10 +1609,11 @@ def test_rando_shipdock():
            20: MATOYA,                              # Matoya's Cave (21)
            8: CONERIA, 24: CONERIA, 12: CONERIA}    # Coneria Castle, the Temple: FFR's default
 
-    def give(m, placed=1):
+    def give(m, placed=1, edits=0):
         bus, cpu = machine()
         s = bus.sram
         s[K["RANDO_PLACED"] - 0x6000] = placed
+        s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = edits.to_bytes(2, "little")
         s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0x11, 0x22      # decoys
         bus.wram[K["cur_map"]] = m
         cpu.a, cpu.x = 0xF0, 0x5A                               # REWARD_SHIP
@@ -1453,10 +1631,11 @@ def test_rando_shipdock():
           {got[m][1:] for m in got}, {(1, 0x12, 0x5A)})
     check("unplaced: the ship left where it is", give(15, placed=0)[:2], ((0x11, 0x22), 1))
     #  Under entrance shuffle, the dock New Game chose (es_dock), whatever the map.
-    def shuffled(m, dock):
+    def shuffled(m, dock, edits=0):
         bus, cpu = machine()
         s = bus.sram
         s[K["RANDO_PLACED"] - 0x6000] = 1
+        s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = edits.to_bytes(2, "little")
         s[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_ONLY
         s[K["RANDO_SHIPDOCK"] - 0x6000] = dock
         bus.wram[K["cur_map"]] = m
@@ -1466,6 +1645,23 @@ def test_rando_shipdock():
     order = [CONERIA, PRAVOKA, ELFLAND, DWARF, MATOYA]
     check("entrance shuffle: the save's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
           [(order[d], 0x5A) for d in range(5)])
+    #  Bridge to Lefein: Matoya's dock is gone.  Every other edit together,
+    #  and the flags no mode sets, move nothing.
+    BRIDGE = K["OWEDIT_BRIDGELEFEIN"]
+    others = 0xFFFF & ~BRIDGE
+    matoya = [m for m in got if got[m][0] == MATOYA]
+    check("Matoya's dock: Matoya's Cave's alone", matoya, [20])
+    check("Bridge to Lefein: Matoya's Cave's ship moors at Coneria's",
+          give(20, edits=BRIDGE)[0], CONERIA)
+    check("...with every other edit too", give(20, edits=0xFFFF)[0], CONERIA)
+    check("...and no other map's moves",
+          [m for m in got if m != 20 and give(m, edits=0xFFFF)[0] != got[m][0]], [])
+    check("every other edit: Matoya's dock still", give(20, edits=others)[0], MATOYA)
+    check("entrance shuffle, Bridge to Lefein: dock 4 is Coneria's, the rest their own",
+          [shuffled(m, d, edits=BRIDGE) for d, m in enumerate((15, 1, 20, 4, 8))],
+          [(order[d] if d != 4 else CONERIA, 0x5A) for d in range(5)])
+    check("entrance shuffle, every other edit: Matoya's still",
+          shuffled(8, 4, edits=others), (MATOYA, 0x5A))
 
 
 def ff_decode(body):
@@ -11484,7 +11680,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
