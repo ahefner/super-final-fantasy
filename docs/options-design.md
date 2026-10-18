@@ -714,8 +714,8 @@ mutations, all caught; one more equivalent (SLOW on one already slowed is
 worth nothing by the threat arithmetic anyway).
 
 **RUSE Staff** (user, 2026-10-15: "Everyone loves the ruse staff"; the row
-reads "RUSE Staff", the spell's name in capitals as the game spells it; built,
-not yet played) is FFR's Guaranteed Defense Item set to RUSE, one setting of
+reads "RUSE Staff", the spell's name in capitals as the game spells it;
+played 2026-10-17) is FFR's Guaranteed Defense Item set to RUSE, one setting of
 its dropdown; Super has it, Improved does not.  FFR's `CraftDefenseItem`
 runs whenever item magic is not None -- Vanilla included, which is how all
 its presets but Improved Vanilla and Over Randomizer have it -- after any
@@ -927,7 +927,7 @@ seeded roll at New Game.  Approved by the user, 2026-10-11, as "a subset ...
 or all of them".
 
 **Starting caster item** (user, 2026-10-15: "useful for high-difficulty
-seeds so the player has some hope of progressing"; built, not yet played) is
+seeds so the player has some hope of progressing"; played 2026-10-17) is
 FFR's `StartingEquipmentRandomCasterItem`, an Off/On row under Starting
 items, off in every preset.  A new game gives the first character one weapon
 or armour, unequipped, dealt evenly from `GetCasterItemPool`: every item
@@ -989,7 +989,7 @@ off.
 
 Item magic, a value row: Off, Shuffle, Balanced -- FFR's `ShuffleItemMagic`
 (user, 2026-10-15, after the NUKE Stick: "item magic shuffle sounds easy";
-built, not yet played).  Every item that casts a spell on the cartridge --
+played 2026-10-17).  Every item that casts a spell on the cartridge --
 the twelve, weapons first and then armour as FFR concatenates them -- casts
 another, dealt from a pool without repeats, and is named for it as FFR's
 `WriteItemSpellData` names it: the spell's four letters padded to six and
@@ -1039,7 +1039,8 @@ zero, so plain gear is always possible.
 
 Formation rarity (Off, Shuffle, Tiered) and Formation zones (Off, Shaken,
 Stirred, Random -- Light and Shuffle until the user renamed them, 2026-10-17,
-and still `ZONES_LIGHT` and `ZONES_SHUFFLE` inside), two value rows: FFR's one Formation Shuffle Mode split into two
+the new names seen in the menu the same day, and still `ZONES_LIGHT` and
+`ZONES_SHUFFLE` inside), two value rows: FFR's one Formation Shuffle Mode split into two
 passes, the user's design.  Rarity moves formations between a zone's eight
 slots, as FFR's Shuffle Rarity and Rarity Tiered do.  Zones moves them
 between zones and keeps each one's rarity, which none of FFR's modes does:
