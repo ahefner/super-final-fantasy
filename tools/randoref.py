@@ -1630,6 +1630,54 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
     return None
 
 
+#  A wiring as a party walks it, for reading a seed: each overworld entrance,
+#  the floor it sets the party down on, and the floors that floor's stairs and
+#  teleports lead to, depth first, each under the one it is reached from.
+#  Returns [(entrance, (x, y) on the overworld, [(depth, record, landing,
+#  exits)])] in entrance order; exits says the floor has a way back to the
+#  overworld, which under the shuffle comes out at its entrance.
+def es_tree(entrance, normal):
+    rec = _GD.RECORDS
+    at = {tuple(v): r for r, v in _GD.LANDED.items()}
+    assert len(at) == len(_GD.LANDED), "two records land in one place"
+    out = []
+    for o in sorted(_GD.OW_COORDS):
+        floors, seen = [], set()
+
+        def walk(r, depth):
+            seen.add(r)
+            floors.append((depth, r, _GD.LANDED[r], rec[r][3] is not None))
+            for t in rec[r][2]:
+                f = at.get(tuple(normal[t]))
+                if f is not None and f not in seen:
+                    walk(f, depth + 1)
+        r = at.get(tuple(entrance[o]))
+        if r is not None:
+            walk(r, 0)
+        out.append((o, _GD.OW_COORDS[o], floors))
+    return out
+
+
+def es_tree_text(entrance, normal):
+    """es_tree as lines: an entrance by the place it leads in the vanilla
+    game, then its floors indented, each a map and where on it; each with
+    the record's name (FFR's MapLocation) where that says more than the map's
+    -- which of Cardia's six, which floor holds Lich."""
+    def tagged(r, m):
+        name = _GD.RECORDS[r][0]
+        plain = MAP_NAMES[m].replace(" ", "").replace("'", "")
+        same = plain.lower().startswith(name.lower())
+        return MAP_NAMES[m] + ("" if same else " [%s]" % name)
+    lines = []
+    for o, (x, y), floors in es_tree(entrance, normal):
+        home = tagged(_GD.ENTER[o], _GD.LANDED[_GD.ENTER[o]][0]) if o in _GD.ENTER else "#%d" % o
+        lines.append("  %s entrance, overworld (%d, %d):" % (home, x, y))
+        for depth, r, (m, fx, fy), exits in floors:
+            lines.append("    %s%s (%d, %d)%s" % ("  " * depth, tagged(r, m), fx, fy,
+                                                  "  -- exits to the overworld" if exits else ""))
+    return lines
+
+
 # --- rewards from placement ---------------------------------------------------------
 #  What every chest, reward NPC and the caravan gives once placement has put the
 #  key items: 255 slots, the 241 chests a map places, the thirteen NPCs and the
@@ -1803,6 +1851,29 @@ def block_from_srm(srm):
     return (int.from_bytes(b[0:4], "little"),) + tuple(b[4:RANDO_SAVE_SIZE])
 
 
+ENTRANCE_NAMES = {ENTRANCES_OFF: "Off", ENTRANCES_ONLY: "Entrances", ENTRANCES_FLOORS: "Floors"}
+
+
+def srm_wiring_text(srm):
+    """A battery file's wiring, as es_tables builds the game's: the save's
+    attempt RANDO_ESK in its Map shuffle mode once New Game has placed the
+    key items, else vanilla."""
+    at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
+    b = srm[at:at + RANDO_SAVE_SIZE]
+    seed, mode, k = int.from_bytes(b[0:4], "little"), b[0x1A], b[0x1B]
+    placed = srm[SRAM_SAVE - 0x6000 + 0x40] == 1
+    w = None
+    if placed and mode in (ENTRANCES_ONLY, ENTRANCES_FLOORS):
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode)
+    if w is None:
+        head = "Map shuffle Off: the vanilla wiring"
+        ent, norm = _GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL
+    else:
+        head = "Map shuffle %s, seed %08X, attempt %d" % (ENTRANCE_NAMES[mode], seed, k)
+        ent, norm = w[0], w[1]
+    return [head] + es_tree_text(ent, norm)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("srm", nargs="?", help="a battery file: show its world")
@@ -1831,9 +1902,14 @@ def main():
                     help="Ordeals pillars: the Castle of Ordeals 2F maze")
     ap.add_argument("--find", metavar="NAME",
                     help="only where an item is: every chest and shop selling it")
+    ap.add_argument("--map", action="store_true",
+                    help="only the wiring: each overworld entrance and the floors beneath it")
     ap.add_argument("--rom", default=ROM)
     a = ap.parse_args()
     rom = open(a.rom, "rb").read()
+    if a.srm and a.map:
+        print("\n".join(srm_wiring_text(open(a.srm, "rb").read())))
+        return
     if a.srm:
         #  The key item rows after Ordeals pillars place nothing here yet.
         (seed, traps, shops, chests, magic, bless, curse, rarity, zones, runs,
@@ -1856,6 +1932,10 @@ def main():
     pads = build_ordeals(seed, ordeals)
     if pads and not a.find:
         print(ordeals_text(pads))
+    if a.srm and not a.find:
+        srm = open(a.srm, "rb").read()
+        if srm[SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000) + 0x1A]:
+            print("\n".join(srm_wiring_text(srm)))
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:

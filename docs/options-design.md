@@ -1222,6 +1222,14 @@ readouts are the item rows' width and its label at most eleven; one
 description per value.  `test_rando_options` steps it and reads it alone,
 from the settings and from the save; `test_saveview` shows it.
 
+`python3 tools/randoref.py SAVE.ram --map` prints a battery file's wiring
+(user, 2026-10-17): each overworld entrance, by where it leads in the
+vanilla game, and the floors beneath it as the stairs and teleports lead,
+each under the floor it is reached from -- FFR's location name beside the
+map's where it says more, which of Cardia's six, which floor holds Lich --
+and which floors have a way back out.  The full dump shows it too whenever
+Map shuffle is on.  `test_es_tree` holds it to the shuffle's own roots.
+
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen

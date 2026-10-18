@@ -1024,6 +1024,36 @@ def test_es_place():
            R.build_placement(seed, *cfg) != R.build_placement(seed, *cfg, tune=R.TUNE_LOOSE),
            sv[K["RANDO_ENTRANCES"] - 0x6000]), (True, True, R.ENTRANCES_OFF))
 
+def test_es_tree():
+    """randoref's wiring dump (es_tree, randoref.py SRM --map): each floor once,
+    under the entrance the shuffle hung it from, and every floor a wiring
+    lands on in it -- for the vanilla wiring and both modes' first attempts."""
+    import graphdata as GD
+    wirings = [("vanilla", GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL, None)]
+    for seed in SEEDS[:3]:
+        for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS):
+            w = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), mode)
+            if w is not None:
+                wirings.append(("seed $%08X mode %d" % (seed, mode), w[0], w[1], w[3]))
+    check("a shuffled wiring in each mode", len(wirings) > 4, True)
+    at = {tuple(v): r for r, v in GD.LANDED.items()}
+    for name, ent, norm, roots in wirings:
+        tree = R.es_tree(ent, norm)
+        seen = [r for _, _, floors in tree for _, r, _, _ in floors]
+        check(name + ": each floor once", len(seen), len(set(seen)))
+        landed = {at[tuple(ent[o])] for o in GD.OW_COORDS if tuple(ent[o]) in at}
+        check(name + ": every entrance's floor at the top of its own tree",
+              sorted(f[0][1] for _, _, f in tree if f), sorted(landed))
+        if roots is not None:
+            check(name + ": every floor the shuffle dealt, in the dump",
+                  sorted(set(roots) - set(seen)), [])
+            check(name + ": each floor under the entrance its chain hangs from",
+                  [(r, o) for o, _, floors in tree for _, r, _, _ in floors if roots.get(r, o) != o], [])
+    lines = R.es_tree_text(wirings[-1][1], wirings[-1][2])
+    check("the text: an entrance line per overworld entrance",
+          sum(1 for l in lines if l.endswith(":")), len(GD.OW_COORDS))
+
+
 def test_es_tables():
     """The teleport tables the game reads come from the cache: bank $00's own
     with entrance shuffle off, the save's wiring -- attempt RANDO_ESK in its
@@ -11454,7 +11484,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp,
