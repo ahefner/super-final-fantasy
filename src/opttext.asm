@@ -637,7 +637,7 @@ lut_Desc_55_0:  ; Formation zones: Off
   FFPAD {"Every zone has the fights it"}, 28
   FFPAD {"always has."}, 28
 
-lut_Desc_55_1:  ; Formation zones: Light
+lut_Desc_55_1:  ; Formation zones: Shaken (ZONES_LIGHT)
   FFLINES 5
   FFPAD {"Four slots in each zone"}, 28
   FFPAD {"trade with other zones, so"}, 28
@@ -645,7 +645,7 @@ lut_Desc_55_1:  ; Formation zones: Light
   FFPAD {"a few strangers.  Coneria's"}, 28
   FFPAD {"land and WarMECH stay put."}, 28
 
-lut_Desc_55_2:  ; Formation zones: Shuffle
+lut_Desc_55_2:  ; Formation zones: Stirred (ZONES_SHUFFLE)
   FFLINES 5
   FFPAD {"Fights move between zones,"}, 28
   FFPAD {"dungeon floors and overworld"}, 28

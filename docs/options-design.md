@@ -1037,17 +1037,18 @@ FFR's blursings.  Every weapon and armour rolls a bonus from -curse to
 weapons and armour separately): one range for all gear, always containing
 zero, so plain gear is always possible.
 
-Formation rarity (Off, Shuffle, Tiered) and Formation zones (Off, Light,
-Shuffle, Random), two value rows: FFR's one Formation Shuffle Mode split into two
+Formation rarity (Off, Shuffle, Tiered) and Formation zones (Off, Shaken,
+Stirred, Random -- Light and Shuffle until the user renamed them, 2026-10-17,
+and still `ZONES_LIGHT` and `ZONES_SHUFFLE` inside), two value rows: FFR's one Formation Shuffle Mode split into two
 passes, the user's design.  Rarity moves formations between a zone's eight
 slots, as FFR's Shuffle Rarity and Rarity Tiered do.  Zones moves them
 between zones and keeps each one's rarity, which none of FFR's modes does:
 FFR's Shuffle Across Zones moved single slots, rarity and all, until 2024 and
-whole zones since, and its tooltip has described each in turn.  Light moves
+whole zones since, and its tooltip has described each in turn.  Shaken moves
 only slots 0, 3, 5 and 6, so a zone keeps four of its eight fights.  Neither
 moves WarMECH off Sky Palace 5F; rarity may change its slot there, as FFR's
-does.  Random is FFR's Totally Random.  Both Shuffles together are "any
-encounter anywhere, regardless of zone or rarity".  `GetBattleFormation`
+does.  Random is FFR's Totally Random.  Rarity's Shuffle and zones' Stirred
+together are "any encounter anywhere, regardless of zone or rarity".  `GetBattleFormation`
 reads the cache's copy of `lut_Domains` (26 fixed-bank bytes back).  Played
 2026-10-08.  See `enemy-shuffle-notes.md` §1.
 
@@ -1250,7 +1251,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Max gear blessing | 0 to +5 | 1 | 6 | 0 |
 | Min gear curse | 0 to -5 | 1 | 6 | 0 |
 | Formation rarity | Off, Shuffle, Tiered | -- | 3 | Off |
-| Formation zones | Off, Light, Shuffle, Random | -- | 4 | Off |
+| Formation zones | Off, Shaken, Stirred, Random | -- | 4 | Off |
 | Unrunnable fights | Off, Shuffle | -- | 2 | Off |
 | Surprise rates | Off, Shuffle | -- | 2 | Off |
 | Status attacks | Off, Shuffle | -- | 2 | Off |

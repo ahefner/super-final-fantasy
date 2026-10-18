@@ -2021,10 +2021,11 @@ lut_ValRarity:
   FFPAD "     Off", 8           ; FORMS_OFF
   FFPAD " Shuffle", 8           ; FORMS_SHUFFLE
   FFPAD "  Tiered", 8           ; FORMS_TIERED
+;  Light and Shuffle read Shaken and Stirred (user, 2026-10-17).
 lut_ValZones:
   FFPAD "     Off", 8           ; ZONES_OFF
-  FFPAD "   Light", 8           ; ZONES_LIGHT
-  FFPAD " Shuffle", 8           ; ZONES_SHUFFLE
+  FFPAD "  Shaken", 8           ; ZONES_LIGHT
+  FFPAD " Stirred", 8           ; ZONES_SHUFFLE
   FFPAD "  Random", 8           ; ZONES_RANDOM
 
 ;  Thief and Ninja hit growth a level: FFR's Vanilla, Moderate and Double.
