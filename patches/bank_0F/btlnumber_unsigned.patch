@@ -1,0 +1,9 @@
+--- OLD
+    BMI @Done       ; if result is negative, we're done
+--- NEW
+    ;  A borrow ends it: the number is unsigned.  BMI read bit 15 of the
+    ;  difference as its sign, so from 42768 up -- 10000 off it still at or
+    ;  over $8000 -- every digit came out 0 and the ones were the low byte's
+    ;  tile: 50000 GP printed as one stray glyph (user, 2026-10-17, four Gas
+    ;  Dragons at Gold + XP 250%).  The game's own sums never reached it.
+    BCC @Done       ; if result is negative, we're done

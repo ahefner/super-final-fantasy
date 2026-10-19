@@ -1472,10 +1472,13 @@ opt_iswait:
 ;;  most ten and this runs once per battle, which makes the multiplier's
 ;;  eight-cycle window a hazard bought for no gain.
 ;;
-;;  FFR does this by scaling every enemy's reward in the ROM when it builds a
-;;  seed.  That is not open to a runtime flag, so this scales the sum instead.
-;;  The two differ in rounding: per-enemy scaling rounds nine times and this
-;;  rounds once, so this is very slightly the more generous of the two.
+;;  FFR does it the other way round: ExpGoldBoost divides the level
+;;  requirements and ScalePrices the prices by its multiplier, so a battle's
+;;  reward stays the vanilla game's size (2026-10-17; this said, wrongly, that
+;;  it scaled each enemy's reward).  A runtime flag cannot rewrite those
+;;  tables, so this scales the sum, and so must keep it inside the sixteen
+;;  bits the battle carries it in: a sum over $FFFF pegs there, which only
+;;  WarMECH reaches at 250%, and a dozen fights at 500%.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_scalereward:
@@ -1514,11 +1517,19 @@ opt_scalereward:
     ROR OPTREWARD+1
     ROR OPTREWARD
 
-    LDA OPTREWARD+3             ; battlereward is three bytes and the game has
-    BEQ @store                  ;   nowhere to put a fourth, so peg it
+    ;  Pegged at $FFFF.  battlereward is three bytes, but the battle carries
+    ;  a reward in two from here on: eob_gp_reward and eob_exp_reward print
+    ;  two, DivideRewardBySurvivors divides two, and LvlUp_AwardExp copies two
+    ;  back -- leaving battlereward+2 as the gold's, so that each survivor
+    ;  was given 65536 EXP for every 65536 GP.  WarMECH at 250% is 80000 of
+    ;  each: it printed 14464 G and gave each of four survivors 69152 EXP.
+    LDA OPTREWARD+2
+    ORA OPTREWARD+3
+    BEQ @store
     LDA #$FF
     STA OPTREWARD
     STA OPTREWARD+1
+    LDA #$00
     STA OPTREWARD+2
 
   @store:

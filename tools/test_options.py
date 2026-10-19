@@ -3177,23 +3177,22 @@ def test_goldxp():
 
     The setting counts halves -- 2 is 100% -- so the answer is
     total * step / 2, and the one case that has to be exact is step 2, where
-    the routine must not touch the number at all.  The reward is three bytes
-    with nowhere to put a fourth, so a total that scales past $FFFFFF pegs
-    there rather than wrapping to something small, which is the failure that
-    would look like a bug in the game rather than in the flag.
+    the routine must not touch the number at all.  A scaled total pegs at
+    $FFFF rather than wrapping or running into a third byte: the battle
+    prints, divides and awards a reward in sixteen bits (test_eobreward).
     """
     for step in range(11):
-        #  0x300000 and 0x400000 matter: scaled up they carry into the top
-        #  byte of the accumulator but come back under $FFFFFF once halved, so
-        #  they are the only values that tell a halve from a double.
-        for total in (0, 1, 2, 3, 1000, 0x123456, 0x300000, 0x400000, 0xFFFFFF):
+        #  0x300000 and 0x400000 carry into the accumulator's top byte; 0x8001
+        #  and 0x10000 sit either side of the peg once scaled.
+        for total in (0, 1, 2, 3, 1000, 0x8001, 0xFFFF, 0x10000, 0x123456, 0x300000,
+                      0x400000, 0xFFFFFF):
             bus, cpu = machine()
             setblk(bus, OPT_GOLDXP, step)
             for i in range(3):
                 bus.wram[BATTLEREWARD + i] = (total >> (8 * i)) & 0xFF
             call(cpu, "opt_scalereward", dbr=BANK_0C)
             got = sum(bus.wram[BATTLEREWARD + i] << (8 * i) for i in range(3))
-            want = min((total * step) // 2, 0xFFFFFF)
+            want = total if step == 2 else min((total * step) // 2, 0xFFFF)
             check("goldxp step %d of %d" % (step, total), got, want)
 
     #  100% must be bit-for-bit untouched, not merely arithmetically equal:
@@ -3235,6 +3234,43 @@ def test_goldxp():
     call(cpu, "opt_scalereward", dbr=BANK_0C)
     check("the weakness bonus survives a battle's reward",
           (bus.sram[K["OPTD_ELEMDMG"] - 0x6000], elem > 0), (elem, True))
+
+
+def test_eobreward():
+    """The end-of-battle boxes print a reward through FormatBattleString's
+    number code ($0C), whose division ended on BMI: unsigned from here, so
+    every value to $FFFF prints as its digits.  Under BMI 42768 and up came
+    out as one stray tile -- four Gas Dragons' 50000 GP at 250% (user,
+    2026-10-17).  Swept across the digit boundaries, the old edge and the
+    top of the range, and a scatter between; then that fight end to end
+    through opt_scalereward."""
+    out = K["btl_stringoutputbuf"] - 0x6000
+    NUM, STR = 0x6876 - 0x6000, 0x6900 - 0x6000        # eob_gp_reward; scratch
+    bus, cpu = machine()
+
+    def shown(value):
+        bus.sram[NUM], bus.sram[NUM + 1] = value & 0xFF, value >> 8
+        bus.sram[STR:STR + 5] = bytes([0x0C, (NUM + 0x6000) & 0xFF, (NUM + 0x6000) >> 8, 0x90, 0x00])
+        bus.sram[out:out + 20] = b"\xee" * 20                  # decoys
+        cpu.x, cpu.y = (STR + 0x6000) & 0xFF, (STR + 0x6000) >> 8
+        call(cpu, "FormatBattleString_L")
+        tiles = bytes(bus.sram[out:out + 20])[1::2]
+        tiles = tiles[:tiles.index(0)] if 0 in tiles else tiles
+        return "".join(chr(0x30 + t - 0x80) if 0x80 <= t <= 0x89 else "G" if t == 0x90 else "?"
+                       for t in tiles)
+    rnd = random.Random(1017)
+    values = (list(range(0, 1001)) + list(range(9990, 10011)) + list(range(32760, 32780))
+              + list(range(42760, 42780)) + list(range(65400, 65536))
+              + [rnd.randrange(65536) for _ in range(1500)])
+    bad = [(v, shown(v)) for v in values if shown(v) != "%dG" % v]
+    check("every reward to $FFFF prints as its digits", bad[:4], [])
+    #  Four Gas Dragons at 250%: 20000 GP, scaled, then printed.
+    bus2, cpu2 = machine()
+    setblk(bus2, OPT_GOLDXP, 5)
+    bus2.wram[BATTLEREWARD:BATTLEREWARD + 3] = (20000).to_bytes(3, "little")
+    call(cpu2, "opt_scalereward", dbr=BANK_0C)
+    got = int.from_bytes(bytes(bus2.wram[BATTLEREWARD:BATTLEREWARD + 3]), "little")
+    check("four Gas Dragons at 250%: 50000 GP, printed as such", (got, shown(got)), (50000, "50000G"))
 
 
 BTL_RNGSTATE = 0x688A
@@ -12471,7 +12507,7 @@ def main():
               test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
-              test_runwait, test_idtreasure, test_statusatk, test_goldxp,
+              test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,
               test_fardata, test_repeatpotion, test_buyqty,
               test_statscale, test_isboss, test_scaleenemies,
               test_healroll, test_spellbuff, test_magictarget,

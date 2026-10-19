@@ -2258,7 +2258,21 @@ the worst flush ending at scanline 255 of 262.
     `lut_CantHoldWhat` in the fixed bank.
   - **Enemy Status Attacks** (Bugfixes) -- `opt_thishit`.
   - **Gold and XP scaling** -- `opt_scalereward`, by repeated addition into a
-    32-bit accumulator, saturating rather than wrapping.
+    32-bit accumulator, saturating rather than wrapping -- at $FFFF since
+    2026-10-17 (built, not yet played: the user asked to test it later,
+    2026-10-18), the sixteen bits the battle prints, divides and awards a
+    reward in.  It pegged at $FFFFFF, and over $FFFF the third byte stayed
+    in `battlereward` from the gold into `LvlUp_AwardExp`'s two-byte copy of
+    the EXP: 65536 EXP to each survivor per 65536 GP (WarMECH at 250% is
+    80000 of each).  Only WarMECH reaches the peg at 250%, a dozen fights at
+    500%.  And the battle's number printer divided signed (`BMI` in
+    `DrawBattle_Division`), so from 42768 a reward printed as one stray
+    tile: four Gas Dragons' 50000 GP at 250% (user, 2026-10-17); `BCC`
+    now (`btlnumber_unsigned.patch`, byte-neutral).  FFR never meets either:
+    its multiplier divides the level requirements and the prices
+    (`ExpGoldBoost`, `ScalePrices`), so its rewards stay the vanilla
+    game's size.  `test_goldxp` holds the peg, `test_eobreward` the printer
+    over the digit boundaries, the old edge and the top of the range.
   - **Enemy and Boss stat scaling** -- `opt_scaleenemies` / `opt_scaleatk`,
     reproducing FFR's `RangeScale` exactly: with low equal to high the random
     exponent drops out and the result is `value * (1 + (p-1) * adj)`, rounded
