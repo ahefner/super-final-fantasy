@@ -14,7 +14,7 @@ CA65EXTRA="$*" ./build.sh >/dev/null
 killall ares Snes9x 2>/dev/null || true
 sleep 1
 /Applications/ares.app/Contents/MacOS/ares --system "Super Famicom" --no-file-prompt \
-    "$PWD/FinalFantasy.sfc" >/dev/null 2>&1 &
+    "$PWD/SuperFinalFantasy.sfc" >/dev/null 2>&1 &
 sleep "$SECS"
 osascript -e 'tell application "ares" to activate' >/dev/null 2>&1
 sleep 1
