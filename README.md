@@ -1,7 +1,21 @@
 # Super Final Fantasy
 
-Final Fantasy (NES) on the SNES, with an options menu and a randomizer on
-the cartridge.
+This is a port of Final Fantasy (NES) on the SNES, with the QoL and bugfixes
+ported from the FF1 community including Final Fantasy Randomizer, and a
+randomizer on the cartridge. A love letter to the original Final Fantasy
+game, and to the Final Fantasy Randomizer community that has sustained so
+much interest in it.
+
+The intent is to bring an interesting subset of the FFR experience to a
+self-contained game runnable on original SNES hardware, for people who have
+completed the original game dozens of times and are looking for some
+variation at their leisure. It's not designed for racing - for that, visit
+the vibrant Final Fantasy Randomizer community.
+
+It remains a work in progress.
+
+AI was heavily used in this production. Sorry. AI techslop follows:
+
 
 The base is a port of Disch's fully-commented disassembly from the 6502/NES
 to the 65816/SNES.  The game logic is not rewritten: the 65816 runs the
