@@ -1919,8 +1919,10 @@ covered part of it.  Nothing built is waiting on a playtest.
     emulation mode (`cr_frame`).  The text is the game's font, which has the
     dash and the period, plus the crawl's own one-bit glyphs at tiles $01 up
     (`lut_CrawlGlyphs`): the copyright sign, and a colon and a slash for a
-    URL (user, 2026-10-19; built, not yet played -- run in the harness, the
-    tiles and a URL line's bytes checked).  `CRLINE` writes each as itself.
+    URL (user, 2026-10-19; played the same day: both draw correctly, but
+    the URL was too wide to read easily and is not in the credits -- the
+    glyphs stay for the next line that wants them).  `CRLINE` writes each
+    as itself.
   - **Lending the PPU.**  Two HAL entry points make a native screen possible
     without it knowing about the shadows.  `hal_vblaudio` is `hal_waitvbl`
     without the flush: sound goes out, nothing reaches the PPU.
