@@ -1371,6 +1371,25 @@ minimap, the title and description beside the zoom.
     removals, Early flags and edits, and the screen through red and back,
     a move and a held A in a check's frames, START refused and taken, L + X
     in a check, and the forced screen red from the start.
+  - **A check's tick sends only early in its vblank** (`OWS_TICK_LAST`,
+    line 232; user, 2026-10-18: "sometimes clicking the button doesn't
+    toggle an item. It makes the sound ... but the checkbox doesn't
+    change", until the hand moved; built, not yet played).  A tick comes
+    when `rando_yield` next reads RDNMI, and during a check those reads are
+    up to 6,800 instructions apart, so a tick could run `ows_vblank` past
+    the end of the vblank: the PPU dropped the tilemap with the new box
+    while its flag (`V_NTD`) was cleared, and only a move's description
+    sent it again.  The check's instructions are the same for the same
+    edits, from the same point in the frame, so a box missed the same way
+    every time -- Ship in Drydock ticked or a ship removed, there being no
+    check otherwise.  The worst `ows_vblank`, the tilemap and the zoom, is
+    3,360 bytes and 267 instructions, some 26 of vblank's 37 lines.  A
+    later tick reads the V counter as `hal_waitvbl` does and leaves the
+    transfers, flags and all, for the next tick on time or the loop's next
+    frame, which always starts at the top of one; the music and the pad go
+    on.  The roll screen's tick writes only registers, so it was never
+    exposed.  `test_owscreen` sets the harness's V counter, which keeps no
+    time, to each side of the line; the old code fails it.
   - L + X and L + Y reset from it as from anywhere (user).  Its loop waits
     on `hal_vblaudio`, not `WaitForVBlank`, so it makes the reset's two
     calls itself: `hal_auxdetect` (the HAL's look at L, X and Y alone) after

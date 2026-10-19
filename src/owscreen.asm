@@ -19,8 +19,9 @@
 ;  New Game brings it up for that alone, the row Off, when the settings as
 ;  they are cannot be won.  A check is a quarter of a second, so the screen
 ;  goes on through it: each vblank it runs the frame (ows_tick), the hand
-;  moving, A and START kept for after.  The title's music plays on
-;  throughout.
+;  moving, A and START kept for after -- its transfers only when the tick
+;  comes early enough in the vblank for them (OWS_TICK_LAST).  The title's
+;  music plays on throughout.
 ;
 ;  The pad is read every frame and answered at once -- the hand moves, a box
 ;  ticks, the description changes, the settings screen's chirp -- and the
@@ -109,6 +110,15 @@ NAME_W    = 13
 INSET_W   = 7                   ; cells
 INSET_PX  = INSET_W * 8
 .assert INSET_COL >= 2 && INSET_COL + INSET_W <= 30, error, "the zoom's frame inside the 30 columns"
+
+;  The last scanline at which ows_tick still sends a vblank's transfers.  A
+;  tick comes when rando_yield next looks at RDNMI, and its looks are up to
+;  6,800 instructions apart -- past the end of the vblank, whose writes the
+;  PPU then drops, though ows_vblank has cleared their flags: a box ticked,
+;  chirping, never drawn until the hand moved and sent the tilemap again
+;  (user, 2026-10-18).  ows_vblank's worst is the tilemap and the zoom,
+;  3,360 bytes and 267 instructions, some 26 lines; vblank is 225-261.
+OWS_TICK_LAST = 232
 
 ;  Work a frame, in units of about 2000 instructions: a pixel row of the
 ;  minimap is three, a map row of the zoom two.  Four leaves the heaviest
@@ -1299,7 +1309,10 @@ ows_check:
 ;;  screen's own check, OWS_TICKFRAME, this screen's frame as ows_loop runs
 ;;  it -- the vblank's transfers first, then the frame's music, the pad, the
 ;;  reset -- the moves answered, A and START kept for after (ows_busy); the
-;;  drawing waits.  For New Game's, OWS_TICKMUSIC, the music alone.  The
+;;  drawing waits.  The transfers only by OWS_TICK_LAST, as hal_waitvbl reads
+;;  the V counter -- in vblank, RDNMI having just read set, lines 224-255
+;;  read as themselves and 256-261 as 0-5 -- or they wait, flags and all,
+;;  for a tick on time or ows_loop's next frame.  For New Game's, OWS_TICKMUSIC, the music alone.  The
 ;;  music as ows_wait's: CallMusicPlay, then the HAL's frame of sound
 ;;  (hal_audioframe, as the roll screen's tick sends it), cur_bank this chunk
 ;;  for the call and as it was after.  From native code, any widths, by
@@ -1323,9 +1336,16 @@ ows_tick:
     LDA f:OWS_TICKON
     CMP #OWS_TICKFRAME
     BNE :+
+    LDA a:STAT78                ; reset the counter's own read toggle
+    LDA a:SLHV                  ; latch H and V
+    LDA a:OPVCT
+    CMP #224
+    BCC :+                      ; lines 256-261, or the picture: too late
+    CMP #OWS_TICK_LAST + 1
+    BCS :+                      ; too late in it for the worst of them
     REP #$10
     .i16
-    JSR ows_vblank              ; at the vblank's top, as ows_loop's
+    JSR ows_vblank              ; near the vblank's top, as ows_loop's
 :   SEP #$30
     .a8
     .i8

@@ -1898,6 +1898,53 @@ def test_owscreen():
     check("the chirps on a move and a tick, and L + X resetting, the PPU back first",
           events, [(2, "move"), (4, "tick"), (6, "claim"), (6, "reset")])
 
+    #  A check's tick sends the vblank's transfers only early enough in it
+    #  (OWS_TICK_LAST): its looks at RDNMI come up to 6,800 instructions
+    #  apart, and a tick past the vblank had the PPU drop the tilemap whose
+    #  flag it cleared -- a box ticked, chirping, not drawn till the hand
+    #  moved (user, 2026-10-18).  The harness keeps no time; its V counter
+    #  is OPVCT as set.  A box's character in the tilemap, V_NTD set, then a
+    #  tick at each line: at 0 (the picture), 3 (256-261 read as 0-5) and 233
+    #  on it stays to send, the flag kept; at 224-232 it goes.  The music and
+    #  the pad every tick.
+    bus, cpu = machine()
+    bus.frames()
+    bus.ppu()
+    bus.dma = True
+    setup(bus, 0, 0)
+    cpu.pbr, cpu.pc = OWS, SYM["ows_testsetup"]
+    cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+    for _ in range(8_000_000):
+        if cpu.pc == 0xFFFE:
+            break
+        cpu.step()
+    NT3, VT, NTD = W("OWS_NT3"), 2 * 0x3400, W("OWS_VARS") + 0x0D     # VR_BG3MAP's bytes
+    cell = (2 * 32 + 17) * 2                                          # the first box (lut_OwsCell)
+    check("...the tilemap in VRAM as the screen comes up", bytes(bus.vram[VT:VT + 28 * 64]),
+          bytes(bus.wram[NT3:NT3 + 28 * 64]))
+    got = []
+    for i, line in enumerate((0, 3, 233, 244, 255, 224, 230, 232)):
+        bus.wram[NT3 + cell] = 0x40 + i
+        bus.wram[NTD] = 1
+        bus.io[K["OPVCT"]] = line
+        bus.wram[TICKON] = K["OWS_TICKFRAME"]
+        cpu.e, cpu.p = False, cpu.p | 0x30
+        cpu.pbr, cpu.pc = OWS, SYM["ows_tick"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        music = joy = 0
+        for _ in range(200_000):
+            if cpu.pc == 0xFFFE:
+                break
+            music += cpu.pc == CMP
+            joy += cpu.pc == UJ
+            cpu.step()
+        got.append((line, bus.vram[VT + cell] == 0x40 + i, bus.wram[NTD], music > 0, joy > 0))
+    bus.wram[TICKON] = 0
+    check("...a check's tick: the tilemap sent only at lines 224-232, else kept to send",
+          got, [(0, False, 1, True, True), (3, False, 1, True, True), (233, False, 1, True, True),
+                (244, False, 1, True, True), (255, False, 1, True, True), (224, True, 0, True, True),
+                (230, True, 0, True, True), (232, True, 0, True, True)])
+
 
 def test_es_tree():
     """randoref's wiring dump (es_tree, randoref.py SRM --map): each floor once,
