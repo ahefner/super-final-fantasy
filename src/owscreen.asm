@@ -14,9 +14,13 @@
 ;  logic knows every edit (worldgraph/edited.py) -- but not on edits that,
 ;  with the rest of the settings, make a world that cannot be won
 ;  (rando_winnable, user): then the description says so, and the screen
-;  stays.  New Game brings it up for that alone, the row Off, when the
-;  settings as they are cannot be won.  The title's music plays on
-;  throughout, the check's frames too (ows_tick).
+;  stays.  And blue is red while they cannot -- the backdrop, which the
+;  minimap's ocean and the boxes are -- checked again on every tick (user).
+;  New Game brings it up for that alone, the row Off, when the settings as
+;  they are cannot be won.  A check is a quarter of a second, so the screen
+;  goes on through it: each vblank it runs the frame (ows_tick), the hand
+;  moving, A and START kept for after.  The title's music plays on
+;  throughout.
 ;
 ;  The pad is read every frame and answered at once -- the hand moves, a box
 ;  ticks, the description changes, the settings screen's chirp -- and the
@@ -173,7 +177,11 @@ V_K       = OWV+$42
 V_VIEW    = OWV+$43             ; what the selection shows: lut_OwsGates's, the sites'
 V_MASK    = OWV+$44             ; 2: ows_prow's characters still to pack, a bit each
 V_FORCED  = OWV+$46             ; ows_choose's A: OWS_FORCED and the warning's reason, or 0
-.assert V_FORCED < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_WON     = OWV+$47             ; nonzero: the ticked edits can be won, as last checked
+V_WHY     = OWV+$48             ; ...and if not, rando_winnable's reason
+V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
+V_PEND    = OWV+$4A             ; A and START, pressed while a check ran, for after
+.assert V_PEND < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -258,7 +266,23 @@ ows_choose:
     STA f:V_FLAGS
     SEP #$20
     .a8
-    JSR ows_setup
+    ;  Up for the warning: red, why already known.  Else blue, checked on
+    ;  the first frame, with the screen up.
+    LDA #0
+    STA f:V_PEND
+    LDA f:V_FORCED
+    CMP #OWS_FORCED
+    BCC :+
+    AND #$7F
+    STA f:V_WHY
+    LDA #0
+    STA f:V_WON
+    STA f:V_CHECK
+    BRA :++
+:   LDA #1
+    STA f:V_WON
+    STA f:V_CHECK
+:   JSR ows_setup
     JSR ows_loop
     REP #$20
     .a16
@@ -834,7 +858,10 @@ ows_loop:
     STA f:V_T
     JSR ows_input
     BCS @done
-    JSR ows_work
+    LDA f:V_CHECK               ; a tick: winnable, still?
+    BEQ :+
+    JSR ows_check
+:   JSR ows_work
     BRA @frame
   @done:
     RTS
@@ -877,6 +904,8 @@ ows_reset:
     JSL hal_auxdetect + HALFAR
     LDA a:h_padreset
     BEQ :+
+    LDA #0                      ; (taken in a check's frame: no more ticks)
+    STA f:OWS_TICKON
     LDA #$80
     STA a:INIDISP
     JSL hal_ppureclaim + HALFAR
@@ -906,6 +935,29 @@ ows_vblank:
     INX
     DEY
     BNE @flash
+    ;  Blue is red while the ticked edits cannot be won (user): the backdrop
+    ;  -- the minimap's ocean, the boxes -- and the selection's ocean, colour
+    ;  8, flashing with it.
+    LDX #$0000
+    LDA f:V_WON
+    BNE :+
+    LDX #4
+:   STZ a:CGADD
+    LDA f:OWSFAR + lut_OwsBack, X
+    STA a:CGDATA
+    LDA f:OWSFAR + lut_OwsBack + 1, X
+    STA a:CGDATA
+    LDA #40
+    STA a:CGADD
+    LDA f:V_T
+    AND #$10
+    BEQ :+
+    INX
+    INX
+:   LDA f:OWSFAR + lut_OwsBack, X
+    STA a:CGDATA
+    LDA f:OWSFAR + lut_OwsBack + 1, X
+    STA a:CGDATA
     LDA f:V_NTD
     BEQ @inset
     LDA #0
@@ -1123,30 +1175,69 @@ ows_sprites:
     .a8
     .i16
 ows_input:
-    LDA f:V_PREV
-    EOR #$FF
-    AND joy
-    PHA                         ; pressed this frame
-    LDA joy
-    STA f:V_PREV
+    JSR ows_edge                ; pressed this frame...
+    ORA f:V_PEND                ; ...and while a check ran
+    PHA
+    LDA #0
+    STA f:V_PEND
     PLA
-    BIT #PAD_START
-    BEQ :+
-    JSR ows_wincheck            ; the ticked edits, won?
-    BCS @lost
-    SEC                         ; START ends it
-    RTS
-  @lost:
-    JSR ows_warn                ; no: why, and the screen stays
-    CLC
-    RTS
-:   BIT #PAD_A
-    BEQ @move
+    BIT #PAD_A
+    BEQ @start
     PHA
     JSR ows_toggle
     JSR ows_sfxsel
+    LDA #1
+    STA f:V_CHECK               ; winnable, still? (ows_loop asks)
     PLA
+  @start:
+    BIT #PAD_START
+    BEQ @move
+    LDA f:V_CHECK               ; (a tick this frame: ask now)
+    BEQ :+
+    JSR ows_check
+:   LDA f:V_WON
+    BEQ @lost
+    SEC                         ; START ends it
+    RTS
+  @lost:
+    LDA f:V_WHY
+    JSR ows_warn                ; no: why, and the screen stays
+    CLC
+    RTS
   @move:
+    JSR ows_moves
+    CLC
+    RTS
+
+;;  The pad's presses since last frame (V_PREV the pad then).  A8 I16.
+    .a8
+    .i16
+ows_edge:
+    LDA f:V_PREV
+    EOR #$FF
+    AND joy
+    PHA
+    LDA joy
+    STA f:V_PREV
+    PLA
+    RTS
+
+;;  While a check runs (ows_tick): the moves answered, A and START kept for
+;;  after it.  A8 I16.
+    .a8
+    .i16
+ows_busy:
+    JSR ows_edge
+    PHA
+    AND #PAD_A | PAD_START
+    ORA f:V_PEND
+    STA f:V_PEND
+    PLA
+    ;  (on into ows_moves)
+
+;;  The hand moved for directions A (presses): the old selection's
+;;  flashing off, the new one's on, its description, the chirp.  A8 I16.
+ows_moves:
     AND #PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT
     BEQ @out
     JSR ows_dir                 ; A = the new selection
@@ -1163,17 +1254,40 @@ ows_input:
     JSR ows_desc
     JSR ows_sfxmove
   @out:
-    CLC
     RTS
 
 ;;  The ticked edits with the rest of the settings, checked as New Game
-;;  will build the world (rando_winnable): RANDO_OWEDITS written for it --
-;;  ows_choose writes it again leaving -- and the title's music kept going
-;;  meanwhile, rando_yield ticking ows_tick while OWS_TICKON is set.  Out: C
-;;  clear if winnable; else A = the reason.  A8 I16.
+;;  will build the world (rando_winnable): V_WON and V_WHY, and so the blue
+;;  red or not.  RANDO_OWEDITS written for it -- ows_choose writes it again
+;;  leaving.  A quarter of a second's work, so the screen goes on meanwhile:
+;;  each vblank rando_yield calls ows_tick, which with OWS_TICKFRAME runs
+;;  this screen's frame.
+;;
+;;  But only for Ship in Drydock or a removed SHIP or FLOATER: with neither,
+;;  every combination of the edits can be won, under every Key items mode
+;;  and Early flag -- tools/checkwin.py proves it over all 8,192, and Free
+;;  items and Early flags only open the world further -- so a tick costs
+;;  nothing (user: running down the column ticking every box).  A8 I16.
     .a8
     .i16
-ows_wincheck:
+ows_check:
+    LDA f:V_FLAGS + 1
+    AND #>OWEDIT_DRYDOCK
+    BNE @slow
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_SHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_SHIP)
+    BEQ @slow
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
+    AND #3 << (2 * ITEMROW_AIRSHIP)
+    CMP #ITEM_REMOVE << (2 * ITEMROW_AIRSHIP)
+    BEQ @slow
+    LDA #1
+    STA f:V_WON
+    LDA #0
+    STA f:V_CHECK
+    RTS
+  @slow:
     REP #$20
     .a16
     LDA f:V_FLAGS
@@ -1182,28 +1296,35 @@ ows_wincheck:
     SEP #$30
     .a8
     .i8
-    LDA #1
+    LDA #OWS_TICKFRAME
     STA f:OWS_TICKON
     SEC
     XCE
     JSL rando_winnable + WORLDFAR
-    PHA                         ; the reason
-    PHP                         ; C: not winnable
+    STA f:V_WHY                 ; (C kept: set if it cannot be won)
+    LDA #0
+    ROL A
+    EOR #1
+    STA f:V_WON
     LDA #0
     STA f:OWS_TICKON
+    STA f:V_CHECK
     CLC
     XCE
-    PLP
-    PLA
-    REP #$10                    ; (C kept)
+    REP #$10
     .i16
     RTS
 
-;;  ows_tick -- a frame of the title's music, from rando_yield when a vblank
-;;  has begun while rando_winnable works for this screen: as ows_wait's,
-;;  CallMusicPlay then the HAL's frame of sound (hal_audioframe, as the roll
-;;  screen's tick sends it).  cur_bank this chunk for the call, as it was
-;;  after.  From native code, any widths, by JSL; everything kept.
+;;  ows_tick -- from rando_yield when a vblank has begun while rando_winnable
+;;  works for this screen or for New Game before it (OWS_TICKON).  For the
+;;  screen's own check, OWS_TICKFRAME, this screen's frame as ows_loop runs
+;;  it -- the vblank's transfers first, then the frame's music, the pad, the
+;;  reset -- the moves answered, A and START kept for after (ows_busy); the
+;;  drawing waits.  For New Game's, OWS_TICKMUSIC, the music alone.  The
+;;  music as ows_wait's: CallMusicPlay, then the HAL's frame of sound
+;;  (hal_audioframe, as the roll screen's tick sends it), cur_bank this chunk
+;;  for the call and as it was after.  From native code, any widths, by
+;;  JSL; everything kept.
 ows_tick:
     PHP
     REP #$30
@@ -1216,11 +1337,19 @@ ows_tick:
     PHD
     LDA #$0000
     TCD
-    SEP #$30
+    SEP #$20
     .a8
-    .i8
     PHK
     PLB
+    LDA f:OWS_TICKON
+    CMP #OWS_TICKFRAME
+    BNE :+
+    REP #$10
+    .i16
+    JSR ows_vblank              ; at the vblank's top, as ows_loop's
+:   SEP #$30
+    .a8
+    .i8
     LDA cur_bank
     PHA
     SEC
@@ -1229,6 +1358,24 @@ ows_tick:
     STA cur_bank
     JSR CallMusicPlay
     JSL hal_audioframe + HALFAR
+    LDA f:OWS_TICKON
+    CMP #OWS_TICKFRAME
+    BNE @back
+    JSR UpdateJoy
+    CLC
+    XCE
+    REP #$10
+    .i16
+    JSR ows_reset
+    LDA f:V_T
+    INC A
+    STA f:V_T
+    JSR ows_busy
+    SEP #$30
+    .i8
+    SEC
+    XCE
+  @back:
     PLA
     STA cur_bank
     CLC
@@ -2324,6 +2471,11 @@ lut_OwsPalEnd:
 .assert lut_OwsPalEnd - lut_OwsPal = 2 * 45, error, "the palette runs to CGRAM 44"
 lut_OwsFlash:
   .WORD NESCOL_21, NESCOL_30, NESCOL_30, NESCOL_30, NESCOL_27
+;  The backdrop and the selection's ocean, and its flash: blue, then red
+;  while the ticked edits cannot be won (ows_vblank).
+lut_OwsBack:
+  .WORD NESCOL_02, NESCOL_21
+  .WORD NESCOL_06, NESCOL_26
 .assert lut_OwsFlash - (lut_OwsPal + 80) = 10, error, "ows_vblank: the flash's two sets ten bytes apart"
 ;  OBJ palettes 0, the rings, and 1, the hand: the game's cursor colours
 ;  (sprite palette 3 of LoadBattleSpritePalettes).

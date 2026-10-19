@@ -660,7 +660,7 @@ rando_newgame:
     AND #3 << (2 * ITEMROW_AIRSHIP)
     CMP #ITEM_REMOVE << (2 * ITEMROW_AIRSHIP)
     BNE @owdone
-:   LDA #1
+:   LDA #OWS_TICKMUSIC
     STA f:OWS_TICKON
     JSL rando_winnable + WORLDFAR
     PHA

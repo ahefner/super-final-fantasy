@@ -773,13 +773,32 @@ def test_winnable():
     warn1 = textwrap.wrap(GO.WARNINGS[1], width)
     warn0 = textwrap.wrap(GO.WARNINGS[0], width)
 
-    #  The screen, Key items Vanilla, Early Open: tick Ship in Drydock (up
-    #  from the first line), START -- refused, the airship never rising --
-    #  untick it, START.
+    #  The fast path: without Ship in Drydock or a removed item every
+    #  combination of the edits can be won (tools/checkwin.py proves all
+    #  8,192; a sample here), so the screen does not check them.
+    import random
+    rng = random.Random(1018)
+    sample = [rng.getrandbits(13) for _ in range(48)]
+    check("without Ship in Drydock or a removal, every combination winnable (a sample of checkwin.py's)",
+          [hex(f) for f in sample for ki in (0, 1) if not R.winnable(ki, [0, 0, 0], 0, f)[0]], [])
+
+    #  The screen, Key items Vanilla, Early Open.  Tick Ship in Drydock (up
+    #  from the first line): checked, red; while that check runs the hand
+    #  moves down to Early Open and an A is kept for after it -- unticking
+    #  Early Open, checked again, red.  START refused, the airship never
+    #  rising.  Tick Early Open again, still red under Vanilla; up to Ship in
+    #  Drydock, untick it: blue, with no check, and START taken.  Scripted
+    #  presses fall on the screen's own frames, the busy ones on a check's
+    #  (OWS_TICKON).
+    NESCOL = {int(k, 16): int(v, 16) for k, v in re.findall(
+        r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
+    BLUE, RED = NESCOL[0x02], NESCOL[0x06]
     bus, cpu = machine()
     bus.frames()
+    bus.ppu()
+    bus.dma = True
     bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
-    UJ, CMP_ = SYM["UpdateJoy"], SYM["CallMusicPlay"]
+    UJ = SYM["UpdateJoy"]
     def pad(nes):
         bus.io[0x4218] = nes & 0x80
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
@@ -787,9 +806,23 @@ def test_winnable():
     cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
     WIN, TICK = SYM["rando_winnable"], SYM["ows_tick"]
     OWS = 0xA1 + K["CHUNK_OWS"]
-    seen, checks, plays, ended = [], 0, 0, False
-    for frame, nes in enumerate((0, 0, 0x08, 0, 0x80, 0, 0x10, 0, 0, 0x80, 0, 0x10, 0)):
-        pad(nes)
+    V, TICKON = rw("OWS_VARS"), rw("OWS_TICKON")
+    OPEN, D = K["OWEDIT_OPENPROG"], K["OWEDIT_DRYDOCK"]
+    script = [0, 0, 0x08, 0, 0x80, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0x08, 0, 0x80, 0, 0x10, 0]
+    busy_press = {4: [0x04, 0, 0x80, 0]}
+    idle, busy_sel, checks, plays, ended, frame, busy_n = {}, set(), 0, 0, False, 0, 0
+    for _ in range(3000):
+        busy = bus.wram[TICKON]
+        if busy:
+            presses = busy_press.get(frame - 1, [])
+            pad(presses[busy_n] if busy_n < len(presses) else 0)
+            busy_n += 1
+        else:
+            if frame >= len(script):
+                break
+            pad(script[frame])
+            frame += 1
+            busy_n = 0
         cpu.step()
         for _ in range(20_000_000):
             if cpu.pc == UJ or cpu.pc == 0xFFFE:
@@ -799,18 +832,56 @@ def test_winnable():
             if cpu.pbr == OWS and cpu.pc == TICK:       # only rando_yield calls it
                 plays += 1
             cpu.step()
-        else:
-            break
         if cpu.pc != UJ:
             ended = True
             break
-        seen.append(text_at(bus, len(warn1)))
+        state = (bus.wram[V + 0x47], bus.wram[V] | bus.wram[V + 1] << 8, bus.cgram[0] | bus.cgram[1] << 8)
+        if bus.wram[TICKON]:
+            busy_sel.add((frame - 1, bus.wram[V + 6]))
+        else:
+            idle[frame - 1] = state + (text_at(bus, len(warn1)),)
     ow = int.from_bytes(bus.sram[K["RANDO_OWEDITS"] - 0x6000:][:2], "little")
-    check("the screen: START refused on Ship in Drydock under Vanilla, why where the description goes",
-          seen[6] if len(seen) > 6 else None, warn1)
-    check("...the music on through the check (ows_tick)", plays > 0, True)
-    check("...and START taken once it is unticked: Early Open alone",
-          (ended, checks, ow), (True, 2, K["OWEDIT_OPENPROG"]))
+    #  The won, the flags after frame f; the backdrop as the next frame's
+    #  vblank sends it.
+    st = lambda f: idle.get(f, (None,) * 4)[:2] + idle.get(f + 1, (None,) * 4)[2:3]
+    check("the screen: Ship in Drydock ticked under Vanilla, checked, the blue red",
+          st(4), (0, OPEN | D, RED))
+    check("...the hand moving while the check ran, its frames reading the pad", (4, 0) in busy_sel, True)
+    check("...an A pressed in it kept for after: Early Open unticked, checked, red", st(5), (0, D, RED))
+    check("...START refused, why where the description goes", idle.get(8, (None,) * 4)[3], warn1)
+    check("...Early Open ticked again: still red under Vanilla", st(10), (0, OPEN | D, RED))
+    check("...Ship in Drydock unticked: blue, and START taken, Early Open alone",
+          (st(15), ended, ow), ((1, OPEN, BLUE), True, OPEN))
+    check("...checked only with Ship in Drydock ticked, three times, the music on through each",
+          (checks, plays > 0), (3, True))
+
+    #  L + X while a check runs: the reset taken from the check's frame, the
+    #  ticks off, so nothing after -- placement, the cache -- calls ows_tick.
+    bus, cpu = machine()
+    bus.frames()
+    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
+    pad(0)
+    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    script, frame, reset, busy_n = [0, 0, 0x08, 0, 0x80], 0, None, 0
+    for _ in range(400):
+        if bus.wram[TICKON]:
+            pad(0)
+            bus.io[0x4218] |= 0x60 if busy_n == 1 else 0     # L + X, a frame into the check
+            busy_n += 1
+        else:
+            pad(script[frame] if frame < len(script) else 0)
+            frame += 1
+        cpu.step()
+        for _ in range(20_000_000):
+            if cpu.pc == UJ or cpu.pc == 0xFFFE:
+                break
+            if cpu.pbr == 0xA1 and cpu.pc == SYM["OnReset"]:
+                reset = (busy_n, bus.wram[TICKON])
+                break
+            cpu.step()
+        if reset:
+            break
+    check("L + X in a check's frame: reset, the ticks off", reset, (2, 0))
 
     #  New Game, the row Off, the FLOATER removed, Key items Standard: the
     #  screen up for the warning, from the row's edits, none.
@@ -819,14 +890,17 @@ def test_winnable():
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
     bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes([0x2C, 0, 0])
     pad(0)
+    bus.ppu()
+    bus.dma = True
     up = cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
     for _ in range(2):                  # setup's pad read, then the loop's first
         cpu.step()
         while cpu.pc not in (UJ, 0xFFFE):
             cpu.step()
     V = rw("OWS_VARS")
-    check("New Game, Map edits Off, the FLOATER removed: the screen up, saying why, no edit ticked",
-          (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8), (True, warn0, 0))
+    check("New Game, Map edits Off, the FLOATER removed: the screen up, red, saying why, no edit ticked",
+          (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8,
+           bus.cgram[0] | bus.cgram[1] << 8), (True, warn0, 0, RED))
 
 
 def test_rando_early():
@@ -1300,13 +1374,19 @@ def newgame_pressing(bus, cpu, presses=(), entry="rando_newgame"):
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
     pad(0)
     reads = 0
+    TICKON = K["OWS_TICKON"] - 0x7E0000
     stopped = cpu.run(RANDO_BANK if entry == "rando_newgame" else CHUNK_OPT_BANK, SYM[entry],
                       stop=UJ, limit=60_000_000)
     while stopped:
         #  Then START, let go between: the screen counts a press only from
         #  a pad that was let go, so one held as it comes up never ends it.
-        pad(presses[reads] if reads < len(presses) else (0x10 if (reads - len(presses)) & 1 else 0))
-        reads += 1
+        #  The frames an unwinnable check runs (OWS_TICKON) read the pad
+        #  too; the presses are the screen's own frames'.
+        if bus.wram[TICKON]:
+            pad(0)
+        else:
+            pad(presses[reads] if reads < len(presses) else (0x10 if (reads - len(presses)) & 1 else 0))
+            reads += 1
         cpu.step()
         for _ in range(60_000_000):
             if cpu.pc in (UJ, 0xFFFE):
@@ -1792,19 +1872,26 @@ def test_owscreen():
     MOVE, SEL = SYM["PlaySFX_MenuMove"], SYM["PlaySFX_MenuSel"]
     CLAIM, RESET = SYM["hal_ppureclaim"], SYM["OnReset"]
     events = []
-    for frame, (nes, aux) in enumerate(((0, 0), (0, 0), (0x04, 0), (0, 0), (0x80, 0), (0, 0), (0, 0x60), (0, 0))):
+    TICKON = rw("OWS_TICKON")
+    script = ((0, 0), (0, 0), (0x04, 0), (0, 0), (0x80, 0), (0, 0), (0, 0x60), (0, 0))
+    frame = 0
+    while frame < len(script):
+        #  A frame of a check (OWS_TICKON) reads the pad too: nothing then.
+        busy = bus.wram[TICKON]
+        nes, aux = (0, 0) if busy else script[frame]
         pad(bus, nes)
         bus.io[0x4218] |= aux
+        frame += 0 if busy else 1
         cpu.step()
         for _ in range(2_000_000):
             if cpu.pc == UJ:
                 break
             if cpu.pbr == BANK_0E and cpu.pc in (MOVE, SEL):
-                events.append((frame, "move" if cpu.pc == MOVE else "tick"))
+                events.append((frame - 1, "move" if cpu.pc == MOVE else "tick"))
             if cpu.pbr == 0xC0 and cpu.pc == CLAIM:
-                events.append((frame, "claim"))
+                events.append((frame - 1, "claim"))
             if cpu.pbr == 0xA1 and cpu.pc == RESET:      # CHUNK0, as opt_padreset enters it
-                events.append((frame, "reset"))
+                events.append((frame - 1, "reset"))
                 break
             cpu.step()
         if events and events[-1][1] == "reset":

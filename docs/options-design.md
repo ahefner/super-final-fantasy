@@ -1343,13 +1343,31 @@ the column is rows 2-15 beside the minimap's 1-16 (user: aligned with it).
     each place reached giving its vanilla item (`lut_LogicVanBit`) but a
     removed one; Ship in Drydock with Early Open is winnable placed and not
     at home, where the CANOE waits on the Earth Orb.  130,000 to 265,000
-    instructions, the title's music ticked through it (`OWS_TICKON`,
-    `ows_tick`, from `rando_yield` as the roll screen's).  With the Map
-    edits row Off New Game checks only when the SHIP or the FLOATER is
-    removed -- nothing else can leave the unedited map unwinnable -- and if
-    so brings the screen up all the same, from no edits, saying why; L + X
-    leaves it.  `test_winnable` holds the cart to the reference over Key
-    items, removals, Early flags and edits, and the screen's three ways.
+    instructions.  With the Map edits row Off New Game checks only when the
+    SHIP or the FLOATER is removed -- nothing else can leave the unedited
+    map unwinnable -- and if so brings the screen up all the same, from no
+    edits, saying why; L + X leaves it.
+  - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
+    built, not yet played): the backdrop, which the minimap's ocean and the
+    boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked
+    again on every tick (`V_CHECK`, `ows_check`).  A check is a quarter of a
+    second, so the screen goes on through it: each vblank `rando_yield`
+    calls `ows_tick`, which with `OWS_TICKFRAME` runs the screen's frame --
+    the transfers, the music, the pad, the reset -- the hand moving, A and
+    START kept for after (`V_PEND`); New Game's own check ticks the music
+    alone (`OWS_TICKMUSIC`), and a reset taken in a check's frame turns the
+    ticks off.  But a tick checks only with Ship in Drydock ticked or the
+    SHIP or the FLOATER removed (user: "running down the column checking
+    every box"): without them every combination of the edits can be won,
+    under every Key items mode and Early flag, which `tools/checkwin.py`
+    proves over all 8,192 -- Free items and Early flags only open the
+    world further -- so the usual tick costs nothing.  A table of answers
+    was not the way: the removals, Key items, Early flags and Free rows
+    multiply it, and every routing flag to come would again.
+    `test_winnable` holds the cart to the reference over Key items,
+    removals, Early flags and edits, and the screen through red and back,
+    a move and a held A in a check's frames, START refused and taken, L + X
+    in a check, and the forced screen red from the start.
   - L + X and L + Y reset from it as from anywhere (user).  Its loop waits
     on `hal_vblaudio`, not `WaitForVBlank`, so it makes the reset's two
     calls itself: `hal_auxdetect` (the HAL's look at L, X and Y alone) after
