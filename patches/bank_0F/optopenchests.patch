@@ -4,10 +4,13 @@
 
     RTS                     ; then exit
 --- NEW
-.import opt_openchests
+.import opt_openchests, rando_smpal
+.export LoadSMTilesetData   ; for the harness
 
       CPY #$30
       BCC @PalLoop
 
     JSL opt_openchests + OPTFAR  ; then show any chest here that is already
-    RTS                          ;   open, and exit
+                                 ;   open,
+    JSL rando_smpal + RANDOFAR   ;   Short ToFR's palette for its plate,
+    RTS                          ;   and exit

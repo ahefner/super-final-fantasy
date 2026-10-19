@@ -1,0 +1,9 @@
+--- OLD
+    PLA              ; pull obj source index from stack
+    CLC
+    ADC #$03         ; increment it by 3
+--- NEW
+    PLA              ; pull obj source index from stack
+    JSL rando_objchrfix + RANDOFAR  ; Short ToFR: Garland's outline cleared
+    CLC
+    ADC #$03         ; increment it by 3

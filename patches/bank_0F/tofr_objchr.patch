@@ -1,0 +1,9 @@
+--- OLD
+    LDA (tmp+4), Y       ; get object ID
+--- NEW
+.import rando_objid, rando_objchrfix
+.export LoadMapObjCHR       ; for the harness
+    ;  Short ToFR puts the LUTE plate in a slot the ROM's table leaves empty,
+    ;  and this reads the table, not the objects loaded: rando_objid answers
+    ;  for that slot, and (tmp+4),Y as ever for the rest.
+    JSL rando_objid + RANDOFAR  ; get object ID

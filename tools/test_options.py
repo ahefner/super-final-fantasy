@@ -5227,6 +5227,242 @@ def test_mapedits():
           (img.count(jsl), img[at - 3], img[at + 4]), (1, 0x20, 0x20))
 
 
+# --- Short ToFR ----------------------------------------------------------------
+#  FFR's ToFRMode Short (TempleOfFiends.cs, ShortenToFR), refights All.  FFR
+#  rewrites the ROM; the cart writes each piece as the game loads what it
+#  changes, so each is checked at its own load, on and off, and on other maps.
+TOFR_FFR_ROOM = ["3F3F000101010101023F3F", "3F00045D5E5F606104023F", "0004622020202020630402",
+                 "0304042020202020040405", "0604042020202020040408", "3006040410041104040830",
+                 "3130060710071107083031", "31313030303B3030303131", "31383831383A3831383831"]
+#  "All": battles[3..0], then the middle, then battles[0..3], with battles
+#  0x57-0x5A -- Lich, Kary, Kraken and Tiamat's refights.
+TOFR_FFR_ALL = "31" + "5A595857" + "31" + "5758595A" + "31"
+
+
+def tofr_ffr_source():
+    """FFR's landingArea rows and its All row, from TempleOfFiends.cs, or None
+    when FFR's source is not beside the tree."""
+    p = os.path.join(os.path.dirname(ROOT), "FF1Randomizer", "FF1Lib", "TempleOfFiends.cs")
+    if not os.path.exists(p):
+        return None
+    src = open(p, encoding="utf-8-sig").read()
+    body = src[src.index("private void ShortenToFR"):]
+    rows = re.findall(r'Blob\.FromHex\("([0-9A-F]+)"\)', body[:body.index("var battles")])
+    battles = [int(b, 16) for b in re.search(r"var battles = new List<byte> \{ ([^}]*) \}", body).group(1).split(",")]
+    allrow = re.search(r"ShortToFRFiendsRefights\.All\)\s*\{\s*landingArea\.Add\(Blob\.FromHex\(\$\"([^\"]+)\"", body).group(1)
+    allrow = re.sub(r"\{battles\[(\d)\]:X2\}", lambda m: "%02X" % battles[int(m.group(1))], allrow)
+    put = re.search(r"TempleOfFiendsRevisitedChaos\]\.Map\.Put\(\(0x([0-9A-F]+), 0x([0-9A-F]+)\)", body)
+    land = re.search(r"TempleOfFiendsRevisitedChaos, new Coordinate\(0x([0-9A-F]+), 0x([0-9A-F]+)", body)
+    plate = re.search(r"SetNpc\(3, ObjectId\.LutePlate, (\d+), (\d+), inRoom: true, stationary: true\)", src)
+    pal = re.search(r'Put\(0x02B2D, Blob\.FromHex\("([0-9A-F]+)"\)\)', src)
+    return dict(rows=rows, all=allrow, at=(int(put.group(1), 16), int(put.group(2), 16)),
+                land=(int(land.group(1), 16), int(land.group(2), 16)),
+                plate=(int(plate.group(1)), int(plate.group(2))), pal=int(pal.group(1), 16))
+
+
+def test_shorttofr():
+    FB, FM = K["OPTFB_SHORTTOFR"] - OPTBLOCK, K["OPTFM_SHORTTOFR"]
+    CHAOS, PLATE = K["MAP_TOFRCHAOS"], K["OBJID_LUTEPLATE"]
+    W_, H_ = K["TOFR_ROOM_W"], K["TOFR_ROOM_H"]
+    RX, RY = K["TOFR_ROOM_X"], K["TOFR_ROOM_Y"]
+    room = bytes(ROMDATA[(RANDO_BANK & 0x1F) * 0x10000 + SYM["lut_TofrRoom"]:][:W_ * H_])
+    check("Short ToFR's room: FFR's landingArea with All's refights",
+          room, bytes.fromhex("".join(TOFR_FFR_ROOM) + TOFR_FFR_ALL))
+    ffr = tofr_ffr_source()
+    if ffr is not None:
+        check("...as FFR's source has it: the rows, All, where it goes, the landing, the plate, gold",
+              (ffr["rows"], ffr["all"], ffr["at"], ffr["land"], ffr["plate"], ffr["pal"]),
+              (TOFR_FFR_ROOM, TOFR_FFR_ALL, (RX, RY), (K["TOFR_LAND_X"], K["TOFR_LAND_Y"]),
+               (K["TOFR_PLATE_X"], K["TOFR_PLATE_Y"]), K["TOFR_PLATE_COL"]))
+
+    #  The map and its objects as LoadStandardMapAndObjects leaves them: on
+    #  Chaos's floor the room's tiles and the plate in slot 3, nothing else;
+    #  with the plate's game flag clear (the LUTE played), no plate; and on
+    #  other maps, nothing at all.  mapobj starts as decoys, so a field the
+    #  loader leaves alone shows the same in both.
+    def load(mapid, on, plate_seen=True):
+        bus, cpu = machine()
+        setblk(bus, FB, FM if on else 0)
+        bus.wram[0x48] = mapid                      # cur_map
+        bus.sram[0x200 + PLATE] = 1 if plate_seen else 0
+        bus.sram[MAPOBJ - 0x6000:MAPOBJ - 0x6000 + 0x100] = bytes([0xA5]) * 0x100
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return (bytes(bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000]),
+                bytes(bus.sram[MAPOBJ - 0x6000:MAPOBJ - 0x6000 + 0x100]))
+    off, on = load(CHAOS, False), load(CHAOS, True)
+    tiles = {(i % 64, i // 64): on[0][i] for i in range(0x1000) if on[0][i] != off[0][i]}
+    want = {(RX + c, RY + r): room[r * W_ + c] for r in range(H_) for c in range(W_)
+            if off[0][(RY + r) * 64 + RX + c] != room[r * W_ + c]}
+    check("Chaos's floor loaded with the flag: the room's tiles and no others", tiles, want)
+    check("...which do change it", len(want) > 60, True)
+    s3 = K["TOFR_PLATE_SLOT"] * 16
+    check("...the objects: slot 3 alone", [i for i in range(0x100) if on[1][i] != off[1][i] and not s3 <= i < s3 + 16], [])
+    #  The plate as the game loads its own, on ToFR 3F (slot 0, at (20, 16)):
+    #  the same sixteen bytes but the position.
+    own = load(54, False)[1][0:16]
+    mine = bytearray(on[1][s3:s3 + 16])
+    check("...slot 3 the LUTE plate, in a room, stationary, at FFR's (15, 5)",
+          (mine[0], mine[1], mine[2:6]), (PLATE, 0xC0, bytes([15, 5, 15, 5])))
+    mine[2:6] = own[2:6]
+    check("...every other field as LoadSingleMapObject makes ToFR 3F's own plate", bytes(mine), own)
+    played = load(CHAOS, True, plate_seen=False)[1][s3:s3 + 16]
+    check("...the LUTE played: no plate, its raw id kept", (played[0], played[0x0A]), (0, PLATE))
+    check("...off: slot 3 as the ROM leaves it, empty", off[1][s3], 0)
+    for m in (52, 54, 7, 25, 12):
+        check("map %d: the same with the flag as without" % m, load(m, True), load(m, False))
+
+    #  The object CHR: slot 3 the plate's graphic, and Garland's three slots
+    #  with colour 1 cleared in their standing sprite's four tiles -- in the
+    #  shadow, before the flush sends it.  Off, and on other maps: as ever.
+    def objchr(mapid, on):
+        bus, cpu = machine()
+        setblk(bus, FB, FM if on else 0)
+        bus.wram[0x48] = mapid
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadMapObjCHR"])
+        return bytes(bus.wram[0x8000 + 0x110 * 32:0x8000 + 0x200 * 32])
+    gfx = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xAE00:][:256]
+    def snes(g, clear1=0):
+        nes = ROMDATA[(0xA1 + 2 & 0x1F) * 0x10000 + 0xA200 + g * 0x100:][:0x100]
+        out = bytearray()
+        for t in range(16):
+            p0, p1 = nes[t * 16:t * 16 + 8], nes[t * 16 + 8:t * 16 + 16]
+            for r in range(8):
+                out += bytes([p0[r] & p1[r] if t < clear1 else p0[r], p1[r]])
+            out += bytes(16)
+        return bytes(out)
+    cof, con = objchr(CHAOS, False), objchr(CHAOS, True)
+    objs = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xB400 + CHAOS * 0x30:][:0x30]
+    check("Chaos's floor's object CHR off: each slot its table object's graphic",
+          cof[:15 * 512], b"".join(snes(gfx[objs[s * 3]]) for s in range(15)))
+    check("...on: Garland's three outlines cleared, the plate in slot 3, the rest as off",
+          con[:15 * 512], b"".join(snes(gfx[PLATE]) if s == 3 else snes(gfx[objs[s * 3]], 4 if s < 3 else 0)
+                                   for s in range(15)))
+    check("...Garland's sprite does change", con[:512] != cof[:512], True)
+    for m in (54, 12, 0):
+        check("map %d's object CHR: the same with the flag as without" % m, objchr(m, True), objchr(m, False))
+
+    #  The palette: NPC palette 3's colour 1 gold on Chaos's floor, as it
+    #  loads for every entry and every return from a battle or a menu.
+    def pal(mapid, on):
+        bus, cpu = machine()
+        setblk(bus, FB, FM if on else 0)
+        bus.wram[0x48] = mapid
+        bus.wram[K["cur_tileset"]] = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xACC0 + mapid]
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadSMTilesetData"])
+        return bytes(bus.wram[K["load_map_pal"]:K["load_map_pal"] + 0x30])
+    p_off, p_on = pal(CHAOS, False), pal(CHAOS, True)
+    check("Chaos's floor's palette: byte $1D gold with the flag, the rest as without",
+          (p_off[0x1D], p_on[0x1D], p_on[:0x1D] + p_on[0x1E:] == p_off[:0x1D] + p_off[0x1E:]),
+          (0x0F, K["TOFR_PLATE_COL"], True))
+    check("...another map's: the same either way", pal(54, True), pal(54, False))
+
+    #  The Black Orb: Chaos's floor, landing in the room (inroom $81), vanilla
+    #  wiring or shuffled; off, the table's ToFR 1F; other teleports alike.
+    def tele(on, tid, shuffle=False):
+        bus, cpu = machine()
+        setblk(bus, FB, FM if on else 0)
+        if shuffle:
+            s = bus.sram
+            s[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = (2).to_bytes(4, "little")
+            s[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS
+            s[K["RANDO_ESK"] - 0x6000] = 1
+            s[K["RANDO_PLACED"] - 0x6000] = 1
+        bus.wram[K["inroom"]] = 0
+        cpu.x = tid
+        call(cpu, "rando_teledest", bank=RANDO_BANK)
+        return (bus.wram[K["sm_scroll_x"]], bus.wram[K["sm_scroll_y"]], cpu.a & 0xFF, bus.wram[K["inroom"]])
+    land = ((K["TOFR_LAND_X"] - 7) & 0x3F, (K["TOFR_LAND_Y"] - 7) & 0x3F, CHAOS, 0x81)
+    check("the Black Orb, Short ToFR: Chaos's floor, in its room", tele(True, K["TELE_BLACKORB"]), land)
+    check("...under entrance shuffle too", tele(True, K["TELE_BLACKORB"], shuffle=True), land)
+    check("...off: ToFR 1F, in its room", tele(False, K["TELE_BLACKORB"]), ((20 - 7) & 0x3F, (17 - 7) & 0x3F, 52, 0x81))
+    check("...other teleports the same either way", [tele(True, t) == tele(False, t) for t in (0, 2, 51, 60)], [True] * 4)
+
+    #  The walk, over the floor as loaded: Chaos is reached with the LUTE and
+    #  the KEY and not without either -- what placement's logic already asks
+    #  of Chaos (logicdata's CHAOS_MASKS) -- and all seven chests with nothing.
+    import logicdata as LD
+    check("placement's Chaos: the LUTE, the KEY and the four orbs",
+          sorted(LD.BITS[i] for i in range(len(LD.BITS)) if LD.CHAOS_MASKS == [LD.CHAOS_MASKS[0]] and LD.CHAOS_MASKS[0] >> i & 1),
+          sorted(["LUTE", "KEY", "ORB_EARTH", "ORB_FIRE", "ORB_WATER", "ORB_AIR"]))
+    ts = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xACC0 + CHAOS]
+    def prop(t):
+        o = (0xA1 & 0x1F) * 0x10000 + 0x8800 + ts * 256 + (t & 0x7F) * 2
+        return ROMDATA[o], ROMDATA[o + 1]
+    floor = on[0]
+    chaos = {(objs[i + 1] & 0x3F, objs[i + 2] & 0x3F) for i in range(0, 9, 3)}
+    def walk(lute, key):
+        seen, todo, chests, reached = {(K["TOFR_LAND_X"], K["TOFR_LAND_Y"])}, [(K["TOFR_LAND_X"], K["TOFR_LAND_Y"])], set(), False
+        while todo:
+            x, y = todo.pop()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = ((x + dx) & 63, (y + dy) & 63)
+                if n in seen:
+                    continue
+                if n in chaos:
+                    reached = True
+                    continue
+                if n == (K["TOFR_PLATE_X"], K["TOFR_PLATE_Y"]) and not lute:
+                    continue
+                p, arg = prop(floor[n[1] * 64 + n[0]])
+                spec = p & 0x1E
+                if spec == 0x08:
+                    chests.add(arg)
+                    continue
+                if spec == 0x04 and not key:            # locked
+                    continue
+                if p & 1 and spec not in (0x02, 0x04, 0x06):
+                    continue
+                seen.add(n)
+                todo.append(n)
+        return reached, sorted(chests)
+    seven = list(range(0xF8, 0xFF))
+    check("the floor walked: Chaos with the LUTE and the KEY, not without; the seven chests always",
+          [walk(l, k) for l, k in ((0, 0), (1, 0), (0, 1), (1, 1))],
+          [(False, seven), (False, seven), (False, seven), (True, seven)])
+
+    #  The LUTE played: FFR's line with the flag, from the randomizer's chunk
+    #  by the game's own DrawComplexString; the game's text $05 without.
+    #  Both run to DrawComplexString: the same box, fanfare and stall either
+    #  way -- the fanfare's request already taken by the music by then, as
+    #  the game's own takes it -- and only the string and its bank differ.
+    def lute(on):
+        bus, cpu = machine()
+        bus.frames()
+        in_vblank(bus)
+        setblk(bus, FB, FM if on else 0)
+        bus.wram[K["descboxopen"]] = 0
+        cpu.pbr, cpu.pc = RANDO_BANK, SYM["rando_lute"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        fanfare = False
+        for _ in range(3_000_000):
+            fanfare |= bus.wram[K["music_track"]] == 0x54
+            if cpu.pc == SYM["DrawComplexString"]:
+                w = lambda n: bus.wram[K[n]]
+                return dict(ptr=w("text_ptr") | bus.wram[K["text_ptr"] + 1] << 8,
+                            bank=(w("cur_bank"), w("ret_bank")),
+                            rest=(fanfare, w("music_track"), w("descboxopen"), w("menustall")))
+            cpu.step()
+        return None
+    van, own = lute(False), lute(True)
+    menutext = (0xA1 + 0x0E & 0x1F) * 0x10000 + 0x8500
+    check("the LUTE, off: the game's text $05, from bank $0E",
+          (van["ptr"], van["bank"]), (ROMDATA[menutext + 10] | ROMDATA[menutext + 11] << 8, (0x0E, 0x0E)))
+    check("...on: its own line, from this chunk", (own["ptr"], own["bank"]),
+          (SYM["lut_TofrLute"], (K["CHUNK_RANDO"], K["CHUNK_RANDO"])))
+    check("...the fanfare asked, the box open and stalling, as the game's own", own["rest"], van["rest"])
+    check("...which does ask the fanfare", van["rest"][0], True)
+    text = ROMDATA[(RANDO_BANK & 0x1F) * 0x10000 + SYM["lut_TofrLute"]:][:40]
+    check("...FFR's line: \"The tune plays,\\nopening the pathway.\"",
+          "".join("\n" if b == 5 else (_decode(b) or "?") for b in text[:text.index(0)]),
+          "The tune plays,\nopening the pathway.")
+    site = SYM["rando_lute"]
+    b0e = ROMDATA[(0xA1 + 0x0E & 0x1F) * 0x10000 + 0x8000:][:0x4000]
+    check("...UseItem_Lute calls it once", b0e.count(bytes([0x22, site & 0xFF, site >> 8, RANDO_BANK])), 1)
+
+
 # --- White Mage HARM ---------------------------------------------------------
 #  FFR's WhiteMageHarmEveryone: HARM cast or used by a White Mage or White
 #  Wizard damages anything.  FFR's tooltip: on the living it "will not crit
@@ -12515,7 +12751,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

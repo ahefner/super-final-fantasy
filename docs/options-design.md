@@ -546,12 +546,12 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (15)
+### Variations (16)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Thief lockpicking, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
 Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
-tactics, RUSE Staff, NUKE Stick.
+tactics, RUSE Staff, NUKE Stick, Short ToFR.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -762,6 +762,52 @@ copies the second name in `lut_StaffNames`.  Bit 47, the sixth flag byte's
 last, no build having set it, so the format stays 9.  Nineteen mutations
 caught, one equivalent removed (`opt_itemspell` reloading Y, which nothing
 between had changed).
+
+**Short ToFR** (user, 2026-10-19: "port the short ToFR flag from FFR";
+built, not yet played) is FFR's `ToFRMode.Short` with its default
+`ShortToFRFiendsRefights.All` (`TempleOfFiends.cs`, `ShortenToFR`).  The
+Black Orb sends the party to Chaos's floor rather than ToFR 1F, landing at
+(15, 3) in a room FFR builds over the floor's top, eleven by ten from
+(10, 0): all seven of the Temple's chests ($F8-$FE: the Masmune, 26000 and
+45000 and 65000 gold, the Katana, ProRing and ProCape), the LUTE plate
+across the room's one way out at (15, 5), then a locked door, then the four
+fiends' refights on each path down, Tiamat to Lich left of the middle and
+Lich to Tiamat right.  So Chaos still asks the four orbs, the LUTE and the
+KEY -- what placement's logic already asks of it, so the logic is
+unchanged -- and the chests the orbs alone; ToFR's chests were never
+placement's, and the Chests shuffle deals them as ever, now all
+reachable.  A Variation, retroactive like the Lefein map edits: every piece
+is written as the game loads what it changes, where FFR writes the ROM,
+and the party is never inside the Temple at Continue.  Off in every
+preset, as in all of FFR's; Super's "everything on" stops short of the
+game's shape (the user's to change).  FFR's other refight modes (Two
+Paths, Lopsided, Progressive, Anything Goes, Rude, None, Random) and its
+Mid ToFR are not ported.
+
+The pieces, all in the randomizer's chunk (`rando.asm`, `tofr_*`): the room
+over the map as it decompresses (`tofr_land`, from `rando_mapedits`); the
+plate in object slot 3 after the map's objects load (`rando_tofrplate`,
+through the game's own `LoadSingleMapObject`, so it shows exactly while the
+LUTE has not been played and `HideMapObject` finds it); the plate's
+graphic for slot 3 (`rando_objid`) -- `LoadMapObjCHR` reads the ROM's
+object table, not the objects loaded, and slot 3 is empty there; the
+Black Orb's landing in `rando_teledest`, in the room ($81), under entrance
+shuffle too; and FFR's line for the LUTE, "The tune plays, opening the
+pathway." (`rando_lute`, drawn from this chunk by the game's own
+`DrawComplexString`; `UseItem_Lute`'s success path reshaped byte-neutral
+in bank $0E, its pointless `ASL` gone).  And FFR's two cosmetic fixes: on
+this floor the plate's bottom half draws in NPC palette 3's colour 1,
+black, so that colour is gold (`rando_smpal`, FFR's `Put(0x02B2D, 27)`),
+and Garland's outline, the same colour, is cleared in his standing
+sprite's four tiles (`rando_objchrfix`, in `CHRSHADOW` before the flush;
+FFR's `MakeGarlandsBorderTransparent`) -- on this floor alone, where FFR's
+changes Garland's CHR everywhere, the opening's Garland included.  Bit 26,
+the first of the Free items' old bits, spare since format 9, so the format
+stays 9.  `test_shorttofr`: the room against FFR's source (when it is
+beside the tree), the map, objects, CHR and palette as loaded, on and off
+and on other maps, the Orb's landing, a walk of the floor as loaded (Chaos
+with the LUTE and the KEY, not without; the seven chests with nothing),
+and the LUTE's line beside the game's own.  Fifteen mutations, all caught.
 
 **Thief lockpicking** (ported 2026-10-15, the batch's own pick; played
 2026-10-17) is FFR's `Lockpicking` with its `LockpickingLevelRequirement`:
@@ -1646,7 +1692,7 @@ when the elemental bonus became a dial and needed a fifth scalar, to 5 when
 the checksum took in the new-game bytes, to 6 when Thief hit growth became a
 sixth scalar, to 7 when the starting items took a seventh, to 8 when the
 flag word grew its sixth byte, and to 9 when the Free items left the flag
-word (bits 26-36 are spare) for the key item rows; each bump
+word (bits 26-36 spare; Short ToFR took 26 on 2026-10-19) for the key item rows; each bump
 costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic,
 gear and Map shuffle bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
@@ -1726,6 +1772,11 @@ Two verified rather than assumed:
   - **Chests Appear Opened is retroactive in the right direction.**  It reads
     the saved chest flags at `$6200` on map load, so enabling it mid-game shows
     chests already looted rather than resetting them.
+  - **Short ToFR is retroactive across a game.**  Its pieces are written as
+    the Temple's maps load, and the party is never inside the Temple at
+    Continue.  Chests opened on the long Temple's floors stay opened in the
+    room (chest flags are by chest), and the plate on either floor is one
+    object, so a LUTE played on one has opened the other.
 
 ### Needs a recompute on load
 
@@ -2557,7 +2608,7 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   238 free    the scarce one; stamped into every chunk.  7
+    BANK_FIXED   224 free    the scarce one; stamped into every chunk.  7
                              declared, and 231 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
@@ -2580,7 +2631,9 @@ text region in the game references.
                              randomizer's rando_coldbuild, gave back 3;
                              the overworld's edits took 12, LoadOWMapRow's
                              JSR and JSL where it ran on into DecompressMap,
-                             and CallMinimapDecompress's JSL
+                             and CallMinimapDecompress's JSL; Short ToFR's
+                             four hooks 14 (the plate, its graphic's id,
+                             Garland's outline, the palette)
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
@@ -2597,7 +2650,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     172 free   once the descriptions moved out, the None, the
+    BANK_OPT     140 free   once the descriptions moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2621,21 +2674,23 @@ text region in the game references.
                              scalar, opt_lockpick, Thief hit's mask), and
                              Item magic (59: its row, readouts and scalar;
                              opt_itemspell shrank, asking the readers), and
-                             Map edits (51: its row, readouts and scalar) --
+                             Map edits (51: its row, readouts and scalar),
+                             and Short ToFR's row (32; its code went to the
+                             randomizer's chunk) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  2884 free  the settings screen's descriptions; Map
+    BANK_OPTTEXT  2741 free  the settings screen's descriptions; Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
                              lockpicking's 115, Item magic's 115, Map
-                             edits' three 348
+                             edits' three 348, Short ToFR's 143
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   2881 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   2396 free  the randomizer; the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2655,7 +2710,8 @@ text region in the game references.
                              it 32; the caster item's draw 43; Item
                              magic 416 -- its two pools 104, the deal,
                              gear_spellat and the dealt names; Map edits'
-                             New Game, BRIDGE and Matoya's dock 68
+                             New Game, BRIDGE and Matoya's dock 68; Short
+                             ToFR 485, 110 of it the room
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

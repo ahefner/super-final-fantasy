@@ -1308,6 +1308,7 @@ lut_OrdRoomCount: .BYTE 1,   1,   2,   1,   2,   1,   2,   4,   1
 rando_mapedits:
     .a8
     .i8
+    JSR tofr_land               ; Short ToFR's room, on its own map
     LDA cur_map
     CMP #MAP_ORDEALS2F
     BNE @none
@@ -1378,6 +1379,8 @@ rando_teledest:
     JSR enter
     JSR ensure                  ; leaves A8, I8
     PLX
+    CPX #TELE_BLACKORB
+    BEQ @orb
     CPX #ORD_LOST_TELE
     BNE @table
     LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
@@ -1392,6 +1395,19 @@ rando_teledest:
     JSR tele_scroll
     STA sm_scroll_y
     BRA @map
+  @orb:                          ; Short ToFR: Chaos's floor, in its room
+    LDA f:SRAMFAR + OPTFB_SHORTTOFR
+    AND #OPTFM_SHORTTOFR
+    BEQ @table
+    LDA #$80 | TOFR_LAND_X      ; FFR's StandardInRoom
+    JSR land_room
+    JSR tele_scroll
+    STA sm_scroll_x
+    LDA #TOFR_LAND_Y
+    JSR tele_scroll
+    STA sm_scroll_y
+    LDA #MAP_TOFRCHAOS
+    JMP leave
   @table:
     LDA f:RW_NORMX, X
     JSR land_room
@@ -1550,6 +1566,271 @@ NAME_CANAL    = $14
 .import Talk_norm, Talk_CoOGuy
 .import FindEmptyWeaponSlot, FindEmptyArmorSlot, ShowMapObject, OptCallFar, AddGPToParty
 .include "optcall.inc"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Short ToFR -- FFR's ToFRMode Short (TempleOfFiends.cs, ShortenToFR)
+;;
+;;  The Black Orb sends the party to Chaos's floor rather than ToFR 1F,
+;;  in a room FFR builds over the floor's top: all seven of the Temple's
+;;  chests, the LUTE plate across the room's one way out, a locked door,
+;;  then the four fiends on either path (FFR's default refights, All).  So
+;;  Chaos asks the four orbs, the LUTE and the KEY, as ever, and the chests
+;;  the orbs alone -- they were never placement's.  FFR writes all this into
+;;  the ROM; a flag here can change between loads, so each piece is written
+;;  as the game loads what it changes:
+;;
+;;    tofr_land       the room, over the map as it decompresses (rando_mapedits)
+;;    rando_tofrplate the plate, object slot 3, after the map's objects
+;;    rando_objid     the plate's graphic for slot 3, as LoadMapObjCHR reads
+;;                    the ROM's object table rather than the objects loaded
+;;    rando_objchrfix Garland's outline cleared, after each slot's CHR...
+;;    rando_smpal     ...and NPC palette 3's colour 1 gold: the plate's bottom
+;;                    half draws in that colour, black on this floor, and
+;;                    Garland's in it too -- FFR's two fixes, done on this
+;;                    floor alone where FFR's change Garland's CHR everywhere
+;;    rando_teledest  the Black Orb's landing (above)
+;;    rando_lute      FFR's line for the LUTE: the plate opens a pathway now
+;;
+;;  Every one is a no-op unless the flag is on, and all but the teleport and
+;;  the LUTE's line unless the map is Chaos's.  Emulation mode, A8 X8, all.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.import LoadSingleMapObject, DrawComplexString, DrawMainItemBox, DrawItemDescBox_Fanfare
+.export rando_tofrplate, rando_objid, rando_objchrfix, rando_smpal, rando_lute
+.export lut_TofrRoom, lut_TofrLute      ; for tools/test_options.py
+
+;;  Z clear when the flag is on and the map is Chaos's floor.  A not kept.
+tofr_here:
+    LDA cur_map
+    CMP #MAP_TOFRCHAOS
+    BNE @no
+    LDA f:SRAMFAR + OPTFB_SHORTTOFR
+    AND #OPTFM_SHORTTOFR
+    RTS
+  @no:
+    LDA #0
+    RTS
+
+;;  The room, row by row, over the top of the floor.  From rando_mapedits.
+tofr_land:
+    JSR tofr_here
+    BEQ @out
+    PHB
+    LDA #CHUNK0                 ; a bank that decodes SRAM's mapdata
+    PHA
+    PLB
+    PHP
+    CLC
+    XCE                         ; native, for sixteen-bit indexes
+    REP #$10
+    .i16
+    LDX #$0000                  ; the room's tiles
+    LDY #TOFR_ROOM_Y * 64 + TOFR_ROOM_X
+  @row:
+    LDA #TOFR_ROOM_W
+    STA tmp                     ; LoadStandardMap's scratch, done with
+  @col:
+    LDA f:RANDOFAR + lut_TofrRoom, X
+    STA mapdata, Y
+    INX
+    INY
+    DEC tmp
+    BNE @col
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #64 - TOFR_ROOM_W       ; the next row's first column
+    TAY
+    SEP #$20
+    .a8
+    CPX #TOFR_ROOM_W * TOFR_ROOM_H
+    BCC @row
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    PLP
+    PLB
+  @out:
+    RTS
+
+;;  The plate, in slot 3 as FFR's SetNpc puts it -- in the room, stationary --
+;;  through the game's own LoadSingleMapObject, so it is visible exactly while
+;;  the LUTE has not been played (its game flag), and HideMapObject finds it.
+;;  From LoadStandardMapAndObjects, after LoadMapObjects.  tmp+8..10 hold the
+;;  object table's three bytes; LoadSingleMapObject reads them through
+;;  (tmp+12), from the zero page every bank decodes.
+rando_tofrplate:
+    JSR tofr_here
+    BEQ @out
+    PHB
+    LDA #CHUNK0                 ; a bank that decodes the zero page, game_flags
+    PHA                         ;   and mapobj
+    PLB
+    LDA #OBJID_LUTEPLATE
+    STA tmp+8
+    LDA #TOFR_PLATE_FLAGS | TOFR_PLATE_X
+    STA tmp+9
+    LDA #TOFR_PLATE_Y
+    STA tmp+10
+    LDA #<(tmp+8)
+    STA tmp+12
+    LDA #>(tmp+8)
+    STA tmp+13
+    LDA #<(mapobj + TOFR_PLATE_SLOT * 16)
+    STA tmp+14
+    LDA #>(mapobj + TOFR_PLATE_SLOT * 16)
+    STA tmp+15
+    LDA #OBJID_LUTEPLATE
+    JSR LoadSingleMapObject     ; the fixed bank's
+    PLB
+  @out:
+    RTL
+
+;;  LoadMapObjCHR's object id for the source index Y (a slot * 3), as it
+;;  read it, (tmp+4),Y with BANK_OBJINFO's DBR -- but the plate for slot 3
+;;  on this floor, which is empty in the ROM.  Out: A = the id.
+rando_objid:
+    CPY #TOFR_PLATE_SLOT * 3
+    BNE @table
+    JSR tofr_here
+    BEQ @table
+    LDA #OBJID_LUTEPLATE
+    RTL
+  @table:
+    LDA (tmp+4), Y
+    RTL
+
+;;  After slot A / 3's CHR row: one of Garland's slots on this floor, its
+;;  standing sprite's four tiles with colour 1 made 0, as FFR's
+;;  MakeGarlandsBorderTransparent does -- once colour 1 is the plate's gold
+;;  (rando_smpal) Garland's outline would be gold.  In CHRSHADOW, a tile's
+;;  first sixteen bytes are its rows' planes 0 and 1 in pairs; colour 1 is
+;;  plane 0 alone.  The flush has not yet run, so the tiles go out so.  The
+;;  slot's row starts at NES $1100 + $100 per slot: shadow tile $110 + 16 per
+;;  slot, $200 bytes a slot.  A kept.
+rando_objchrfix:
+    CMP #TOFR_GARLANDS * 3
+    BCS @out
+    PHA
+    JSR tofr_here
+    BEQ @pull
+    PLA
+    PHA
+    PHP
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    AND #$00FF                  ; the slot * 3...
+    TAX
+    LDA f:RANDOFAR + lut_TofrSlotChr, X
+    TAX                         ; ...its first tile in the shadow
+    LDY #4 * 8                  ; four tiles of eight rows
+  @rowpair:
+    SEP #$20
+    .a8
+    LDA f:CHRSHADOW + 1, X      ; plane 1
+    AND f:CHRSHADOW, X          ; plane 0 where plane 1 is also set
+    STA f:CHRSHADOW, X
+    REP #$20
+    .a16
+    INX
+    INX
+    DEY
+    TYA
+    AND #$0007
+    BNE :+
+    TXA                         ; a tile done: past its planes 2 and 3
+    CLC
+    ADC #16
+    TAX
+:   CPY #0
+    BNE @rowpair
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLP
+  @pull:
+    PLA
+  @out:
+    RTL
+lut_TofrSlotChr:                ; by slot * 3: the slot's first shadow tile
+  .repeat TOFR_GARLANDS, i
+    .WORD ($110 + 16 * i) * 32
+    .BYTE 0
+  .endrep
+
+;;  NPC palette 3's colour 1, gold, on this floor: LoadSMTilesetData has just
+;;  copied the map's palettes into load_map_pal, which LoadMapPalettes takes
+;;  for every entry and every return from a battle or a menu.  FFR's
+;;  Put(0x02B2D, 27): map 59's $30 at $A000, byte $1D.
+rando_smpal:
+    JSR tofr_here
+    BEQ @out
+    LDA #TOFR_PLATE_COL
+    STA load_map_pal + TOFR_PAL_PLATE
+  @out:
+    RTL
+
+;;  The LUTE played: UseItem_Lute's text, with the fanfare, from bank $0E
+;;  after HideMapObject.  Without the flag, the game's own, text $05 ("The
+;;  tune plays, revealing a stairway."); with it, FFR's ("...opening the
+;;  pathway."), from this chunk -- DrawItemDescBox_Fanfare's steps, with
+;;  text_ptr pointed here and DrawComplexString reading from cur_bank, which
+;;  is this chunk until it is put back to bank $0E for the item menu.
+LUTE_TEXT_VANILLA = $05
+rando_lute:
+    LDA f:SRAMFAR + OPTFB_SHORTTOFR
+    AND #OPTFM_SHORTTOFR
+    BNE @short
+    CALL0EA DrawItemDescBox_Fanfare, LUTE_TEXT_VANILLA
+    RTL
+  @short:
+    LDX #$54                    ; the fanfare, as DrawItemDescBox_Fanfare
+    STX music_track
+    LDA #1
+    STA menustall
+    CALL0EA DrawMainItemBox, $08   ; the description box
+    INC descboxopen
+    LDA #<lut_TofrLute
+    STA text_ptr
+    LDA #>lut_TofrLute
+    STA text_ptr+1
+    LDA #CHUNK_RANDO
+    STA cur_bank
+    STA ret_bank
+    JSR DrawComplexString       ; the fixed bank's
+    LDA #BANK_MENUS             ; back to what the item menu expects
+    STA cur_bank
+    RTL
+
+;;  FFR's room, row by row (ShortenToFR's landingArea, with "All": the fiends
+;;  Tiamat, Kraken, Kary, Lich left of the middle and Lich to Tiamat right).
+lut_TofrRoom:
+  .BYTE $3F,$3F,$00,$01,$01,$01,$01,$01,$02,$3F,$3F
+  .BYTE $3F,$00,$04,$5D,$5E,$5F,$60,$61,$04,$02,$3F
+  .BYTE $00,$04,$62,$20,$20,$20,$20,$20,$63,$04,$02
+  .BYTE $03,$04,$04,$20,$20,$20,$20,$20,$04,$04,$05
+  .BYTE $06,$04,$04,$20,$20,$20,$20,$20,$04,$04,$08
+  .BYTE $30,$06,$04,$04,$10,$04,$11,$04,$04,$08,$30
+  .BYTE $31,$30,$06,$07,$10,$07,$11,$07,$08,$30,$31
+  .BYTE $31,$31,$30,$30,$30,$3B,$30,$30,$30,$31,$31
+  .BYTE $31,$38,$38,$31,$38,$3A,$38,$31,$38,$38,$31
+  .BYTE $31,$5A,$59,$58,$57,$31,$57,$58,$59,$5A,$31
+.assert * - lut_TofrRoom = TOFR_ROOM_W * TOFR_ROOM_H, error, "the room is eleven by ten"
+
+;;  "The tune plays,\nopening the pathway." -- $05 the menu strings' line
+;;  break, as the game's own text $05 has it.
+lut_TofrLute:
+  FFTEXT "The tune plays,"
+  .BYTE $05
+  FFTEXT "opening the pathway."
+  .BYTE $00
+
 
 rando_talk:
     .a8

@@ -364,6 +364,7 @@ SPELLBYTE_RUSE  = 4             ; RUSE, as a weapon's spell byte holds it
 OPTFB_NUKESTICK = OPT_FLAGS+5
 OPTFM_NUKESTICK = $80    ; bit 47
 ITEM_WIZARDSTAFF = $3C          ; the Wizard Staff's item id...
+;  (Short ToFR, bit 26, is below Boss tactics.)
 WEAPON_WIZARDSTAFF = 32         ; ...and its weapon index
 SPELLBYTE_NUKE  = $3D           ; NUKE, as a weapon's spell byte holds it
 
@@ -377,6 +378,31 @@ BOSSAI_OFF      = 0             ; the script, as ever
 BOSSAI_CLEVER   = 1             ; the script's rates, the best of the deck
 BOSSAI_RUTHLESS = 2             ; the best of the swing and the deck, always
 BOSSAI_MODES    = 3
+
+;  Short ToFR (user, 2026-10-19): FFR's ToFRMode Short, with its default
+;  refights, All.  The Black Orb sends the party straight to Chaos's floor,
+;  rebuilt at the top as a room holding all seven of the Temple's chests, the
+;  LUTE plate across its one way out, then a locked door and the four fiends
+;  to fight on either path down (TempleOfFiends.cs, ShortenToFR).  Bit 26,
+;  one of the Free items' until format 9, spare since -- a block of format 9
+;  has never set it, so the format stays 9.  rando.asm's tofr_*.
+OPTFB_SHORTTOFR = OPT_FLAGS+3
+OPTFM_SHORTTOFR = $04    ; bit 26
+MAP_TOFRCHAOS   = 59            ; ToFR's last floor, Chaos's
+TELE_BLACKORB   = 1             ; the Black Orb's teleport (TeleportIndex.TempleOfFiends2)
+TOFR_LAND_X     = $0F           ; where it lands now, in the room
+TOFR_LAND_Y     = $03
+TOFR_ROOM_X     = $0A           ; the rebuilt top: eleven columns, ten rows
+TOFR_ROOM_Y     = $00
+TOFR_ROOM_W     = 11
+TOFR_ROOM_H     = 10
+TOFR_PLATE_SLOT = 3             ; the plate's object slot (0-2 are Garland's)
+TOFR_PLATE_X    = 15
+TOFR_PLATE_Y    = 5
+TOFR_PLATE_FLAGS = $C0          ; in a room ($80), stationary ($40): mapobj_flgs
+TOFR_PAL_PLATE  = $1D           ; the map palette's byte for NPC palette 3's colour 1...
+TOFR_PLATE_COL  = $27           ; ...gold, as the plate's top half is
+TOFR_GARLANDS   = 3             ; Garland's three slots, whose outline goes
 DECK_TURNS      = 8             ; a boss's script is its deck: each slot plays
                                 ;   once in this many of its turns
 

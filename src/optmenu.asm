@@ -1718,6 +1718,8 @@ lut_OptRows:
   FFPAD "RUSE Staff", 30
   .BYTE $01, $2F   ; NUKE Stick   (bit 47)
   FFPAD "NUKE Stick", 30
+  .BYTE $01, $1A   ; Short ToFR   (bit 26)
+  OPTLABEL {"Short ToFR"}
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE $00, $00   ; TREASURES

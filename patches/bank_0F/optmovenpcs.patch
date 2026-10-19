@@ -3,12 +3,15 @@
     JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
     RTS                   ; exit
 --- NEW
-.import opt_movenpcs, opt_mapedits
+.import opt_movenpcs, opt_mapedits, rando_tofrplate
 .export LoadStandardMapAndObjects   ; for the harness
+.export LoadSingleMapObject         ; for Short ToFR's plate (rando.asm)
 
     JSR LoadStandardMap   ; decompress the map
     JSL opt_mapedits + OPTFAR   ; ...and write over it whatever map edits are on
     JSR LoadMapObjects    ; load up the objects for this map (townspeople/bats/etc)
     JSL opt_movenpcs + OPTFAR   ; ...then shift the ones Speed Hacks moves out
-    RTS                   ;      of the player's way.  This is the only path
+                          ;      of the player's way.  This is the only path
                           ;      that loads objects, so it cannot compound.
+    JSL rando_tofrplate + RANDOFAR  ; ...and Short ToFR's LUTE plate
+    RTS

@@ -1,0 +1,18 @@
+--- OLD
+    ASL A                       ; completely pointless shift (undoes above LSR, but has no real effect)
+    JSR HideMapObject           ; hide the lute plate object
+    LDA #$05                    ; get relevent description text
+    JSR DrawItemDescBox_Fanfare ;  and draw it ... WITH FANFARE!
+    JMP ItemMenu_Loop           ; then return to item loop
+--- NEW
+.import rando_lute
+.export DrawItemDescBox_Fanfare     ; for rando_lute
+    ;  The text, with fanfare, from the randomizer's chunk: the game's own,
+    ;  or under Short ToFR FFR's, the plate opening a pathway rather than a
+    ;  stairway.  The LSR's undoing ASL went; HideMapObject takes only Y.
+    ;  Twelve bytes as before.
+    JSR HideMapObject           ; hide the lute plate object
+    JSL rando_lute + RANDOFAR   ; describe it, WITH FANFARE
+    NOP
+    NOP
+    JMP ItemMenu_Loop           ; then return to item loop
