@@ -764,7 +764,7 @@ caught, one equivalent removed (`opt_itemspell` reloading Y, which nothing
 between had changed).
 
 **Short ToFR** (user, 2026-10-19: "port the short ToFR flag from FFR";
-built, not yet played) is FFR's `ToFRMode.Short` with its default
+played and verified by the user the same day) is FFR's `ToFRMode.Short` with its default
 `ShortToFRFiendsRefights.All` (`TempleOfFiends.cs`, `ShortenToFR`).  The
 Black Orb sends the party to Chaos's floor rather than ToFR 1F, landing at
 (15, 3) in a room FFR builds over the floor's top, eleven by ten from
