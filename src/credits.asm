@@ -97,9 +97,11 @@ CR_YBUF1     = CREDITSRAM+$300  ;   at most 224 lines, so $1C0 bytes each
 ;  One line of the text: a length and then the characters, in the game's
 ;  encoding.  A line of nothing is a blank row.
 ;
-;  One character beyond the game's font is allowed, written as itself: the
-;  source is UTF-8, so a (c) arrives as the two bytes $C2 $A9, and becomes the
-;  crawl's own glyph.  Anything else outside the font is still an error.
+;  Three characters beyond the game's font are allowed, written as
+;  themselves, each the crawl's own glyph: a colon and a slash, for a URL
+;  (user, 2026-10-19), and the copyright sign -- the source is UTF-8, so a
+;  (c) arrives as the two bytes $C2 $A9.  The font has the dash and the
+;  period (fftext.inc).  Anything else outside it is still an error.
 .macro CRLINE txt
   .local n
   n .set 0
@@ -115,10 +117,14 @@ CR_YBUF1     = CREDITSRAM+$300  ;   at most 224 lines, so $1C0 bytes each
   .repeat .strlen(txt), i
     .if .strat(txt, i) = $C2
       .if .strat(txt, i + 1) <> $A9
-        .error "the only character the crawl adds to the font is the copyright sign"
+        .error "the only two-byte character the crawl adds to the font is the copyright sign"
       .endif
     .elseif .strat(txt, i) = $A9
       .byte CR_GLYPH_COPYRIGHT
+    .elseif .strat(txt, i) = ':'
+      .byte CR_GLYPH_COLON
+    .elseif .strat(txt, i) = '/'
+      .byte CR_GLYPH_SLASH
     .else
       FFCHAR {.strat(txt, i)}
     .endif
@@ -650,7 +656,29 @@ CR_GLYPH_COPYRIGHT = CR_GLYPHFIRST + (* - lut_CrawlGlyphs) / 8
   .byte %01011101
   .byte %00100010
   .byte %00011100
+;  The colon and the slash in the font's two-pixel strokes: the colon's dots
+;  at the lowercase letters' top and on the line, as the period's is; the
+;  slash the capitals' height.
+CR_GLYPH_COLON = CR_GLYPHFIRST + (* - lut_CrawlGlyphs) / 8
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00011000
+  .byte %00011000
+  .byte %00000000
+  .byte %00011000
+  .byte %00011000
+CR_GLYPH_SLASH = CR_GLYPHFIRST + (* - lut_CrawlGlyphs) / 8
+  .byte %00000000
+  .byte %00000110
+  .byte %00001100
+  .byte %00001100
+  .byte %00011000
+  .byte %00110000
+  .byte %00110000
+  .byte %01100000
 CR_GLYPHSIZE = * - lut_CrawlGlyphs
+.assert CR_GLYPHFIRST + CR_GLYPHSIZE / 8 <= CR_FONTFIRST, error, "the crawl's glyphs run into the font"
 
 lut_CreditsText:
   CRLINE ""
@@ -672,12 +700,25 @@ lut_CreditsText:
   CRLINE "© 1987 Square  "
   CRLINE "© 1990 Nintendo"
   CRLINE ""
+  CRLINE "Square A-Team"
+  CRLINE ""
   CRLINE "Programmed By"
   CRLINE "N A S I R"
   CRLINE ""
+  CRLINE "Concept"
+  CRLINE "Hironobu Sakaguchi"
+  CRLINE ""
+  CRLINE "Characters"
   CRLINE "Yoshitaka Amano"
+  CRLINE ""
+  CRLINE "Scenario"
   CRLINE "Kenji Terada"
-  CRLINE "Square A-Team"
+  CRLINE ""
+  CRLINE "Music"
+  CRLINE "Nobuo Uematsu"
+  CRLINE ""
+  CRLINE "Translation"
+  CRLINE "Phil Sandhop"
   CRLINE ""
   CRLINE ""
   CRLINE ""
@@ -689,11 +730,12 @@ lut_CreditsText:
   CRLINE ""
   CRLINE "FINAL FANTASY RANDOMIZER"
   CRLINE ""
+  CRLINE "Created by ENTROPER"
   CRLINE ""
-  CRLINE "Developers"
   CRLINE ""
-  CRLINE "Entroper"
-  CRLINE "    "
+  CRLINE "DEVELOPERS"
+  CRLINE ""
+  CRLINE "Entroper               "
   CRLINE "MeridianBC     nitz    "
   CRLINE "Septimus       tartopan"
   CRLINE "RetroFanMan    wildham "
@@ -701,7 +743,7 @@ lut_CreditsText:
   CRLINE "liferboot      Twinge  "
   CRLINE "    "
   CRLINE "    "
-  CRLINE "Contributors"
+  CRLINE "CONTRIBUTORS"
   CRLINE "    "
   CRLINE "  artea         drcatdoctor  "
   CRLINE "  nic0lette     splitpunched "
@@ -713,7 +755,7 @@ lut_CreditsText:
   CRLINE "  xxxxxxxxxxxxxxx            "
   CRLINE "    "
   CRLINE "    "
-  CRLINE "Playtesting"
+  CRLINE "PLAYTESTING"
   CRLINE "    "
   CRLINE "  jkoper         Kababesh   "
   CRLINE "  Miaut          Ayntlerz   "
@@ -738,5 +780,4 @@ lut_CreditsText:
   CRLINE ""
   CRLINE "The Entire FFR"
   CRLINE "Community"
-  CRLINE ""
 CR_TEXTSIZE = * - lut_CreditsText

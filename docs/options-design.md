@@ -1865,7 +1865,11 @@ covered part of it.  Nothing built is waiting on a playtest.
     parameters are the tuning, overridable from the environment
     (`CRAWL_ANGLE=50 ./build.sh`).  Settled at angle 50, zoom 1.5, fade 96.
     It still borrows the game for the music and the pad, once a frame in
-    emulation mode (`cr_frame`).
+    emulation mode (`cr_frame`).  The text is the game's font, which has the
+    dash and the period, plus the crawl's own one-bit glyphs at tiles $01 up
+    (`lut_CrawlGlyphs`): the copyright sign, and a colon and a slash for a
+    URL (user, 2026-10-19; built, not yet played -- run in the harness, the
+    tiles and a URL line's bytes checked).  `CRLINE` writes each as itself.
   - **Lending the PPU.**  Two HAL entry points make a native screen possible
     without it knowing about the shadows.  `hal_vblaudio` is `hal_waitvbl`
     without the flush: sound goes out, nothing reaches the PPU.
