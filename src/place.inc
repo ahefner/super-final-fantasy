@@ -99,6 +99,7 @@ CRIT_INC       = 2
 SAFE_INC       = 3
 PI_CANOE       = 15            ; PLACE_ITEMS indices the loop names
 PI_SHIP        = 16
+PI_BRIDGE      = 17
 PI_CANAL       = 18
 ;  The caravan, the last pool location; and what a shop can sell: key items
 ;  that are items, and the TAIL -- PLACE_ITEMS 0-14 and 19.
@@ -1357,7 +1358,14 @@ pl_weight:
     LDA f:RANDOFAR + lut_PlaceQ, X
     AND #$00FF
     TAY
-    LDA #0
+    LDA a:pK                    ; the BRIDGE: early, at 2.0, only without
+    CMP #PI_BRIDGE              ;   Bridge to Lefein, as FFR has it -- under
+    BNE :+                      ;   it the BRIDGE is Lefein's, and FFR's 0.75
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    AND #OWEDIT_BRIDGELEFEIN
+    BEQ :+
+    LDY #BRIDGE_LEFEIN_Q
+:   LDA #0
   @mul:
     CLC
     ADC a:pT
@@ -1946,7 +1954,8 @@ lut_PlaceLBit:                  ; each key item's bit in the logic
   .BYTE LBIT_ADAMANT, LBIT_SLAB, LBIT_RUBY, LBIT_ROD, LBIT_FLOATER, LBIT_CHIME
   .BYTE LBIT_CUBE, LBIT_BOTTLE, LBIT_OXYALE, LBIT_CANOE, LBIT_SHIP, LBIT_BRIDGE
   .BYTE LBIT_CANAL
-lut_PlaceQ:                     ; FFR's safe weights, in quarters; BRIDGE 2.0
+BRIDGE_LEFEIN_Q = 3             ; FFR's BRIDGE weight under Bridge to Lefein, 0.75
+lut_PlaceQ:                     ; FFR's safe weights, in quarters; BRIDGE 2.0 (pl_weight)
   .BYTE 1, 3, 3, 3, 1, 3, 3, 3, 4, 4, 1, 1, 1, 3, 1, 3, 4, 8, 4
 lut_PlaceMinCycle:              ; FFR's safe minimum cycles
   .BYTE 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 10, 5, 7, 0, 5, 3, 2, 0, 0
@@ -1958,7 +1967,8 @@ lut_PlaceMinAccess:             ; ...and fewest places reached
 ;  Map shuffle (pTUNE; randoref.py's TUNE_LOOSE): on a shuffled world the
 ;  CHIME, CUBE and OXYALE can open somewhere early, so they lose their late
 ;  limits and the CHIME and OXYALE weigh more; the LUTE, which opens the end
-;  however the doors fall, waits for cycle ten.  BRIDGE 2.0 still.
+;  however the doors fall, waits for cycle ten.  BRIDGE 2.0 still (but 0.75
+;  under Bridge to Lefein, pl_weight).
 lut_PlaceQLoose:
   .BYTE 1, 3, 3, 3, 1, 3, 3, 3, 4, 4, 1, 5, 4, 3, 5, 3, 4, 8, 4
 lut_PlaceMinCycleLoose:

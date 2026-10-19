@@ -1297,12 +1297,24 @@ MIN_ACCESS = {"CHIME": 60, "CUBE": 75, "OXYALE": 50}
 #  (PredictivePlacement.cs): on a shuffled world the CHIME, CUBE and OXYALE
 #  can open somewhere early, so they lose their late limits and the CHIME and
 #  OXYALE weigh more; the LUTE, which opens the end however the doors fall,
-#  waits for cycle ten.  The BRIDGE stays at 2.0, the vanilla overworld's.
+#  waits for cycle ten.  The BRIDGE stays at 2.0, the vanilla overworld's --
+#  but under Bridge to Lefein it is FFR's 0.75 in either (tune_edits).
 LOOSE_Q = {"CHIME": 5, "CUBE": 4, "OXYALE": 5}
 MIN_CYCLE_LOOSE = {"KEY": 5, "SHIP": 2, "CANOE": 3, "FLOATER": 10, "LUTE": 10}
 MIN_ACCESS_LOOSE = {"CHIME": 5, "CUBE": 5, "OXYALE": 5}
 TUNE_SAFE = ({}, MIN_CYCLE, MIN_ACCESS)
 TUNE_LOOSE = (LOOSE_Q, MIN_CYCLE_LOOSE, MIN_ACCESS_LOOSE)
+OWEDIT_BRIDGELEFEIN = 1 << 6    # Bridge to Lefein (owedits.BRIDGE_LEFEIN)
+
+
+def tune_edits(tune, owedits):
+    """FFR places the BRIDGE early, at 2.0, only on the vanilla map without
+    Bridge to Lefein (PredictivePlacement.cs); under it the BRIDGE leads to
+    Lefein, at its default 0.75."""
+    if not owedits & OWEDIT_BRIDGELEFEIN:
+        return tune
+    qs, min_cycle, min_access = tune
+    return (dict(qs, BRIDGE=3), min_cycle, min_access)
 NONKEY_MIN_CYCLE = 10
 CRIT_NON, SAFE_NON, CRIT_INC, SAFE_INC = 5, 20, 2, 3
 W1 = 1024                       # a weight of 1.0
@@ -1679,7 +1691,7 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
             continue
         out = build_placement(seed, keyitems, items3, gear2, early,
                               world=(masks, chaos, groups), stream=STREAM_KEYS + k,
-                              attempts=ES_PLACE_ATTEMPTS, tune=tune)
+                              attempts=ES_PLACE_ATTEMPTS, tune=tune_edits(tune, owedits))
         if out is None:
             continue
         dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
@@ -1709,7 +1721,7 @@ def build_edited(seed, keyitems, items3, gear2, early, owedits):
     if groups is None:
         return None
     out = build_placement(seed, keyitems, items3, gear2, early, world=(masks, chaos, groups),
-                          tune=TUNE_SAFE)
+                          tune=tune_edits(TUNE_SAFE, owedits))
     if out is None:
         return None
     dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)

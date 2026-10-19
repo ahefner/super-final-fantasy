@@ -829,6 +829,9 @@ until the rewards change.
     that map -- the prototype had the unsafe ones, built for the shuffle.
     Under Map shuffle it uses the unsafe ones, as FFR does whenever
     Entrances is on (§9.3, "Placement's tables"); the BRIDGE stays at 2.0.
+    Under the map edit Bridge to Lefein the BRIDGE is FFR's ordinary 0.75 in
+    either table, as FFR has it (`MapBridgeLefein`), since it then leads to
+    Lefein rather than out of Coneria (2026-10-18, built, not yet played).
   - **A draw with nowhere to go weighs nothing** (2026-10-14, after the user
     asked why some settings reroll so much).  FFR draws an incentive with no
     incentive spot reached -- "can't happen per definition", its comment

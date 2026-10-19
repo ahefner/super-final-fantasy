@@ -1248,6 +1248,10 @@ def test_es_place():
     edits = [K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x1410, K["OWEDIT_SARDAS"], 0x2041]
     jobs += [(seed * 104729 + 7, cfg, mode, f) for cfg in cfgs[:2] for f in edits
              for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
+    #  Bridge to Lefein: the BRIDGE at FFR's 0.75, not the vanilla map's 2.0 --
+    #  only a config that places the BRIDGE can tell.
+    jobs += [(seed * 104729 + 7, cfgs[2], mode, f) for f in (0x2041, K["OWEDIT_SAFE"], 0x0001)
+             for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
     got = pmap(es_place_cart, jobs)
     bad = []
     for (seed, cfg, mode, *owe), cart in zip(jobs, got):

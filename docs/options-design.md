@@ -1279,7 +1279,9 @@ reads -- so the screen to come can set them one by one, and zero, no edits,
 is every older save.  Neither `OPT_FORMAT` nor `SAVEVER` moves.  Bridge to
 Lefein also sets the BRIDGE down at (230, 123), as FFR does, and moors a
 ship that would have berthed at Matoya's dock, which its edits delete, at
-Coneria's (FFR's `UpdateDocks`).  Four columns of readout, one description
+Coneria's (FFR's `UpdateDocks`); placement then weighs the BRIDGE at FFR's
+0.75, not the vanilla map's 2.0 (2026-10-18, built, not yet played;
+`test_es_place`, both sides' mutations caught).  Four columns of readout, one description
 per value.  `test_owedits` holds the transcription to FFR's source (beside
 the tree), the cart's rows, window and minimap, to `owedits.apply` flag by
 flag, New Game's expansion and the BRIDGE, and the row's field, with no two
