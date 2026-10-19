@@ -760,16 +760,12 @@ def test_winnable():
     import genows as GO
     def text_at(bus, n):
         """The description area's lines, as text."""
-        side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(),
-                             re.M).group(1))
-        col, row, w = (11, 20, 20) if side else (1, 25, 30)
+        col, row, w = 11, 20, GO.DESC_W
         nt = rw("OWS_NT3")
         return [("".join(_decode(bus.wram[nt + 2 * (32 * (row + k) + col + i)]) or "?" for i in range(w))).rstrip()
                 for k in range(n)]
-    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(),
-                         re.M).group(1))
     import textwrap
-    width = 20 if side else 30
+    width = GO.DESC_W
     warn1 = textwrap.wrap(GO.WARNINGS[1], width)
     warn0 = textwrap.wrap(GO.WARNINGS[0], width)
 
@@ -1786,12 +1782,11 @@ def test_owscreen():
           GO.sites(GO.view(O.BAHAMUT_DOCK, 0x1000)),
           [((min(vx) + max(vx)) // 2, (min(vy) + max(vy)) // 2, max(max(vx) - min(vx), max(vy) - min(vy)) + 1)])
     #  ...and ringed there, one ring, on the minimap at half scale.
-    side = int(re.search(r"^OWS_SIDE\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
     bus, cpu = machine()
     bus.ppu()
     setup(bus, 0x1010, O.BAHAMUT_DOCK)
     call(cpu, "ows_testinset", bank=OWS)
-    mc = 1 if side else 10
+    mc = 1                              # the minimap's column
     check("...its ring at the variant, the rest hidden",
           [tuple(bus.oam[4 * k + 4:4 * k + 6]) for k in range(4)],
           [((min(vx) + max(vx)) // 2 // 2 + mc * 8 - 8, (min(vy) + max(vy)) // 2 // 2 + 8 - 9)] + [(0, 224)] * 3)
@@ -1799,7 +1794,6 @@ def test_owscreen():
     #  The screen as it comes up: VRAM holds the minimap and the zoom whole
     #  when the display goes on, the unedited rows from lut_OwsBaked, and a
     #  frame of the music for each vblank the drawing takes.
-    inset = int(re.search(r"^OWS_INSET\s*=\s*(\d)", open(os.path.join(ROOT, "src", "owslayout.inc")).read(), re.M).group(1))
     CMP = SYM["CallMusicPlay"]
     bad, music = [], []
     for flags in (0, SAFE, 0x3FFF):
@@ -1821,7 +1815,7 @@ def test_owscreen():
         frames = (bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8) - h0
         if bytes(bus.vram[0:8192]) != expect_minimap(flags, 0):
             bad.append("flags $%04X: the minimap" % flags)
-        if inset and bytes(bus.vram[8192:8192 + 49 * 32]) != expect_inset(flags, 0, 0):
+        if bytes(bus.vram[8192:8192 + 49 * 32]) != expect_inset(flags, 0, 0):
             bad.append("flags $%04X: the zoom" % flags)
         if bus.io[0x2100] != 0x0F:
             bad.append("flags $%04X: the display left off" % flags)
@@ -1862,8 +1856,8 @@ def test_owscreen():
     got = newgame(None, [0, 0, 0x04, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
     check("Open, the selection down one, Extended ticked", got[0], 0x0003)
     got = newgame(None, [0, 0, 0x01, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
-    check("...right: the next in the column, or across the grid",
-          got[0], 0x0003 if side else 0x0081)
+    check("...right: the next in the column",
+          got[0], 0x0003)
 
     #  A frame at a time from the screen's first pad read -- setup's, which
     #  the loop does not answer -- then DOWN, A, and L + X.  The move chirps, the tick chirps the other way, and the reset is

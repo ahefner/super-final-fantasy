@@ -3,8 +3,8 @@
 ;
 ;  Each of FFR's fourteen overworld edits a checkbox, and the world's minimap
 ;  as the boxes ticked would make it (user, 2026-10-18), with a zoom of the
-;  selected edit.  Two layouts, on two branches (owslayout.inc): the minimap
-;  above a grid, or beside a column.
+;  selected edit: the minimap at the left, the fourteen in a column beside
+;  it, the zoom below it.
 ;
 ;  From rando_newgame when the Map edits row is not Off, which then writes
 ;  the row's flags into RANDO_OWEDITS.  The screen starts from the saved
@@ -54,7 +54,6 @@
 .include "variables.inc"
 .include "fftext.inc"
 .include "nescol.inc"
-.include "owslayout.inc"
 ;  CALL0E, for the menu chirps in bank $0E.
 .include "optcall.inc"
 
@@ -93,11 +92,9 @@ OBJ_HAND  = 2
 
 ;  Where things are, in BG cells, inside the 30x26 a CRT shows.  A
 ;  setting's line: the hand two cells before its box, the name straight
-;  after -- the hand over the minimap's edge, or over the end of a long
-;  name in the grid's left column, where the 30 run out (user: rather
-;  that than shorter names).  The zoom in the game's dialog box frame, a
-;  cell all round (user).
-.if OWS_SIDE
+;  after -- the hand over the minimap's edge, where the 30 run out (user:
+;  rather that than shorter names).  The zoom in the game's dialog box
+;  frame, a cell all round (user).
 MAP_COL   = 1                   ; rows 1-16, the column's 2-15 (lut_OwsCell)
 MAP_ROW   = 1
 INSET_COL = 2
@@ -106,20 +103,8 @@ TITLE_COL = 11
 TITLE_ROW = 18
 DESC_COL  = 11
 DESC_ROW  = 20
-DESC_W    = OWS_DESCNARROW
-DESC_N    = 5
-.else
-MAP_COL   = 10
-MAP_ROW   = 1
-INSET_COL = 2
-INSET_ROW = 5
-TITLE_COL = 26
-TITLE_ROW = 6
-DESC_COL  = 1
-DESC_ROW  = 25
-DESC_W    = OWS_DESCWIDE
-DESC_N    = 2
-.endif
+DESC_W    = OWS_DESCW
+DESC_N    = 5                   ; genows.py's DESC_N
 NAME_W    = 13
 INSET_W   = 7                   ; cells
 INSET_PX  = INSET_W * 8
@@ -658,13 +643,11 @@ ows_first:
     JSR ows_audio
     JSR ows_nextrow
     BCC @draw
-.if OWS_INSET
   @zoom:
     JSR ows_audio
     JSR ows_insetrow            ; the last asks ows_vblank to send it
     LDA f:V_IACTIVE
     BNE @zoom
-.endif
     REP #$20
     .a16
     LDA #0
@@ -814,7 +797,6 @@ ows_bg1map:
     BNE @mmcell
     CPY #256
     BCC @mmrow
-.if OWS_INSET
     LDY #$0000                  ; the zoom's cell, 0-48
     LDA #VR_BG1MAP + INSET_ROW * 32 + INSET_COL
     STA f:V_VADDR
@@ -835,7 +817,6 @@ ows_bg1map:
     BNE @incell
     CPY #INSET_W * INSET_W
     BCC @inrow
-.endif
     SEP #$20
     .a8
     RTS
@@ -972,7 +953,6 @@ ows_vblank:
     .a8
     JSR ows_dma
   @inset:
-.if OWS_INSET
     LDA f:V_INSETD
     BEQ @rows
     LDA #0
@@ -987,7 +967,6 @@ ows_vblank:
     .a8
     JSR ows_dma
     BRA @sprites                ; that is the vblank's worth
-.endif
   @rows:
     LDA #2
     STA f:V_K
@@ -1419,7 +1398,6 @@ ows_sfxout:
     .a8
     .i16
 ows_dir:
-.if OWS_SIDE
     BIT #PAD_UP | PAD_LEFT
     BEQ @down
     LDA f:V_SEL
@@ -1434,51 +1412,6 @@ ows_dir:
     BCC :+
     LDA #0
 :   RTS
-.else
-    ;  The grid: seven rows, the first seven down the left.
-    BIT #PAD_LEFT | PAD_RIGHT
-    BEQ @updown
-    LDA f:V_SEL
-    CMP #7
-    BCC :+
-    SEC
-    SBC #7
-    RTS
-:   CLC
-    ADC #7
-    RTS
-  @updown:
-    BIT #PAD_UP
-    BEQ @dn
-    LDA f:V_SEL
-    CMP #7
-    BCS @upright
-    DEC A
-    BPL :+
-    LDA #6
-:   RTS
-  @upright:
-    DEC A
-    CMP #7
-    BCS :+
-    LDA #13
-:   RTS
-  @dn:
-    LDA f:V_SEL
-    CMP #7
-    BCS @dnright
-    INC A
-    CMP #7
-    BCC :+
-    LDA #0
-:   RTS
-  @dnright:
-    INC A
-    CMP #14
-    BCC :+
-    LDA #7
-:   RTS
-.endif
 
 ;;  A ticks or unticks the selected box: the box at once, its rows queued,
 ;;  the zoom again.  A8 I16.
@@ -1591,7 +1524,6 @@ ows_select:
 ows_work:
     LDA #BUDGET
     STA f:V_BUDGET
-.if OWS_INSET
     LDA f:V_T
     AND #$7F
     BNE @zoom
@@ -1624,7 +1556,6 @@ ows_work:
     STA f:V_BUDGET
     JSR ows_insetrow
     BRA @zoom
-.endif
   @rows:
     LDA f:V_BUDGET
     CMP #COST_ROW
@@ -1966,8 +1897,8 @@ ows_prow:
     .a8
     .i16
 ows_insetstart:
-    ;  (Worked out without the zoom too, which only the drawing and the
-    ;  sending of it need; so the harness can draw one in any layout.)
+    ;  (Worked out apart from the drawing and the sending of it, so the
+    ;  harness can draw one alone.)
     LDA f:V_VIEW
     ASL A
     ASL A
@@ -2180,20 +2111,9 @@ ows_drawall:
     STA f:V_PAL
     LDX #.LOWORD(lut_OwsTitle)
     LDY #(TITLE_ROW * 32 + TITLE_COL) * 2
-.if OWS_SIDE
     LDA #9                      ; "MAP EDITS", a line
     JSR ows_text
-.else
-    LDA #3                      ; "MAP", then "EDITS" under it
-    JSR ows_text
-    INX                         ; past the space
-    LDY #((TITLE_ROW + 1) * 32 + TITLE_COL) * 2
-    LDA #5
-    JSR ows_text
-.endif
-.if OWS_INSET
     JSR ows_frame
-.endif
     JMP ows_desc
 
 ;;  The zoom's frame, round its 7x7 cells, in the game's dialog box tiles.
@@ -2439,15 +2359,9 @@ lut_OwsBit16:
   .WORD ((r) * 32 + (c)) * 2
 .endmacro
 lut_OwsCell:
-.if OWS_SIDE
   .repeat OWS_SETTINGS, i
     CELL 2 + i, 17              ; the hand over the minimap's last two columns
   .endrep
-.else
-  .repeat OWS_SETTINGS, i
-    CELL 17 + i .MOD 7, 3 + 14 * (i / 7)
-  .endrep
-.endif
 
 ;  OBJ characters: the ring's four, then the hand's.
 lut_OwsObjCell:
@@ -2501,13 +2415,6 @@ lut_OwsName:
   FFPAD "Cardia Bridge", NAME_W
   FFPAD "Ship Drydock", NAME_W
 
-.if OWS_SIDE
-lut_OwsDesc = lut_OwsDescNarrow
-lut_OwsWarn = lut_OwsWarnNarrow
-.else
-lut_OwsDesc = lut_OwsDescWide
-lut_OwsWarn = lut_OwsWarnWide
-.endif
 
 lut_OwsTitle:
   FFPAD "MAP EDITS", 9

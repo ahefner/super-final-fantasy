@@ -34,6 +34,7 @@ sys.path.insert(0, HERE)
 import owedits as O
 
 OUT = os.path.join(ROOT, "gen", "owscreen.inc")
+DESC_W, DESC_N = 20, 5          # the description's lines beside the zoom (owscreen.asm)
 
 #  What each does, in the order of owedits.SETTINGS; the game's font has no
 #  colon or semicolon.
@@ -244,13 +245,10 @@ def main():
     for t in range(2):
         p0, p1 = cb[t * 16:t * 16 + 8], cb[t * 16 + 8:t * 16 + 16]
         lines.append("  .WORD " + ", ".join("$%04X" % ((a & b) | (a << 8)) for a, b in zip(p0, p1)))
-    #  Each setting's description, and each warning, wrapped for the two
-    #  layouts: two lines of 30 below the grid, five of 20 beside the zoom's
-    #  frame.
-    for label, width, count, texts in (("lut_OwsDescWide", 30, 2, DESCRIPTIONS),
-                                       ("lut_OwsDescNarrow", 20, 5, DESCRIPTIONS),
-                                       ("lut_OwsWarnWide", 30, 2, WARNINGS),
-                                       ("lut_OwsWarnNarrow", 20, 5, WARNINGS)):
+    #  Each setting's description, and each warning, wrapped to five lines of
+    #  20 beside the zoom's frame.
+    for label, width, count, texts in (("lut_OwsDesc", DESC_W, DESC_N, DESCRIPTIONS),
+                                       ("lut_OwsWarn", DESC_W, DESC_N, WARNINGS)):
         lines.append("%s:" % label)
         for s_, text in enumerate(texts):
             wrapped = textwrap.wrap(text, width)
@@ -272,8 +270,7 @@ def main():
     lines.append("lut_OwsBaked:              ; 256 characters, 32 bytes each")
     for i in range(0, len(bk), 32):
         lines.append("  .BYTE " + ", ".join("$%02X" % b for b in bk[i:i + 32]))
-    lines.append("OWS_DESCWIDE = 30")
-    lines.append("OWS_DESCNARROW = 20")
+    lines.append("OWS_DESCW = %d" % DESC_W)
     lines.append("")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     open(OUT, "w").write("\n".join(lines))

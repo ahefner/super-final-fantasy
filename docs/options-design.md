@@ -1302,19 +1302,20 @@ tiles the logo borrowed.  Fixed 2026-10-18 (built, not yet played; user):
 those blocks have their tiles back and the logo's moved into twins' --
 `randomization-notes.md` §9.1.
 
-### New Game's map edit screen (prototype)
+### New Game's map edit screen
 
-**Built 2026-10-18; a prototype to judge the layout, not yet played.**  A
-checkbox for each of FFR's fourteen overworld edits, the world's minimap as
-they would make it, and a zoom of the selected edit in the game's dialog box
-frame (user: per-edit toggles on a screen of their own during New Game, the
-Map edits row only standing in).  `owscreen.asm`, a native screen in a chunk
-of its own (`CHUNK_OWS`).  The user saw four layouts and kept the two with
-the zoom (2026-10-18), on branches `owscreen-top-inset` (the minimap above a
-two-column grid) and `owscreen-side-inset` (beside a single column), set by
-`owslayout.inc`, then chose the side layout; what follows that is on its
-branch alone.  All inside the 30x26 cells a CRT shows; in the side layout
-the column is rows 2-15 beside the minimap's 1-16 (user: aligned with it).
+**Built 2026-10-18; the menu judged good by the user and merged, the
+batch after it built, not yet played.**  A checkbox for each of FFR's
+fourteen overworld edits, the world's minimap as they would make it, and a
+zoom of the selected edit in the game's dialog box frame (user: per-edit
+toggles on a screen of their own during New Game, the Map edits row only
+standing in).  `owscreen.asm`, a native screen in a chunk of its own
+(`CHUNK_OWS`).  The user saw four layouts -- the minimap above a two-column
+grid or beside a single column, each with the zoom or without -- and chose
+the side one with the zoom (2026-10-18); the others' code went once it
+was chosen.  All inside the 30x26 cells a CRT shows: the column is rows
+2-15 beside the minimap's 1-16 (user: aligned with it), the zoom below the
+minimap, the title and description beside the zoom.
 
   - It comes up from `rando_newgame` when the Map edits row is not Off,
     starting from the saved game's edits when Continue would load that save
