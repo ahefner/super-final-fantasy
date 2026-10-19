@@ -780,4 +780,10 @@ lut_CreditsText:
   CRLINE ""
   CRLINE "The Entire FFR"
   CRLINE "Community"
+  CRLINE ""
+  CRLINE ""
+  CRLINE "For the full FFR"
+  CRLINE "experience, visit:"
+  CRLINE ""
+  CRLINE "finalfantasyrandomizer.com"
 CR_TEXTSIZE = * - lut_CreditsText
