@@ -1374,7 +1374,8 @@ minimap, the title and description beside the zoom.
   - **A check's tick sends only early in its vblank** (`OWS_TICK_LAST`,
     line 232; user, 2026-10-18: "sometimes clicking the button doesn't
     toggle an item. It makes the sound ... but the checkbox doesn't
-    change", until the hand moved; built, not yet played).  A tick comes
+    change", until the hand moved; played 2026-10-18, not seen again, and
+    the user called it fixed).  A tick comes
     when `rando_yield` next reads RDNMI, and during a check those reads are
     up to 6,800 instructions apart, so a tick could run `ows_vblank` past
     the end of the vblank: the PPU dropped the tilemap with the new box
