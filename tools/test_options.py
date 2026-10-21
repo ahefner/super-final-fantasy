@@ -782,8 +782,10 @@ def test_winnable():
     #  from the first line): checked, red; while that check runs the hand
     #  moves down to Early Open and an A is kept for after it -- unticking
     #  Early Open, checked again, red.  START refused, the airship never
-    #  rising.  Tick Early Open again, still red under Vanilla; up to Ship in
-    #  Drydock, untick it: blue, with no check, and START taken.  Scripted
+    #  rising.  Tick Early Open again, still red under Vanilla, the warning
+    #  kept; up to Ship in Drydock, START refused again; untick it: blue,
+    #  with no check, the warning gone for Drydock's own description, the
+    #  hand not having moved (user, 2026-10-20), and START taken.  Scripted
     #  presses fall on the screen's own frames, the busy ones on a check's
     #  (OWS_TICKON).
     NESCOL = {int(k, 16): int(v, 16) for k, v in re.findall(
@@ -804,7 +806,7 @@ def test_winnable():
     OWS = 0xA1 + K["CHUNK_OWS"]
     V, TICKON = rw("OWS_VARS"), rw("OWS_TICKON")
     OPEN, D = K["OWEDIT_OPENPROG"], K["OWEDIT_DRYDOCK"]
-    script = [0, 0, 0x08, 0, 0x80, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0x08, 0, 0x80, 0, 0x10, 0]
+    script = [0, 0, 0x08, 0, 0x80, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0x08, 0, 0x10, 0, 0x80, 0, 0x10, 0]
     busy_press = {4: [0x04, 0, 0x80, 0]}
     idle, busy_sel, checks, plays, ended, frame, busy_n = {}, set(), 0, 0, False, 0, 0
     for _ in range(3000):
@@ -846,8 +848,14 @@ def test_winnable():
     check("...an A pressed in it kept for after: Early Open unticked, checked, red", st(5), (0, D, RED))
     check("...START refused, why where the description goes", idle.get(8, (None,) * 4)[3], warn1)
     check("...Early Open ticked again: still red under Vanilla", st(10), (0, OPEN | D, RED))
-    check("...Ship in Drydock unticked: blue, and START taken, Early Open alone",
-          (st(15), ended, ow), ((1, OPEN, BLUE), True, OPEN))
+    check("...and the warning kept", idle.get(10, (None,) * 4)[3], warn1)
+    check("...up to Ship in Drydock, START refused again", idle.get(15, (None,) * 4)[3], warn1)
+    import owedits as O
+    desc = (textwrap.wrap(GO.DESCRIPTIONS[O.SHIP_DRYDOCK], width) + [""] * 5)[:len(warn1)]
+    check("...Ship in Drydock unticked: the warning gone for its description, the hand still",
+          (idle.get(17, (None,) * 4)[3], bus.wram[V + 6]), (desc, O.SHIP_DRYDOCK))
+    check("...blue, and START taken, Early Open alone",
+          (st(17), ended, ow), ((1, OPEN, BLUE), True, OPEN))
     check("...checked only with Ship in Drydock ticked, three times, the music on through each",
           (checks, plays > 0), (3, True))
 
@@ -897,6 +905,32 @@ def test_winnable():
     check("New Game, Map edits Off, the FLOATER removed: the screen up, red, saying why, no edit ticked",
           (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8,
            bus.cgram[0] | bus.cgram[1] << 8), (True, warn0, 0, RED))
+    #  ...then down two to North Docks, START refused there -- the warning
+    #  back over its description -- and A: winnable with the FLOATER gone,
+    #  found by a whole check (a removal is set, so no fast path): blue, and
+    #  the warning gone for North Docks' description, the hand not having
+    #  moved since (user, 2026-10-20).
+    def frames_of(seq):
+        n = 0
+        for _ in range(400):
+            if bus.wram[rw("OWS_TICKON")]:
+                pad(0)
+            else:
+                if n >= len(seq):
+                    return
+                pad(seq[n])
+                n += 1
+            cpu.step()
+            while cpu.pc not in (UJ, 0xFFFE):
+                cpu.step()
+    frames_of([0x04, 0, 0x04, 0, 0x10, 0, 0])
+    check("...down to North Docks, START refused: the warning over its description",
+          (text_at(bus, len(warn0)), bus.wram[V + 6]), (warn0, 2))
+    frames_of([0x80, 0, 0, 0, 0])
+    docks = (textwrap.wrap(GO.DESCRIPTIONS[2], width) + [""] * 5)[:len(warn0)]
+    check("...North Docks ticked: checked whole, blue, its description where the warning was",
+          (text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8, bus.wram[V + 0x47],
+           bus.cgram[0] | bus.cgram[1] << 8), (docks, 1 << 2, 1, BLUE))
 
 
 def test_rando_early():

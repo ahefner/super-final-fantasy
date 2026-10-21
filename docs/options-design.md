@@ -1382,7 +1382,12 @@ minimap, the title and description beside the zoom.
     world that cannot be won: the description's place says why -- "This
     can't be won.  The AIRSHIP never rises." when the airship is never
     raised though the FLOATER is there, "The way to Chaos never opens."
-    otherwise -- until a move puts the description back.  The check,
+    otherwise -- until a move puts the description back, or a check finds
+    the edits winnable again (user, 2026-10-20: it stayed until the hand
+    moved; built, not yet played): `ows_rewarn`, at the end of every check,
+    the fast path's included, puts the selected setting's description back
+    if the warning is up (`V_WARNED`) and they can be won, and otherwise
+    redraws the warning for the reason as it now is.  The check,
     `rando_winnable` (`randoref.winnable`), works out the vanilla wiring's
     logic under the edits and Early flags, then under Key items Standard or
     Wide asks whether Chaos is reached owning every key item there is --
@@ -1416,7 +1421,11 @@ minimap, the title and description beside the zoom.
     `test_winnable` holds the cart to the reference over Key items,
     removals, Early flags and edits, and the screen through red and back,
     a move and a held A in a check's frames, START refused and taken, L + X
-    in a check, and the forced screen red from the start.
+    in a check, and the forced screen red from the start; and the warning
+    kept by an A that leaves the edits unwinnable, gone with no move for
+    one that makes them winnable, by the fast path (Ship in Drydock
+    unticked) and by a whole check (North Docks ticked on the forced
+    screen, the FLOATER removed).  Four mutations, all caught.
   - **A check's tick sends only early in its vblank** (`OWS_TICK_LAST`,
     line 232; user, 2026-10-18: "sometimes clicking the button doesn't
     toggle an item. It makes the sound ... but the checkbox doesn't

@@ -14,7 +14,7 @@
 ;  logic knows every edit (worldgraph/edited.py) -- but not on edits that,
 ;  with the rest of the settings, make a world that cannot be won
 ;  (rando_winnable, user): then the description says so, and the screen
-;  stays.  And blue is red while they cannot -- the backdrop, which the
+;  stays, until a move or a tick that can be won puts the description back.  And blue is red while they cannot -- the backdrop, which the
 ;  minimap's ocean and the boxes are -- checked again on every tick (user).
 ;  New Game brings it up for that alone, the row Off, when the settings as
 ;  they are cannot be won.  A check is a quarter of a second, so the screen
@@ -176,7 +176,8 @@ V_WON     = OWV+$47             ; nonzero: the ticked edits can be won, as last 
 V_WHY     = OWV+$48             ; ...and if not, rando_winnable's reason
 V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
 V_PEND    = OWV+$4A             ; A and START, pressed while a check ran, for after
-.assert V_PEND < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_WARNED  = OWV+$4B             ; nonzero: the warning, not a description, is up
+.assert V_WARNED < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -1275,7 +1276,7 @@ ows_check:
     STA f:V_WON
     LDA #0
     STA f:V_CHECK
-    RTS
+    JMP ows_rewarn
   @slow:
     REP #$20
     .a16
@@ -1302,7 +1303,7 @@ ows_check:
     XCE
     REP #$10
     .i16
-    RTS
+    JMP ows_rewarn
 
 ;;  ows_tick -- from rando_yield when a vblank has begun while rando_winnable
 ;;  works for this screen or for New Game before it (OWS_TICKON).  For the
@@ -2207,12 +2208,30 @@ ows_frame:
     TXY
     RTS
 
+;;  After a check: a warning up follows the answer -- the selected setting's
+;;  description again once the ticked edits can be won (user, 2026-10-20:
+;;  the warning stayed until the hand moved), else the warning for the
+;;  reason as it now is.  A8 I16.
+    .a8
+    .i16
+ows_rewarn:
+    LDA f:V_WARNED
+    BEQ @out
+    LDA f:V_WON
+    BNE ows_desc
+    LDA f:V_WHY
+    BRA ows_warn
+  @out:
+    RTS
+
 ;;  The warning for rando_winnable's reason A, where the description goes,
-;;  until a move puts that back.  A8 I16.
+;;  until a move or a check that can be won puts that back.  A8 I16.
     .a8
     .i16
 ows_warn:
     STA f:V_K
+    LDA #1
+    STA f:V_WARNED
     LDA #0
     STA f:V_PAL
     REP #$20
@@ -2225,6 +2244,7 @@ ows_warn:
     .i16
 ows_desc:
     LDA #0
+    STA f:V_WARNED
     STA f:V_PAL
     LDA f:V_SEL
     STA f:V_K
