@@ -1389,7 +1389,7 @@ minimap, the title and description beside the zoom.
     if the warning is up (`V_WARNED`) and they can be won, and otherwise
     redraws the warning for the reason as it now is.  And a refused START
     plays the game's error sound (user, 2026-10-20: "the annoying error
-    sound"; built, not yet played), `PlaySFX_Error`'s writes on the
+    sound"; played and verified 2026-10-21), `PlaySFX_Error`'s writes on the
     screen's own frames: square 1 and the noise silenced, then square 2
     struck sixteen frames running with the music held, as the game holds it,
     then silenced.  The game's routine waits on `WaitForVBlank_L`, whose
