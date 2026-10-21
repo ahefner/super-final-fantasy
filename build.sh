@@ -25,6 +25,7 @@ python3 tools/gentactics.py
 python3 tools/genitemmagic.py
 python3 tools/genowedits.py
 python3 tools/genows.py
+python3 tools/genpresets.py
 python3 tools/convert.py
 
 #  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged
@@ -116,6 +117,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 -I ../gen roll.asm -o ../out/bank_ROLL.o
            $CA65 -I ../gen tactics.asm -o ../out/bank_TACTICS.o
            $CA65 -I ../gen owscreen.asm -o ../out/bank_OWS.o
+           $CA65 -I ../gen newgame.asm -o ../out/bank_NEWGAME.o
            $CA65 hal.asm    -o ../out/hal.o
            $CA65 header.asm -o ../out/header.o )
 
@@ -125,7 +127,7 @@ ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
     out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_NONES.o out/bank_CREDITS.o out/bank_RANDO.o \
     out/bank_OPTTEXT.o out/bank_LOGIC.o out/bank_WORLD.o out/bank_ROLL.o \
-    out/bank_TACTICS.o out/bank_OWS.o
+    out/bank_TACTICS.o out/bank_OWS.o out/bank_NEWGAME.o
 
 #  HAL_VARS is hand-allocated, so two names can land on one byte and assemble
 #  without complaint.  Two branches each taking the same free offset is the

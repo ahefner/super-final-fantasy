@@ -1,0 +1,120 @@
+# Improved Vanilla: FFR's Improved_Vanilla.json, and the title screen's
+# Improved -- one option set serves both (user, 2026-10-11).
+#
+# The base.  Every setting the settings screen and the randomization screen
+# show is here, and every other preset sets only what differs from it; the
+# build stops if a setting is missing, so a new row gets its default here.
+# Keys are the labels as the screen shows them, values the readouts as it
+# shows them, or true and false for a checkbox.  See README.md.
+name = "Improved Vanilla"
+title = "Improved"
+base = true
+description = """
+FFR's Improved Vanilla. The original game with quality of life, the
+bugfixes, and double gold and XP. Nothing is randomized.
+"""
+
+[settings]
+# Scale
+"Gold and XP" = "200%"
+"Encounter rate" = "100%"
+"Enemy stats" = "100%"
+"Boss stats" = "100%"
+"Elemental bonus" = "+4"
+
+# Quality of life
+"Speed hacks" = true
+"Faster walking" = true
+"Faster ship" = true
+"No party shuffle" = true
+"Identify treasures" = true
+"Chests appear opened" = true
+"Buy quantity" = true
+"Run becomes Wait" = true
+"Magic menu wraparound" = true
+"Auto retargeting" = false
+"Autosort inventory" = true
+"Repeated potion use" = true
+"Shop information" = true
+"Chest information" = true
+"NPC guillotine" = true
+"Lefein Inn and Clinic" = false
+"Lefein SuperStore" = false
+
+# Bugfixes
+"House MP and HP fix" = true
+"Weapon stats" = true
+"Spell fixes" = true
+"Enemy status attacks" = true
+"Run chance fix" = true
+"Turn order fix" = true
+
+# Variations
+"Better Thief and Ninja" = false
+"Thief and Ninja hit%" = "+3"
+"Thief lockpicking" = "Off"
+"Double weapon crit" = false
+"Improved CURE and HEAL" = false
+"Improve FIRE, LIT, ICE" = false
+"Cast Life in battle" = false
+"SOFT in battle" = false
+"White Mage HARM" = false
+"LOK2 accuracy" = false
+"TRANCE status element" = true
+"Asshat Octopus" = false
+"Boss tactics" = "Off"
+"RUSE Staff" = false
+"NUKE Stick" = false
+"Short ToFR" = false
+
+# Treasures
+"Starting items" = "None"
+"Starting caster item" = "Off"
+
+# Randomization
+"Trap tiles" = "Off"
+"Shops" = "Off"
+"Chests" = "Off"
+"Magic levels" = "Off"
+"Item magic" = "Off"
+"Max gear blessing" = "0"
+"Min gear curse" = "0"
+"Formation rarity" = "Off"
+"Formation zones" = "Off"
+"Unrunnable fights" = "Off"
+"Surprise rates" = "Off"
+"Status attacks" = "Off"
+"Enemy scripts" = "Off"
+"Enemy skills" = "Off"
+"RNG tables" = "Off"
+"Ordeals pillars" = "Off"
+
+# Key items
+"Key items" = "Vanilla"
+"Map shuffle" = "Off"
+"Map edits" = "Off"
+"SHIP" = "Incentive"
+"AIRSHIP" = "Incentive"
+"BRIDGE" = "Incentive"
+"CANAL" = "Incentive"
+"CANOE" = "Incentive"
+"KEY" = "Incentive"
+"CHIME" = "Incentive"
+"CROWN" = "Incentive"
+"LUTE" = "Incentive"
+"TAIL" = "Incentive"
+"ROD" = "Incentive"
+"Other items" = "Incentive"
+"Masmune" = "Treasure"
+"Katana" = "Treasure"
+"Vorpal" = "Treasure"
+"Defense" = "Treasure"
+"Opal" = "Treasure"
+"Power" = "Treasure"
+"White" = "Treasure"
+"Ribbon" = "Treasure"
+"Xcalber" = "Treasure"
+"Early King" = "Off"
+"Early Sarda" = "Off"
+"Early Sage" = "Off"
+"Early Ordeals" = "Off"

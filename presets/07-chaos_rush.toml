@@ -1,0 +1,28 @@
+# Chaos Rush: FFR's Chaos_Rush.json.  Not yet on the cartridge: the
+# unlocked Temple of Fiends Revisited (ChaosRush), zero orbs required, the
+# forced random party and the Red Mage hit buff (docs/ffr-presets.md, 3.5).
+name = "Chaos Rush"
+inherit = "Beginner"
+description = """
+Beginner, fast. Most vehicles and the LUTE free, gear incentives, five
+times the gold and XP, few encounters, the short ToFR.
+"""
+
+[settings]
+"Gold and XP" = "500%"
+"Encounter rate" = "30%"
+"Short ToFR" = true
+
+"SHIP" = "Free"
+"AIRSHIP" = "Free"                      # the FLOATER
+"CANAL" = "Free"
+"CANOE" = "Free"
+"TAIL" = "Free"
+"LUTE" = "Free"
+
+"Katana" = "Incentive"
+"Vorpal" = "Incentive"
+"Defense" = "Incentive"                 # FFR's DefCastWeapon
+"Opal" = "Incentive"
+"Power" = "Incentive"                   # FFR's OtherCastArmor
+"White" = "Incentive"                   # FFR's DefCastArmor

@@ -1,0 +1,35 @@
+# Free Enterprise: FFR's Free_Enterprise.json, without its recruitment
+# (user) -- so without the party it builds by recruiting.  Not yet on the
+# cartridge: its alternate fiends and final boss, buffed Astos, Bahamut and
+# pirates, WarMECH guarding Tiamat, the guarded Masamune, better trap chests,
+# random loot, boss HP 80-240% (docs/ffr-presets.md, 3.5).
+name = "Free Enterprise"
+inherit = "Beginner"
+description = """
+Beginner, wide. Vehicles free, more incentive spots and gear, no
+encounters, a casting item to start, the short ToFR.
+"""
+
+[settings]
+"Gold and XP" = "300%"
+"Encounter rate" = "Off"
+"Short ToFR" = true
+"Starting caster item" = "On"           # FFR's StartingEquipmentRandomAoe
+"Trap tiles" = "B"
+"Enemy skills" = "Enemies"
+"Key items" = "Wide"
+
+"SHIP" = "Free"
+"AIRSHIP" = "Free"
+"CANAL" = "Free"
+"CANOE" = "Free"
+"TAIL" = "Free"
+
+"Masmune" = "Treasure"                  # FFR guarantees it, guarded, instead
+"Katana" = "Incentive"
+"Vorpal" = "Incentive"
+"Defense" = "Incentive"
+"Opal" = "Incentive"
+"Power" = "Incentive"
+"White" = "Incentive"
+"Xcalber" = "Incentive"

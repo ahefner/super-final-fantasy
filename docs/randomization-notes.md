@@ -2122,36 +2122,51 @@ Settled in review 1:
     while the player is on the title and New Game screens, and editable.  A
     game in progress shows its seed somewhere other than the title screen,
     which is full.  The read-only view is the natural place.
-  - **UI flow (user, 2026-10-11; the sketch is `menus.txt` in the project
-    directory).**  The title screen stays as it is -- Continue, New Game,
-    the options row -- and Select on Continue opens the save view (built).
-    New Game opens a list: Custom Game, then presets adapted from FFR's
-    (Vanilla, Improved Vanilla, Beginner, Classic, Entrance Shuffle,
-    Entrance and Floor Shuffle, Chaos Rush, Free Enterprise).
+  - **UI flow (user, 2026-10-11; reordered 2026-10-21 -- the sketch is
+    `menus.txt` in the project directory, which leads).**  The title
+    screen stays as it is -- Continue, New Game, the options row, Credits
+    (user, 2026-10-21: "nothing here should require modifying it") -- and
+    Select on Continue opens the save view (built).  The options row's
+    screen, from the title, goes back to it on B and on START alike.  New
+    Game opens a list: Custom Game, then the presets (`presets/*.toml`,
+    built 2026-10-21; `options-design.md`, "New Game's presets").
       - Vanilla and Improved Vanilla randomize nothing and go straight to
         party creation.
-      - Custom Game, and every other preset, goes to overworld map select:
-        a list of names, the map's preview beside it.  Only Vanilla and
-        Improved Vanilla skip the menus, so everything a preset sets can be
-        reviewed and changed on the way through.  The vanilla map goes on
-        to map edits (checkboxes); an alternate map skips them.
-      - Then: randomization (the shuffles now on the settings screen, the
-        Free items, and the incentive options, each under its own
-        heading) -> options (the existing screen, less its TREASURES and
-        RANDOMIZATION sections) -> seed, when
-        anything needs one -> party creation, after which the world is
-        built and placed and the game begins.
-      - **B returns to the previous screen, throughout** -- to whichever
-        screen led there.  On the seed screen B is backspace while a seed
-        is being edited, and goes back when nothing has been edited or the
-        entry is empty.  Party creation already uses B to back up a
-        character, and on the first character it does nothing
-        (`BCS @Char_0`): that is where B goes back (to the seed screen,
-        options, or the preset list), and only there.
+      - Custom Game, and every other preset, goes to the **randomization
+        screen** first: the shuffles, the key item and incentive rows, the
+        Early flags, Map shuffle, and the TREASURES rows -- everything
+        New Game alone reads, and everything the map edit screen's
+        winnability check reads, which is why it now comes first (user,
+        2026-10-21: "realizing the randomization impacts the map edits
+        screen, I reordered it").  START goes on; B goes back.
+      - Then **overworld select**: a list of names, the map's preview
+        beside it.  The vanilla map goes on to **map edits**
+        (checkboxes); an alternate map skips them.  The first pass has no
+        overworld select and goes as if the vanilla map were chosen (user,
+        2026-10-21).
+      - Then **options** (the existing screen, less the sections that
+        moved) -> **seed**, when anything needs one -> **party creation**,
+        after which the world is built and placed, the roll screen up
+        meanwhile, and the game begins.  Party creation comes after the
+        seed on purpose: a seeded feature such as class blursings could
+        then show at party creation what the party is choosing between
+        (user, 2026-10-21).
+      - **B returns to the previous screen, throughout** -- whichever led
+        there: options to map edits, or to overworld select after an
+        alternate map; map edits to overworld select (to randomization in
+        the first pass); overworld select to randomization (menus.txt's
+        "preset selection" and options' "Randomization Screen" predate the
+        reorder).  On the seed screen B is backspace while a seed is being
+        edited, and goes back when nothing has been edited or the entry is
+        empty.  Party creation already uses B to back up a character, and
+        on the first character it does nothing (`BCS @Char_0`): that is
+        where B goes back (to the seed screen, options, or the preset
+        list), and only there.
       - On the seed screen, B on a complete entry, cursor hidden, deletes
         the last digit and shows the cursor again: while editing, B is
         always backspace.  From the options screen, Start goes to party
-        creation when nothing needs a seed.
+        creation when nothing needs a seed.  Back from party creation, the
+        seed shown is the one chosen, typed or latched (user, 2026-10-21).
       - A preset is written to the global options when it is chosen, as the
         settings screen writes today: backing out leaves it applied, and
         Custom Game starts from whatever the options hold.
@@ -2159,7 +2174,11 @@ Settled in review 1:
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
         plays the error sound.
-    This replaces the map-select-first flow settled in review 1.
+      - The prologue's music plays on, uninterrupted, through every screen
+        to party creation, whose own vanilla music is the same track; and
+        L + X / L + Y reset from all of them.
+    This replaces the map-select-first flow settled in review 1, and the
+    2026-10-11 order (overworld select before randomization).
   - **A preset sets the global options (user, 2026-10-11).**  A Continue
     of an older save then plays under the new preset; that is accepted,
     because the options stay editable mid-game from the title screen,

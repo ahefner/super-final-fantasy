@@ -244,6 +244,45 @@ Vanilla turns everything off.
 becomes Custom when a value actually changes.**  Entering the settings screen
 from a preset and leaving without touching anything keeps the preset selected.
 
+### New Game's presets (`presets/*.toml`)
+
+**Built 2026-10-21, the first step of the New Game flow (`menus.txt` in the
+project directory; `randomization-notes.md` 12); not yet reachable -- the New
+Game list that offers them is the next step.**  The list's entries, in
+filename order: Vanilla, Improved Vanilla, Beginner, Classic, Entrance
+Shuffle, Entrance and Floor Shuffle, Chaos Rush, Free Enterprise -- their
+settings from `ffr-presets.md` and FFR's own preset files, each file saying
+where.  The user's requirement: "in a subdirectory under snes/, in some
+easily-edited format. Flags set there should default against the Improved
+Vanilla preset if left unset."  So each is a TOML file whose keys are the
+settings screen's labels and whose values are its readouts, as the screen
+shows them ("Gold and XP" = "250%", "Speed hacks" = true;
+`presets/README.md`).  Improved Vanilla is the base and sets every setting,
+the build stopping if it misses one, so a new row gets its default there;
+the rest set only what differs, `inherit` naming another preset to start
+from (Classic, the two shuffles, Chaos Rush and Free Enterprise start from
+Beginner; Entrance and Floor Shuffle from Entrance Shuffle).  `title`
+names the title screen's preset an entry is (Vanilla, Improved), so the
+title's options row reads that name after choosing it; any other reads
+Custom.  The title's own three presets are untouched (user: no change to
+the main menu).
+
+`tools/presetdefs.py` reads every row's label, kind, bit or scalar, and
+every value row's readouts, from `optmenu.asm` as the assembler lays them
+out; `tools/genpresets.py` checks each file against them -- an unknown
+setting with the near ones named, a value the row lacks with its values,
+text the font cannot draw, a description past five lines of 28 -- and
+writes `gen/presets.inc`: names, descriptions, and each preset's every
+setting as (row, value) pairs.  `ngp_apply` (`newgame.asm`, a chunk of its
+own, `CHUNK_NEWGAME = $1A`) clears the flag word and the new-game bytes and
+writes each pair through the settings screen's own tables (`lut_ValOff`,
+`lut_ValBit`, `lut_ValMask`), so the presets hold no copy of the block's
+layout; the respond rate stays the player's; then `opt_commit`.
+`test_ngpresets`: the parse against the ROM's tables, each preset applied
+over decoys and read back, sealed, the respond rate kept; Vanilla and
+Improved Vanilla byte for byte the title's; inheritance through two
+levels; the generator's refusals.  Eight mutations, all caught.
+
 
 ## 3. The settings
 
@@ -2752,6 +2791,9 @@ text region in the game references.
                              race, the dice's sums, the normal tail, the
                              choice, the arithmetic, and gentactics.py's
                              tables (199 + 3 x 129 words + 81 words)
+    BANK_NEWGAME 13557 free  New Game's flow: its presets (2827: eight of
+                             90 pairs, names and descriptions) and
+                             ngp_apply
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the
@@ -2875,6 +2917,14 @@ Stats did, by dropping a buggy store and an `AND` that set a flag the previous
 instruction had already set.
 
 ### Things learned the hard way
+
+  - **A test named twice fork-bombed the machine** (2026-10-21).  A second
+    `def` of an existing test's name silently replaced it, and the name went
+    into `main()`'s tuple a second time; asked for that test, the runner saw
+    two, ran each as a process of its own, and each of those did the same --
+    a hundred gigabytes, and the laptop went down.  `main()` now refuses a
+    test named twice, in the tuple or as two `def`s, and runs tests apart
+    only when asked for more than one distinct test.
 
   - A patch that changes a bank's size moves every data blob after it.
   - `cur_bank` is where `CallMusicPlay` returns *to*; a routine in a new chunk

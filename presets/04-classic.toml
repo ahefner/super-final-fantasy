@@ -1,0 +1,9 @@
+# Classic: Beginner's settings for now (user, 2026-10-11), to be retuned
+# toward an intermediate Spring Tournament flagset when one is chosen.
+name = "Classic"
+inherit = "Beginner"
+description = """
+Beginner's settings for now, to become an intermediate tournament set.
+"""
+
+[settings]

@@ -5522,6 +5522,124 @@ def test_shorttofr():
     check("...UseItem_Lute calls it once", b0e.count(bytes([0x22, site & 0xFF, site >> 8, RANDO_BANK])), 1)
 
 
+# --- New Game's presets ----------------------------------------------------------
+#  presets/*.toml, by tools/genpresets.py, applied by newgame.asm's ngp_apply
+#  through the settings screen's own tables.  (test_presets is the title's.)
+def test_ngpresets():
+    import presetdefs as P, genpresets as G
+    NEWGAME_BANK = 0xA1 + K["CHUNK_NEWGAME"]
+    OPT = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    tab = lambda name, n: ROMDATA[OPT + SYM[name]:][:n]
+    rows = P.rows()
+
+    #  The parse is the ROM's: every row's kind, flag bit or scalar and label,
+    #  and every value row's readouts, as the screen draws them.
+    font = {0xFF: " ", 0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC4: "!", 0xC5: "?", 0xE0: "%", 0xC1: "+"}
+    font.update({0x80 + i: str(i) for i in range(10)})
+    font.update({0x8A + i: chr(65 + i) for i in range(26)})
+    font.update({0xA4 + i: chr(97 + i) for i in range(26)})
+    text = lambda b: " ".join("".join(font.get(c, "") for c in b).split())
+    rom_rows = []
+    for r in range(K["OPTROW_COUNT"]):
+        rec = tab("lut_OptRows", (r + 1) * 32)[r * 32:]
+        if rec[0] in (1, 2):
+            rom_rows.append(("chk" if rec[0] == 1 else "val", rec[1], text(rec[2:24])))
+    check("presetdefs: the ROM's rows, kind, bit or scalar, and label",
+          rom_rows, [(r.kind, r.arg, r.label) for r in rows])
+    lo, hi, shift, count = tab("lut_ValTabLo", 64), tab("lut_ValTabHi", 64), tab("lut_ValShift", 64), tab("lut_ValCount", 64)
+    bad = []
+    for r in rows:
+        if r.kind != "val":
+            continue
+        w, at = 1 << shift[r.arg], lo[r.arg] | hi[r.arg] << 8
+        got = [text(ROMDATA[OPT + at + i * w:][:w]) for i in range(count[r.arg])]
+        if got != r.values:
+            bad.append((r.label, got, r.values))
+    check("presetdefs: every value row's readouts and count, as the ROM has them", bad[:3], [])
+
+    #  Each preset applied: every setting reads back as its file says, the
+    #  base's where it says nothing -- over a block of decoys -- the respond
+    #  rate the player's, the title's preset named or Custom, and the block
+    #  sealed: opt_init leaves it alone.
+    presets = G.resolve(G.load(), rows)
+    off, bit, mask = tab("lut_ValOff", 64), tab("lut_ValBit", 64), tab("lut_ValMask", 64)
+    def apply(i):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        rnd = random.Random(i)
+        for a in range(K["OPT_FLAGS"], K["OPT_FLAGS"] + 6):
+            bus.sram[a - 0x6000] = rnd.randrange(256)
+        for a in range(K["OPT_NG"], K["OPT_NG"] + K["OPT_NG_SIZE"]):
+            bus.sram[a - 0x6000] = rnd.randrange(256)
+        bus.sram[K["OPT_RESPOND"] - 0x6000] = 5
+        cpu.a = i
+        call(cpu, "ngp_apply", bank=NEWGAME_BANK)
+        return bus, cpu
+    def read(bus):
+        page = bus.sram[K["OPTBLOCK"] - 0x6000:][:256]
+        fl = K["OPT_FLAGS"] - K["OPTBLOCK"]
+        return {r.label: (page[fl + r.arg // 8] >> (r.arg % 8) & 1) if r.kind == "chk"
+                else (page[off[r.arg]] & mask[r.arg]) >> bit[r.arg] for r in rows}
+    bad, sealed = [], []
+    for i, (name, _, title, want) in enumerate(presets):
+        bus, cpu = apply(i)
+        got = read(bus)
+        if got != want:
+            bad.append((name, {k: (got[k], want[k]) for k in want if got[k] != want[k]}))
+        before = bytes(bus.sram[K["OPTBLOCK"] - 0x6000:][:256])
+        call(cpu, "opt_init")
+        sealed.append((name, bytes(bus.sram[K["OPTBLOCK"] - 0x6000:][:256]) == before,
+                       bus.sram[K["OPT_RESPOND"] - 0x6000], bus.sram[K["OPT_PRESET"] - 0x6000] == title))
+    check("each preset applied: every setting as its file and the base say", bad[:2], [])
+    check("...the block sealed, the respond rate kept, the title's preset named or Custom",
+          [x for x in sealed if x[1:] != (True, 5, True)], [])
+    efs = {r.label: (r.values[v] if r.values else bool(v)) for r in rows
+           for v in [dict((p[0], p[3]) for p in presets)["Entrance and Floor Shuffle"][r.label]]}
+    check("inheritance: Entrance and Floor Shuffle's own, Entrance Shuffle's, Beginner's, the base's",
+          [efs[k] for k in ("Map shuffle", "Short ToFR", "Key items", "Gold and XP", "Speed hacks")],
+          ["Floors", True, "Standard", "250%", True])
+    check("eight presets, in the list's order", [p[0] for p in presets],
+          ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
+           "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise"])
+
+    #  Vanilla and Improved Vanilla are the title's Vanilla and Improved: the
+    #  same block but the respond rate, which only the title's resets.
+    for i, t in ((0, 0), (1, 1)):
+        bus, cpu = apply(i)
+        mine = bytes(bus.sram[K["OPTBLOCK"] - 0x6000:][:256])
+        bus2, cpu2 = machine()
+        call(cpu2, "opt_init")
+        cpu2.a = t
+        call(cpu2, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+        title = bytearray(bus2.sram[K["OPTBLOCK"] - 0x6000:][:256])
+        r_, c_ = K["OPT_RESPOND"] - K["OPTBLOCK"], K["OPT_CKSUM"] - K["OPTBLOCK"]
+        same = [a for a in range(256) if a not in (r_, c_) and mine[a] != title[a]]
+        check("%s: the title's preset %d, byte for byte" % (presets[i][0], t), same, [])
+
+    #  The files' mistakes stop the build, saying what and where.
+    base = [(f, t) for f, t in G.load() if t.get("base")]
+    def err(files):
+        try:
+            G.resolve(files, rows)
+        except G.PresetError as e:
+            return str(e)
+        return None
+    one = dict(base[0][1]); one["settings"] = dict(one["settings"])
+    bad_key = ("x.toml", {"name": "X", "settings": {"Gold and XPP": "200%"}})
+    bad_val = ("x.toml", {"name": "X", "settings": {"Gold and XP": "275%"}})
+    bad_chk = ("x.toml", {"name": "X", "settings": {"Speed hacks": "on"}})
+    loop = [("x.toml", {"name": "X", "inherit": "Y", "settings": {}}),
+            ("y.toml", {"name": "Y", "inherit": "X", "settings": {}})]
+    short = dict(one); short["settings"] = {k: v for k, v in one["settings"].items() if k != "Shops"}
+    check("an unknown setting, with the near ones", err(base + [bad_key]),
+          'x.toml: no setting "Gold and XPP"; did you mean "Gold and XP"?')
+    check("a value the row lacks, with its values", (err(base + [bad_val]) or "").split(" is not")[0],
+          "x.toml: \"Gold and XP\" = '275%'")
+    check("a checkbox given a word", (err(base + [bad_chk]) or "").split(" or ")[0], 'x.toml: "Speed hacks" is a checkbox: true')
+    check("presets inheriting in a circle", (err(base + loop) or "")[:31], "presets inherit in a circle: X ")
+    check("the base leaving a setting out", err([("b.toml", short)]), 'b.toml, the base, leaves out "Shops"')
+
+
 # --- White Mage HARM ---------------------------------------------------------
 #  FFR's WhiteMageHarmEveryone: HARM cast or used by a White Mage or White
 #  Wizard damages anything.  FFR's tooltip: on the living it "will not crit
@@ -12810,7 +12928,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
@@ -12844,6 +12962,18 @@ def main():
         else:
             want.append(a)
 
+    #  A test named twice -- in this tuple, or a second def of the same name,
+    #  which silently replaces the first -- is refused.  Run as a list it
+    #  fork-bombed the machine (2026-10-21): every process found two tests
+    #  of one name, so ran each apart, as two processes that each did the
+    #  same, until a hundred gigabytes of them took the laptop down.
+    names = [t.__name__ for t in tests]
+    defs = re.findall(r"^def (test_\w+)\(", open(os.path.abspath(__file__)).read(), re.M)
+    twice = sorted({n for n in names if names.count(n) > 1} | {n for n in defs if defs.count(n) > 1})
+    if twice:
+        print("tests named twice: %s" % ", ".join(twice))
+        return 2
+
     #  A misspelled name must not look like a pass -- that is the whole failure
     #  mode this file exists to catch, and it would be galling to ship it here.
     known = {t.__name__ for t in tests}
@@ -12853,7 +12983,9 @@ def main():
         return 2
 
     run = [t.__name__ for t in tests if not want or t.__name__ in want]
-    if JOBS > 1 and len(run) > 1:
+    #  A process runs its tests apart only when it was asked for more than one
+    #  by name or for all; a test is one process, whatever the list holds.
+    if JOBS > 1 and len(set(run)) > 1:
         failed = run_apart(run)
         if failed:
             print("FAIL (%d)" % sum(len(f) for _n, f in failed))

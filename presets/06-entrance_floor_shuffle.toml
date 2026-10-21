@@ -1,0 +1,10 @@
+# Entrance and Floor Shuffle: FFR's Entrance_Floor_Shuffle.json.
+name = "Entrance and Floor Shuffle"
+inherit = "Entrance Shuffle"
+description = """
+Beginner, with entrances and the floors within dungeons shuffled, and
+the short Temple of Fiends Revisited.
+"""
+
+[settings]
+"Map shuffle" = "Floors"

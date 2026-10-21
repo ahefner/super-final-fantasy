@@ -1,0 +1,14 @@
+# Entrance Shuffle: FFR's Entrance_Floor_Shuffle.json with its floors left
+# in place -- FFR has no preset of this name.  That file is Beginner plus the
+# wiring and the Short ToFR; its other differences (dungeon encounters at
+# 60%, three comfort rows) the cartridge does not distinguish.
+name = "Entrance Shuffle"
+inherit = "Beginner"
+description = """
+Beginner, with the dungeons' entrances shuffled, towns staying put,
+and the short Temple of Fiends Revisited.
+"""
+
+[settings]
+"Map shuffle" = "Entrances"
+"Short ToFR" = true                     # FFR's ToFRMode Short

@@ -1,0 +1,61 @@
+# Beginner: FFR's Beginner.json (docs/ffr-presets.md has the comparison).
+# FFR's stat dials roll 70-150% per enemy; ours are one fixed value, so
+# 100% stands in.  FFR has 60% encounters outdoors and 70% in dungeons; our
+# dial is one rate.
+name = "Beginner"
+description = """
+FFR's Beginner. Shops, chests, magic and enemies shuffled, key items placed
+by the standard incentives, and the BRIDGE free.
+"""
+
+[settings]
+# Scale
+"Gold and XP" = "250%"
+"Encounter rate" = "60%"
+"Elemental bonus" = "+30"
+
+# Quality of life
+"Lefein Inn and Clinic" = true          # FFR's LefeinShops
+"Lefein SuperStore" = true              # FFR's LefeinSuperStore
+
+# Variations
+"Better Thief and Ninja" = true
+"Thief and Ninja hit%" = "+4"           # FFR's Double
+"Thief lockpicking" = "Lv15"
+"Double weapon crit" = true
+"Improved CURE and HEAL" = true
+"Cast Life in battle" = true
+"SOFT in battle" = true
+"White Mage HARM" = true
+"LOK2 accuracy" = true                  # FFR's LockMode 3, Auto Hit
+"RUSE Staff" = true                     # FFR's guaranteed defense item, RUSE
+
+# Treasures
+"Starting items" = "Explorer"
+
+# Randomization
+"Trap tiles" = "Shuffle"
+"Shops" = "Shuffle"
+"Chests" = "Shuffle"
+"Magic levels" = "Shuffle"
+"Max gear blessing" = "+5"
+"Min gear curse" = "-3"
+"Formation rarity" = "Shuffle"
+"Unrunnable fights" = "Shuffle"
+"Surprise rates" = "Shuffle"
+"Status attacks" = "Shuffle"            # FFR's is Randomize; ours offers Shuffle
+"Enemy scripts" = "Both"
+"Enemy skills" = "Both"
+"RNG tables" = "Shuffle"
+"Ordeals pillars" = "Shuffle"
+
+# Key items
+"Key items" = "Standard"
+"Map edits" = "Open"                    # FFR's MapOpenProgression
+"BRIDGE" = "Free"
+"Masmune" = "Incentive"
+"Ribbon" = "Incentive"
+"Early King" = "On"
+"Early Sarda" = "On"
+"Early Sage" = "On"
+"Early Ordeals" = "On"

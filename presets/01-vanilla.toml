@@ -1,0 +1,41 @@
+# Vanilla: the original game, everything off.  What the cartridge does
+# unconditionally stays -- the None class at party creation, the BB absorb
+# fix, Controller Reset, the stack fix, several criticals counted: almost
+# identical is identical enough (user, 2026-10-11).  The title screen's
+# Vanilla too.
+name = "Vanilla"
+title = "Vanilla"
+description = """
+The original game, with nothing added and nothing randomized.
+"""
+
+[settings]
+"Gold and XP" = "100%"
+
+# Quality of life
+"Speed hacks" = false
+"Faster walking" = false
+"Faster ship" = false
+"No party shuffle" = false
+"Identify treasures" = false
+"Chests appear opened" = false
+"Buy quantity" = false
+"Run becomes Wait" = false
+"Magic menu wraparound" = false
+"Autosort inventory" = false
+"Repeated potion use" = false
+"Shop information" = false
+"Chest information" = false
+"NPC guillotine" = false
+
+# Bugfixes
+"House MP and HP fix" = false
+"Weapon stats" = false
+"Spell fixes" = false
+"Enemy status attacks" = false
+"Run chance fix" = false
+"Turn order fix" = false
+
+# Variations
+"Thief and Ninja hit%" = "+2"
+"TRANCE status element" = false
