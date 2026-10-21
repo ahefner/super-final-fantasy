@@ -905,6 +905,31 @@ def test_winnable():
     check("New Game, Map edits Off, the FLOATER removed: the screen up, red, saying why, no edit ticked",
           (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8,
            bus.cgram[0] | bus.cgram[1] << 8), (True, warn0, 0, RED))
+    #  START refused on it: the game's error sound, PlaySFX_Error's writes on
+    #  this screen's own frames (user, 2026-10-20) -- square 1, the
+    #  triangle's reload and the noise $30 at once and square 2 the sound's;
+    #  then sixteen frames each striking square 2 ($8C $89 $80 $00) with no
+    #  music, the last also silencing it ($30, period 0); then the music.
+    APU = K["APUSHADOW"]
+    MUSIC, W4007 = SYM["CallMusicPlay"], SYM["nesio_w4007"]
+    recs, opened = [], None
+    for f in range(19):                 # each from one pad read to the next:
+        pad(0x10 if f == 0 else 0)      #   the rest of a frame, then the next's music
+        cpu.step()
+        music = strikes = 0
+        while cpu.pc not in (UJ, 0xFFFE):
+            music += cpu.pc == MUSIC
+            strikes += cpu.pc == W4007
+            cpu.step()
+        recs.append((music, strikes, tuple(bus.wram[APU + 4:APU + 8])))
+        if f == 0:
+            opened = (bus.wram[APU], bus.wram[APU + 8], bus.wram[APU + 0x0C], bus.wram[K["sq2_sfx"]])
+    check("...START refused: square 1, the triangle's reload, the noise silenced, square 2 the sound's",
+          opened, (0x30, 0x30, 0x30, 1))
+    check("...sixteen frames of the error with no music, then the music",
+          [r[0] for r in recs], [0] * 16 + [1] * 3)
+    check("...each of the sixteen striking square 2 as PlaySFX_Error's @Frame, the last silencing it",
+          recs[:16], [(0, 1, (0x8C, 0x89, 0x80, 0x00))] * 15 + [(0, 1, (0x30, 0x89, 0x00, 0x00))])
     #  ...then down two to North Docks, START refused there -- the warning
     #  back over its description -- and A: winnable with the FLOATER gone,
     #  found by a whole check (a removal is set, so no fast path): blue, and

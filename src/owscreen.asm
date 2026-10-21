@@ -57,6 +57,8 @@
 .include "nescol.inc"
 ;  CALL0E, for the menu chirps in bank $0E.
 .include "optcall.inc"
+;  wAPU, for the error sound's writes, as the game's own code makes them.
+.include "nesio.inc"
 
 .export ows_choose, ows_tick
 ;  For tools/test_options.py.
@@ -177,7 +179,8 @@ V_WHY     = OWV+$48             ; ...and if not, rando_winnable's reason
 V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
 V_PEND    = OWV+$4A             ; A and START, pressed while a check ran, for after
 V_WARNED  = OWV+$4B             ; nonzero: the warning, not a description, is up
-.assert V_WARNED < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_ERR     = OWV+$4C             ; the error sound's frames still to strike, or 0
+.assert V_ERR < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -266,6 +269,7 @@ ows_choose:
     ;  the first frame, with the screen up.
     LDA #0
     STA f:V_PEND
+    STA f:V_ERR                 ; before ows_setup, whose drawing plays music
     LDA f:V_FORCED
     CMP #OWS_FORCED
     BCC :+
@@ -686,7 +690,7 @@ ows_audio:
     XCE
     LDA #CHUNK_OWS
     STA cur_bank
-    JSR CallMusicPlay
+    JSR ows_music               ; the frame's music, or the error sound's
     JSL hal_audioframe + HALFAR
     CLC
     XCE
@@ -870,7 +874,7 @@ ows_wait:
     XCE
     LDA #CHUNK_OWS
     STA cur_bank
-    JSR CallMusicPlay
+    JSR ows_music               ; the frame's music, or the error sound's
     JSR UpdateJoy
     JSL hal_vblaudio + HALFAR
     CLC
@@ -1192,6 +1196,7 @@ ows_input:
   @lost:
     LDA f:V_WHY
     JSR ows_warn                ; no: why, and the screen stays
+    JSR ows_sfxerr              ; ...and the game's error sound (user)
     CLC
     RTS
   @move:
@@ -1356,7 +1361,7 @@ ows_tick:
     XCE
     LDA #CHUNK_OWS
     STA cur_bank
-    JSR CallMusicPlay
+    JSR ows_music               ; the frame's music, or the error sound's
     JSL hal_audioframe + HALFAR
     LDA f:OWS_TICKON
     CMP #OWS_TICKFRAME
@@ -1390,6 +1395,68 @@ ows_tick:
     PLA
     PLP
     RTL
+
+;;  The game's error sound, PlaySFX_Error's, for a refused START (user,
+;;  2026-10-20: "the annoying error sound"): square 1 and the noise
+;;  silenced, then square 2 struck sixteen frames running, sweeping up, the
+;;  music held meanwhile -- as the game holds it, PlaySFX_Error waiting out
+;;  its frames without MusicPlay -- and square 2 silenced after.  The game's
+;;  waits are WaitForVBlank_L's, whose flush would put the game's picture
+;;  over this screen's, so the frames are this screen's own: while V_ERR
+;;  counts, ows_music strikes it in place of the frame's music, and the
+;;  screen goes on.  A START refused again starts it again.  A8 I16 in and
+;;  out.
+ERR_FRAMES = 16
+    .a8
+    .i16
+ows_sfxerr:
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    LDA #1
+    STA sq2_sfx                 ; square 2 the sound's, as PlaySFX_Error marks it
+    LDA #$30
+    wAPU $00                    ; square 1 silenced
+    wAPU $08                    ; the triangle's linear reload, as the game writes it
+    wAPU $0C                    ; the noise silenced
+    LDA #ERR_FRAMES
+    STA f:V_ERR
+    CLC
+    XCE
+    REP #$10
+    .i16
+    RTS
+
+;;  A frame of the music, or of the error sound while V_ERR counts:
+;;  PlaySFX_Error's @Frame, and after the last its silence.  Emulation mode,
+;;  DBR this chunk, cur_bank this chunk for CallMusicPlay; registers as
+;;  CallMusicPlay leaves them, which no caller keeps across it.
+    .a8
+    .i8
+ows_music:
+    LDA f:V_ERR
+    BNE @err
+    JMP CallMusicPlay
+  @err:
+    DEC A
+    STA f:V_ERR
+    LDA #%10001100              ; 50% duty, decaying, length on...
+    wAPU $04
+    LDA #%10001001              ; ...sweeping up, fast, in large steps...
+    wAPU $05
+    LDA #$80
+    wAPU $06                    ; ...from $080...
+    LDA #$00
+    wAPU $07                    ; ...struck again
+    LDA f:V_ERR
+    BNE @out
+    LDA #$30                    ; the last: square 2 silenced, its period zeroed
+    wAPU $04
+    LDA #$00
+    wAPU $06
+  @out:
+    RTS
 
 ;;  The settings screen's chirps (optmenu.asm's opt_sfx_move and _sel): the
 ;;  game's own, in bank $0E, through the trampoline, in emulation mode.  A8

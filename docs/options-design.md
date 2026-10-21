@@ -1387,7 +1387,15 @@ minimap, the title and description beside the zoom.
     moved; built, not yet played): `ows_rewarn`, at the end of every check,
     the fast path's included, puts the selected setting's description back
     if the warning is up (`V_WARNED`) and they can be won, and otherwise
-    redraws the warning for the reason as it now is.  The check,
+    redraws the warning for the reason as it now is.  And a refused START
+    plays the game's error sound (user, 2026-10-20: "the annoying error
+    sound"; built, not yet played), `PlaySFX_Error`'s writes on the
+    screen's own frames: square 1 and the noise silenced, then square 2
+    struck sixteen frames running with the music held, as the game holds it,
+    then silenced.  The game's routine waits on `WaitForVBlank_L`, whose
+    flush would put the game's picture over this screen's, so here
+    `ows_music` strikes it in place of the frame's music while `V_ERR`
+    counts, and the screen goes on meanwhile.  The check,
     `rando_winnable` (`randoref.winnable`), works out the vanilla wiring's
     logic under the edits and Early flags, then under Key items Standard or
     Wide asks whether Chaos is reached owning every key item there is --
@@ -1425,7 +1433,10 @@ minimap, the title and description beside the zoom.
     kept by an A that leaves the edits unwinnable, gone with no move for
     one that makes them winnable, by the fast path (Ship in Drydock
     unticked) and by a whole check (North Docks ticked on the forced
-    screen, the FLOATER removed).  Four mutations, all caught.
+    screen, the FLOATER removed).  Four mutations, all caught.  The error
+    sound: the opening writes, sixteen frames without music striking
+    square 2 as `PlaySFX_Error`'s `@Frame` does, the last silencing it,
+    then the music; six mutations, all caught.
   - **A check's tick sends only early in its vblank** (`OWS_TICK_LAST`,
     line 232; user, 2026-10-18: "sometimes clicking the button doesn't
     toggle an item. It makes the sound ... but the checkbox doesn't
