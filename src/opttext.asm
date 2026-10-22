@@ -1092,7 +1092,7 @@ lut_DescLo:
   .BYTE <lut_Desc_86, <lut_Desc_87, <lut_DescBlank, <lut_Desc_88, <lut_Desc_89, <lut_Desc_90
   .BYTE <lut_Desc_91
   .BYTE <lut_Desc_101                     ; Map edits, hidden (ROW_HIDDEN)
-  .BYTE <lut_DescBlank, <lut_DescBlank, <lut_DescCustom   ; NEW GAME, blank, Custom Game
+  .BYTE <lut_DescBlank, <lut_DescBlank, <lut_DescCustom   ; blank, blank, Custom Game
   NGP_DESCLO
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"

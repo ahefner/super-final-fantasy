@@ -480,9 +480,13 @@ own rows, after those (`NGROW_HEAD`).  The list is a window with `OPTMENU_PICK` 
 (`OPTROW_PICK`, kind 5; byte 1 the preset, `NGPICK_CUSTOM` for Custom Game)
 can hold the cursor, A and START answer with the row's byte, B with
 `NGPICK_BACK`, and left and right do nothing.  A pick row draws its name
-across the row's whole 29 columns from the box's, so the hand stands just
-before it as in the game's own menus.  The heading, a blank and Custom
-Game are in `optmenu.asm`; the presets' rows and descriptions are
+across the row's whole 29 columns from the box's, a cell in, and the hand
+a cell in with it (`PICK_HAND_DX`), just before the name as in the game's
+own menus; names are 28 long at most.  The list had a NEW GAME heading
+above it until the user had it taken out and the names and hand moved a
+cell right (2026-10-22; built, not yet played) -- the row is a blank now,
+so the list has not moved down.  The two blanks and Custom Game are in
+`optmenu.asm`; the presets' rows and descriptions are
 generated (`gen/presetrows.inc`, `gen/presetdesc.inc`), so the list is
 whatever `presets/` holds.
 

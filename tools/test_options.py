@@ -5934,9 +5934,14 @@ def test_ngscreen():
 
     bus, cpu = start()
     check("the list opens on Custom Game", bus.wram[SEL], CUSTOM)
-    check("...its rows: the heading, Custom Game, each preset by name",
-          [screen(bus, i) for i in [HEAD, CUSTOM] + list(range(CUSTOM + 1, CUSTOM + 1 + N))],
-          ["NEW GAME", "Custom Game"] + [p[0] for p in presets])
+    check("...its rows: two blanks (no heading, user 2026-10-22), Custom Game, each preset by name",
+          [screen(bus, i) for i in [HEAD, HEAD + 1, CUSTOM] + list(range(CUSTOM + 1, CUSTOM + 1 + N))],
+          ["", "", "Custom Game"] + [p[0] for p in presets])
+    nt = K["NESNT"] - 0x7E0000 + (1 + CUSTOM - bus.wram[TOP]) * 32
+    oam = K["oam"]
+    check("...each name a cell in from the box's column, the hand two cells before it",
+          (bus.wram[nt + 2], _decode(bus.wram[nt + 3]), bus.wram[oam + 3], bus.wram[oam] + 1),
+          (0xFF, "C", 3 * 8 - 16, (1 + CUSTOM - bus.wram[TOP]) * 8))
     check("...Custom Game described", " ".join(pane(bus)).startswith("The options as they stand"), True)
     press(bus, cpu, UP)
     check("up from Custom Game: stays, the heading not a choice", bus.wram[SEL], CUSTOM)
@@ -9935,7 +9940,7 @@ def test_rowlabels():
             break
         width = W
         if row[0] == K["OPTROW_PICK"]:
-            width = 2 + W + 1 + 4       # a New Game choice: the row's whole width
+            width = 2 + W + 1 + 4 - 1   # a New Game choice: the row's whole width, a cell in
         if row[0] == 2:
             #  The readout ends VALFIELD (4) past the gap column after the
             #  label's 22, so a field of w columns covers the gap and the

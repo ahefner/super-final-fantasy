@@ -1062,14 +1062,20 @@ opt_menu_cursor:
     CLC
     ADC #(OPTLIST_TOP * 8) - 1
     STA spr_y
+    LDA f:OPTMENU_PICK
+    BEQ @notpick
+    LDA #(OPTLIST_COL * 8) - 16 + PICK_HAND_DX  ; the New Game list's: a cell
+    BRA @x                                      ;   in, with its names
+  @notpick:
     LDA #(OPTLIST_COL * 8) - 16
     LDX OPTMENU_VIEW
-    BEQ :+
+    BEQ @x
     ;  The save view's rows are all value rows: nothing in the checkbox
     ;  column the hand points at on the settings screen, so the hand stood
     ;  two tiles off its label.  Twelve pixels nearer (user, 2026-10-13).
     LDA #(OPTLIST_COL * 8) - 16 + VIEW_HAND_DX
-:   STA spr_x
+  @x:
+    STA spr_x
     JMP DrawCursor
 
 
@@ -1172,9 +1178,11 @@ opt_menu_drawrow:
     LDA (OPTMENU_ROWPTR), Y
     CMP #OPTROW_PICK
     BNE @notpick
-    LDX #$00                    ; a choice: its name from the box's column,
-    LDY #OPTROW_LABEL           ;   the hand just before it, as the game's
-  @pickc:                       ;   menus have it
+    LDA #NT_BOXBODY             ; a choice: its name a cell in from the box's
+    STA f:NTSTAGE               ;   column (user, 2026-10-22), the hand just
+    LDX #$01                    ;   before it, as the game's menus have it
+    LDY #OPTROW_LABEL
+  @pickc:
     LDA (OPTMENU_ROWPTR), Y
     STA f:NTSTAGE, X
     INX
@@ -2004,10 +2012,11 @@ lut_OptRowHidden:
   .BYTE $02, 53    ; Map edits   (scalar 53: OPT_NG_EARLY bits 4-5)
   OPTLABEL {"Map edits"}
   ;  The New Game list (opt_newgamelist), a window of its own, after
-  ;  everything the settings screen shows.  Custom Game, then the presets,
-  ;  generated from presets/*.toml.
-  .BYTE $00, $00   ; NEW GAME
-  FFPAD "NEW GAME", 30
+  ;  everything the settings screen shows.  Two blanks -- a NEW GAME heading
+  ;  until the user had it taken out (2026-10-22) -- then Custom Game and the
+  ;  presets, generated from presets/*.toml.
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
   .BYTE OPTROW_PICK, NGPICK_CUSTOM   ; Custom Game
@@ -2063,7 +2072,9 @@ lut_CheckboxCHR:
 ;  eight, for a table whose lut_ValShift says so, which takes four columns
 ;  from its row's label.
 VALFIELD = 4
-PICKROW_W = 2 + OPTROW_LABELW + 1 + VALFIELD    ; a row's whole width: a pick row's name
+PICKROW_W = 2 + OPTROW_LABELW + 1 + VALFIELD    ; a row's whole width: a pick row's
+                                                ;   blank cell and its name
+PICK_HAND_DX = 8                                ; ...and its hand, that cell in
 .assert PICKROW_W <= OPTROW_STRIDE - OPTROW_LABEL, error, "a pick row's name is wider than its record"
 
 ;  Gold and XP: 0%% to 500%% in 50%% steps
