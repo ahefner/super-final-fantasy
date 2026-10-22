@@ -45,9 +45,12 @@
 ;  and the grid one); the grid's digits four columns apart, so the hand,
 ;  two cells before its digit, stands clear of the one to its left.
 SEED_HEADROW = OPTLIST_TOP + 2
-SEED_HEADCOL = OPTLIST_COL + 2
 SEED_ROW     = 5
 SEED_COL     = 12               ; eight digits, columns 12-19
+;  The heading centred over the seed (user, 2026-10-22): "Seed Entry", ten
+;  wide, on columns 11-20.
+SEED_HEADCOL = SEED_COL + (SEED_DIGITS - (lut_SeedHead_end - lut_SeedHead)) / 2
+.assert (lut_SeedHead_end - lut_SeedHead - SEED_DIGITS) .mod 2 = 0, error, "the heading cannot centre exactly over the seed: make their widths both odd or both even"
 GRID_ROW     = 9                ; the grid's rows 9, 11, 13, 15
 GRID_COL     = 10               ; ...and its columns 10, 14, 18, 22
 GRID_DX      = 4

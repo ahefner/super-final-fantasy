@@ -389,7 +389,8 @@ always `NGF_SEED`, which `rando_newgame` takes as it takes the edits.
 
 It is laid out as the flow's other screens are -- their blue, the
 description box with a description of its own (`lut_DescSeed`, drawn by
-the engine's `opt_menu_desctext`) -- under "Seed Entry" on row 3, the seed
+the engine's `opt_menu_desctext`) -- under "Seed Entry" on row 3, centred
+over the seed (columns 11-20, worked out from the two widths), the seed
 on row 5 and the grid on rows 9-15, centred down the space above the box
 (user, 2026-10-22: it read "SEED" on row 1, the seed on 4, the grid on
 8-14; built, not yet played) -- and

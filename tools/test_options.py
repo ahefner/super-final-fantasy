@@ -6102,8 +6102,12 @@ def test_seedscreen():
 
     bus, cpu = up()
     check("the screen: Seed Entry, the seed given, the grid of sixteen digits",
-          (text(bus, HEADROW, 4, 10), shown(bus), [text(bus, GRIDROW + 2 * r, 10, 13) for r in range(4)]),
+          (text(bus, HEADROW, 0, 32).strip(), shown(bus), [text(bus, GRIDROW + 2 * r, 10, 13) for r in range(4)]),
           ("Seed Entry", "1A2B3C4D", ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]))
+    def ends(row):
+        line = text(bus, row, 0, 32)
+        return len(line) - len(line.lstrip()), len(line.rstrip()) - 1
+    check("...the heading centred over the seed (user, 2026-10-22)", sum(ends(HEADROW)), sum(ends(SEEDROW)))
     check("...and nothing else above the description box", sorted(
           r for r in range(1, 21) if r not in [HEADROW, SEEDROW] + [GRIDROW + 2 * k for k in range(4)]
           and text(bus, r, 0, 32).strip()), [])
