@@ -177,7 +177,7 @@ opt_randoscreen:
     STA OPTMENU_VIEW
     LDA #ROW_TREASURES
     STA OPTMENU_TOP
-    LDX #NGROW_HEAD
+    LDX #ROW_HIDDEN
     JSR opt_menu_window
     LDA #ROW_TREASURES + 2      ; Starting items, under the heading
     STA OPTMENU_SEL
@@ -244,7 +244,7 @@ opt_saveview:
     PLB
 
     LDA #$00
-    LDX #NGROW_HEAD             ; the save's rows end where the settings' do
+    LDX #ROW_HIDDEN             ; the save's rows end where the key items do
     JSR opt_menu_window
     LDA #$01
     STA OPTMENU_VIEW
@@ -1951,8 +1951,6 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"Key items"}
   .BYTE $02, 48    ; Map shuffle   (scalar 48)
   OPTLABEL {"Map shuffle"}
-  .BYTE $02, 53    ; Map edits   (scalar 53: OPT_NG_EARLY bits 4-5)
-  OPTLABEL {"Map edits"}
   .BYTE $02, 23    ; SHIP   (scalar 23)
   OPTLABEL {"SHIP"}
   .BYTE $02, 24    ; AIRSHIP   (scalar 24)
@@ -2013,6 +2011,12 @@ lut_OptRowRando:   ; the save view's rows are found from here
   .BYTE $02, 47    ; Early Ordeals   (scalar 47)
   OPTLABEL {"Early Ordeals"}
 
+  ;  Rows no screen shows, which presets still set: the Map edits row,
+  ;  whose mode a preset's map edit screen starts from (ng_flow) -- the
+  ;  screen itself replaced the row in New Game's flow.
+lut_OptRowHidden:
+  .BYTE $02, 53    ; Map edits   (scalar 53: OPT_NG_EARLY bits 4-5)
+  OPTLABEL {"Map edits"}
   ;  The New Game list (opt_newgamelist), a window of its own, after
   ;  everything the settings screen shows.  Custom Game, then the presets,
   ;  generated from presets/*.toml.
@@ -2037,6 +2041,7 @@ VIEW_HEAD  = (lut_OptRowRando - lut_OptRows) / OPTROW_STRIDE
 ;  The options and the randomization screen: the rows above TREASURES, and
 ;  TREASURES to the New Game list's.
 ROW_TREASURES = (lut_OptRowTreasures - lut_OptRows) / OPTROW_STRIDE
+ROW_HIDDEN    = (lut_OptRowHidden - lut_OptRows) / OPTROW_STRIDE   ; where the screens stop
 VIEW_TOP   = VIEW_HEAD - 1
 VIEW_SEED  = VIEW_HEAD + 1
 VIEW_FIRST = VIEW_HEAD + 2

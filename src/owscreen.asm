@@ -6,11 +6,13 @@
 ;  selected edit: the minimap at the left, the fourteen in a column beside
 ;  it, the zoom below it.
 ;
-;  From rando_newgame when the Map edits row is not Off, which then writes
-;  the row's flags into RANDO_OWEDITS.  The screen starts from the saved
-;  game's, when Continue would load it and it has any -- so the choice
-;  carries from game to game without a byte of the option block -- else the
-;  row's.  START ends it, and RANDO_OWEDITS is what is ticked: placement's
+;  From New Game's flow (ng_flow), after the randomization screen, B going
+;  back to it (OWS_CANBACK); before the flow, from rando_newgame when the
+;  Map edits row was not Off, which only the tests still reach.  The screen
+;  starts from the saved game's, when Continue would load it and it has any
+;  -- so the choice carries from game to game without a byte of the option
+;  block -- else the row's; a preset's, or the edits last ticked, as given
+;  (OWS_KEEP).  START ends it, and RANDO_OWEDITS is what is ticked: placement's
 ;  logic knows every edit (worldgraph/edited.py) -- but not on edits that,
 ;  with the rest of the settings, make a world that cannot be won
 ;  (rando_winnable, user): then the description says so, and the screen
@@ -131,6 +133,7 @@ COST_ZOOM = 2
 
 ;  The game's pad bits.
 PAD_A     = $80
+PAD_B     = $40
 PAD_START = $10
 PAD_UP    = $08
 PAD_DOWN  = $04
@@ -180,7 +183,9 @@ V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
 V_PEND    = OWV+$4A             ; A and START, pressed while a check ran, for after
 V_WARNED  = OWV+$4B             ; nonzero: the warning, not a description, is up
 V_ERR     = OWV+$4C             ; the error sound's frames still to strike, or 0
-.assert V_ERR < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_FLOW    = OWV+$4D             ; ows_choose's A, for its OWS_CANBACK and OWS_KEEP
+V_BACK    = OWV+$4E             ; nonzero: B ended it, not START
+.assert V_BACK < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -212,8 +217,11 @@ aINSETCHR = .LOWORD(OWS_INSETCHR)
 ;;  ows_choose -- the screen.  In: RANDO_OWEDITS the row's flags; A = 0, or
 ;;  OWS_FORCED and rando_winnable's reason, up only because the settings
 ;;  cannot be won: the row's flags then, not the saved game's, and the
-;;  warning at once.  Out: RANDO_OWEDITS as ticked.  From
-;;  rando_newgame, by JSL, in emulation mode; out the same, X and Y kept.
+;;  warning at once.  Or, from the New Game flow (ng_flow), OWS_CANBACK, B
+;;  leaving as well as START, and with it OWS_KEEP, RANDO_OWEDITS as given
+;;  rather than the saved game's -- the edits last ticked, or a preset's.
+;;  Out: RANDO_OWEDITS as ticked; A = NGNAV_BACK if B ended it, else
+;;  NGNAV_FORWARD.  By JSL, in emulation mode; out the same, X and Y kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ows_choose:
@@ -224,9 +232,16 @@ ows_choose:
     PHK
     PLB                         ; this chunk's low half is the I/O map
     SEP #$30
+    STA f:V_FLOW
     STA f:V_FORCED
     CMP #OWS_FORCED
     BCS @forced                 ; the row's, not the saved game's
+    LDA #0
+    STA f:V_FORCED              ; (the flow's bits are not the warning's)
+    STA f:V_BACK
+    LDA f:V_FLOW
+    AND #OWS_KEEP
+    BNE @forced                 ; as given: as the row's, below
     JSL opt_savevalidfar + OPTFAR       ; C clear: a save Continue would load
     LDA #0
     ROL A
@@ -297,6 +312,11 @@ ows_choose:
     LDA #$80
     STA a:INIDISP
     JSL hal_ppureclaim + HALFAR
+    LDA f:V_BACK
+    BEQ :+
+    LDA #NGNAV_BACK - NGNAV_FORWARD
+:   CLC
+    ADC #NGNAV_FORWARD          ; NGNAV_BACK if B ended it, else NGNAV_FORWARD
     PLB
     PLY
     PLX
@@ -1184,6 +1204,19 @@ ows_input:
     STA f:V_CHECK               ; winnable, still? (ows_loop asks)
     PLA
   @start:
+    BIT #PAD_B                  ; B, in the New Game flow: back, whatever is
+    BEQ @nob                    ;   ticked -- winnable or not, as the
+    PHA                         ;   randomization screen it goes back to
+    LDA f:V_FLOW                ;   may change that
+    AND #OWS_CANBACK
+    BEQ :+
+    STA f:V_BACK
+    PLA
+    JSR ows_sfxsel              ; the game's sound for B, as for a choice
+    SEC
+    RTS
+:   PLA
+  @nob:
     BIT #PAD_START
     BEQ @move
     LDA f:V_CHECK               ; (a tick this frame: ask now)
@@ -1224,7 +1257,7 @@ ows_edge:
 ows_busy:
     JSR ows_edge
     PHA
-    AND #PAD_A | PAD_START
+    AND #PAD_A | PAD_START | PAD_B
     ORA f:V_PEND
     STA f:V_PEND
     PLA

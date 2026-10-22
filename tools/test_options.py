@@ -5619,24 +5619,46 @@ def test_ngflow():
     time: its rows, START and B."""
     import genpresets as G, presetdefs as P
     NG = 0xA1 + K["CHUNK_NEWGAME"]
-    names = {SYM["opt_newgamelist"]: "list", SYM["opt_randoscreen"]: "rando", SYM["opt_settings"]: "options"}
+    OWS = 0xA1 + K["CHUNK_OWS"]
+    names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
+             (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits"}
+    OWE = K["RANDO_OWEDITS"] - 0x6000
+    NGF = K["NGF_OWEDITS"] - 0x7E0000
     FWD, BACK, CUSTOM, NBACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"], K["NGPICK_CUSTOM"], K["NGPICK_BACK"]
 
-    def flow(script):
-        """Run ng_flow, each screen answering the next of script.  Out: the
-        screens in order, the answer, the option page after."""
+    edits = {}
+
+    def flow(script, ticks=(), ng=None):
+        """Run ng_flow, each screen answering the next of script; the map edit
+        screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
+        noting what it was given (its A, and RANDO_OWEDITS).  Out: the
+        screens in order, the answer, the option page after; edits holds the
+        map edit screen's starts and New Game's edits."""
         bus, cpu = machine()
         call(cpu, "opt_init")
+        ngoff, ngsize = K["OPT_NG"] - 0x6000, K["OPT_NG_SIZE"]
+        if ng is not None:
+            bus.sram[ngoff:ngoff + ngsize] = bytes(ng)
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
-        seen, answers = [], list(script)
+        seen, answers, tick = [], list(script), list(ticks)
+        edits["given"], edits["ngf"], edits["settings"] = [], None, []
         for _ in range(2_000_000):
             if cpu.pc == 0xFFFE:
+                edits["ngf"] = (bus.wram[NGF] | bus.wram[NGF + 1] << 8, bus.wram[NGF + 4])
                 return seen, cpu.a & 0xFF, bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
-            if cpu.pbr == OPTMENU_BANK and cpu.pc in names:
-                seen.append(names[cpu.pc])
+            here = names.get((cpu.pbr, cpu.pc))
+            if here:
+                seen.append(here)
                 if not answers:
                     return seen, None, None
+                if here == "mapedits":
+                    edits["given"].append((cpu.a & 0xFF, bus.sram[OWE] | bus.sram[OWE + 1] << 8))
+                    save = K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
+                    edits["settings"].append(bytes(bus.sram[save:save + ngsize]) == bytes(bus.sram[ngoff:ngoff + ngsize]))
+                    if tick:
+                        t = tick.pop(0)
+                        bus.sram[OWE], bus.sram[OWE + 1] = t & 0xFF, t >> 8
                 cpu.a = answers.pop(0)
                 lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # as its RTL
                 cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
@@ -5652,23 +5674,100 @@ def test_ngflow():
         return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
     _, _, start = flow([NBACK])
     check("the list, B: back to the title", flow([NBACK])[:2], (["list"], BACK))
-    check("Custom Game: the randomization screen, the options, on; the options untouched",
-          flow([CUSTOM, FWD, FWD]), (["list", "rando", "options"], FWD, start))
+    check("Custom Game: the randomization screen, the map edits, the options, on; the options untouched",
+          flow([CUSTOM, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options"], FWD, start))
     check("Vanilla: straight on, the preset applied", flow([0, ])[0:2] + (flow([0])[2] == preset_block(0),),
           (["list"], FWD, True))
     check("Improved Vanilla: straight on", flow([1])[:2], (["list"], FWD))
-    check("Beginner: the randomization screen and the options, its settings applied",
-          flow([2, FWD, FWD])[:2] + (flow([2, FWD, FWD])[2] == preset_block(2),),
-          (["list", "rando", "options"], FWD, True))
+    check("Beginner: the randomization screen, the map edits and the options, its settings applied",
+          flow([2, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "mapedits", "options"], FWD, True))
     check("B, screen by screen, back to the list and on again",
-          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD])[:2],
-          (["list", "rando", "list", "rando", "options", "rando", "options"], FWD))
+          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD, BACK, FWD, FWD])[:2],
+          (["list", "rando", "list", "rando", "mapedits", "rando", "mapedits", "options", "mapedits",
+            "options"], FWD))
+
+    #  The map edit screen: B allowed, and where it starts.  Custom Game: its
+    #  own start (the saved game's, else the row's, given); a preset: its
+    #  row's, kept; back on it: what was ticked last, kept.  New Game's: what
+    #  it ticked last, the flow marked as having run.
+    OPEN = K["OWEDIT_OPENPROG"]
+    CANBACK, KEEP = K["OWS_CANBACK"], K["OWS_KEEP"]
+    flow([CUSTOM, FWD, FWD, FWD], ticks=[0x0041])
+    check("Custom Game: the screen's own start, B allowed; New Game's edits what it ticked",
+          (edits["given"], edits["ngf"]), ([(CANBACK, 0)], (0x0041, 1)))
+    flow([CUSTOM, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
+    check("...the screen's check reads the options' settings, copied into the save first",
+          edits["settings"], [True])
+    flow([2, FWD, FWD, BACK, FWD, FWD], ticks=[0x0003, 0x0007])
+    check("Beginner: its row's edits (Open) kept; back from the options, the ticks kept; New Game's the last",
+          (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
+    flow([2, FWD, BACK, BACK, NBACK])
+    check("...backed out to the title: the flow not marked as run", edits["ngf"][1], 0)
+    flow([1])
+    check("Improved Vanilla: no screen; New Game's edits its row's, none", edits["ngf"], (0, 1))
     seen, ans, page = flow([2, BACK, NBACK])
     check("a preset backed out of: the title, the preset left applied, as the title's presets are",
           (seen, ans, page == preset_block(2)), (["list", "rando", "list"], BACK, True))
     check("every preset but Vanilla and Improved Vanilla randomizes, so goes on to the screen",
           list(ROMDATA[(NG & 0x1F) * 0x10000 + SYM["lut_NgpFlow"]:][:K["NGP_COUNT"]]),
           [int(G.randomizes(p[3], P.rows())) for p in G.resolve(G.load(), P.rows())])
+
+    #  The map edit screen itself, as the flow calls it.  B allowed
+    #  (OWS_CANBACK) leaves it answering NGNAV_BACK -- even on edits that
+    #  cannot be won, as the screen it goes back to may change that -- and
+    #  as rando_newgame calls it, without, B does nothing; OWS_KEEP starts
+    #  from the edits given, not the saved game's.
+    UJ0 = SYM["UpdateJoy"]
+    OWE0 = K["RANDO_OWEDITS"] - 0x6000
+    def ows(a, presses, given=0, saved=None):
+        bus, cpu = machine()
+        bus.frames()
+        if saved is not None:
+            bus.sram[OWE0:OWE0 + 2] = saved.to_bytes(2, "little")
+            cpu.dbr = BANK_0E
+            cpu.run(BANK_0E, SYM["SaveGame"])
+            cpu.dbr = 0xA7
+        bus.sram[OWE0:OWE0 + 2] = given.to_bytes(2, "little")
+        def padset(nes):
+            bus.io[0x4218] = nes & 0x80
+            bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+        padset(0)
+        cpu.a = a
+        if not cpu.run(OWS, SYM["ows_choose"], stop=UJ0, limit=60_000_000):
+            return None
+        tickon = K["OWS_TICKON"] - 0x7E0000
+        queue = list(presses)
+        for _ in range(400):
+            padset(0 if bus.wram[tickon] or not queue else queue.pop(0))
+            cpu.step()
+            for _ in range(20_000_000):
+                if cpu.pc in (UJ0, 0xFFFE):
+                    break
+                cpu.step()
+            if cpu.pc == 0xFFFE:
+                return cpu.a & 0xFF, int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little")
+        return "still up", int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little")
+    D = K["OWEDIT_DRYDOCK"]
+    check("the map edit screen, B allowed: back", ows(CANBACK, [0, 0, 0x40, 0]), (BACK, 0))
+    check("...as rando_newgame calls it: B nothing, START on",
+          ows(0, [0, 0, 0x40, 0, 0x10, 0])[0], FWD)
+    check("...B on edits that cannot be won (Ship in Drydock, Key items Vanilla): back all the same",
+          ows(CANBACK, [0, 0, 0x10, 0, 0x40, 0], given=D), (BACK, D))
+    check("...OWS_KEEP: the edits given, not the saved game's", ows(KEEP | CANBACK, [0, 0, 0x10, 0], given=0x0003,
+                                                                 saved=0x0402), (FWD, 0x0003))
+    check("...without it: the saved game's", ows(CANBACK, [0, 0, 0x10, 0], given=0x0003, saved=0x0402), (FWD, 0x0402))
+
+    #  rando_newgame after the flow: its edits, once, and no screen of its own.
+    bus, cpu = machine()
+    bus.frames()
+    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_ALL"] << K["OWEDITS_SHIFT"]   # the row would bring it up
+    ngf = K["NGF_OWEDITS"] - 0x7E0000
+    bus.wram[ngf], bus.wram[ngf + 1], bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 0x41, 0x00, 1
+    shown = newgame_pressing(bus, cpu, [])
+    check("rando_newgame after the flow: the flow's edits, no screen, the mark used up",
+          (int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"), shown, bus.wram[K["NGF_ACTIVE"] - 0x7E0000]),
+          (0x0041, 0, 0))
 
     #  The randomization screen: its rows TREASURES to the key items' last,
     #  opening on Starting items; START on, B back.
@@ -5700,7 +5799,14 @@ def test_ngflow():
     for _ in range(140):
         frame(bus, cpu, 0x04)
         frame(bus, cpu, 0)
-    check("...down to its end: the key items' last", bus.wram[SEL], K["NGROW_HEAD"] - 1)
+    #  Its last row is the key items' last: the Map edits row past it is
+    #  hidden (ROW_HIDDEN), the map edit screen having replaced it.
+    check("...down to its end: the key items' last, the Map edits row hidden",
+          bus.wram[SEL], optrow("Map edits") - 1)
+    check("...which no screen shows", any(screen_text == "Map edits" for screen_text in
+          [" ".join("".join(_decode(b) or "?" for b in bus.wram[K["NESNT"] - 0x7E0000 + (1 + r) * 32 + 4:
+                                                              K["NESNT"] - 0x7E0000 + (1 + r) * 32 + 26]).split())
+           for r in range(20)]), False)
     for button, want in ((0x10, FWD), (0x40, BACK)):
         bus, cpu = screen_up()
         more = frame(bus, cpu, button)
@@ -12349,7 +12455,7 @@ def test_saveview():
     OPT = CHUNK_OPT_BANK
     OPTLIST_ROWS = 20                    # the window, optmenu.asm
     SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
-    COUNT = K["NGROW_HEAD"]              # the save view's rows end where the New Game list's begin
+    COUNT = optrow("Map edits")          # the save view's rows end where the hidden ones begin
     A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     UJ = SYM["UpdateJoy"]
     optimg = (OPTMENU_BANK & 0x1F) * 0x10000

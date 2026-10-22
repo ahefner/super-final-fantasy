@@ -624,8 +624,19 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
-    ;  Map edits: the row's mode as the flags it stands for, which are all
-    ;  the game reads; and Bridge to Lefein's BRIDGE where FFR puts it.
+    ;  Map edits: from New Game's flow, the ones its screen ticked
+    ;  (ng_flow), once; else the row's mode as the flags it stands for, which
+    ;  are all the game reads; and Bridge to Lefein's BRIDGE where FFR puts it.
+    LDA f:NGF_ACTIVE
+    BEQ @rowmode
+    LDA #0
+    STA f:NGF_ACTIVE            ; this New Game's, and no other's
+    LDA f:NGF_OWEDITS
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:NGF_OWEDITS + 1
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    JMP @owdone                 ; checked on the flow's screen already
+  @rowmode:
     LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
     AND #OWEDITS_FIELD
     LSR A
@@ -718,6 +729,7 @@ SHIPFAR    = (CHUNK0 * $10000) + ship_x     ; and ship_y
 ;  Each Map edits mode's flags, in RANDO_OWEDITS; the field's fourth value,
 ;  which the row never sets, none.  Open is the one FFR's presets turn on;
 ;  All is every edit that only adds a way through (OWEDIT_SAFE).
+.export lut_OwEditsMode         ; for newgame.asm's flow
 lut_OwEditsMode:
   .WORD 0, OWEDIT_OPENPROG, OWEDIT_SAFE, 0
 .assert OWEDITS_FIELD >> OWEDITS_SHIFT = 3, error, "lut_OwEditsMode: a word for each value of the field"

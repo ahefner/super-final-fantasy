@@ -300,14 +300,15 @@ it").
 title's New Game, runs the screens in turn (`menus.txt`;
 `randomization-notes.md` 12): the list; then, for Custom Game or a preset
 that randomizes anything, the **randomization screen** -- the TREASURES,
-RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- and the
-**options**, the rest of the settings.  START goes on, B back to the screen
-before; B on the list goes back to the title.  Vanilla and Improved Vanilla
-go straight on, randomizing nothing: a preset goes on to the randomization
-screen when it sets anything there away from its first value (genpresets'
-`lut_NgpFlow`).  Then New Game goes on as before -- party creation, the map
-edit screen, the roll -- until the next steps put the map edits and the
-seed between, and party creation's B back into them.  Both screens are the
+RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
+**map edit screen** (below; the overworld select before it is skipped for
+now, the vanilla map taken) and the **options**, the rest of the settings.
+START goes on, B back to the screen before; B on the list goes back to the
+title.  Vanilla and Improved Vanilla go straight on, randomizing nothing: a
+preset goes on to the randomization screen when it sets anything there away
+from its first value (genpresets' `lut_NgpFlow`).  Then New Game goes on as
+before -- party creation, the roll -- until the next steps put the seed
+between, and party creation's B back into them.  Both settings screens are the
 engine's windows: the options everything above TREASURES
 (`ROW_TREASURES`), the randomization screen TREASURES to the list's rows,
 and the engine answers `NGNAV_FORWARD` for START and `NGNAV_BACK` for B.
@@ -320,13 +321,49 @@ options the presets leave -- B screen by screen, a preset backed out of
 staying applied -- then runs the randomization screen a frame at a time.
 Seven mutations, all caught.
 
+**The map edit screen in the flow** (built 2026-10-21, not yet played).
+Every New Game through the randomization screen comes to it, after that
+screen, so that what it ticks is checked against settings already chosen:
+everything that can make a world unwinnable -- Key items, the removals and
+Free rows, the Early flags -- is on the randomization screen, none on the
+options after it.  The Map edits row is on no screen any more: it is past
+the key items, in rows no window reaches (`lut_OptRowHidden`,
+`ROW_HIDDEN`, where the randomization screen and the save view end), and
+the presets still set it, as the edits a preset's screen starts from.  The
+screen is `ows_choose` with `OWS_CANBACK`: B leaves it too, with the
+select's chirp and the edits as ticked, answering `NGNAV_BACK`; START is
+refused on unwinnable edits as ever.  It starts, for Custom Game, as it
+always has -- the saved game's edits when Continue would load that save,
+else the Map edits row's -- and for a preset from its row's (`OWS_KEEP`,
+`RANDO_OWEDITS` as given); come back to from the options, from what was
+ticked last, B having kept it.  What it leaves goes to `NGF_OWEDITS`
+(`MENURAM`, which party creation's clearing of the save block's page
+leaves alone), and at the flow's end `NGF_ACTIVE` tells `rando_newgame` to
+take those edits as they are -- no row expanded, no screen brought up
+again, the mark cleared as it is used.  Vanilla and Improved Vanilla take
+their row's edits, Off, without a screen.  Before the screen comes up,
+`ng_settings` copies the options' new-game bytes into the save block,
+where its check reads the settings.  `rando_newgame`'s old way, the row
+expanded and the screen up when it is not Off or when the settings cannot
+be won without edits, is now reached only by the tests, every New Game
+coming through the flow; step 5, which builds the world after party
+creation, will take it out with the tests that drive it.
+`test_ngflow` answers the map edit screen too: what each start gives it,
+B from it back to the randomization screen and from the options back to
+it, the ticks kept, and the settings in the save block when it comes up;
+then drives the real screen, B leaving and `OWS_KEEP` starting from the
+edits given, and `rando_newgame` after the flow taking its edits without
+a screen.  `test_saveview`'s window ends at the hidden row.  Ten
+mutations, all caught.  `tools/mutate.py` now gives a test 900 seconds: a
+mutation that showed the hidden row hung `test_saveview` for good.
+
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
 and one past its last, where every bound was `OPTROW_COUNT` or 0 -- moving,
-seeking, scrolling, paging, a section's toggle, the drawing.  The settings
-screen's window ends where the list's rows begin (`NGROW_HEAD`), after the
-key items, and so does the save view's; the list's is its own rows, after
-them.  The list is a window with `OPTMENU_PICK` set: only its **pick rows**
+seeking, scrolling, paging, a section's toggle, the drawing.  The options'
+window ends at TREASURES; the randomization screen's and the save view's
+at the hidden rows (`ROW_HIDDEN`), after the key items; the list's is its
+own rows, after those (`NGROW_HEAD`).  The list is a window with `OPTMENU_PICK` set: only its **pick rows**
 (`OPTROW_PICK`, kind 5; byte 1 the preset, `NGPICK_CUSTOM` for Custom Game)
 can hold the cursor, A and START answer with the row's byte, B with
 `NGPICK_BACK`, and left and right do nothing.  A pick row draws its name
@@ -1400,7 +1437,10 @@ Map shuffle is on.  `test_es_tree` holds it to the shuffle's own roots.
 
 ### Map edits
 
-**Built 2026-10-17; not yet played.**  FFR's overworld map edits, one row
+**Built 2026-10-17; not yet played.  Hidden from every screen 2026-10-21**,
+the map edit screen having taken its place in New Game's flow (above): the
+row is now only what a preset sets, the edits its screen starts from.
+FFR's overworld map edits, one row
 standing in for its fourteen flags until New Game has a screen of its own
 (user: "don't mess up labels on the existing options screen just for the
 sake of toggling map edits, as the long term plan is to put those toggles
@@ -1464,7 +1504,9 @@ was chosen.  All inside the 30x26 cells a CRT shows: the column is rows
 2-15 beside the minimap's 1-16 (user: aligned with it), the zoom below the
 minimap, the title and description beside the zoom.
 
-  - It comes up from `rando_newgame` when the Map edits row is not Off,
+  - It comes up in New Game's flow, between the randomization screen and
+    the options (2026-10-21; "New Game's screens", above).  Before that it
+    came up from `rando_newgame` when the Map edits row was not Off,
     starting from the saved game's edits when Continue would load that save
     and it has any (no option block bytes), else the row's.  START keeps
     what is ticked, all fourteen (Sarda's Forest, the Cardia Land Bridge and
@@ -1506,7 +1548,9 @@ minimap, the title and description beside the zoom.
     each place reached giving its vanilla item (`lut_LogicVanBit`) but a
     removed one; Ship in Drydock with Early Open is winnable placed and not
     at home, where the CANOE waits on the Earth Orb.  130,000 to 265,000
-    instructions.  With the Map edits row Off New Game checks only when the
+    instructions.  Before the flow (and still in `rando_newgame`'s old way,
+    which only the tests reach), with the Map edits row Off New Game checked
+    only when the
     SHIP or the FLOATER is removed -- nothing else can leave the unedited
     map unwinnable -- and if so brings the screen up all the same, from no
     edits, saying why; L + X leaves it.

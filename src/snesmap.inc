@@ -96,6 +96,13 @@ OWSRAM_END      = OWSRAM+$3500
 ;  in turn.  Reset zeroes it.
 MENURAM         = $7F0800
 MENURAM_END     = $7F0900
+;  ...and New Game's flow's (newgame.asm), which party creation and the
+;  world's building come after: what it decided, kept out of the save's
+;  first page, which New Game sets afresh before rando_newgame reads it.
+NGF_OWEDITS     = MENURAM+$10   ; 2 bytes: the map edits the flow's screen ticked
+NGF_HAVE        = MENURAM+$12   ; nonzero once that screen has run, this pass
+NGF_PICK        = MENURAM+$13   ; the list's answer: a preset, or NGPICK_CUSTOM
+NGF_ACTIVE      = MENURAM+$14   ; nonzero: the flow ran, so NGF_OWEDITS are New Game's
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 
@@ -2029,6 +2036,8 @@ OWS_TICKON      = ROLL_END
 OWS_TICKMUSIC   = 1
 OWS_TICKFRAME   = 2
 OWS_FORCED      = $80             ; ows_choose's A: up only for the warning, its reason below
+OWS_CANBACK     = $40             ; ...or, from the New Game flow: B leaves, answering NGNAV_BACK
+OWS_KEEP        = $20             ; ...and start from RANDO_OWEDITS as given, not the save's
 .assert OWS_TICKON + 2 <= RANDOWRAM + $3400, error, "OWS_TICKON runs into boss tactics' scratch"
 
 ;  Boss tactics' scratch (tactics.asm): one decision's, so nothing here

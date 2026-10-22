@@ -19,7 +19,7 @@
 .include "fftext.inc"
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
-.import opt_newgamelist, opt_randoscreen, opt_settings
+.import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose, lut_OwEditsMode
 .export ngp_apply, ng_flow
 .export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
 
@@ -142,13 +142,22 @@ lut_NgpBit:
 ;;    the list -- Custom Game, or a preset, applied as it is picked;
 ;;      Vanilla and Improved Vanilla go straight on to party creation
 ;;    the randomization screen -- TREASURES, RANDOMIZATION, KEY ITEMS
+;;    the map edits (owscreen.asm) -- the vanilla overworld's, overworld
+;;      select being still to come (user: as if the vanilla map were
+;;      chosen); winnable, or START is refused
 ;;    the options -- the rest of the settings
 ;;
 ;;  START goes on to the next, B back to the one before; B on the list goes
-;;  back to the title.  Still to come between and after: overworld select,
-;;  the map edits, the seed; party creation's B back into these.  Each
-;;  screen takes the PPU and leaves it off, and the title or party creation
-;;  builds its own after.
+;;  back to the title.  Still to come: overworld select, the seed, and party
+;;  creation's B back into these.  Each screen takes the PPU and leaves it
+;;  off, and the title or party creation builds its own after.
+;;
+;;  The map edits ticked are kept in NGF_OWEDITS, which rando_newgame takes
+;;  for New Game's (NGF_ACTIVE): the save's first page, where RANDO_OWEDITS
+;;  is, is set afresh by New Game before then.  The screen starts from the
+;;  edits last ticked in this pass; first, after a preset, from its Map
+;;  edits row's; after Custom Game, as it always has, from the saved game's
+;;  if Continue would load one with any, else the row's.
 ;;
 ;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = NGNAV_FORWARD to
 ;;  start the game (party creation), NGNAV_BACK to go back to the title.
@@ -156,7 +165,11 @@ lut_NgpBit:
 
 ng_flow:
   @list:
+    LDA #0
+    STA f:NGF_HAVE              ; a choice here starts the map edits afresh
+    STA f:NGF_ACTIVE
     JSL opt_newgamelist + OPTMENUFAR
+    STA f:NGF_PICK
     CMP #NGPICK_BACK
     BEQ @back
     CMP #NGPICK_CUSTOM
@@ -166,18 +179,88 @@ ng_flow:
     PLA
     TAX
     LDA f:NEWGAMEFAR + lut_NgpFlow, X
-    BEQ @go                     ; nothing randomized: to party creation
+    BNE @rando
+    JSR ng_rowedits             ; nothing randomized: its row's edits (none,
+    JSR ng_keepedits            ;   for Vanilla and Improved Vanilla), and
+    BRA @go                     ;   on to party creation
   @rando:
     JSL opt_randoscreen + OPTMENUFAR
     CMP #NGNAV_BACK
     BEQ @list
+    JSR ng_settings             ; the settings the map edits' check reads
+  @mapedits:
+    LDA f:NGF_HAVE
+    BEQ @fresh
+    JSR ng_restoreedits         ; back here: the edits last ticked
+    BRA @keep
+  @fresh:
+    JSR ng_rowedits
+    LDA f:NGF_PICK
+    CMP #NGPICK_CUSTOM
+    BNE @keep                   ; a preset: its row's, as given
+    LDA #OWS_CANBACK            ; Custom Game: the saved game's, else the row's
+    BRA @show
+  @keep:
+    LDA #OWS_KEEP | OWS_CANBACK
+  @show:
+    JSL ows_choose + OWSFAR
+    PHA
+    JSR ng_keepedits
+    PLA
+    CMP #NGNAV_BACK
+    BEQ @rando
   @options:
     JSL opt_settings + OPTMENUFAR
     CMP #NGNAV_BACK
-    BEQ @rando
+    BEQ @mapedits
   @go:
+    LDA #1
+    STA f:NGF_ACTIVE            ; rando_newgame's to take
     LDA #NGNAV_FORWARD
     RTL
   @back:
     LDA #NGNAV_BACK
     RTL
+
+;;  The options' new-game rows into the save's settings, as rando_newgame
+;;  copies them: rando_winnable, the map edit screen's check, reads them
+;;  there.  New Game copies them again after setting the save's first page.
+ng_settings:
+    LDX #OPT_NG_SIZE - 1
+  @ng:
+    LDA f:OPT_NGFAR, X
+    STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
+    DEX
+    BPL @ng
+    RTS
+
+;;  RANDO_OWEDITS: the Map edits row's mode as the flags it stands for, as
+;;  rando_newgame makes them (lut_OwEditsMode).
+ng_rowedits:
+    LDA f:OPT_NGFAR + (OPT_NG_EARLY - OPT_NG)
+    AND #OWEDITS_FIELD
+    LSR A
+    LSR A
+    LSR A                       ; the mode, in words
+    TAX
+    LDA f:RANDOFAR + lut_OwEditsMode, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:RANDOFAR + lut_OwEditsMode + 1, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    RTS
+
+;;  RANDO_OWEDITS kept as New Game's (NGF_OWEDITS), and back.
+ng_keepedits:
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA f:NGF_OWEDITS
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    STA f:NGF_OWEDITS + 1
+    LDA #1
+    STA f:NGF_HAVE
+    RTS
+ng_restoreedits:
+    LDA f:NGF_OWEDITS
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:NGF_OWEDITS + 1
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    RTS

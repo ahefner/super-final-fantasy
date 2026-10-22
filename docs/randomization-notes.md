@@ -2144,7 +2144,9 @@ Settled in review 1:
         beside it.  The vanilla map goes on to **map edits**
         (checkboxes); an alternate map skips them.  The first pass has no
         overworld select and goes as if the vanilla map were chosen (user,
-        2026-10-21).
+        2026-10-21).  The map edit screen is in the flow (built
+        2026-10-21; `options-design.md`, "New Game's screens"), and the
+        Map edits row it stood in for is on no screen.
       - Then **options** (the existing screen, less the sections that
         moved) -> **seed**, when anything needs one -> **party creation**,
         after which the world is built and placed, the roll screen up

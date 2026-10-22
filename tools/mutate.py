@@ -52,6 +52,11 @@ def build(d):
     return subprocess.run(["./build.sh"], cwd=d, capture_output=True, text=True, env=env)
 
 
+#  A mutation that loops the game forever hangs its test; that is a catch, but
+#  it has to end.  The slowest test passes in a few minutes.
+TEST_TIMEOUT = 900
+
+
 def attempt(d, f, old, new, test):
     """Build the copy d with one mutation applied (none if old is None) and
     run test there.  The verdict and the line that explains it.  The file is
@@ -73,8 +78,11 @@ def attempt(d, f, old, new, test):
         if b.returncode:
             tail = (b.stdout + b.stderr).strip().splitlines()
             return "BUILD", tail[-1] if tail else "build failed"
-        t = subprocess.run([sys.executable, "tools/test_options.py", test],
-                           cwd=d, capture_output=True, text=True)
+        try:
+            t = subprocess.run([sys.executable, "tools/test_options.py", test],
+                               cwd=d, capture_output=True, text=True, timeout=TEST_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return "FAILS", "hung: no verdict in %ds" % TEST_TIMEOUT
         out = (t.stdout + t.stderr).strip().splitlines() or ["no output"]
         #  A failing test prints "FAIL (n)" and then the failures.
         why = out[1].strip() if t.returncode == 1 and len(out) > 1 else out[0]
