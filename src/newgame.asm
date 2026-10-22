@@ -144,7 +144,9 @@ lut_NgpBit:
 ;;  randomization-notes.md, 12)
 ;;
 ;;    the list -- Custom Game, or a preset, applied as it is picked;
-;;      Vanilla and Improved Vanilla go straight on to party creation
+;;      Vanilla alone goes straight on to party creation (its file's
+;;      skip_to_party; user, 2026-10-22: Improved Vanilla is the baseline
+;;      one might customize)
 ;;    the randomization screen -- TREASURES, RANDOMIZATION, KEY ITEMS
 ;;    the map edits (owscreen.asm) -- the vanilla overworld's, overworld
 ;;      select being still to come (user: as if the vanilla map were
@@ -193,8 +195,8 @@ ng_flow:
     TAX
     LDA f:NEWGAMEFAR + lut_NgpFlow, X
     BNE @rando
-    JSR ng_rowedits             ; nothing randomized: its row's edits (none,
-    JSR ng_keepedits            ;   for Vanilla and Improved Vanilla), and
+    JSR ng_rowedits             ; no screens: its row's edits (none, for
+    JSR ng_keepedits            ;   Vanilla), and
     JSR ng_latch                ;   on to party creation, with the pool's seed
     JSR ng_party
     BCS @list                   ; B on the first character: the list again

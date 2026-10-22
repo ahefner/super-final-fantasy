@@ -5613,7 +5613,7 @@ def test_ngflow():
     """ng_flow: the list, then -- Custom Game, or a preset that randomizes --
     the randomization screen, the map edits, the options and, when anything
     is randomized, the seed; then party creation; START on, B back; Vanilla
-    and Improved Vanilla straight to party creation (menus.txt).  The screens are answered
+    alone straight to party creation (menus.txt; user, 2026-10-22).  The screens are answered
     by this test where they begin, as a player's choices, and the order
     they come in, the answer, and the options as the presets leave them are
     what is checked.  Then the randomization screen itself, a frame at a
@@ -5705,7 +5705,9 @@ def test_ngflow():
           flow([CUSTOM, FWD, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options", "party"], FWD, start))
     check("Vanilla: straight to party creation, the preset applied",
           flow([0, FWD])[0:2] + (flow([0, FWD])[2] == preset_block(0),), (["list", "party"], FWD, True))
-    check("Improved Vanilla: straight to party creation", flow([1, FWD])[:2], (["list", "party"], FWD))
+    check("Improved Vanilla: the screens all the same, the baseline one might customize (user, 2026-10-22); "
+          "no seed screen, nothing randomized",
+          flow([1, FWD, FWD, FWD, FWD])[:2], (["list", "rando", "mapedits", "options", "party"], FWD))
     check("Beginner: the randomization screen, the map edits, the options, the seed and party creation, "
           "its settings applied",
           flow([2, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
@@ -5766,14 +5768,19 @@ def test_ngflow():
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
     flow([2, FWD, BACK, BACK, NBACK])
     check("...backed out to the title: the flow not marked as run", edits["ngf"][1], 0)
-    flow([1, FWD])
-    check("Improved Vanilla: no screen; New Game's edits its row's, none", edits["ngf"], (0, 1))
+    flow([1, FWD, FWD, FWD, FWD], ticks=[0x0041])
+    check("Improved Vanilla: the map edit screen from its row's edits, none; New Game's what it ticked",
+          (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, 0)], (0x0041, 1)))
+    flow([0, FWD])
+    check("Vanilla: no screen; New Game's edits its row's, none", edits["ngf"], (0, 1))
     seen, ans, page = flow([2, BACK, NBACK])
     check("a preset backed out of: the title, the preset left applied, as the title's presets are",
           (seen, ans, page == preset_block(2)), (["list", "rando", "list"], BACK, True))
-    check("every preset but Vanilla and Improved Vanilla randomizes, so goes on to the screen",
-          list(ROMDATA[(NG & 0x1F) * 0x10000 + SYM["lut_NgpFlow"]:][:K["NGP_COUNT"]]),
-          [int(G.randomizes(p[3], P.rows())) for p in G.resolve(G.load(), P.rows())])
+    files = G.load()
+    check("every preset goes on to the screens but the one whose file says skip_to_party: Vanilla",
+          [(p[0], f) for p, f in zip(G.resolve(files, P.rows()),
+                                     ROMDATA[(NG & 0x1F) * 0x10000 + SYM["lut_NgpFlow"]:][:K["NGP_COUNT"]])],
+          [(p[0], int(p[0] != "Vanilla")) for p in G.resolve(files, P.rows())])
 
     #  The map edit screen itself, as the flow calls it.  B allowed
     #  (OWS_CANBACK) leaves it answering NGNAV_BACK -- even on edits that
@@ -6431,6 +6438,14 @@ def test_ngpresets():
     check("a checkbox given a word", (err(base + [bad_chk]) or "").split(" or ")[0], 'x.toml: "Speed hacks" is a checkbox: true')
     check("presets inheriting in a circle", (err(base + loop) or "")[:31], "presets inherit in a circle: X ")
     check("the base leaving a setting out", err([("b.toml", short)]), 'b.toml, the base, leaves out "Shops"')
+    skip_word = ("x.toml", {"name": "X", "skip_to_party": "yes", "settings": {}})
+    skip_rando = ("x.toml", {"name": "X", "skip_to_party": True, "settings": {"Shops": "Shuffle"}})
+    skip_plain = ("x.toml", {"name": "X", "skip_to_party": True, "settings": {"Gold and XP": "200%"}})
+    check("skip_to_party given a word", err(base + [skip_word]), "x.toml: skip_to_party is true or false")
+    check("...on a preset that randomizes: refused, nothing would check it can be won",
+          (err(base + [skip_rando]) or "")[:44], "x.toml: skips New Game's screens but randomi")
+    check("...on one that randomizes nothing: taken, and only there",
+          (err(base + [skip_plain]), G.skips(base + [skip_plain])), (None, [False, True]))
 
 
 # --- White Mage HARM ---------------------------------------------------------

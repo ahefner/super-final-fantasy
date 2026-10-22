@@ -263,7 +263,12 @@ from (Classic, the two shuffles, Chaos Rush and Free Enterprise start from
 Beginner; Entrance and Floor Shuffle from Entrance Shuffle).  `title`
 names the title screen's preset an entry is (Vanilla, Improved), so the
 title's options row reads that name after choosing it; any other reads
-Custom.  The title's own three presets are untouched (user: no change to
+Custom.  `skip_to_party = true` sends a preset straight to party creation,
+past every screen of New Game's flow (`lut_NgpFlow`): Vanilla's alone
+(user, 2026-10-22: Improved Vanilla goes through them, being "the baseline
+preset one might customize"; before, every preset that randomized nothing
+skipped them).  The build refuses it on a preset that randomizes anything,
+whose world only the map edit screen checks can be won.  The title's own three presets are untouched (user: no change to
 the main menu).
 
 `tools/presetdefs.py` reads every row's label, kind, bit or scalar, and
@@ -304,10 +309,10 @@ RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
 **map edit screen** (below; the overworld select before it is skipped for
 now, the vanilla map taken), the **options**, the rest of the settings, and
 the **seed** (below), when anything is randomized.  START goes on, B back
-to the screen before; B on the list goes back to the title.  Vanilla and
-Improved Vanilla go straight on to party creation, randomizing nothing: a
-preset goes on to the randomization screen when it sets anything there
-away from its first value (genpresets' `lut_NgpFlow`).  **Party
+to the screen before; B on the list goes back to the title.  Vanilla goes
+straight on to party creation, its file saying `skip_to_party`
+(genpresets' `lut_NgpFlow`); every other preset goes through the screens,
+Improved Vanilla included (user, 2026-10-22).  **Party
 creation** is the flow's last screen (below), its B on the first
 character back to the screen before; the world is built after it, the roll
 screen up meanwhile, and the game begins.  Both settings screens are the
@@ -342,8 +347,8 @@ ticked last, B having kept it.  What it leaves goes to `NGF_OWEDITS`
 (`MENURAM`, which party creation's clearing of the save block's page
 leaves alone), and at the flow's end `NGF_ACTIVE` tells `rando_newgame` to
 take those edits as they are -- no row expanded, no screen brought up
-again, the mark cleared as it is used.  Vanilla and Improved Vanilla take
-their row's edits, Off, without a screen.  Before the screen comes up,
+again, the mark cleared as it is used.  Vanilla takes its row's edits,
+Off, without a screen.  Before the screen comes up,
 `ng_settings` copies the options' new-game bytes into the save block,
 where its check reads the settings.  `rando_newgame`'s old way, the row
 expanded and the screen up when it is not Off or when the settings cannot
@@ -433,7 +438,7 @@ and back.  B on the first character, which went round to it again, now
 leaves with C set (`ngparty_back.patch`, a branch to the RTS between the
 two), and the flow goes back a screen: the seed, showing the seed chosen
 as it was left (latched, or typed with the hand hidden); the options, when
-nothing needed a seed; or the list, for Vanilla and Improved Vanilla.  A
+nothing needed a seed; or the list, for Vanilla.  A
 party made leaves with C clear, which the last `@RecordClassAndName`
 gives (X = $30, its two ASLs shifting out zeros).  The flow is marked as
 run (`NGF_ACTIVE`) only once party creation goes on.  Coming back to

@@ -2131,8 +2131,10 @@ Settled in review 1:
     Game opens a list: Custom Game, then the presets (`presets/*.toml`;
     the presets and the list built 2026-10-21; `options-design.md`, "New
     Game's presets" and "New Game's list").
-      - Vanilla and Improved Vanilla randomize nothing and go straight to
-        party creation.
+      - Vanilla randomizes nothing and goes straight to party creation.
+        Improved Vanilla did too until the user changed it (2026-10-22):
+        it goes through the screens, as "the baseline preset one might
+        customize" -- its file has no `skip_to_party`.
       - Custom Game, and every other preset, goes to the **randomization
         screen** first (built 2026-10-21, with the options after it): the shuffles, the key item and incentive rows, the
         Early flags, Map shuffle, and the TREASURES rows -- everything

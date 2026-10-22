@@ -5,6 +5,10 @@
 # Vanilla too.
 name = "Vanilla"
 title = "Vanilla"
+# Straight to party creation, past New Game's screens: the only preset that
+# does (user, 2026-10-22).  Every other goes through them, Improved Vanilla
+# included, as the baseline one might customize.
+skip_to_party = true
 description = """
 The original game, with nothing added and nothing randomized.
 """

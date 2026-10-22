@@ -8,6 +8,9 @@ the build and says where.
 name = "Beginner"                 # what the list shows, up to 28 characters
 inherit = "Improved Vanilla"      # optional: the preset to start from
 title = "Improved"                # optional: the title screen's preset this is
+skip_to_party = false             # optional: true goes straight to party creation,
+                                  #   past every New Game screen (Vanilla only;
+                                  #   not with anything randomized)
 description = """
 Up to five lines of 28 once wrapped, in the game's font: letters, digits,
 space and ' , . - ! ? % + -- no colon.
