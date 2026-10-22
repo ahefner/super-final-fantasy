@@ -723,7 +723,9 @@ opt_titleupdown:
 ;;  makes about a button, so that its call site in bank $0E, which has no
 ;;  bytes to spare, is a call and three branches.
 ;;
-;;    A or Start on Continue or New Game leaves the title screen, as ever.
+;;    A or Start on Continue or New Game leaves the title screen, as ever --
+;;      New Game through its screens first (ng_flow), and Continue too when
+;;      there is no save to load, which the game makes a New Game.
 ;;    A or Start on the mode row opens the settings, and on Credits the
 ;;      credits.
 ;;    Select on Continue opens the save view (opt_saveview), if there is a
@@ -761,6 +763,10 @@ opt_titlechoose:
     BCS @screen
     CMP #1
     BEQ @newgame
+    ;  Continue with no save it would load is a New Game, as the game makes
+    ;  it -- and New Game's party is made in its flow now, so through that.
+    JSR opt_savevalid
+    BCS @newgame
     CLC                         ; Continue: C clear...
     LDA #$01                    ; ...and Z and N clear
     RTL

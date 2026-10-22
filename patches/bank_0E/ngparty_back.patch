@@ -1,0 +1,12 @@
+--- OLD
+  @Char_0:                      ; To Character generation for each of the 4 characters
+    LDA #$00                    ;   branching back to the previous char if the user
+    STA char_index              ;   cancelled by pressing B
+    JSR DoPartyGen_OnCharacter
+    BCS @Char_0
+--- NEW
+  @Char_0:                      ; To Character generation for each of the 4 characters
+    LDA #$00                    ;   branching back to the previous char if the user
+    STA char_index              ;   cancelled by pressing B
+    JSR DoPartyGen_OnCharacter
+    BCS NewGamePartyBack        ; ...but the first: back into New Game's flow, C set

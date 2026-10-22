@@ -577,21 +577,22 @@ rando_stir:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_newgame -- give the game being started its world
 ;;
-;;  Called from opt_freestuff, at the top of NewGamePartyGeneration, after
-;;  page 0 of unsram has been filled from lut_InitUnsramFirstPage.  Takes the
-;;  New Game flow's seed (NGF_SEED, ng_flow) -- or, without the flow, the
-;;  pool's (or FFSEED's, in a debug build) -- and copies the
-;;  settings screen's new-game rows in beside it, places the key items, and
-;;  builds the cache: all of New Game's work in one pause, before the party
-;;  is rolled.  Party creation touches neither page 0 nor the cache, so
-;;  GameStart's @Begin, which follows it, finds the cache whole and only
-;;  compares the tag.
+;;  Called from opt_freestuff, from NewGamePartyGeneration, after page 0 of
+;;  unsram has been filled from lut_InitUnsramFirstPage and New Game's flow
+;;  has made the party (ng_flow; since 2026-10-21 the world is built after
+;;  it, as menus.txt has it).  Takes the flow's seed (NGF_SEED) -- or,
+;;  without the flow, the pool's (or FFSEED's, in a debug build) -- and
+;;  copies the settings screen's new-game rows in beside it, places the key
+;;  items, and builds the cache: all of New Game's work in one pause.  The
+;;  starting stats come after, and touch neither page 0 nor the cache, so
+;;  GameStart's @Begin finds the cache whole and only compares the tag.
 ;;
-;;  The map edit screen, when it comes up, plays the title's music on
-;;  (owscreen.asm).  Nothing calls the music driver after it, and the SPC700
-;;  would hold the title's last note through the rest: silence then, as
-;;  @Begin does.  Party creation turns the channels back on as it starts (its
-;;  LDA #$0F, $4015).
+;;  The title's music plays on through the flow and party creation, and,
+;;  without the flow, through the map edit screen (owscreen.asm).  Nothing
+;;  calls the music driver after, and the SPC700 would hold the title's last
+;;  note through the roll: silence then, as @Begin does.  The roll screen
+;;  ends with no track, PrepOverworld starting the overworld's, as after a
+;;  cold build.
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -725,15 +726,14 @@ rando_newgame:
     JSL rando_place + RANDOFAR
     ;  ...and the world itself, now rather than at @Begin.
     JSL rando_ensure + RANDOFAR
-    ;  The fanfare, the fade, the title's music again for party creation, and
-    ;  the PPU back to the HAL.
-    LDA #TITLEMUSIC
+    ;  The fanfare, the fade, and the PPU back to the HAL; no track, the
+    ;  overworld starting its own.
+    LDA #0
     JSL roll_end + ROLLFAR
     PLX
     PLP
     RTL
 
-TITLEMUSIC = $41                ; IntroTitlePrepare's, which party creation hears
 BRIDGEFAR  = (CHUNK0 * $10000) + bridge_x   ; and bridge_y after it
 SHIPFAR    = (CHUNK0 * $10000) + ship_x     ; and ship_y
 .assert bridge_y = bridge_x + 1, error, "bridge_y follows bridge_x"

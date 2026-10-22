@@ -305,11 +305,12 @@ RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
 now, the vanilla map taken), the **options**, the rest of the settings, and
 the **seed** (below), when anything is randomized.  START goes on, B back
 to the screen before; B on the list goes back to the title.  Vanilla and
-Improved Vanilla go straight on, randomizing nothing: a preset goes on to
-the randomization screen when it sets anything there away from its first
-value (genpresets' `lut_NgpFlow`).  Then New Game goes on as before --
-party creation, the roll -- until the next step builds the world after
-party creation, and its B goes back into these.  Both settings screens are the
+Improved Vanilla go straight on to party creation, randomizing nothing: a
+preset goes on to the randomization screen when it sets anything there
+away from its first value (genpresets' `lut_NgpFlow`).  **Party
+creation** is the flow's last screen (below), its B on the first
+character back to the screen before; the world is built after it, the roll
+screen up meanwhile, and the game begins.  Both settings screens are the
 engine's windows: the options everything above TREASURES
 (`ROW_TREASURES`), the randomization screen TREASURES to the list's rows,
 and the engine answers `NGNAV_FORWARD` for START and `NGNAV_BACK` for B.
@@ -347,8 +348,10 @@ their row's edits, Off, without a screen.  Before the screen comes up,
 where its check reads the settings.  `rando_newgame`'s old way, the row
 expanded and the screen up when it is not Off or when the settings cannot
 be won without edits, is now reached only by the tests, every New Game
-coming through the flow; step 5, which builds the world after party
-creation, will take it out with the tests that drive it.
+coming through the flow -- Continue with no save too, since party
+creation moved into it.  Taking it out means moving `test_owscreen`'s and
+`test_winnable`'s New Game cases onto the flow's call of the screen; not
+done yet.
 `test_ngflow` answers the map edit screen too: what each start gives it,
 B from it back to the randomization screen and from the options back to
 it, the ticks kept, and the settings in the save block when it comes up;
@@ -413,6 +416,56 @@ and the pool's without.  26 mutations, 25 caught; the one missed is
 equivalent today, `opt_needseed`'s checkbox path, the randomization screen
 having no checkbox rows -- kept for the first it gets, which the row by
 row check will then hold.
+
+**Party creation in the flow** (built 2026-10-21, not yet played).  The
+game's party creation is the flow's last screen, after the seed -- so
+that a seeded feature, such as class blursings, could show there what the
+party is choosing between (user) -- and the world is built after it, as
+menus.txt has it.  Bank $0E's `NewGamePartyGeneration` is split
+(`patches/bank_0E/optfreestuff.patch`): `NewGamePartyUI`, the game's
+screens as they were, which the flow calls through `OptCallFar`
+(`ng_party`); and what GameStart still calls, now only `opt_freestuff` --
+the world, the roll screen up meanwhile, and the Treasures rows' gifts --
+and back.  B on the first character, which went round to it again, now
+leaves with C set (`ngparty_back.patch`, a branch to the RTS between the
+two), and the flow goes back a screen: the seed, showing the seed chosen
+as it was left (latched, or typed with the hand hidden); the options, when
+nothing needed a seed; or the list, for Vanilla and Improved Vanilla.  A
+party made leaves with C clear, which the last `@RecordClassAndName`
+gives (X = $30, its two ASLs shifting out zeros).  The flow is marked as
+run (`NGF_ACTIVE`) only once party creation goes on.  Coming back to
+party creation starts it afresh, as the game always did.  The split cost
+bank $0E one byte, of the two it had at its end.
+
+  - The title's music plays on from the title through every screen to the
+    end of party creation, whose frames drive it as they always did; the
+    roll screen comes after, and ends with no track (`roll_end` given 0,
+    not the title's $41 again), `PrepOverworld` starting the overworld's,
+    as after a cold build.
+  - Party creation loads its own CHR and palettes; the flow's screens it
+    goes back to need none of what differs.  Its background tiles and
+    palettes are the title's own (`LoadMenuBGCHRAndPalettes`), its sprite
+    tiles its classes' but with the hand among them, and the engine loads
+    its two checkbox tiles itself.
+  - Continue with no save the game would load was a New Game -- GameStart
+    falls through to party creation -- which without the flow would start
+    a party never made.  `opt_titlechoose` now asks `opt_savevalid`, the
+    game's own tests, and sends that Continue through the flow.
+
+`test_ngparty` runs `NewGamePartyUI` through the trampoline as the flow
+does, a frame at a time: B on the first character answering C set; a party
+named and confirmed answering C clear with each class and name recorded;
+B on the second going back to the first, not out; and
+`NewGamePartyGeneration` building the world and returning without party
+creation.  `test_ngflow` answers party creation as the flow's last screen
+on every path, and B from it back to the seed (the one typed, still
+typed; the one latched, not latched again), the options or the list, the
+flow not marked as run until it goes on.  `test_saveview`: Continue with
+no save through the flow, on and backed out of; `test_roll`: no track
+after the fanfare.  Nine mutations, eight caught; the one missed is
+equivalent -- the flow marked as run before party creation rather than
+after -- since every way back to the title passes the list, which clears
+the mark.
 
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
@@ -2868,8 +2921,10 @@ text region in the game references.
                              -- and 33 never executed where the DRINK
                              choice used to be
     BANK_0D      212 free
-    BANK_0E       37 free    12 declared unused at $BFF4, after House MP took
-                             four; 25 NOPs in the old LoadShopInventory.
+    BANK_0E       36 free    12 declared unused at $BFF4, after House MP took
+                             four; 25 NOPs in the old LoadShopInventory;
+                             one byte at the end, New Game's party split
+                             having taken the other (2026-10-21).
                              Besides: 28 zero bytes after TitleScreen_Music,
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs

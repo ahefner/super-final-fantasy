@@ -5611,8 +5611,9 @@ def test_menuscratch():
 # --- New Game's screens, in turn ----------------------------------------------------
 def test_ngflow():
     """ng_flow: the list, then -- Custom Game, or a preset that randomizes --
-    the randomization screen and the options; START on, B back; Vanilla
-    and Improved Vanilla straight on (menus.txt).  The screens are answered
+    the randomization screen, the map edits, the options and, when anything
+    is randomized, the seed; then party creation; START on, B back; Vanilla
+    and Improved Vanilla straight to party creation (menus.txt).  The screens are answered
     by this test where they begin, as a player's choices, and the order
     they come in, the answer, and the options as the presets leave them are
     what is checked.  Then the randomization screen itself, a frame at a
@@ -5622,7 +5623,7 @@ def test_ngflow():
     OWS = 0xA1 + K["CHUNK_OWS"]
     names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
              (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
-             (OPTMENU_BANK, SYM["seed_choose"]): "seed"}
+             (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party"}
     NGSEED, NGTYPED = K["NGF_SEED"] - 0x7E0000, K["NGF_TYPED"] - 0x7E0000
     POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
@@ -5666,6 +5667,11 @@ def test_ngflow():
                     if tick:
                         t = tick.pop(0)
                         bus.sram[OWE], bus.sram[OWE + 1] = t & 0xFF, t >> 8
+                if here == "party":             # bank $0E's, by RTS into OptCallFar: C set for B
+                    cpu.p = (cpu.p & ~1) | (answers.pop(0) == BACK)
+                    lo, hi = cpu.pull(), cpu.pull()
+                    cpu.pc = ((lo | hi << 8) + 1) & 0xFFFF
+                    continue
                 if here == "seed":
                     edits["seed"].append((seed(), pool()))
                     bus.sram[POOL] ^= 0x5A          # the pool stirred meanwhile, as the frames do
@@ -5694,34 +5700,54 @@ def test_ngflow():
         return unpooled(bus)
     _, _, start = flow([NBACK])
     check("the list, B: back to the title", flow([NBACK])[:2], (["list"], BACK))
-    check("Custom Game: the randomization screen, the map edits, the options, on; the options untouched",
-          flow([CUSTOM, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options"], FWD, start))
-    check("Vanilla: straight on, the preset applied", flow([0, ])[0:2] + (flow([0])[2] == preset_block(0),),
-          (["list"], FWD, True))
-    check("Improved Vanilla: straight on", flow([1])[:2], (["list"], FWD))
-    check("Beginner: the randomization screen, the map edits, the options and the seed, its settings applied",
-          flow([2, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
-          (["list", "rando", "mapedits", "options", "seed"], FWD, True))
+    check("Custom Game: the randomization screen, the map edits, the options, party creation, on; "
+          "the options untouched",
+          flow([CUSTOM, FWD, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options", "party"], FWD, start))
+    check("Vanilla: straight to party creation, the preset applied",
+          flow([0, FWD])[0:2] + (flow([0, FWD])[2] == preset_block(0),), (["list", "party"], FWD, True))
+    check("Improved Vanilla: straight to party creation", flow([1, FWD])[:2], (["list", "party"], FWD))
+    check("Beginner: the randomization screen, the map edits, the options, the seed and party creation, "
+          "its settings applied",
+          flow([2, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "mapedits", "options", "seed", "party"], FWD, True))
     check("...B from the seed: the options, and on again",
-          flow([2, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
-          (["list", "rando", "mapedits", "options", "seed", "options", "seed"], FWD))
+          flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
+          (["list", "rando", "mapedits", "options", "seed", "options", "seed", "party"], FWD))
     check("...the seed screen given a seed latched from the pool each time it comes on, not typed",
           [(sd, p) for (sd, p) in edits["seed"]], [((p, 0), p) for (_, p) in edits["seed"]])
     check("...New Game's the one it left", edits["endseed"][0], edits["seed"][-1][0])
-    flow([2, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...or the one typed on it, marked typed", edits["endseed"][0], (0xDEADBEEF, 1))
-    flow([2, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...typed, then back to the options and on: a seed latched afresh, not typed",
           edits["seed"][1], ((edits["seed"][1][1], 0), edits["seed"][1][1]))
-    flow([0])
+    flow([0, FWD])
     check("Vanilla: no seed screen; New Game's seed latched from the pool all the same, as ever",
           edits["endseed"][0], (edits["endseed"][1], 0))
     check("Custom Game on the options as they come, nothing randomized: no seed screen",
-          flow([CUSTOM, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options"])
+          flow([CUSTOM, FWD, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options", "party"])
+
+    #  Party creation's B on its first character: back a screen -- the seed,
+    #  the options, or the list, whichever came before it -- and the seed
+    #  then the one chosen, not latched again; the flow not marked as run
+    #  until party creation goes on.
+    check("party creation, B: back to the list for Vanilla",
+          flow([0, BACK, 0, FWD])[:2], (["list", "party", "list", "party"], FWD))
+    check("...to the options for Custom Game on the defaults",
+          flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
+          (["list", "rando", "mapedits", "options", "party", "options", "party"], FWD))
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0xDEADBEEF])
+    check("...to the seed for Beginner, showing the seed typed there, still typed",
+          (seen[-4:], ans, edits["seed"][1][0]), (["seed", "party", "seed", "party"], FWD, (0xDEADBEEF, 1)))
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
+    check("...or the seed latched, the same one, not latched again though the pool stirred",
+          (edits["seed"][1][0], edits["seed"][1][0] != (edits["seed"][1][1], 0)), (edits["seed"][0][0], True))
+    flow([0, BACK, NBACK])
+    check("...and backed out to the title from there: the flow not marked as run", edits["ngf"][1], 0)
     check("B, screen by screen, back to the list and on again",
-          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD, BACK, FWD, FWD])[:2],
+          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
           (["list", "rando", "list", "rando", "mapedits", "rando", "mapedits", "options", "mapedits",
-            "options"], FWD))
+            "options", "party"], FWD))
 
     #  The map edit screen: B allowed, and where it starts.  Custom Game: its
     #  own start (the saved game's, else the row's, given); a preset: its
@@ -5729,18 +5755,18 @@ def test_ngflow():
     #  it ticked last, the flow marked as having run.
     OPEN = K["OWEDIT_OPENPROG"]
     CANBACK, KEEP = K["OWS_CANBACK"], K["OWS_KEEP"]
-    flow([CUSTOM, FWD, FWD, FWD], ticks=[0x0041])
+    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0x0041])
     check("Custom Game: the screen's own start, B allowed; New Game's edits what it ticked",
           (edits["given"], edits["ngf"]), ([(CANBACK, 0)], (0x0041, 1)))
-    flow([CUSTOM, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
+    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
     check("...the screen's check reads the options' settings, copied into the save first",
           edits["settings"], [True])
-    flow([2, FWD, FWD, BACK, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
+    flow([2, FWD, FWD, BACK, FWD, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
     check("Beginner: its row's edits (Open) kept; back from the options, the ticks kept; New Game's the last",
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
     flow([2, FWD, BACK, BACK, NBACK])
     check("...backed out to the title: the flow not marked as run", edits["ngf"][1], 0)
-    flow([1])
+    flow([1, FWD])
     check("Improved Vanilla: no screen; New Game's edits its row's, none", edits["ngf"], (0, 1))
     seen, ans, page = flow([2, BACK, NBACK])
     check("a preset backed out of: the title, the preset left applied, as the title's presets are",
@@ -6192,6 +6218,88 @@ def test_seedscreen():
         call(cpu, "opt_needseed")
         seen.append(cpu.p & 1)
     check("...each preset as genpresets judges it, the Map edits row aside", seen, want)
+
+def test_ngparty():
+    """Party creation as New Game's last screen (menus.txt): bank $0E's
+    NewGamePartyUI, which the flow calls through OptCallFar -- B on the
+    first character answering C set, back a screen, where the game went
+    round to it again; a party made answering C clear, each class and name
+    recorded.  And NewGamePartyGeneration, from GameStart, now only builds
+    the world (opt_freestuff), the party made before it."""
+    UJ = SYM["UpdateJoy"]
+    A_, B_, DOWN = 0x80, 0x40, 0x04
+    V = K["OPTCALLV"]
+    PG, CLASS, NAME = K["ptygen"], K["ch_class"] - 0x6000, K["ch_name"] - 0x6000
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def frame(bus, cpu, nes):
+        pad(bus, nes)
+        cpu.step()
+        for _ in range(5_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            cpu.step()
+        raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def party(presses):
+        """NewGamePartyUI through the trampoline, as the flow calls it, the pad
+        pressed and let go for each of presses.  Out: None if still up, else
+        C, and the four classes and names recorded."""
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.wram[V], bus.wram[V + 1] = SYM["NewGamePartyUI"] & 0xFF, SYM["NewGamePartyUI"] >> 8
+        bus.wram[K["cur_bank"]] = 0x0E
+        pad(bus, 0)
+        cpu.dbr = BANK_0E
+        if not cpu.run(BANK_0E, SYM["OptCallFar"], stop=UJ, limit=40_000_000):
+            return "never up"
+        first["classes"] = [bus.wram[PG + 0x10 * e] for e in range(4)]    # ptygen as it starts
+        for nes in presses:
+            for b in (nes, 0):
+                if not frame(bus, cpu, b):
+                    return (cpu.p & 1, [bus.sram[CLASS + 0x40 * e] for e in range(4)],
+                            [bytes(bus.sram[NAME + 0x40 * e:][:4]) for e in range(4)])
+        return None
+
+    first = {}
+    check("party creation from the flow, B on the first character: back, C set",
+          party([B_]), (1, [0] * 4, [bytes(4)] * 4))
+    defaults = first["classes"]
+    #  Each character: A to name it, A on the grid's first letter four times
+    #  and once more to end the name; then A to confirm the party.  The
+    #  second character a class on.
+    each = lambda extra: extra + [A_] + [A_] * 5
+    got = party(each([]) + each([DOWN]) + each([]) + each([]) + [A_])
+    want_classes = list(defaults)
+    want_classes[1] = (defaults[1] + 1) % 6
+    check("...a party made: on, C clear, each class and name recorded",
+          got, (0, want_classes, [bytes([0x8A] * 4)] * 4))
+    check("...B on the second character goes back to the first, as ever, not out",
+          party(each([]) + [B_, B_]), (1, [0] * 4, [bytes(4)] * 4))
+
+    #  NewGamePartyGeneration, from GameStart: the world (opt_freestuff, here
+    #  a stub that marks it ran), and no party creation.
+    stubbed = bytearray(ROMDATA)
+    at = rom_at("opt_freestuff")
+    stubbed[at:at + 7] = bytes([0xA9, 0x5A, 0x8F, 0xF0, 0x1F, 0x7E, 0x6B])     # LDA #$5A, STA $7E1FF0, RTL
+    bus, cpu = machine()
+    bus.rom = stubbed
+    in_vblank(bus)
+    cpu.dbr = BANK_0E
+    ui = []
+    step = cpu.step
+    def spy():
+        if (cpu.pbr == BANK_0E and cpu.pc == SYM["NewGamePartyUI"]) or cpu.pc == UJ:
+            ui.append(cpu.pc)                   # its screen, or any waiting on the pad
+        step()
+    cpu.step = spy
+    done = cpu.run(BANK_0E, SYM["NewGamePartyGeneration"], limit=1_000_000)
+    cpu.step = step
+    check("NewGamePartyGeneration: the world built, then back -- no party creation",
+          (done, bus.wram[0x1FF0], ui), (None, 0x5A, []))
 
 # --- New Game's presets ----------------------------------------------------------
 #  presets/*.toml, by tools/genpresets.py, applied by newgame.asm's ngp_apply
@@ -10629,8 +10737,9 @@ def test_roll():
           bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 12)
 
     #  The world rolled is the same ticked at every yield as never ticked; and
-    #  the tune heard, a yelp among it, and the fanfare after, then the title's
-    #  music for party creation, the screen dark and back with the HAL.
+    #  the tune heard, a yelp among it, and the fanfare after, then no track --
+    #  party creation came before it, and PrepOverworld starts the
+    #  overworld's -- the screen dark and back with the HAL.
     def newgame(every):
         bus, cpu = machine()
         bus.frames(every=every)
@@ -10670,9 +10779,9 @@ def test_roll():
     check("...an answer among it (this seed throws six wirings away)",
           any(a == 0x900 and val & 0xF0 == 0xB0 for a, val, _ in roll_only(log)), True)
     mus = [val for a, val, _ in log if a == K["music_track"]]
-    check("...the key item fanfare, played out, then the title's music again",
+    check("...the key item fanfare, played out, and no track after",
           (mus[0], MUSIC_DONE in mus, mus[-1], bus.wram[K["music_track"]], bus.wram[rw("ROLL_ON")]),
-          (0x54, True, 0x41, 0x41, 0))
+          (0x54, True, MUSIC_DONE, MUSIC_DONE, 0))
     check("...the screen dark, the PPU the HAL's again",
           ([val for a, val, _ in log if a == K["INIDISP"]][-1], bus.wram[K["h_paldirty"]]), (0x80, 1))
     check("never ticked: no note", [a for a, _, _ in roll_only(quiet) if a == 0x90B], [])
@@ -13058,11 +13167,16 @@ def test_saveview():
     for b in (A_, START):
         r = title(0, b)
         check("Continue, button $%02X: leave, not New Game" % b, flags(r, "shown", "N", "Z", "C"), (0, False, False, False))
+        r = title(0, b, save=False)
+        check("...with no save, which the game makes a New Game: New Game's screens, through them: "
+              "leave, New Game", flags(r, "shown", "N", "Z", "C"), (0x44, False, False, True))
         r = title(1, b)
         check("New Game, button $%02X: its screens, through them: leave, New Game" % b,
               flags(r, "shown", "N", "Z", "C"), (0x44, False, False, True))
     check("New Game, its screens, backed out of: the title rebuilt",
           flags(title(1, A_, pick=K["NGNAV_BACK"]), "shown", "Z", "N"), (0x44, True, False))
+    check("...and Continue with no save's",
+          flags(title(0, A_, save=False, pick=K["NGNAV_BACK"]), "shown", "Z", "N"), (0x44, True, False))
     #  (What the screens do, and the presets they apply: test_ngflow.)
     check("A on the mode row: the settings, then rebuild",
           flags(title(2, A_), "shown", "Z", "N"), (0x22, True, False))
@@ -13613,7 +13727,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

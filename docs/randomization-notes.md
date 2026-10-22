@@ -2177,7 +2177,8 @@ Settled in review 1:
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
         plays the error sound.  Built 2026-10-21 (`options-design.md`, "New
-        Game's screens"); party creation's B back to it is the next step.
+        Game's screens"), and party creation after it, its B on the first
+        character back a screen, the world built after it.
       - The prologue's music plays on, uninterrupted, through every screen
         to party creation, whose own vanilla music is the same track; and
         L + X / L + Y reset from all of them.
