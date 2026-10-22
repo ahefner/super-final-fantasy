@@ -5621,14 +5621,17 @@ def test_ngflow():
     NG = 0xA1 + K["CHUNK_NEWGAME"]
     OWS = 0xA1 + K["CHUNK_OWS"]
     names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
-             (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits"}
+             (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
+             (OPTMENU_BANK, SYM["seed_choose"]): "seed"}
+    NGSEED, NGTYPED = K["NGF_SEED"] - 0x7E0000, K["NGF_TYPED"] - 0x7E0000
+    POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
     NGF = K["NGF_OWEDITS"] - 0x7E0000
     FWD, BACK, CUSTOM, NBACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"], K["NGPICK_CUSTOM"], K["NGPICK_BACK"]
 
     edits = {}
 
-    def flow(script, ticks=(), ng=None):
+    def flow(script, ticks=(), ng=None, typed=()):
         """Run ng_flow, each screen answering the next of script; the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
         noting what it was given (its A, and RANDO_OWEDITS).  Out: the
@@ -5639,14 +5642,18 @@ def test_ngflow():
         ngoff, ngsize = K["OPT_NG"] - 0x6000, K["OPT_NG_SIZE"]
         if ng is not None:
             bus.sram[ngoff:ngoff + ngsize] = bytes(ng)
+        bus.sram[POOL:POOL + 4] = (0x2468ACE1).to_bytes(4, "little")    # a pool to tell from none
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
-        seen, answers, tick = [], list(script), list(ticks)
-        edits["given"], edits["ngf"], edits["settings"] = [], None, []
+        seen, answers, tick, typing = [], list(script), list(ticks), list(typed)
+        edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
+        seed = lambda: (int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little"), bus.wram[NGTYPED])
+        pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
         for _ in range(2_000_000):
             if cpu.pc == 0xFFFE:
                 edits["ngf"] = (bus.wram[NGF] | bus.wram[NGF + 1] << 8, bus.wram[NGF + 4])
-                return seen, cpu.a & 0xFF, bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+                edits["endseed"] = (seed(), pool())
+                return seen, cpu.a & 0xFF, unpooled(bus)
             here = names.get((cpu.pbr, cpu.pc))
             if here:
                 seen.append(here)
@@ -5659,6 +5666,12 @@ def test_ngflow():
                     if tick:
                         t = tick.pop(0)
                         bus.sram[OWE], bus.sram[OWE + 1] = t & 0xFF, t >> 8
+                if here == "seed":
+                    edits["seed"].append((seed(), pool()))
+                    bus.sram[POOL] ^= 0x5A          # the pool stirred meanwhile, as the frames do
+                    if typing:
+                        bus.wram[NGSEED:NGSEED + 4] = typing.pop(0).to_bytes(4, "little")
+                        bus.wram[NGTYPED] = 1
                 cpu.a = answers.pop(0)
                 lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # as its RTL
                 cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
@@ -5666,12 +5679,19 @@ def test_ngflow():
             cpu.step()
         raise RuntimeError("ng_flow ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
 
+    def unpooled(bus):
+        """The option page but for the pool, which the frames stir."""
+        page = bytearray(bus.sram[OPTBLOCK - 0x6000:][:256])
+        at = K["RANDO_POOL"] - OPTBLOCK
+        page[at:at + 4] = bytes(4)
+        return bytes(page)
+
     def preset_block(i):
         bus, cpu = machine()
         call(cpu, "opt_init")
         cpu.a = i
         call(cpu, "ngp_apply")
-        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+        return unpooled(bus)
     _, _, start = flow([NBACK])
     check("the list, B: back to the title", flow([NBACK])[:2], (["list"], BACK))
     check("Custom Game: the randomization screen, the map edits, the options, on; the options untouched",
@@ -5679,9 +5699,25 @@ def test_ngflow():
     check("Vanilla: straight on, the preset applied", flow([0, ])[0:2] + (flow([0])[2] == preset_block(0),),
           (["list"], FWD, True))
     check("Improved Vanilla: straight on", flow([1])[:2], (["list"], FWD))
-    check("Beginner: the randomization screen, the map edits and the options, its settings applied",
-          flow([2, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD])[2] == preset_block(2),),
-          (["list", "rando", "mapedits", "options"], FWD, True))
+    check("Beginner: the randomization screen, the map edits, the options and the seed, its settings applied",
+          flow([2, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "mapedits", "options", "seed"], FWD, True))
+    check("...B from the seed: the options, and on again",
+          flow([2, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
+          (["list", "rando", "mapedits", "options", "seed", "options", "seed"], FWD))
+    check("...the seed screen given a seed latched from the pool each time it comes on, not typed",
+          [(sd, p) for (sd, p) in edits["seed"]], [((p, 0), p) for (_, p) in edits["seed"]])
+    check("...New Game's the one it left", edits["endseed"][0], edits["seed"][-1][0])
+    flow([2, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    check("...or the one typed on it, marked typed", edits["endseed"][0], (0xDEADBEEF, 1))
+    flow([2, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF])
+    check("...typed, then back to the options and on: a seed latched afresh, not typed",
+          edits["seed"][1], ((edits["seed"][1][1], 0), edits["seed"][1][1]))
+    flow([0])
+    check("Vanilla: no seed screen; New Game's seed latched from the pool all the same, as ever",
+          edits["endseed"][0], (edits["endseed"][1], 0))
+    check("Custom Game on the options as they come, nothing randomized: no seed screen",
+          flow([CUSTOM, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options"])
     check("B, screen by screen, back to the list and on again",
           flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD, BACK, FWD, FWD])[:2],
           (["list", "rando", "list", "rando", "mapedits", "rando", "mapedits", "options", "mapedits",
@@ -5699,7 +5735,7 @@ def test_ngflow():
     flow([CUSTOM, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
     check("...the screen's check reads the options' settings, copied into the save first",
           edits["settings"], [True])
-    flow([2, FWD, FWD, BACK, FWD, FWD], ticks=[0x0003, 0x0007])
+    flow([2, FWD, FWD, BACK, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
     check("Beginner: its row's edits (Open) kept; back from the options, the ticks kept; New Game's the last",
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
     flow([2, FWD, BACK, BACK, NBACK])
@@ -5764,10 +5800,18 @@ def test_ngflow():
     bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_ALL"] << K["OWEDITS_SHIFT"]   # the row would bring it up
     ngf = K["NGF_OWEDITS"] - 0x7E0000
     bus.wram[ngf], bus.wram[ngf + 1], bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 0x41, 0x00, 1
+    bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
     shown = newgame_pressing(bus, cpu, [])
-    check("rando_newgame after the flow: the flow's edits, no screen, the mark used up",
-          (int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"), shown, bus.wram[K["NGF_ACTIVE"] - 0x7E0000]),
-          (0x0041, 0, 0))
+    RS = K["RANDO_SEED"] - 0x6000
+    check("rando_newgame after the flow: the flow's edits and seed, no screen, the mark used up",
+          (int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"), int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"),
+           shown, bus.wram[K["NGF_ACTIVE"] - 0x7E0000]), (0x0041, 0xC0FFEE11, 0, 0))
+    bus, cpu = machine()
+    bus.frames()
+    bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
+    bus.sram[POOL:POOL + 4] = (0x13572468).to_bytes(4, "little")
+    newgame_pressing(bus, cpu, [])
+    check("...and without it, the pool's, as ever", int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"), 0x13572468)
 
     #  The randomization screen: its rows TREASURES to the key items' last,
     #  opening on Starting items; START on, B back.
@@ -5921,6 +5965,233 @@ def test_ngscreen():
     after = [screen(bus, i) for i in range(bus.wram[TOP], bus.wram[TOP] + 20)]
     check("a window's end: nothing drawn past it", (after[:10], after[10:]), (before[:10], [""] * 10))
 
+
+def test_seedscreen():
+    """New Game's seed screen (seedscreen.asm; menus.txt): the seed given,
+    and a grid of the sixteen hex digits to type another.  A types the digit
+    under the hand, the first blanking the seed shown; B takes the last back,
+    and goes back a screen on the seed as given or with nothing typed; the
+    eighth hides the hand, and A or START then goes on; START goes on with
+    the seed as given, and before all eight are in plays the error sound.
+    Run a frame at a time, the pad pressed as a player would.  And
+    opt_needseed, which decides whether it comes up at all."""
+    import genpresets as G, presetdefs as P
+    UJ = SYM["UpdateJoy"]
+    A_, B_, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x10, 0x08, 0x04, 0x02, 0x01
+    W = lambda name: K[name] - 0x7E0000
+    SEED, TYPED, NT, OAM = W("NGF_SEED"), W("NGF_TYPED"), W("NESNT"), K["oam"]
+    FWD, BACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"]
+    MOVE, SELSFX, MUSIC = SYM["opt_sfx_move"], SYM["opt_sfx_sel"], SYM["CallMusicPlay"]
+    W4007, PADRESET = SYM["nesio_w4007"], SYM["opt_padreset"]
+
+    def text(bus, row, col, n):
+        return "".join(_decode(b) or "?" for b in bus.wram[NT + row * 32 + col:NT + row * 32 + col + n])
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    counts = {}
+
+    def frame(bus, cpu, nes):
+        """One pass of the loop, from one pad read to the next, counting
+        what it called; False once the screen has returned."""
+        pad(bus, nes)
+        for k in ("move", "sel", "music", "w4007", "reset"):
+            counts[k] = 0
+        cpu.step()
+        for _ in range(3_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            counts["move"] += cpu.pc == MOVE and cpu.pbr == OPTMENU_BANK
+            counts["sel"] += cpu.pc == SELSFX and cpu.pbr == OPTMENU_BANK
+            counts["music"] += cpu.pc == MUSIC
+            counts["w4007"] += cpu.pc == W4007
+            counts["reset"] += cpu.pc == PADRESET
+            cpu.step()
+        raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def press(bus, cpu, nes):
+        return frame(bus, cpu, nes) and frame(bus, cpu, 0)
+
+    def up(seed=0x1A2B3C4D, typed=0):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        bus.wram[SEED:SEED + 4] = seed.to_bytes(4, "little")
+        bus.wram[TYPED] = typed
+        in_vblank(bus)
+        pad(bus, 0)
+        cpu.run(OPTMENU_BANK, SYM["seed_choose"], stop=UJ, limit=20_000_000)
+        frame(bus, cpu, 0)                       # out of the entry's wait for release
+        return bus, cpu
+
+    def leave(bus, cpu, nes):
+        """Press and let go until the screen returns: its answer, the seed and
+        the typed mark; None if it stays."""
+        more = frame(bus, cpu, nes)
+        for _ in range(8):
+            if not more:
+                return (cpu.a & 0xFF, int.from_bytes(bytes(bus.wram[SEED:SEED + 4]), "little"), bus.wram[TYPED])
+            more = frame(bus, cpu, 0)
+        return None
+
+    def hand(bus):
+        return (bus.wram[OAM + 3], bus.wram[OAM]) if bus.wram[OAM] < 0xEF else None
+
+    def at(digit):
+        """Where the hand stands for a digit: two cells before it, a pixel
+        above its row, as the settings screen's stands by its box."""
+        return ((10 + 4 * (digit & 3)) * 8 - 16, (8 + 2 * (digit >> 2)) * 8 - 1)
+
+    def type_(bus, cpu, digits):
+        """Walk the hand to each digit by the shortest wrap and press A."""
+        for d in digits:
+            here = bus.wram[W("MENURAM") + 0x20]
+            dr, dc = (d >> 2) - (here >> 2), (d & 3) - (here & 3)
+            for _ in range(dr % 4):
+                press(bus, cpu, DOWN)
+            for _ in range(dc % 4):
+                press(bus, cpu, RIGHT)
+            press(bus, cpu, A_)
+
+    bus, cpu = up()
+    check("the screen: SEED, the seed given, the grid of sixteen digits",
+          (text(bus, 1, 4, 4), text(bus, 4, 12, 8), [text(bus, 8 + 2 * r, 10, 13) for r in range(4)]),
+          ("SEED", "1A2B3C4D", ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]))
+    check("...described in the pane", pane(bus),
+          ["The world is built from this", "seed -- the same seed and", "settings, the same world.",
+           "START keeps it, or type one", "of your own, eight digits."])
+    check("...the hand on 0", hand(bus), at(0))
+    frame(bus, cpu, 0)
+    check("...each frame the music and the menus' reset check, as the settings screen's",
+          (counts["music"], counts["reset"]), (1, 1))
+    moves = []
+    for b in (RIGHT, LEFT, LEFT, UP, DOWN, DOWN, RIGHT):
+        press(bus, cpu, b)
+        moves.append((bus.wram[W("MENURAM") + 0x20], hand(bus)))
+    check("the hand moves, wrapping at each edge as the name input's does",
+          moves, [(d, at(d)) for d in (1, 0, 3, 15, 3, 7, 4)])
+    frame(bus, cpu, RIGHT)
+    check("...with the move's chirp", counts["move"], 1)
+    frame(bus, cpu, 0)
+    check("START on the seed given: on, the seed as it was, not typed",
+          leave(*up(), START), (FWD, 0x1A2B3C4D, 0))
+    check("B on the seed given: back", leave(*up(), B_), (BACK, 0x1A2B3C4D, 0))
+
+    #  Typing.
+    bus, cpu = up()
+    press(bus, cpu, RIGHT)
+    frame(bus, cpu, A_)
+    check("A on 1: the seed blanked but for it, with the select's chirp, the hand still on 1",
+          (text(bus, 4, 12, 8), counts["sel"], hand(bus)), ("1-------", 1, at(1)))
+    frame(bus, cpu, 0)
+    type_(bus, cpu, [0xC, 0xA])
+    check("...and C, A", text(bus, 4, 12, 8), "1CA-----")
+    frame(bus, cpu, START)
+    check("START with three in: refused, the error sound begun -- square 1, the triangle's reload and "
+          "the noise silenced, square 2 the sound's",
+          (text(bus, 4, 12, 8), bus.wram[APUSHADOW], bus.wram[APUSHADOW + 8], bus.wram[APUSHADOW + 0x0C],
+           bus.wram[K["sq2_sfx"]]), ("1CA-----", 0x30, 0x30, 0x30, 1))
+    #  (frame() runs from one pad read to the next: START's, the rest of its
+    #  pass, and the next frame's sound -- the first of the sixteen.)
+    recs = [(counts["music"], counts["w4007"], tuple(bus.wram[APUSHADOW + 4:APUSHADOW + 8]))]
+    for f in range(17):
+        frame(bus, cpu, 0)
+        recs.append((counts["music"], counts["w4007"], tuple(bus.wram[APUSHADOW + 4:APUSHADOW + 8])))
+    recs[16:] = [(m, None, None) for m, _, _ in recs[16:]]      # the music's own writes after
+    check("...sixteen frames striking square 2 as PlaySFX_Error's @Frame, no music, the last silencing it; "
+          "then the music", recs, [(0, 1, (0x8C, 0x89, 0x80, 0x00))] * 15
+          + [(0, 1, (0x30, 0x89, 0x00, 0x00))] + [(1, None, None)] * 2)
+    frame(bus, cpu, B_)
+    check("B: the last taken back, with the select's chirp", (text(bus, 4, 12, 8), counts["sel"]), ("1C------", 1))
+    frame(bus, cpu, 0)
+    press(bus, cpu, B_)
+    press(bus, cpu, B_)
+    check("...to nothing typed: all dashes, the screen still up", (text(bus, 4, 12, 8), hand(bus) is not None),
+          ("--------", True))
+    check("...and B again: back", leave(bus, cpu, B_)[0], BACK)
+
+    bus, cpu = up()
+    type_(bus, cpu, [0xD, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF])
+    check("all eight typed: the seed, the hand hidden", (text(bus, 4, 12, 8), hand(bus)), ("DEADBEEF", None))
+    press(bus, cpu, RIGHT)
+    check("...the d-pad moves nothing hidden", bus.wram[W("MENURAM") + 0x20], 0xF)
+    check("...A: on, with the seed typed, marked typed", leave(bus, cpu, A_), (FWD, 0xDEADBEEF, 1))
+    bus, cpu = up()
+    type_(bus, cpu, [0, 1, 2, 3, 4, 5, 6, 7])
+    press(bus, cpu, B_)
+    check("...or B: the last taken back, the hand again where it was", (text(bus, 4, 12, 8), hand(bus)),
+          ("0123456-", at(7)))
+    press(bus, cpu, A_)
+    check("...typed again, START: on with it", leave(bus, cpu, START), (FWD, 0x01234567, 1))
+
+    #  Back from party creation: the seed chosen.  Typed, it comes back
+    #  whole with the hand hidden, B taking a digit back; latched, as given.
+    bus, cpu = up(0x89ABCDEF, typed=1)
+    check("back to a typed seed: shown, the hand hidden", (text(bus, 4, 12, 8), hand(bus)), ("89ABCDEF", None))
+    press(bus, cpu, B_)
+    check("...B: a digit back, the hand shown", (text(bus, 4, 12, 8), hand(bus) is not None), ("89ABCDE-", True))
+    check("...START now refused", leave(bus, cpu, START), None)
+    check("back to a latched seed: as given, START on with it", leave(*up(0x00C0FFEE), START), (FWD, 0x00C0FFEE, 0))
+
+    #  Every digit through the grid, and every byte through the packing: a
+    #  seed typed reads back as typed, high nibble first.
+    rnd = random.Random(7)
+    for seed in [rnd.randrange(1 << 32) for _ in range(3)] + [0, 0xFFFFFFFF]:
+        bus, cpu = up(0x12345678)
+        type_(bus, cpu, [(seed >> (28 - 4 * i)) & 0xF for i in range(8)])
+        got = leave(bus, cpu, START)
+        if got != (FWD, seed, 1):
+            check("a typed seed reads back as typed: %08X" % seed, got, (FWD, seed, 1))
+            break
+    else:
+        check("a typed seed reads back as typed, five of them", True, True)
+
+    #  opt_needseed: the screen comes up when anything on the randomization
+    #  screen is away from its first value, one row at a time, and not for
+    #  the options above it or the hidden Map edits row -- genpresets' rule
+    #  for a preset's way past that screen, but for the hidden row.
+    rows = P.rows()
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    first, hidden = optrow("TREASURES"), optrow("Map edits")
+    table = rom_at("lut_OptRows")
+    def needs(setup):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        for a in range(K["OPT_FLAGS"], K["OPT_FLAGS"] + 6):
+            bus.sram[a - 0x6000] = 0
+        for a in range(K["OPT_NG"], K["OPT_NG"] + K["OPT_NG_SIZE"]):
+            bus.sram[a - 0x6000] = 0
+        setup(bus)
+        call(cpu, "opt_needseed")
+        return cpu.p & 1
+    def one(r):
+        kind, arg = ROMDATA[table + r * 32], ROMDATA[table + r * 32 + 1]
+        def setup(bus):
+            if kind == 1:
+                bus.sram[K["OPT_FLAGS"] - 0x6000 + arg // 8] |= 1 << (arg % 8)
+            else:
+                at_ = K["OPTBLOCK"] - 0x6000 + tbl("lut_ValOff", arg)
+                bus.sram[at_] |= (1 << tbl("lut_ValBit", arg)) & tbl("lut_ValMask", arg)
+        return setup
+    settable = [r for r in range(K["NGROW_HEAD"]) if ROMDATA[table + r * 32] in (1, 2)]
+    got = {r: needs(one(r)) for r in settable}
+    check("opt_needseed: nothing set, no seed", needs(lambda bus: None), 0)
+    check("...each row of the randomization screen set alone: a seed",
+          [r for r in settable if first <= r < hidden and not got[r]], [])
+    check("...an option above it, or the hidden Map edits row, set alone: none",
+          [r for r in settable if (r < first or r >= hidden) and got[r]], [])
+    presets = G.resolve(G.load(), rows)
+    want = [int(G.randomizes(p[3], [r for r in rows if r.label != "Map edits"])) for p in presets]
+    seen = []
+    for i in range(len(presets)):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        cpu.a = i
+        call(cpu, "ngp_apply", bank=0xA1 + K["CHUNK_NEWGAME"])
+        call(cpu, "opt_needseed")
+        seen.append(cpu.p & 1)
+    check("...each preset as genpresets judges it, the Map edits row aside", seen, want)
 
 # --- New Game's presets ----------------------------------------------------------
 #  presets/*.toml, by tools/genpresets.py, applied by newgame.asm's ngp_apply
@@ -10854,10 +11125,8 @@ def test_shoulders():
     value.  A press pages once; held, it does not repeat.  R joins h_joyaux
     in its own JOY1L bit, and the reset combos (L|X|Y) do not see it."""
     SEL, TOP = 0x6E, 0x6F
-    #  OPTMENU_SHPREV: MENURAM + 5, in bank $7F since 2026-10-21 (optmenu.asm).
-    AUX, SHPREV = K["h_joyaux"], int(re.search(r"^OPTMENU_SHPREV\s*=\s*MENURAM\s*\+\s*\$([0-9A-F]+)",
-                                                open(os.path.join(ROOT, "src", "optmenu.asm")).read(), re.M).group(1), 16) \
-                                 + K["MENURAM"] - 0x7E0000
+    #  OPTMENU_SHPREV: MENURAM + 5, in bank $7F since 2026-10-21 (optmenu.inc).
+    AUX, SHPREV = K["h_joyaux"], K["OPTMENU_SHPREV"] - 0x7E0000
     L, R = K["JOYAUX_L"], K["JOYAUX_R"]
     check("R is JOY1L's own bit, apart from the reset combos'", (R, R & K["PADRESET_MASK"]), (0x10, 0))
     gold = optrow("Gold and XP")
@@ -13344,7 +13613,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

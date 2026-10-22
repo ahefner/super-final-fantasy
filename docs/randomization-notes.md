@@ -2176,7 +2176,8 @@ Settled in review 1:
       - The seed screen latches a random seed and shows it; a 4x4 grid of
         hex digits edits it, A entering a digit and B deleting one; Start,
         or A once all eight digits are in, goes on, and Start before then
-        plays the error sound.
+        plays the error sound.  Built 2026-10-21 (`options-design.md`, "New
+        Game's screens"); party creation's B back to it is the next step.
       - The prologue's music plays on, uninterrupted, through every screen
         to party creation, whose own vanilla music is the same track; and
         L + X / L + Y reset from all of them.

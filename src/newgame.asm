@@ -20,6 +20,7 @@
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
 .import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose, lut_OwEditsMode
+.import opt_needseed, seed_choose
 .export ngp_apply, ng_flow
 .export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
 
@@ -146,10 +147,14 @@ lut_NgpBit:
 ;;      select being still to come (user: as if the vanilla map were
 ;;      chosen); winnable, or START is refused
 ;;    the options -- the rest of the settings
+;;    the seed (seedscreen.asm) -- when anything on the randomization
+;;      screen is set (opt_needseed); latched from the pool on the way in
 ;;
 ;;  START goes on to the next, B back to the one before; B on the list goes
-;;  back to the title.  Still to come: overworld select, the seed, and party
-;;  creation's B back into these.  Each screen takes the PPU and leaves it
+;;  back to the title.  Still to come: overworld select, and party
+;;  creation's B back into these.  New Game's seed is NGF_SEED, which
+;;  rando_newgame takes as it takes the edits: latched from the pool, as New
+;;  Game always took it, whether or not the seed screen came up.  Each screen takes the PPU and leaves it
 ;;  off, and the title or party creation builds its own after.
 ;;
 ;;  The map edits ticked are kept in NGF_OWEDITS, which rando_newgame takes
@@ -182,7 +187,7 @@ ng_flow:
     BNE @rando
     JSR ng_rowedits             ; nothing randomized: its row's edits (none,
     JSR ng_keepedits            ;   for Vanilla and Improved Vanilla), and
-    BRA @go                     ;   on to party creation
+    BRA @latch                  ;   on to party creation
   @rando:
     JSL opt_randoscreen + OPTMENUFAR
     CMP #NGNAV_BACK
@@ -213,6 +218,15 @@ ng_flow:
     JSL opt_settings + OPTMENUFAR
     CMP #NGNAV_BACK
     BEQ @mapedits
+    JSL opt_needseed + OPTMENUFAR
+    BCC @latch                  ; nothing randomized: no seed to choose
+    JSR ng_latch                ; a seed, shown to keep or type over
+    JSL seed_choose + OPTMENUFAR
+    CMP #NGNAV_BACK
+    BEQ @options
+    BRA @go
+  @latch:
+    JSR ng_latch
   @go:
     LDA #1
     STA f:NGF_ACTIVE            ; rando_newgame's to take
@@ -221,6 +235,30 @@ ng_flow:
   @back:
     LDA #NGNAV_BACK
     RTL
+
+;;  New Game's seed, NGF_SEED, from the pool -- or, in a build with FFSEED
+;;  set, that seed -- not typed.
+ng_latch:
+.ifdef FORCE_SEED
+    LDA #<(FORCE_SEED)
+    STA f:NGF_SEED
+    LDA #>(FORCE_SEED)
+    STA f:NGF_SEED + 1
+    LDA #^(FORCE_SEED)
+    STA f:NGF_SEED + 2
+    LDA #<((FORCE_SEED) >> 24)
+    STA f:NGF_SEED + 3
+.else
+    LDX #$03
+  @seed:
+    LDA f:RANDO_POOLFAR, X
+    STA f:NGF_SEED, X
+    DEX
+    BPL @seed
+.endif
+    LDA #0
+    STA f:NGF_TYPED
+    RTS
 
 ;;  The options' new-game rows into the save's settings, as rando_newgame
 ;;  copies them: rando_winnable, the map edit screen's check, reads them

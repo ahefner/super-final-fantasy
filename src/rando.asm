@@ -579,7 +579,8 @@ rando_stir:
 ;;
 ;;  Called from opt_freestuff, at the top of NewGamePartyGeneration, after
 ;;  page 0 of unsram has been filled from lut_InitUnsramFirstPage.  Takes the
-;;  seed from the pool (or from FFSEED, in a debug build) and copies the
+;;  New Game flow's seed (NGF_SEED, ng_flow) -- or, without the flow, the
+;;  pool's (or FFSEED's, in a debug build) -- and copies the
 ;;  settings screen's new-game rows in beside it, places the key items, and
 ;;  builds the cache: all of New Game's work in one pause, before the party
 ;;  is rolled.  Party creation touches neither page 0 nor the cache, so
@@ -599,6 +600,16 @@ rando_stir:
 rando_newgame:
     PHP
     PHX
+    LDA f:NGF_ACTIVE
+    BEQ @pool
+    LDX #$03                    ; the flow's, latched or typed (ng_flow)
+  @flowseed:
+    LDA f:NGF_SEED, X
+    STA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE), X
+    DEX
+    BPL @flowseed
+    BRA @seeded
+  @pool:
 .ifdef FORCE_SEED
     ;  FFSEED=xxxxxxxx ./build.sh: every new game gets this seed, so a world
     ;  can be reproduced on a console without a battery file.
@@ -618,6 +629,7 @@ rando_newgame:
     DEX
     BPL @seed
 .endif
+  @seeded:
     LDX #OPT_NG_SIZE - 1
   @ng:
     LDA f:OPT_NGFAR, X

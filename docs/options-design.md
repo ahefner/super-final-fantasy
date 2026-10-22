@@ -302,13 +302,14 @@ title's New Game, runs the screens in turn (`menus.txt`;
 that randomizes anything, the **randomization screen** -- the TREASURES,
 RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
 **map edit screen** (below; the overworld select before it is skipped for
-now, the vanilla map taken) and the **options**, the rest of the settings.
-START goes on, B back to the screen before; B on the list goes back to the
-title.  Vanilla and Improved Vanilla go straight on, randomizing nothing: a
-preset goes on to the randomization screen when it sets anything there away
-from its first value (genpresets' `lut_NgpFlow`).  Then New Game goes on as
-before -- party creation, the roll -- until the next steps put the seed
-between, and party creation's B back into them.  Both settings screens are the
+now, the vanilla map taken), the **options**, the rest of the settings, and
+the **seed** (below), when anything is randomized.  START goes on, B back
+to the screen before; B on the list goes back to the title.  Vanilla and
+Improved Vanilla go straight on, randomizing nothing: a preset goes on to
+the randomization screen when it sets anything there away from its first
+value (genpresets' `lut_NgpFlow`).  Then New Game goes on as before --
+party creation, the roll -- until the next step builds the world after
+party creation, and its B goes back into these.  Both settings screens are the
 engine's windows: the options everything above TREASURES
 (`ROW_TREASURES`), the randomization screen TREASURES to the list's rows,
 and the engine answers `NGNAV_FORWARD` for START and `NGNAV_BACK` for B.
@@ -356,6 +357,62 @@ edits given, and `rando_newgame` after the flow taking its edits without
 a screen.  `test_saveview`'s window ends at the hidden row.  Ten
 mutations, all caught.  `tools/mutate.py` now gives a test 900 seconds: a
 mutation that showed the hidden row hung `test_saveview` for good.
+
+**The seed screen** (`seedscreen.asm`, `seed_choose`; built 2026-10-21, not
+yet played).  After the options, when anything on the randomization screen
+is away from its first value (`opt_needseed`: genpresets' rule for a
+preset's way past that screen, at run time, less the hidden Map edits row,
+as map edits alone randomize nothing) -- so not for Vanilla or Improved
+Vanilla, nor for Custom Game on options that randomize nothing.  The flow
+latches a seed from the pool as it goes on to the screen (`ng_latch`; an
+`FFSEED` build's seed instead), into `NGF_SEED`, and the screen shows it,
+eight hex digits high nibble first as the save view shows a seed, above a
+grid of the sixteen digits.  As menus.txt has it: A on a digit types it,
+the first blanking the seed shown -- the rest of the eight are dashes until
+typed -- and the eighth hides the hand; B takes the last digit back, the
+hand showing again; B on the seed as given, or with nothing typed, goes
+back to the options.  START goes on with the seed as given, or with the one
+typed once all eight are in, and before then plays the game's error sound;
+with all eight in, A goes on as well.  A typed seed is kept as typed
+(`NGF_TYPED`) for the way back from party creation, which shows it whole,
+the hand hidden, B taking a digit back; a latched one comes back as given.
+Without the screen the flow latches all the same, so New Game's seed is
+always `NGF_SEED`, which `rando_newgame` takes as it takes the edits.
+
+It is laid out as the flow's other screens are -- their blue, the heading
+where the New Game list's is, the description box with a description of
+its own (`lut_DescSeed`, drawn by the engine's `opt_menu_desctext`) -- and
+handled as the game's name input is: the grid's hand wraps at each edge,
+the move's chirp on a move, the select's on A and B.  Its digits are four
+cells apart, so the hand, two cells before its digit, stands clear of the
+digit to its left (the name input's two-cell spacing puts its hand over
+the letter before).  It runs in the engine's chunk on the engine's frame:
+`WaitForVBlank_L`, so the music and the L + X / L + Y reset, the engine's
+release waits, and its pad bytes (`OPTMENU_PREV`, `_EDGE`), whose
+definitions moved to `optmenu.inc` with the screen's layout for the two
+files to share.  The error sound is the map edit screen's way of playing
+it, `PlaySFX_Error`'s writes on the screen's own frames while the screen
+goes on (`seed_sfxerr`, `seed_music`), written out again because the two
+screens are in different chunks and modes.  Its scratch is `MENURAM`+$20
+on (`SEED_SEL`, `SEED_N`, `SEED_ERR`, `SEED_DIG`).
+
+`test_seedscreen` runs it a frame at a time: the screen as drawn and
+described, the hand's wrap and chirp, START and B on the seed given,
+typing and taking back, START refused with the error sound's sixteen
+frames and no music, B down to nothing and back, all eight hiding the hand
+with the d-pad then idle, A and START going on, a typed seed and a latched
+one coming back, five seeds typed reading back as typed; and
+`opt_needseed` over every row set alone -- each of the randomization
+screen's needing a seed, the options' and the hidden row not -- and every
+preset as genpresets judges it.  `test_ngflow` the seed screen in the flow:
+after the options for a preset that randomizes, not for Custom Game on the
+defaults, B back to the options, a fresh seed latched for each visit and
+the typed mark cleared, the one left or typed New Game's, Vanilla's
+latched without it, and `rando_newgame` taking `NGF_SEED` after the flow
+and the pool's without.  26 mutations, 25 caught; the one missed is
+equivalent today, `opt_needseed`'s checkbox path, the randomization screen
+having no checkbox rows -- kept for the first it gets, which the row by
+row check will then hold.
 
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
@@ -2849,7 +2906,9 @@ text region in the game references.
                              randomizer's chunk) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  2741 free  the settings screen's descriptions; Map
+    BANK_OPTTEXT  1303 free  the settings screen's descriptions (measured
+                             2026-10-21, the presets' and the seed
+                             screen's, 141, since); Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
@@ -2860,7 +2919,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   2396 free  the randomizer; the Ordeals pillars took 622,
+    BANK_RANDO   1888 free  the randomizer (measured 2026-10-21); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -2881,7 +2940,8 @@ text region in the game references.
                              magic 416 -- its two pools 104, the deal,
                              gear_spellat and the dealt names; Map edits'
                              New Game, BRIDGE and Matoya's dock 68; Short
-                             ToFR 485, 110 of it the room
+                             ToFR 485, 110 of it the room; New Game taking
+                             the flow's edits and seed 21 + 21
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -2900,13 +2960,15 @@ text region in the game references.
                              race, the dice's sums, the normal tail, the
                              choice, the arithmetic, and gentactics.py's
                              tables (199 + 3 x 129 words + 81 words)
-    BANK_NEWGAME 13557 free  New Game's flow: its presets (2827: eight of
-                             90 pairs, names and descriptions) and
-                             ngp_apply
-    BANK_OPTMENU  9689 free  the settings screen's engine (optmenu.asm):
-                             its code, the rows and readouts (6695), a
-                             chunk of its own since 2026-10-21 so the New
-                             Game flow's screens can be more of it; it
+    BANK_NEWGAME 14507 free  New Game's flow: its presets (eight of 90
+                             pairs; their names and descriptions are in
+                             the engine's chunk and the descriptions'),
+                             ngp_apply and ng_flow (measured 2026-10-21)
+    BANK_OPTMENU  8248 free  the settings screen's engine (optmenu.asm):
+                             its code, the rows and readouts, a chunk of
+                             its own since 2026-10-21 so the New Game
+                             flow's screens can be more of it, which the
+                             seed screen is (796, with opt_needseed); it
                              reaches opt_commit by JSL now
     HALCODE     ~6200 free   not available; see below
 

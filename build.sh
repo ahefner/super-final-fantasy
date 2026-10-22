@@ -106,6 +106,7 @@ CA65_GEN="$CA65 --feature force_range"
 
 ( cd src && $CA65 -I ../gen optbank.asm -o ../out/bank_OPT.o
            $CA65 -I ../gen optmenu.asm -o ../out/bank_OPTMENU.o
+           $CA65 -I ../gen seedscreen.asm -o ../out/seedscreen.o
            $CA65 -I ../gen optdata.asm -o ../out/bank_OPTDATA.o
            $CA65 -I ../gen optshop.asm -o ../out/bank_OPTSHOP.o
            $CA65 -I ../gen nones.asm -o ../out/bank_NONES.o
@@ -124,7 +125,7 @@ CA65_GEN="$CA65 --feature force_range"
 ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/hal.o out/header.o \
     out/bank_01.o out/bank_09.o out/bank_0B.o out/bank_0C.o \
-    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o \
+    out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o out/seedscreen.o \
     out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_NONES.o out/bank_CREDITS.o out/bank_RANDO.o \
     out/bank_OPTTEXT.o out/bank_LOGIC.o out/bank_WORLD.o out/bank_ROLL.o \
     out/bank_TACTICS.o out/bank_OWS.o out/bank_NEWGAME.o
