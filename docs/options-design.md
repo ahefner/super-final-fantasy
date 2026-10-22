@@ -2711,7 +2711,10 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT     140 free   once the descriptions moved out, the None, the
+    BANK_OPT    6835 free   the settings screen's engine and rows (6695)
+                             moved to BANK_OPTMENU on 2026-10-21; before
+                             that it had 140 free once the descriptions
+                             moved out, the None, the
                              save view (259), the stack fix (45), Thief hit
                              and the starting items (207), SOFT in battle
                              (513), White Mage HARM (82), and Improved
@@ -2794,6 +2797,11 @@ text region in the game references.
     BANK_NEWGAME 13557 free  New Game's flow: its presets (2827: eight of
                              90 pairs, names and descriptions) and
                              ngp_apply
+    BANK_OPTMENU  9689 free  the settings screen's engine (optmenu.asm):
+                             its code, the rows and readouts (6695), a
+                             chunk of its own since 2026-10-21 so the New
+                             Game flow's screens can be more of it; it
+                             reaches opt_commit by JSL now
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

@@ -60,6 +60,8 @@ CHUNK_OWS       = $19           ; New Game's map edit screen
 OWSFAR          = (CHUNK0 + CHUNK_OWS) * $10000
 CHUNK_NEWGAME   = $1A           ; New Game's flow: its presets (presets/*.toml)
 NEWGAMEFAR      = (CHUNK0 + CHUNK_NEWGAME) * $10000
+CHUNK_OPTMENU   = $1B           ; the settings screen's engine and rows (optmenu.asm)
+OPTMENUFAR      = (CHUNK0 + CHUNK_OPTMENU) * $10000
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending

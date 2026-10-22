@@ -37,7 +37,7 @@
 ;  here goes on drawing the old tile after the glyph moves, which is how the
 ;  elemental dial came to read "S50".
 .export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift, lut_ValBit, lut_ValMask
-.import opt_commit_body
+.import opt_commit            ; the options bank's, by JSL (this is a chunk apart)
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
 ;  The descriptions, in CHUNK_OPTTEXT; see opt_menu_desc.
@@ -45,7 +45,9 @@
 .import WaitForVBlank_L
 .import OptCallFar, PlaySFX_MenuSel, PlaySFX_MenuMove
 
-.segment "BANK_OPT"
+.segment "BANK_OPTMENU"         ; a chunk of its own since 2026-10-21: the
+                                ;   options bank was full, and the New Game
+                                ;   flow's screens are this engine's too
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The settings screen
@@ -128,7 +130,7 @@ PAD_A     = $80
 opt_settings:
     LDA #PRESET_CUSTOM
     STA OPT_PRESET
-    JSR opt_commit_body
+    JSL opt_commit + OPTFAR
 
     PHB
     PHK
@@ -230,7 +232,7 @@ opt_menu_screen:
     ;  program bank comes back elsewhere and the next instruction at $8xxx is
     ;  whatever that bank happens to hold.  Kept next to the call it guards,
     ;  and set every pass, so nothing else touching it can strand us.
-    LDA #CHUNK_OPT
+    LDA #CHUNK_OPTMENU
     STA cur_bank
     JSR CallMusicPlay
 
@@ -524,7 +526,7 @@ opt_menu_toggle:
     EOR OPT_FLAGS, X
     STA OPT_FLAGS, X
     JSR opt_sfx_sel
-    JSR opt_commit_body
+    JSL opt_commit + OPTFAR
     JMP opt_menu_drawsel
 
 
@@ -601,7 +603,7 @@ opt_section_toggle:
     LDA OPTMENU_ANY
     BEQ @nothing                ; a section of value rows has nothing to toggle
     JSR opt_sfx_sel
-    JSR opt_commit_body
+    JSL opt_commit + OPTFAR
     JMP opt_menu_drawall
   @nothing:
     RTS
@@ -841,7 +843,7 @@ opt_menu_drawdesc:
     STA box_wd
     LDA #$00
     STA menustall               ; no stall, so DrawBox will not reach the music
-    LDA #CHUNK_OPT              ;   call -- but name this bank anyway, so the
+    LDA #CHUNK_OPTMENU              ;   call -- but name this bank anyway, so the
     STA cur_bank                ;   safety does not rest on a flag elsewhere
     JMP DrawBox
 
@@ -936,7 +938,7 @@ opt_menu_drawsel:
 ;;
 ;;  DrawBox has the same shape for the same reason and calls it a stall.
 opt_menu_breathe:
-    LDA #CHUNK_OPT              ; where CallMusicPlay has to come back to
+    LDA #CHUNK_OPTMENU              ; where CallMusicPlay has to come back to
     STA cur_bank
     JSR WaitForVBlank_L         ; ...which is also where the flush happens
     JMP CallMusicPlay
@@ -1038,7 +1040,7 @@ opt_sfx_sel:
 ;;  screen is not read as a toggle, and on the way out so the B that closed it
 ;;  does not reach the title screen.
 opt_waitrelease:
-    LDA #CHUNK_OPT
+    LDA #CHUNK_OPTMENU
     STA cur_bank                ; CallMusicPlay returns through this
   @wait:
     JSR WaitForVBlank_L
@@ -1432,7 +1434,7 @@ opt_value_adjust:
     JSR opt_sfx_move
 
   @done:
-    JSR opt_commit_body
+    JSL opt_commit + OPTFAR
     JSR opt_menu_drawsel
     ;  A row described by its value has a new description now.  A frame
     ;  between the two: the row and the pane together are more than one

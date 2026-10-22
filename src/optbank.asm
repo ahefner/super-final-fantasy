@@ -742,7 +742,7 @@ opt_titlechoose:
     BNE @nothing                ; only Continue has a save behind it
     JSR opt_savevalid
     BCS @nothing
-    JSL opt_saveview + OPTFAR
+    JSL opt_saveview + OPTMENUFAR
     BRA @shown
   @nothing:
     LDA #$FF                    ; N set
@@ -758,7 +758,7 @@ opt_titlechoose:
   @screen:
     CMP #TITLEROW_CREDITS
     BEQ @credits
-    JSL opt_settings + OPTFAR
+    JSL opt_settings + OPTMENUFAR
     BRA @shown
   @credits:
     JSL credits_screen + CREDITSFAR

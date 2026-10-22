@@ -78,11 +78,11 @@ ngp_apply:
     BMI @flag
     ;  A value row: its value into its bits.  tmp+2 the value shifted into
     ;  place, tmp+3 the mask, X the byte's offset in the option page.
-    LDA f:OPTFAR + lut_ValMask, X
+    LDA f:OPTMENUFAR + lut_ValMask, X
     STA tmp + 3
-    LDA f:OPTFAR + lut_ValBit, X
+    LDA f:OPTMENUFAR + lut_ValBit, X
     PHA
-    LDA f:OPTFAR + lut_ValOff, X
+    LDA f:OPTMENUFAR + lut_ValOff, X
     TAX
     LDA (tmp), Y
     STA tmp + 2

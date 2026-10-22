@@ -151,6 +151,36 @@ def machine():
     return bus, cpu
 
 
+def _symbanks():
+    """Each label's chunk bank, from the segment its source file defines it
+    in: BANK_X is CHUNK_X's.  A name defined in two segments is left out,
+    and so are the game's banks and the fixed bank, which call() places by
+    address as it always has."""
+    import glob
+    seen = {}
+    for f in glob.glob(os.path.join(ROOT, "src", "*.asm")):
+        seg = None
+        for line in open(f):
+            m = re.match(r'\s*\.segment\s+"(\w+)"', line)
+            if m:
+                seg = m.group(1)
+                continue
+            m = re.match(r"([A-Za-z_]\w*):", line)
+            if m and seg and seg.startswith("BANK_") and "CHUNK_" + seg[5:] in K:
+                seen.setdefault(m.group(1), set()).add(0xA1 + K["CHUNK_" + seg[5:]])
+    return {n: b.pop() for n, b in seen.items() if len(b) == 1 and n in SYM}
+
+
+def bank_of(name):
+    """The bank a routine or table of ours runs or sits in."""
+    return SYMBANK[name]
+
+
+def rom_at(name):
+    """Where a symbol of ours lies in the ROM image."""
+    return (bank_of(name) & 0x1F) * 0x10000 + SYM[name]
+
+
 def call(cpu, name, bank=None, dbr=None):
     """Run a routine.  dbr matters: a routine that reads a table in the options
     bank needs DBR pointing there, which is the rule optbank.asm states and
@@ -158,7 +188,7 @@ def call(cpu, name, bank=None, dbr=None):
     the fixed bank run with whatever the game left."""
     addr = SYM[name]
     if bank is None:
-        bank = CHUNK_OPT_BANK if addr < 0xC000 else 0xA7
+        bank = SYMBANK.get(name, CHUNK_OPT_BANK if addr < 0xC000 else 0xA7)
     if dbr is not None:
         cpu.dbr = dbr
     #  A routine that ends in RTS leaves the bank byte of the return address
@@ -1689,8 +1719,7 @@ def test_owedits():
     #  The row: a field of OPT_NG_EARLY above the four Early flags, which
     #  share the byte -- and no two of the page's fields overlap, read from
     #  the tables rather than from what this row should be.
-    optimg = (CHUNK_OPT_BANK & 0x1F) * 0x10000
-    tbl = lambda name, i: ROMDATA[optimg + SYM[name] + i]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
     n = (SYM["lut_ValTabHi"] - SYM["lut_ValTabLo"])
     fields = [(tbl("lut_ValOff", i), tbl("lut_ValMask", i), tbl("lut_ValBit", i), tbl("lut_ValCount", i))
               for i in range(n)]
@@ -5528,7 +5557,7 @@ def test_shorttofr():
 def test_ngpresets():
     import presetdefs as P, genpresets as G
     NEWGAME_BANK = 0xA1 + K["CHUNK_NEWGAME"]
-    OPT = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    OPT = (OPTMENU_BANK & 0x1F) * 0x10000      # the engine's tables
     tab = lambda name, n: ROMDATA[OPT + SYM[name]:][:n]
     rows = P.rows()
 
@@ -6675,7 +6704,7 @@ def test_bosstactics():
     got = []
     for key in ("RIGHT", "RIGHT", "RIGHT", "LEFT", "LEFT", "LEFT"):
         cpu.a = K[key]
-        call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+        call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
         text = " ".join(pane(bus))
         got.append((blk(bus, OPT_FLAGS + 5),
                     [w for w in ("eighth each", "script's", "every action") if w in text]))
@@ -9094,10 +9123,10 @@ def test_rowlabels():
     check("lut_OptRows is exported for this check", at is not None, True)
     if at is None:
         return
-    base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + at
+    base = (OPTMENU_BANK & 0x1F) * 0x10000 + at
     #  A value row with a wide readout gives its label fewer columns: the
     #  field starts 1 << shift - 4 columns early, over the gap column first.
-    shift = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValShift"]
+    shift = rom_at("lut_ValShift")
     over = []
     for i in range(COUNT):
         row = ROMDATA[base + i * STRIDE: base + (i + 1) * STRIDE]
@@ -9150,7 +9179,7 @@ def test_dialvalues():
     check("the dial value tables are exported", None not in (lo, hi, cnt), True)
     if None in (lo, hi, cnt):
         return
-    bank = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    bank = (OPTMENU_BANK & 0x1F) * 0x10000
     allowed = TEXT | {CHR_PLUS}
     stray, seen = [], 0
     for t in range(21):
@@ -9257,6 +9286,8 @@ def source_consts():
 
 
 K = source_consts()
+SYMBANK = _symbanks()                    # needs K's CHUNK_ numbers
+OPTMENU_BANK = 0xA1 + K["CHUNK_OPTMENU"]  # the settings screen's engine and rows
 RANDO_BANK = 0xA1 + K["CHUNK_RANDO"]
 WORLD_BANK = 0xA1 + K["CHUNK_WORLD"]
 ROLL_BANK = 0xA1 + K["CHUNK_ROLL"]
@@ -10057,7 +10088,7 @@ def test_rando_options():
     check("an unsealed one does not", blk(bus, ng), 0)
 
     #  The value rows find their bytes through lut_ValOff.
-    at = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_ValOff"]
+    at = rom_at("lut_ValOff")
     check("lut_ValOff: the five dials, the new-game rows, Thief hit, items",
           list(ROMDATA[at:at + 21]),
           [OPT_GOLDXP, OPT_GOLDXP + 1, OPT_GOLDXP + 2, OPT_GOLDXP + 3,
@@ -10074,7 +10105,7 @@ def test_rando_options():
     #  RANDOMIZATION heading, the randomization off -- so that a Shuffle
     #  stands out (user, 2026-10-09; Vanilla was tried and was a wall of it).
     #  The blessing and the curse read 0, a number in their range.
-    img = (CHUNK_OPT_BANK & 0x1F) * 0x10000
+    img = (OPTMENU_BANK & 0x1F) * 0x10000
     lo, hi = img + SYM["lut_ValTabLo"], img + SYM["lut_ValTabHi"]
     shift = img + SYM["lut_ValShift"]
     first = []
@@ -10110,7 +10141,7 @@ def test_rando_options():
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
             cpu.a = d
-            call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+            call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
             steps.append(bus.sram[byte - 0x6000])
         check("row %d steps and clamps" % row, steps, want)
     #  The key item rows are fields packed into bytes.  Each steps through its
@@ -10147,7 +10178,7 @@ def test_rando_options():
         for d in (1,) * count + (2,) * count:
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
             cpu.a = d
-            call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+            call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
             steps.append((bus.sram[at] & mask) >> shift)
             rest.add(bus.sram[at] & ~mask & 0xFF)
         want = list(range(1, count)) + [count - 1] + list(range(count - 2, -1, -1)) + [0]
@@ -10178,7 +10209,7 @@ def test_rando_options():
             vbus.sram[K[name] - K["OPT_NG"] + start + plus] = (count - 1) << shift
             for u in spec:
                 vcpu.x = u
-                call(vcpu, "opt_menu_valbyte", dbr=CHUNK_OPT_BANK)
+                call(vcpu, "opt_menu_valbyte", dbr=OPTMENU_BANK)
                 if (vcpu.a & 0xFF) != (count - 1 if u == s else 0):
                     bad.append((view, s, u, vcpu.a & 0xFF))
     check("each key item row, and Map shuffle, reads its own field alone", bad[:4], [])
@@ -10435,7 +10466,7 @@ def pane(bus):
 def optrow(label):
     """The row of lut_OptRows that carries this label.  Tests find rows this
     way rather than by number, which every row added above them changed."""
-    base = (CHUNK_OPT_BANK & 0x1F) * 0x10000 + SYM["lut_OptRows"]
+    base = rom_at("lut_OptRows")
     for r in range(128):
         raw = ROMDATA[base + r * K["OPTROW_STRIDE"] + 2:][:22]
         if "".join(_decode(b) or "?" for b in raw).strip() == label:
@@ -10463,7 +10494,7 @@ def test_shoulders():
         bus.sram[SHPREV] = prev
         if a is not None:
             cpu.a = a
-        call(cpu, entry, dbr=CHUNK_OPT_BANK)
+        call(cpu, entry, dbr=bank_of(entry))
         return bus.wram[SEL], bool(cpu.p & C), blk(bus, OPT_GOLDXP), bus.sram[SHPREV]
     sel0, _, gold0, _ = press(gold, 0)
     down = press(gold, R)
@@ -10525,13 +10556,13 @@ def test_menudesc():
         call(cpu, "opt_init")
         bus.sram[byte - 0x6000] = value
         bus.wram[SEL], bus.wram[TOP] = row, row - 19
-        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
         text = pane(bus)
         seen[row, value] = tuple(text)
         check("row %d value %d: its own description" % (row, value),
               phrase in " ".join(text), True)
         check("row %d value %d: the data bank put back" % (row, value),
-              cpu.dbr, CHUNK_OPT_BANK)
+              cpu.dbr, OPTMENU_BANK)
     check("each trap mode reads differently",
           len({seen[TRAPS, v] for v in range(5)}), 5)
 
@@ -10541,7 +10572,7 @@ def test_menudesc():
     call(cpu, "opt_init")
     bus.sram[K["OPT_NG_TRAPS"] - 0x6000] = 9
     bus.wram[SEL], bus.wram[TOP] = TRAPS, TRAPS - 19
-    call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+    call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
     check("an out-of-range trap value reads as Off", tuple(pane(bus)), seen[TRAPS, 0])
 
     #  An ordinary row is unchanged: one record whatever its value.
@@ -10549,7 +10580,7 @@ def test_menudesc():
         bus, cpu = machine()
         call(cpu, "opt_init")
         bus.wram[SEL], bus.wram[TOP] = row, 0
-        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
         if first:
             check("row %d: its one description" % row, pane(bus)[:1], [first])
         else:
@@ -10559,7 +10590,7 @@ def test_menudesc():
         call(cpu, "opt_init")
         setblk(bus, OPT_GOLDXP, step)
         bus.wram[SEL], bus.wram[TOP] = 3, 0
-        call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
         check("Gold and XP at step %d: the same description" % step, pane(bus), gold)
 
     #  Changing the value redraws the pane, through the menu's own adjuster.
@@ -10567,9 +10598,9 @@ def test_menudesc():
     in_vblank(bus)
     call(cpu, "opt_init")
     bus.wram[SEL], bus.wram[TOP] = TRAPS, TRAPS - 19
-    call(cpu, "opt_menu_desc", dbr=CHUNK_OPT_BANK)
+    call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
     cpu.a = K["RIGHT"]
-    call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+    call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
     check("right on Trap tiles: the pane follows", tuple(pane(bus)), seen[TRAPS, 1])
 
     #  ...and the row itself: the label whole, and the eight-wide readout
@@ -10588,7 +10619,7 @@ def test_menudesc():
           " ".join(trap.split()), "Trap tiles Shuffle")
     bus.wram[SEL], bus.wram[TOP] = 3, 0
     cpu.a = K["RIGHT"]
-    call(cpu, "opt_value_adjust", dbr=CHUNK_OPT_BANK)
+    call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
     gold = screen_row("Gold and XP")
     check("the wide readout ends where a dial's does",
           len(trap.rstrip()), len(gold.rstrip()))
@@ -12051,7 +12082,7 @@ def test_saveview():
                           re.M).group(1))
     A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     UJ = SYM["UpdateJoy"]
-    optimg = (OPT & 0x1F) * 0x10000
+    optimg = (OPTMENU_BANK & 0x1F) * 0x10000
 
     #  The rows, found by reading the table rather than taken from the asm.
     ST = K["OPTROW_STRIDE"]
@@ -12177,7 +12208,7 @@ def test_saveview():
     kept = lambda: (bytes(bus.sram[0xE00:0xE10]), bytes(bus.sram[0xEC8:0xEC8 + len(NG)]))
     before = kept()
     check("the save view draws and asks for the pad",
-          cpu.run(OPT, SYM["opt_saveview"], stop=UJ), True)
+          cpu.run(OPTMENU_BANK, SYM["opt_saveview"], stop=UJ), True)
     check("...the window: the section, from the blank above its heading",
           (bus.wram[TOP], bus.wram[SEL]), (top, first))
     check("...the heading", screen(bus, head), "SAVED GAME")
@@ -12315,7 +12346,7 @@ def test_saveview():
     #  The settings screen, after it, reads the settings again -- even with the
     #  view's flag left up, as a soft reset in the middle of the view leaves it.
     bus.wram[SEL], bus.wram[TOP] = first, top
-    call(cpu, "opt_menu_desc", dbr=OPT)
+    call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
     check("the settings describe their own Trap tiles afterwards",
           "fight it always has" in " ".join(pane(bus)), True)
     bus, cpu = machine()
@@ -12323,7 +12354,7 @@ def test_saveview():
     call(cpu, "opt_init")
     saved(bus, cpu, 0x0BADF00D, NG)
     bus.sram[VIEW] = 1
-    cpu.run(OPT, SYM["opt_settings"], stop=UJ)
+    cpu.run(OPTMENU_BANK, SYM["opt_settings"], stop=UJ)
     check("the settings after a view cut short: the settings' own, editable",
           (bus.sram[VIEW], screen(bus, 1)), (0, " ".join(label(1).split())))
 
@@ -12333,7 +12364,7 @@ def test_saveview():
     in_vblank(bus)
     call(cpu, "opt_init")
     saved(bus, cpu, 0x0BADF00D, [9] + NG[1:])
-    cpu.run(OPT, SYM["opt_saveview"], stop=UJ)
+    cpu.run(OPTMENU_BANK, SYM["opt_saveview"], stop=UJ)
     check("a saved Trap tiles of 9 reads as the first value",
           (screen(bus, first), "fight it always has" in " ".join(pane(bus))),
           (" ".join((label(first) + " " + readout(rows[first][1], 0)).split()), True))
@@ -12341,7 +12372,7 @@ def test_saveview():
     #  --- opt_titlechoose, with the three screens stubbed to say which ran.
     stubbed = bytearray(ROMDATA)
     MARK = 0x1FF0
-    for name, bank, v in (("opt_saveview", OPT, 0x11), ("opt_settings", OPT, 0x22),
+    for name, bank, v in (("opt_saveview", OPTMENU_BANK, 0x11), ("opt_settings", OPTMENU_BANK, 0x22),
                           ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33)):
         at = (bank & 0x1F) * 0x10000 + SYM[name]
         stubbed[at:at + 7] = bytes([0xA9, v, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0x6B])
