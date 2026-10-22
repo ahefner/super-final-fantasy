@@ -85,6 +85,14 @@ OWS_NT3         = OWSRAM+$2C00  ; $700: BG3's tilemap, 28 rows of 32
 OWS_VARS        = OWSRAM+$3400  ; $100: the screen's variables
 OWSRAM_END      = OWSRAM+$3500
 .assert OWSRAM >= CREDITSRAM_END, error, "the map edit screen's WRAM runs into the credits'"
+
+;  The settings screen's engine's scratch (optmenu.asm), in the gap between
+;  the credits' and the map edit screen's: never up with the credits, and
+;  apart from the map edit screen's even in New Game's flow, where they come
+;  in turn.  Reset zeroes it.
+MENURAM         = $7F0800
+MENURAM_END     = $7F0900
+.assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -5551,6 +5551,63 @@ def test_shorttofr():
     check("...UseItem_Lute calls it once", b0e.count(bytes([0x22, site & 0xFF, site >> 8, RANDO_BANK])), 1)
 
 
+# --- the settings screen leaves the derived bytes alone -------------------------
+def test_menuscratch():
+    """The settings screen's scratch lay on four derived bytes (OPTD+$07..$0A)
+    until 2026-10-21, which opt_derive writes only on a commit: leaving the
+    screen left the lineup's step at 0, and the lineup's slide never ends on
+    0.  Through the screen with the d-pad, a page, R and L, and A on a
+    heading (a section's toggle, then toggled back), and out with B: every
+    derived byte as opt_derive wrote it, for each title preset."""
+    UJ = SYM["UpdateJoy"]
+    OPTD = K["OPTD_WIPEOPEN_U"] - 0x6000
+    AUX = K["h_joyaux"]
+    bad = []
+    for preset in (0, 1, 2):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        cpu.a = preset
+        call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+        want = (bytes(bus.sram[OPTD:OPTD + 11]), bus.sram[K["OPTD_ELEMDMG"] - 0x6000])
+        def pad(nes, aux=0):
+            bus.io[0x4218] = nes & 0x80
+            bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+            bus.wram[AUX] = aux
+        pad(0)
+        cpu.run(OPTMENU_BANK, SYM["opt_settings"], stop=UJ, limit=20_000_000)
+        #  A first, on SCALE's heading where the screen opens: a section with
+        #  no checkboxes, so no commit after -- ANY's own case.
+        script = [(0x80, 0), (0, 0), (0x04, 0), (0, 0), (0x01, 0), (0, 0), (0, K["JOYAUX_R"]), (0, 0), (0, K["JOYAUX_L"]), (0, 0),
+                  (0x08, 0), (0, 0), (0x08, 0), (0, 0), (0x08, 0), (0, 0), (0x80, 0), (0, 0), (0x80, 0), (0, 0),
+                  (0x40, 0), (0, 0), (0, 0)]
+        for nes, aux in script:
+            pad(nes, aux)
+            cpu.step()
+            n = 0
+            while cpu.pc not in (UJ, 0xFFFE) and n < 8_000_000:
+                cpu.step()
+                n += 1
+            if cpu.pc == 0xFFFE:
+                break
+        got = (bytes(bus.sram[OPTD:OPTD + 11]), bus.sram[K["OPTD_ELEMDMG"] - 0x6000])
+        if cpu.pc != 0xFFFE or got != want:
+            bad.append((preset, cpu.pc == 0xFFFE, got[0].hex(" "), want[0].hex(" ")))
+    check("the settings screen visited and left: every derived byte as opt_derive wrote it", bad, [])
+
+    #  A cart that left the screen before the fix holds its scratch there --
+    #  the lineup's step 0 among it -- in the battery, with the block intact.
+    #  The next boot cooks them again.
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    cpu.a = 2
+    call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+    want = bytes(bus.sram[OPTD:OPTD + 11])
+    bus.sram[OPTD + 7:OPTD + 11] = bytes(4)
+    call(cpu, "opt_init")
+    check("...and a boot cooks them again over what an old visit left", bytes(bus.sram[OPTD:OPTD + 11]), want)
+
+
 # --- New Game's presets ----------------------------------------------------------
 #  presets/*.toml, by tools/genpresets.py, applied by newgame.asm's ngp_apply
 #  through the settings screen's own tables.  (test_presets is the title's.)
@@ -10480,7 +10537,10 @@ def test_shoulders():
     value.  A press pages once; held, it does not repeat.  R joins h_joyaux
     in its own JOY1L bit, and the reset combos (L|X|Y) do not see it."""
     SEL, TOP = 0x6E, 0x6F
-    AUX, SHPREV = K["h_joyaux"], K["OPTBLOCK"] + 0x1A - 0x6000
+    #  OPTMENU_SHPREV: MENURAM + 5, in bank $7F since 2026-10-21 (optmenu.asm).
+    AUX, SHPREV = K["h_joyaux"], int(re.search(r"^OPTMENU_SHPREV\s*=\s*MENURAM\s*\+\s*\$([0-9A-F]+)",
+                                                open(os.path.join(ROOT, "src", "optmenu.asm")).read(), re.M).group(1), 16) \
+                                 + K["MENURAM"] - 0x7E0000
     L, R = K["JOYAUX_L"], K["JOYAUX_R"]
     check("R is JOY1L's own bit, apart from the reset combos'", (R, R & K["PADRESET_MASK"]), (0x10, 0))
     gold = optrow("Gold and XP")
@@ -10491,11 +10551,11 @@ def test_shoulders():
         call(cpu, "opt_init")
         bus.wram[SEL], bus.wram[TOP] = sel, max(0, sel - 10)
         bus.wram[AUX] = aux
-        bus.sram[SHPREV] = prev
+        bus.wram[SHPREV] = prev
         if a is not None:
             cpu.a = a
         call(cpu, entry, dbr=bank_of(entry))
-        return bus.wram[SEL], bool(cpu.p & C), blk(bus, OPT_GOLDXP), bus.sram[SHPREV]
+        return bus.wram[SEL], bool(cpu.p & C), blk(bus, OPT_GOLDXP), bus.wram[SHPREV]
     sel0, _, gold0, _ = press(gold, 0)
     down = press(gold, R)
     check("R on a value row: pages down, the value untouched, R remembered",
@@ -12959,7 +13019,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

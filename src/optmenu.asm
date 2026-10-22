@@ -110,12 +110,22 @@ OPTMENU_DLINES = $79            ; ...and how many of its lines are left;
 ;  bytes this screen owns outright, and makes waiting for release trivial.
 ;  They are flags, not pointers, so they need no direct-page addressing --
 ;  which is just as well, as zero page $6E..$7B is now full.
-OPTMENU_PREV   = OPTBLOCK + $1E ; the pad as it read last frame
-OPTMENU_EDGE   = OPTBLOCK + $1F ; buttons that went down this frame
-OPTMENU_WAS    = OPTBLOCK + $1D ; the row a left/right page started on
-OPTMENU_LEFT   = OPTBLOCK + $1C ; rows still to draw before the next breath
-OPTMENU_ANY    = OPTBLOCK + $1B ; did a section toggle find a checkbox at all?
-OPTMENU_SHPREV = OPTBLOCK + $1A ; L and R as they read last frame (h_joyaux's)
+;
+;  In bank $7F (MENURAM), so long-addressed, since 2026-10-21.  They were in
+;  the option page at $1A-$1F, and four of them, SHPREV, ANY, LEFT and WAS,
+;  lay on four of the derived bytes (OPTD_LINEUP, _PALCYC, _MSGROWS and
+;  _MSGROWSREV, OPTD+$07..$0A), which opt_derive writes only on a commit and
+;  opt_init never: leaving this screen left them the screen's scratch,
+;  in the battery, until the next commit.  OPTD_LINEUP read 0 after a visit,
+;  and the lineup's slide steps by it until it passes its mark, so it would
+;  never finish.  PREV and EDGE lay on the battle's OPTBTLSOFT and
+;  OPTDRINKROW, which is scratch on scratch but moved all the same.
+OPTMENU_PREV   = MENURAM + $00  ; the pad as it read last frame
+OPTMENU_EDGE   = MENURAM + $01  ; buttons that went down this frame
+OPTMENU_WAS    = MENURAM + $02  ; the row a left/right page started on
+OPTMENU_LEFT   = MENURAM + $03  ; rows still to draw before the next breath
+OPTMENU_ANY    = MENURAM + $04  ; did a section toggle find a checkbox at all?
+OPTMENU_SHPREV = MENURAM + $05  ; L and R as they read last frame (h_joyaux's)
 OPTMENU_VIEW   = OPTBLOCK + $31 ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
@@ -240,11 +250,11 @@ opt_menu_screen:
 
     ;  Edge detection: down now and not down last frame.
     LDA joy
-    EOR OPTMENU_PREV
+    EOR f:OPTMENU_PREV
     AND joy
-    STA OPTMENU_EDGE
+    STA f:OPTMENU_EDGE
     LDA joy
-    STA OPTMENU_PREV
+    STA f:OPTMENU_PREV
 
     ;  The shoulders page, as SNES menus do: L up, R down, on any row --
     ;  a value row's left and right belong to its value, so on the dials and
@@ -260,28 +270,28 @@ opt_menu_screen:
     ;  right page there (opt_sideways), every row being read-only.
     LDA OPTMENU_VIEW
     BEQ @heard
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_B | PAD_START | PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT
-    STA OPTMENU_EDGE
+    STA f:OPTMENU_EDGE
   @heard:
 
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_B | PAD_START
     BNE @done
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_A
     BNE @act
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_DOWN
     BNE @down
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_UP
     BNE @up
-    LDA OPTMENU_EDGE
+    LDA f:OPTMENU_EDGE
     AND #PAD_LEFT | PAD_RIGHT
     BEQ @loop
 
-    LDA OPTMENU_EDGE            ; left or right: step a value row
+    LDA f:OPTMENU_EDGE            ; left or right: step a value row
     AND #PAD_RIGHT
     BNE @right
     LDA #LEFT
@@ -546,7 +556,7 @@ opt_section_toggle:
     LDA #$01
     STA OPTMENU_ALLSET
     LDA #$00
-    STA OPTMENU_ANY             ; SCALE is four dials and no boxes at all
+    STA f:OPTMENU_ANY             ; SCALE is four dials and no boxes at all
 
   @scan:
     INC OPTMENU_SCAN
@@ -560,7 +570,9 @@ opt_section_toggle:
     BEQ @decide                 ; the next section starts here
     CMP #OPTROW_CHK
     BNE @scan                   ; blanks and value rows are not part of this
-    INC OPTMENU_ANY
+    LDA f:OPTMENU_ANY
+    INC A
+    STA f:OPTMENU_ANY
     INY
     LDA (OPTMENU_ROWPTR), Y
     JSR opt_flagbit
@@ -600,7 +612,7 @@ opt_section_toggle:
     JMP @apply
 
   @finish:
-    LDA OPTMENU_ANY
+    LDA f:OPTMENU_ANY
     BEQ @nothing                ; a section of value rows has nothing to toggle
     JSR opt_sfx_sel
     JSL opt_commit + OPTFAR
@@ -867,7 +879,7 @@ opt_menu_drawall:
     LDA #$00
     STA OPTMENU_ROWNUM
     LDA #OPTLIST_CHUNK
-    STA OPTMENU_LEFT
+    STA f:OPTMENU_LEFT
   @row:
     LDA OPTMENU_ROWNUM
     CLC
@@ -880,11 +892,13 @@ opt_menu_drawall:
     JSR opt_menu_blankrow
   @next:
     INC OPTMENU_ROWNUM
-    DEC OPTMENU_LEFT
+    LDA f:OPTMENU_LEFT
+    DEC A
+    STA f:OPTMENU_LEFT
     BNE @more                   ; ...a chunk's worth, so give the frame back
     JSR opt_menu_breathe
     LDA #OPTLIST_CHUNK
-    STA OPTMENU_LEFT
+    STA f:OPTMENU_LEFT
   @more:
     LDA OPTMENU_ROWNUM
     CMP #OPTLIST_ROWS
@@ -892,7 +906,7 @@ opt_menu_drawall:
     ;  ...and once more before the description, which is five rows of its own
     ;  -- unless the last row completed a chunk and has just been given one,
     ;  which would otherwise spend a whole frame drawing nothing.
-    LDA OPTMENU_LEFT
+    LDA f:OPTMENU_LEFT
     CMP #OPTLIST_CHUNK
     BEQ @justbreathed
     JSR opt_menu_breathe
@@ -1048,11 +1062,11 @@ opt_waitrelease:
     JSR UpdateJoy
     LDA joy
     BNE @wait
-    STA OPTMENU_PREV            ; A is zero here, so nothing reads as newly
-    STA OPTMENU_EDGE            ;   pressed on the frame after this
+    STA f:OPTMENU_PREV            ; A is zero here, so nothing reads as newly
+    STA f:OPTMENU_EDGE            ;   pressed on the frame after this
     LDA a:h_joyaux              ; ...nor a shoulder held coming in
     AND #JOYAUX_L | JOYAUX_R
-    STA OPTMENU_SHPREV
+    STA f:OPTMENU_SHPREV
     LDA #$00
     ;  The game's own catchers belong to whichever screen runs next, and with
     ;  nothing held there is no transition pending for them to lose.
@@ -1322,7 +1336,7 @@ opt_sideways:
 opt_page:
     PHA
     LDA OPTMENU_SEL             ; paging half a screen from the first or last
-    STA OPTMENU_WAS             ;   selectable row lands back on it; see @moved
+    STA f:OPTMENU_WAS             ;   selectable row lands back on it; see @moved
     PLA
     CMP #RIGHT
     BEQ @fwd
@@ -1356,7 +1370,7 @@ opt_page:
 
   @moved:
     LDA OPTMENU_SEL
-    CMP OPTMENU_WAS
+    CMP f:OPTMENU_WAS
     BEQ @quiet                  ; the page had nowhere to go
     JSR opt_sfx_move
   @quiet:
@@ -1374,8 +1388,11 @@ opt_shoulders:
     LDA a:h_joyaux
     AND #JOYAUX_L | JOYAUX_R
     TAX
-    EOR OPTMENU_SHPREV
-    STX OPTMENU_SHPREV
+    EOR f:OPTMENU_SHPREV
+    PHA
+    TXA
+    STA f:OPTMENU_SHPREV
+    PLA
     STX OPTSCRATCH
     AND OPTSCRATCH              ; down now, not down before
     BEQ @none

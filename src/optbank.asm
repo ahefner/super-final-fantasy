@@ -244,6 +244,12 @@ opt_init:
     LDA #OPT_DEFAULT_PRESET
     JSR opt_loadpreset
   @good:
+    ;  The derived bytes are a cache of the block, outside its checksum, so
+    ;  cook them again every boot: a few stores, and they cannot then go
+    ;  stale.  They did -- the settings screen's scratch lay on four of them
+    ;  until 2026-10-21 and left the lineup's step at 0 in the battery; this
+    ;  mends a cart that still holds it on its first boot.
+    JSR opt_derive
     PLB
     RTL
 

@@ -2926,6 +2926,24 @@ instruction had already set.
 
 ### Things learned the hard way
 
+  - **The settings screen's scratch lay on four of the derived bytes**
+    (found 2026-10-21, building the New Game flow; built, not yet played).
+    `OPTMENU_SHPREV`, `_ANY`, `_LEFT` and `_WAS` were at `OPTBLOCK+$1A..$1D`,
+    which is `OPTD+$07..$0A`: `OPTD_LINEUP`, `_PALCYC`, `_MSGROWS` and
+    `_MSGROWSREV`.  opt_derive writes those only on a commit, and opt_init
+    never did, so leaving the screen left them the screen's scratch, in the
+    battery, until the next commit -- `OPTD_LINEUP` read 0 after any visit,
+    and the lineup's slide steps by it until it passes its mark, so it would
+    never end; the others took whatever the visit left (a section of only
+    dials, toggled, left the palette cycle's mask 0).  The engine's scratch
+    is in `MENURAM` ($7F0800, bank $7F's gap between the credits' and the
+    map edit screen's) now, long-addressed, and opt_init cooks the derived
+    bytes every boot, which mends a cart still holding a bad step.  Its
+    `OPTMENU_PREV` and `_EDGE` had lain on the battle's `OPTBTLSOFT` and
+    `OPTDRINKROW` -- scratch on scratch -- and moved too.
+    `test_menuscratch`: the screen through every path that writes them, and
+    a boot over a poisoned block; five mutations caught.
+
   - **A test named twice fork-bombed the machine** (2026-10-21).  A second
     `def` of an existing test's name silently replaced it, and the name went
     into `main()`'s tuple a second time; asked for that test, the runner saw
