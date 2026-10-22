@@ -1053,6 +1053,15 @@ lut_Desc_91:  ; Early Ordeals
   FFPAD {"Ordeals send the party on"}, 28
   FFPAD {"without the CROWN."}, 28
 
+.include "presetdesc.inc"       ; the presets' descriptions, and NGP_DESCLO/HI
+
+lut_DescCustom:  ; Custom Game
+  FFLINES 4
+  FFPAD {"The options as they stand,"}, 28
+  FFPAD {"from the last game or the"}, 28
+  FFPAD {"settings screen, to change"}, 28
+  FFPAD {"on the screens that follow."}, 28
+
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24
@@ -1073,6 +1082,8 @@ lut_DescLo:
   .BYTE <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86
   .BYTE <lut_Desc_86, <lut_Desc_87, <lut_DescBlank, <lut_Desc_88, <lut_Desc_89, <lut_Desc_90
   .BYTE <lut_Desc_91
+  .BYTE <lut_DescBlank, <lut_DescBlank, <lut_DescCustom   ; NEW GAME, blank, Custom Game
+  NGP_DESCLO
 lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
@@ -1094,5 +1105,7 @@ lut_DescHi:
   .BYTE >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86
   .BYTE >lut_Desc_86, >lut_Desc_87, >lut_DescBlank, >lut_Desc_88, >lut_Desc_89, >lut_Desc_90
   .BYTE >lut_Desc_91
+  .BYTE >lut_DescBlank, >lut_DescBlank, >lut_DescCustom
+  NGP_DESCHI
 lut_DescHiEnd:
 .assert lut_DescHiEnd - lut_DescHi = OPTROW_COUNT, error, "one description pointer per row"

@@ -15,10 +15,17 @@ OPTROW_CHK    = 1
 OPTROW_VAL    = 2
 OPTROW_BLANK  = 3
 OPTROW_SEED   = 4               ; the save view's seed; never in lut_OptRows
+OPTROW_PICK   = 5               ; a New Game list entry: A or START chooses it,
+                                ;   byte 1 the preset ($FF Custom Game), and the
+                                ;   label the row's whole width
 OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
-OPTROW_COUNT  = 113
+.include "presetcount.inc"      ; NGP_COUNT, from presets/*.toml
+OPTROW_SETTINGS = 113           ; the settings, the randomization and the key items
+NGROW_HEAD    = OPTROW_SETTINGS ; then the New Game list: its heading, a blank,
+NGROW_CUSTOM  = NGROW_HEAD + 2  ;   Custom Game, and a row per preset
+OPTROW_COUNT  = NGROW_CUSTOM + 1 + NGP_COUNT
 
 ;  The description pane: five lines of 28 columns.
 DESC_W     = 28

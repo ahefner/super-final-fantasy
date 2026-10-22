@@ -2128,8 +2128,9 @@ Settled in review 1:
     (user, 2026-10-21: "nothing here should require modifying it") -- and
     Select on Continue opens the save view (built).  The options row's
     screen, from the title, goes back to it on B and on START alike.  New
-    Game opens a list: Custom Game, then the presets (`presets/*.toml`,
-    built 2026-10-21; `options-design.md`, "New Game's presets").
+    Game opens a list: Custom Game, then the presets (`presets/*.toml`;
+    the presets and the list built 2026-10-21; `options-design.md`, "New
+    Game's presets" and "New Game's list").
       - Vanilla and Improved Vanilla randomize nothing and go straight to
         party creation.
       - Custom Game, and every other preset, goes to the **randomization

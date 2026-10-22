@@ -20,7 +20,7 @@
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
 .export ngp_apply
-.export lut_NgpName, lut_NgpTitle, lut_NgpDescPtr, lut_NgpDataPtr   ; for tools/test_options.py
+.export lut_NgpTitle, lut_NgpDataPtr   ; for tools/test_options.py
 
 .segment "BANK_NEWGAME"
 

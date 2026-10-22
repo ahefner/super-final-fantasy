@@ -22,7 +22,8 @@
 ;  The row kinds and the description format, shared with opttext.asm.
 .include "optmenu.inc"
 
-.export opt_settings, opt_saveview
+.export opt_settings, opt_saveview, opt_newgamelist
+.export opt_menu_drawall        ; for tools/test_options.py
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
 .export opt_menu_valbyte          ; for tools/test_options.py
@@ -126,6 +127,10 @@ OPTMENU_WAS    = MENURAM + $02  ; the row a left/right page started on
 OPTMENU_LEFT   = MENURAM + $03  ; rows still to draw before the next breath
 OPTMENU_ANY    = MENURAM + $04  ; did a section toggle find a checkbox at all?
 OPTMENU_SHPREV = MENURAM + $05  ; L and R as they read last frame (h_joyaux's)
+OPTMENU_BEGIN  = MENURAM + $06  ; the window onto lut_OptRows this screen shows:
+OPTMENU_END    = MENURAM + $07  ;   its first row, and one past its last
+OPTMENU_PICK   = MENURAM + $08  ; nonzero for a list of choices (the New Game
+                                ;   list): only pick rows, and A or START picks
 OPTMENU_VIEW   = OPTBLOCK + $31 ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
@@ -150,7 +155,46 @@ opt_settings:
     STA OPTMENU_VIEW            ; the settings, not the save view
     STA OPTMENU_SEL             ; row 0 is a heading; step onto the first
     STA OPTMENU_TOP             ;   real setting below
+    LDX #NGROW_HEAD             ; every row but the New Game list's
+    JSR opt_menu_window
     JSR opt_menu_nextsel
+    BRA opt_menu_screen
+
+
+;;  The window: rows A up to X, not a list of choices.  A8 X8.
+opt_menu_window:
+    STA f:OPTMENU_BEGIN
+    TXA
+    STA f:OPTMENU_END
+    LDA #$00
+    STA f:OPTMENU_PICK
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The New Game list (menus.txt: "Custom Game" or a number of presets
+;;  adapted from FFR), this screen held to its own rows: A or START on one
+;;  picks it, B goes back.  The descriptions say what each preset is.
+;;
+;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = the preset
+;;  picked, NGPICK_CUSTOM for Custom Game, or NGPICK_BACK for B; the
+;;  screen off, as the settings screen leaves it.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_newgamelist:
+    PHB
+    PHK
+    PLB
+    LDA #$00
+    STA OPTMENU_VIEW
+    LDA #NGROW_HEAD
+    STA OPTMENU_TOP
+    LDX #OPTROW_COUNT
+    JSR opt_menu_window
+    LDA #$01
+    STA f:OPTMENU_PICK
+    LDA #NGROW_CUSTOM
+    STA OPTMENU_SEL
     BRA opt_menu_screen
 
 
@@ -175,6 +219,9 @@ opt_saveview:
     PHK
     PLB
 
+    LDA #$00
+    LDX #NGROW_HEAD             ; the save's rows end where the settings' do
+    JSR opt_menu_window
     LDA #$01
     STA OPTMENU_VIEW
     LDA #VIEW_FIRST
@@ -274,7 +321,18 @@ opt_menu_screen:
     AND #PAD_B | PAD_START | PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT
     STA f:OPTMENU_EDGE
   @heard:
-
+    LDA f:OPTMENU_PICK          ; a list of choices: A and START pick, B
+    BEQ @settings               ;   goes back, up and down move, and that
+    LDA f:OPTMENU_EDGE          ;   is all
+    AND #PAD_A | PAD_START
+    BNE @pick
+    LDA f:OPTMENU_EDGE
+    AND #PAD_B
+    BNE @back
+    LDA f:OPTMENU_EDGE
+    AND #PAD_DOWN | PAD_UP
+    STA f:OPTMENU_EDGE
+  @settings:
     LDA f:OPTMENU_EDGE
     AND #PAD_B | PAD_START
     BNE @done
@@ -289,8 +347,9 @@ opt_menu_screen:
     BNE @up
     LDA f:OPTMENU_EDGE
     AND #PAD_LEFT | PAD_RIGHT
-    BEQ @loop
-
+    BNE :+
+    JMP @loop                   ; (past a branch's reach)
+:
     LDA f:OPTMENU_EDGE            ; left or right: step a value row
     AND #PAD_RIGHT
     BNE @right
@@ -327,6 +386,24 @@ opt_menu_screen:
     JSR opt_menu_toggle
     JMP @loop
 
+  @pick:
+    JSR opt_menu_rowptr         ; the row's preset, or NGPICK_CUSTOM
+    LDY #$01
+    LDA (OPTMENU_ROWPTR), Y
+    BRA @leave
+  @back:
+    LDA #NGPICK_BACK
+  @leave:
+    PHA
+    JSR opt_sfx_sel             ; the game's own sound for a choice, B's too
+    JSR opt_waitrelease
+    LDA #$00
+    STA f:OPTMENU_PICK
+    wPPUMASK
+    PLA
+    PLB
+    RTL
+
   ;  Named labels, not anonymous ones.  An earlier version used ":" here and a
   ;  later edit inserted another one between the loop top and the branch back,
   ;  which silently retargeted "BEQ :-" to the wrong place -- the index stopped
@@ -335,7 +412,8 @@ opt_menu_screen:
     LDX OPTMENU_SEL
   @dnext:
     INX
-    CPX #OPTROW_COUNT
+    TXA
+    CMP f:OPTMENU_END
     BCC @dtest
     JMP @loop                   ; nothing selectable below; stay put
   @dtest:
@@ -353,7 +431,8 @@ opt_menu_screen:
   @up:
     LDX OPTMENU_SEL
   @unext:
-    CPX #$00
+    TXA
+    CMP f:OPTMENU_BEGIN
     BNE @udec
     JMP @loop                   ; nothing selectable above; stay put
   @udec:
@@ -396,6 +475,11 @@ opt_row_selectable:
     PLX
     CMP #OPTROW_BLANK
     BEQ @no                     ; blanks are pure separators; headings are not
+    CMP #OPTROW_PICK            ; ...but a list of choices has only its choices
+    BEQ @yes
+    LDA f:OPTMENU_PICK
+    BNE @no
+  @yes:
     LDA #$01                    ; selectable: Z clear
     RTS
   @notx:
@@ -410,7 +494,8 @@ opt_row_selectable:
 ;;  off the end without finding one.
 opt_seek_fwd:
   @loop:
-    CPX #OPTROW_COUNT
+    TXA
+    CMP f:OPTMENU_END
     BCS @none
     TXA
     JSR opt_row_selectable
@@ -431,7 +516,8 @@ opt_seek_back:
     TXA
     JSR opt_row_selectable
     BNE @found
-    CPX #$00
+    TXA
+    CMP f:OPTMENU_BEGIN
     BEQ @none
     DEX
     JMP @loop
@@ -471,8 +557,11 @@ opt_menu_scroll:
     LDA OPTMENU_SEL             ; the highest row we are willing to have as TOP
     SEC
     SBC #OPTLIST_MARGIN
+    BCC @floor
+    CMP f:OPTMENU_BEGIN
     BCS @havemin
-    LDA #$00                    ; ...clamped at the start of the list
+  @floor:
+    LDA f:OPTMENU_BEGIN         ; ...clamped at the start of the window
   @havemin:
     LDX OPTMENU_VIEW            ; the save view: never above the blank over its
     BEQ @settings               ;   heading, and back to it at the first row,
@@ -561,7 +650,7 @@ opt_section_toggle:
   @scan:
     INC OPTMENU_SCAN
     LDA OPTMENU_SCAN
-    CMP #OPTROW_COUNT
+    CMP f:OPTMENU_END
     BCS @decide
     JSR opt_menu_ptrfor
     LDY #$00
@@ -588,7 +677,7 @@ opt_section_toggle:
   @apply:
     INC OPTMENU_SCAN
     LDA OPTMENU_SCAN
-    CMP #OPTROW_COUNT
+    CMP f:OPTMENU_END
     BCS @finish
     JSR opt_menu_ptrfor
     LDY #$00
@@ -884,7 +973,7 @@ opt_menu_drawall:
     LDA OPTMENU_ROWNUM
     CLC
     ADC OPTMENU_TOP
-    CMP #OPTROW_COUNT
+    CMP f:OPTMENU_END           ; past the window: blank
     BCS @blank
     JSR opt_menu_drawrow
     JMP @next
@@ -1109,6 +1198,20 @@ opt_menu_drawrow:
 
     LDY #$00
     LDA (OPTMENU_ROWPTR), Y
+    CMP #OPTROW_PICK
+    BNE @notpick
+    LDX #$00                    ; a choice: its name from the box's column,
+    LDY #OPTROW_LABEL           ;   the hand just before it, as the game's
+  @pickc:                       ;   menus have it
+    LDA (OPTMENU_ROWPTR), Y
+    STA f:NTSTAGE, X
+    INX
+    INY
+    CPX #PICKROW_W
+    BCC @pickc
+    JSL hal_ntblit + HALFAR     ; X is already the count
+    RTS
+  @notpick:
     CMP #OPTROW_CHK
     BNE @nobox
     INY
@@ -1344,13 +1447,17 @@ opt_page:
     LDA OPTMENU_SEL             ; back half a screen, floored at the top
     SEC
     SBC #OPTLIST_PAGE
+    BCC @bfloor
+    CMP f:OPTMENU_BEGIN
     BCS @haveback
-    LDA #$00
+  @bfloor:
+    LDA f:OPTMENU_BEGIN
   @haveback:
     TAX
     JSR opt_seek_back
     BCS @moved
-    LDX #$00                    ; nothing selectable above; take the first
+    LDA f:OPTMENU_BEGIN         ; nothing selectable above; take the first
+    TAX
     JSR opt_seek_fwd
     BRA @moved
 
@@ -1358,14 +1465,17 @@ opt_page:
     LDA OPTMENU_SEL             ; on half a screen, capped at the bottom
     CLC
     ADC #OPTLIST_PAGE
-    CMP #OPTROW_COUNT
+    CMP f:OPTMENU_END
     BCC @havefwd
-    LDA #OPTROW_COUNT - 1
+    LDA f:OPTMENU_END
+    DEC A
   @havefwd:
     TAX
     JSR opt_seek_fwd
     BCS @moved
-    LDX #OPTROW_COUNT - 1       ; nothing selectable below; take the last
+    LDA f:OPTMENU_END           ; nothing selectable below; take the last
+    DEC A
+    TAX
     JSR opt_seek_back
 
   @moved:
@@ -1864,6 +1974,16 @@ lut_OptRowRando:   ; the save view's rows are found from here
   .BYTE $02, 47    ; Early Ordeals   (scalar 47)
   OPTLABEL {"Early Ordeals"}
 
+  ;  The New Game list (opt_newgamelist), a window of its own, after
+  ;  everything the settings screen shows.  Custom Game, then the presets,
+  ;  generated from presets/*.toml.
+  .BYTE $00, $00   ; NEW GAME
+  FFPAD "NEW GAME", 30
+  .BYTE $03, $00   ; (blank)
+  FFPAD "", 30
+  .BYTE OPTROW_PICK, NGPICK_CUSTOM   ; Custom Game
+  FFPAD "Custom Game", 30
+  .include "presetrows.inc"
 lut_OptRowsEnd:
 
 ;  A row table that disagrees with OPTROW_COUNT walks off the end of itself,
@@ -1910,6 +2030,8 @@ lut_CheckboxCHR:
 ;  eight, for a table whose lut_ValShift says so, which takes four columns
 ;  from its row's label.
 VALFIELD = 4
+PICKROW_W = 2 + OPTROW_LABELW + 1 + VALFIELD    ; a row's whole width: a pick row's name
+.assert PICKROW_W <= OPTROW_STRIDE - OPTROW_LABEL, error, "a pick row's name is wider than its record"
 
 ;  Gold and XP: 0%% to 500%% in 50%% steps
 lut_ValGoldXP:

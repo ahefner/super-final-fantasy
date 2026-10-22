@@ -5608,6 +5608,105 @@ def test_menuscratch():
     check("...and a boot cooks them again over what an old visit left", bytes(bus.sram[OPTD:OPTD + 11]), want)
 
 
+# --- New Game's list -------------------------------------------------------------
+def test_ngscreen():
+    """New Game opens a list (opt_newgamelist; menus.txt): Custom Game, then
+    the presets, by name, each described in the pane.  The settings screen's
+    engine, held to its own window and to its choices: the cursor rests on
+    nothing else, A or START picks, B goes back.  Run a frame at a time with
+    the pad pressed as a player would.  And the settings screen no longer
+    reaches its rows."""
+    import genpresets as G, presetdefs as P
+    presets = G.resolve(G.load(), P.rows())
+    UJ = SYM["UpdateJoy"]
+    SEL, TOP = 0x6E, 0x6F
+    A_, B_, START, UP, DOWN, RIGHT = 0x80, 0x40, 0x10, 0x08, 0x04, 0x01
+    HEAD, CUSTOM, N = K["NGROW_HEAD"], K["NGROW_CUSTOM"], len(presets)
+
+    def screen(bus, i):
+        """List row i as drawn: the row's 29 columns from the box's."""
+        nt = K["NESNT"] - 0x7E0000 + (1 + i - bus.wram[TOP]) * 32
+        return " ".join("".join(_decode(b) or "?" for b in bus.wram[nt + 2:nt + 31]).split())
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def frame(bus, cpu, nes):
+        pad(bus, nes)
+        cpu.step()
+        for _ in range(3_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            cpu.step()
+        raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def press(bus, cpu, nes):
+        return frame(bus, cpu, nes) and frame(bus, cpu, 0)
+
+    def start(entry="opt_newgamelist"):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        in_vblank(bus)
+        pad(bus, 0)
+        cpu.run(OPTMENU_BANK, SYM[entry], stop=UJ, limit=20_000_000)
+        frame(bus, cpu, 0)                       # out of the entry's wait for release
+        return bus, cpu
+
+    bus, cpu = start()
+    check("the list opens on Custom Game", bus.wram[SEL], CUSTOM)
+    check("...its rows: the heading, Custom Game, each preset by name",
+          [screen(bus, i) for i in [HEAD, CUSTOM] + list(range(CUSTOM + 1, CUSTOM + 1 + N))],
+          ["NEW GAME", "Custom Game"] + [p[0] for p in presets])
+    check("...Custom Game described", " ".join(pane(bus)).startswith("The options as they stand"), True)
+    press(bus, cpu, UP)
+    check("up from Custom Game: stays, the heading not a choice", bus.wram[SEL], CUSTOM)
+    seen = []
+    for k in range(N):
+        press(bus, cpu, DOWN)
+        seen.append((bus.wram[SEL], pane(bus)))
+    check("down through the presets, each described as its file says",
+          seen, [(CUSTOM + 1 + k, presets[k][1]) for k in range(N)])
+    press(bus, cpu, DOWN)
+    check("...and down off the last: stays", bus.wram[SEL], CUSTOM + N)
+
+    def pick(moves, button):
+        bus, cpu = start()
+        for m in moves:
+            press(bus, cpu, m)
+        more = frame(bus, cpu, button)
+        for _ in range(8):                       # let go: it waits for the release
+            if not more:
+                break
+            more = frame(bus, cpu, 0)
+        return (not more, cpu.a & 0xFF)
+    check("A on Beginner: picked, 2", pick([DOWN, DOWN, DOWN], A_)[:2], (True, 2))
+    check("START on Custom Game: picked, Custom", pick([], START)[:2], (True, K["NGPICK_CUSTOM"]))
+    check("B: back", pick([DOWN], B_)[:2], (True, K["NGPICK_BACK"]))
+    check("right does nothing here", pick([RIGHT], A_)[:2], (True, K["NGPICK_CUSTOM"]))
+
+    #  The settings screen, all the way down and paged past the end: never on
+    #  the list's rows, which it does not draw.
+    bus, cpu = start("opt_settings")
+    for _ in range(140):
+        press(bus, cpu, DOWN)
+    check("the settings screen, down to its end: its last row, not the list's", bus.wram[SEL], HEAD - 1)
+    for _ in range(4):
+        press(bus, cpu, RIGHT)
+    check("...paged on: still there", bus.wram[SEL], HEAD - 1)
+
+    #  A window ending short of the screen draws nothing past its end -- as
+    #  the options' will, above the randomization rows.  The engine's own
+    #  repaint, over a drawn screen, the window cut ten rows above the
+    #  bottom: those ten blank, the rest as before.
+    end = bus.wram[TOP] + 10
+    before = [screen(bus, i) for i in range(bus.wram[TOP], bus.wram[TOP] + 20)]
+    bus.wram[K["MENURAM"] - 0x7E0000 + 7] = end          # OPTMENU_END
+    call(cpu, "opt_menu_drawall", dbr=OPTMENU_BANK)
+    after = [screen(bus, i) for i in range(bus.wram[TOP], bus.wram[TOP] + 20)]
+    check("a window's end: nothing drawn past it", (after[:10], after[10:]), (before[:10], [""] * 10))
+
+
 # --- New Game's presets ----------------------------------------------------------
 #  presets/*.toml, by tools/genpresets.py, applied by newgame.asm's ngp_apply
 #  through the settings screen's own tables.  (test_presets is the title's.)
@@ -9190,6 +9289,8 @@ def test_rowlabels():
         if len(row) < STRIDE:
             break
         width = W
+        if row[0] == K["OPTROW_PICK"]:
+            width = 2 + W + 1 + 4       # a New Game choice: the row's whole width
         if row[0] == 2:
             #  The readout ends VALFIELD (4) past the gap column after the
             #  label's 22, so a field of w columns covers the gap and the
@@ -9321,6 +9422,7 @@ def source_consts():
     files = [os.path.join(ROOT, "game", "Constants.inc"),
              os.path.join(ROOT, "game", "variables.inc"),
              os.path.join(ROOT, "src", "snesmap.inc"),
+             os.path.join(ROOT, "gen", "presetcount.inc"),   # NGP_COUNT, for optmenu.inc
              os.path.join(ROOT, "src", "optmenu.inc")]
     for f in files:
         for line in open(f, encoding="latin-1"):
@@ -12138,8 +12240,7 @@ def test_saveview():
     OPT = CHUNK_OPT_BANK
     OPTLIST_ROWS = 20                    # the window, optmenu.asm
     SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
-    COUNT = int(re.search(r"^OPTROW_COUNT\s*=\s*(\d+)", open(os.path.join(ROOT, "src", "optmenu.inc")).read(),
-                          re.M).group(1))
+    COUNT = K["NGROW_HEAD"]              # the save view's rows end where the New Game list's begin
     A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     UJ = SYM["UpdateJoy"]
     optimg = (OPTMENU_BANK & 0x1F) * 0x10000
@@ -12429,16 +12530,20 @@ def test_saveview():
           (screen(bus, first), "fight it always has" in " ".join(pane(bus))),
           (" ".join((label(first) + " " + readout(rows[first][1], 0)).split()), True))
 
-    #  --- opt_titlechoose, with the three screens stubbed to say which ran.
+    #  --- opt_titlechoose, with the four screens stubbed to say which ran --
+    #  the New Game list's answering as it is told, after the mark.
     stubbed = bytearray(ROMDATA)
     MARK = 0x1FF0
     for name, bank, v in (("opt_saveview", OPTMENU_BANK, 0x11), ("opt_settings", OPTMENU_BANK, 0x22),
                           ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33)):
         at = (bank & 0x1F) * 0x10000 + SYM[name]
         stubbed[at:at + 7] = bytes([0xA9, v, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0x6B])
+    ngl = (OPTMENU_BANK & 0x1F) * 0x10000 + SYM["opt_newgamelist"]
+    stubbed[ngl:ngl + 9] = bytes([0xA9, 0x44, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0xA9, K["NGPICK_CUSTOM"], 0x6B])
 
-    def title(cur, buttons, save=True, at=None, stop=None):
+    def title(cur, buttons, save=True, at=None, stop=None, pick=None):
         bus, cpu = machine()
+        stubbed[ngl + 7] = K["NGPICK_CUSTOM"] if pick is None else pick
         bus.rom = stubbed
         if save:
             saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
@@ -12466,10 +12571,38 @@ def test_saveview():
     for cur in (1, 2, 3):
         r = title(cur, SELECT)
         check("Select on row %d: nothing" % cur, flags(r, "shown", "N", "select"), (0, True, 0))
-    for cur, b, want in ((0, A_, False), (0, START, False), (1, A_, True), (1, START, True)):
-        r = title(cur, b)
-        check("row %d, button $%02X: leave, New Game %s" % (cur, b, want),
-              flags(r, "shown", "N", "Z", "C"), (0, False, False, want))
+    for b in (A_, START):
+        r = title(0, b)
+        check("Continue, button $%02X: leave, not New Game" % b, flags(r, "shown", "N", "Z", "C"), (0, False, False, False))
+        r = title(1, b)
+        check("New Game, button $%02X: its list, Custom Game: leave, New Game" % b,
+              flags(r, "shown", "N", "Z", "C"), (0x44, False, False, True))
+    check("New Game, its list, B: back, the title rebuilt",
+          flags(title(1, A_, pick=K["NGPICK_BACK"]), "shown", "Z", "N"), (0x44, True, False))
+    #  A preset picked: written over the options, as ngp_apply writes it, and
+    #  New Game.  The block compared to ngp_apply's own on the same start.
+    def chosen(pick):
+        bus, cpu = machine()
+        bus.rom = stubbed
+        stubbed[ngl + 7] = pick
+        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
+        bus.wram[K["cursor"]], bus.wram[K["joy_a"]] = 1, 1
+        cpu.dbr = BANK_0E
+        cpu.run(OPT, SYM["opt_titlechoose"])
+        return bool(cpu.p & C), bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+    def direct(pick):
+        bus, cpu = machine()
+        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
+        cpu.a = pick
+        call(cpu, "ngp_apply")
+        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+    check("New Game, its list, Beginner: the preset applied, New Game", chosen(2), (True, direct(2)))
+    def before():
+        bus, cpu = machine()
+        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
+        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+    check("...and Custom Game leaves the options as they were, New Game",
+          chosen(K["NGPICK_CUSTOM"]), (True, before()))
     check("A on the mode row: the settings, then rebuild",
           flags(title(2, A_), "shown", "Z", "N"), (0x22, True, False))
     check("A on Credits: the credits, then rebuild",
@@ -13019,7 +13152,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

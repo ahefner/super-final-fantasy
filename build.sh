@@ -111,7 +111,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 -I ../gen nones.asm -o ../out/bank_NONES.o
            $CA65 -I ../gen credits.asm -o ../out/bank_CREDITS.o
            $CA65 -I ../gen rando.asm -o ../out/bank_RANDO.o
-           $CA65 opttext.asm -o ../out/bank_OPTTEXT.o
+           $CA65 -I ../gen opttext.asm -o ../out/bank_OPTTEXT.o
            $CA65 logicdata.asm -o ../out/bank_LOGIC.o
            $CA65 -I ../gen world.asm -o ../out/bank_WORLD.o
            $CA65 -I ../gen roll.asm -o ../out/bank_ROLL.o

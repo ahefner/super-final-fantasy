@@ -247,8 +247,7 @@ from a preset and leaving without touching anything keeps the preset selected.
 ### New Game's presets (`presets/*.toml`)
 
 **Built 2026-10-21, the first step of the New Game flow (`menus.txt` in the
-project directory; `randomization-notes.md` 12); not yet reachable -- the New
-Game list that offers them is the next step.**  The list's entries, in
+project directory; `randomization-notes.md` 12); built, not yet played.**  The list's entries, in
 filename order: Vanilla, Improved Vanilla, Beginner, Classic, Entrance
 Shuffle, Entrance and Floor Shuffle, Chaos Rush, Free Enterprise -- their
 settings from `ffr-presets.md` and FFR's own preset files, each file saying
@@ -282,6 +281,45 @@ layout; the respond rate stays the player's; then `opt_commit`.
 over decoys and read back, sealed, the respond rate kept; Vanilla and
 Improved Vanilla byte for byte the title's; inheritance through two
 levels; the generator's refusals.  Eight mutations, all caught.
+
+### New Game's list
+
+**Built 2026-10-21, not yet played.**  New Game on the title opens a list
+(`opt_newgamelist`): Custom Game, then the presets by name, the pane under
+it describing each -- Custom Game "the options as they stand, from the
+last game or the settings screen, to change on the screens that follow".
+A or START picks; B goes back to the title, which is rebuilt as after the
+settings screen.  A preset is written over the options as it is picked
+(`ngp_apply`) and stays written; Custom Game writes nothing.  Then New
+Game goes on as before -- party creation, the map edit screen, the roll --
+until the next steps put the randomization screen, the options, and the
+seed between (`randomization-notes.md` 12).  The title screen itself is
+unchanged (user: "nothing here should require modifying it").
+
+It is the settings screen's engine, held to a **window** of the row table:
+`OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
+and one past its last, where every bound was `OPTROW_COUNT` or 0 -- moving,
+seeking, scrolling, paging, a section's toggle, the drawing.  The settings
+screen's window ends where the list's rows begin (`NGROW_HEAD`), after the
+key items, and so does the save view's; the list's is its own rows, after
+them.  The list is a window with `OPTMENU_PICK` set: only its **pick rows**
+(`OPTROW_PICK`, kind 5; byte 1 the preset, `NGPICK_CUSTOM` for Custom Game)
+can hold the cursor, A and START answer with the row's byte, B with
+`NGPICK_BACK`, and left and right do nothing.  A pick row draws its name
+across the row's whole 29 columns from the box's, so the hand stands just
+before it as in the game's own menus.  The heading, a blank and Custom
+Game are in `optmenu.asm`; the presets' rows and descriptions are
+generated (`gen/presetrows.inc`, `gen/presetdesc.inc`), so the list is
+whatever `presets/` holds.
+
+`test_ngscreen`, a frame at a time: the rows as drawn and each preset's
+description, the cursor kept to the choices and the window, what A, START
+and B answer; the settings screen down to its end and paged past it, still
+on its last row; a window cut short drawing nothing past its end (the
+options' will, above the randomization rows).  `test_saveview`'s title
+cases: New Game opens the list, Custom Game leaves the options as they
+were, a preset is applied as `ngp_apply` writes it, B rebuilds the title.
+Eight mutations, all caught.
 
 
 ## 3. The settings
