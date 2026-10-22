@@ -396,7 +396,10 @@ definitions moved to `optmenu.inc` with the screen's layout for the two
 files to share.  The error sound is the map edit screen's way of playing
 it, `PlaySFX_Error`'s writes on the screen's own frames while the screen
 goes on (`seed_sfxerr`, `seed_music`), written out again because the two
-screens are in different chunks and modes.  Its scratch is `MENURAM`+$20
+screens are in different chunks and modes.  (Its grid's digits drew odd
+in rows 1-3 for one seed in two, `hal_ntblit` shifting a word of zero page
+on each blit -- fixed 2026-10-22; "Things learned the hard way".)  Its
+scratch is `MENURAM`+$20
 on (`SEED_SEL`, `SEED_N`, `SEED_ERR`, `SEED_DIG`).
 
 `test_seedscreen` runs it a frame at a time: the screen as drawn and
@@ -3304,3 +3307,24 @@ instruction had already set.
     its four bytes, at every step.  Give a multi-byte scratch its own name
     and size, and never put a byte that must survive beside one that is
     merely free.
+  - **A routine's width is its caller's, whatever its directives say.**
+    (Found 2026-10-22 from the user's report of the seed screen's grid
+    drawn "0 1 2 3 / 5 5 7 7 / 9 9 B B / D D F F", now and then, flipping
+    between screens; fixed, built, not yet played.)  `hal_ntblit`
+    widened the accumulator for a PLB, which takes no width, and called
+    `mark_dirty8`, which is `.a8`, sixteen bits wide.  Its `LDA #1`
+    took the next instruction's opcode as an operand byte, and the rest ran
+    as `ASL $08,X`, X the row: every fast blit since 2026-09-16 shifted the
+    zero page word at `$08` plus its row -- `inroom`, `doorppuaddr`,
+    `tmp`, the `joy_` catchers -- and its 16-bit compares marked the next
+    row dirty from column 0.  Only the menus blit, and `@Begin` clears zero
+    page, so a game never saw it; the seed screen did, its row counter in
+    `tmp+1` and a seed byte left in `tmp`, whose top bit the shift carried
+    in -- one seed in two.  `test_seedscreen` had used one seed, whose low
+    byte was $4D.  `test_ntblit` now checks the property instead: a blit
+    on every row, both halves, with zero page full of decoys, writes its
+    run, its own row's marks and the address, and nothing else; and the
+    seed screen's grid is checked over seeds with the top bits set.  When a
+    routine is entered by JSR, look at the width at each call site, not at
+    the directive above the routine.
+

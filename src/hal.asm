@@ -4131,10 +4131,16 @@ hal_ntblit:
     iny
     cpx a:h_t2
     bcc @word
-    rep #$20
-    .a16
     plb
 
+    ;  Still eight bits wide, for mark_dirty8, as hal_ntfill calls it.  This
+    ;  widened the accumulator for the PLB, which needs no width, and so
+    ;  called mark_dirty8 sixteen bits wide: its LDA #1 took the STA's opcode
+    ;  as its high byte, and the rest ran as ASL $08,X -- X the row -- so
+    ;  every blit since 2026-09-16 shifted a word of zero page between $08
+    ;  and $26 (tmp, the joy_ catchers) and marked the next row dirty.  The
+    ;  seed screen's grid showed it: a seed byte in tmp, shifted into tmp+1,
+    ;  the digits of rows 1-3 drawn odd (user, 2026-10-22).
     stz a:h_col+1
     lda a:h_fillcol
     sta a:h_col

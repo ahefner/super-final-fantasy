@@ -6088,6 +6088,15 @@ def test_seedscreen():
           ["The world is built from this", "seed -- the same seed and", "settings, the same world.",
            "START keeps it, or type one", "of your own, eight digits."])
     check("...the hand on 0", hand(bus), at(0))
+    #  The grid whatever the seed: a seed byte left in tmp, its top bit set,
+    #  was shifted into the grid's row counter by hal_ntblit's stray ASL
+    #  (user, 2026-10-22: "5 5 7 7", "9 9 B B", "D D F F").
+    grids = {}
+    for sd in (0x000000FF, 0x80808080, 0xFFFFFFFF, 0x7F00FF80, 0x12345680):
+        b2, _ = up(sd)
+        grids[sd] = [text(b2, 8 + 2 * r, 10, 13) for r in range(4)]
+    check("...the grid the same whatever the seed, its bytes' top bits set or not",
+          {sd: g for sd, g in grids.items() if g != ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]}, {})
     frame(bus, cpu, 0)
     check("...each frame the music and the menus' reset check, as the settings screen's",
           (counts["music"], counts["reset"]), (1, 1))
@@ -8262,6 +8271,48 @@ def test_palflush():
     check("a whole palette costs the vblank flush a DMA's setup, and lands",
           (whole - none <= 25, landed), (True, True))
 
+
+def test_ntblit():
+    """hal_ntblit, the menus' row blit, writes its run and nothing else: the
+    raw nametable and the tilemap words, its own row's dirty columns, the
+    PPU address advanced -- and no byte of zero page, and no other row's
+    marks.  It once called mark_dirty8 sixteen bits wide, whose LDA #1 then
+    ran on as ASL $08,X: every blit shifted the zero page word at $08 plus
+    its row (tmp, the joy_ catchers), and marked the next row dirty.  Every
+    row, both halves, with zero page full of decoys."""
+    NTSHADOW, COLLO, COLHI = 0x1000, 0x0940, 0x0960
+    STAGE, RAW = K["NTSTAGE"] - 0x7E0000, K["NESNT"] - 0x7E0000
+    HADDR, HDIRTY = K["h_addr"], K["h_ntdirty"]
+    rnd = random.Random(2210)
+    bad = []
+    for row in range(30):
+        for col, n in ((0, 32), (10, 13), (rnd.randrange(32), 1), (35, 20)):
+            n = min(n, 64 - col if col >= 32 else 32 - col)
+            bus, cpu = machine()
+            for r in range(32):
+                bus.wram[COLLO + r], bus.wram[COLHI + r] = 0xFF, 0x00
+            bus.wram[HDIRTY] = 0
+            zp = bytes(rnd.randrange(256) for _ in range(256))
+            bus.wram[0:256] = zp
+            run = bytes(rnd.randrange(256) for _ in range(n))
+            bus.wram[STAGE:STAGE + n] = run
+            nt = 0x2000 + (0x400 if col >= 32 else 0) + row * 32 + (col & 31)
+            bus.wram[HADDR], bus.wram[HADDR + 1] = nt & 0xFF, nt >> 8
+            cpu.dbr = OPTMENU_BANK
+            cpu.x = n
+            cpu.run(0xC0, SYM["hal_ntblit"], limit=200_000)
+            raw = (0x400 if col >= 32 else 0) + row * 32 + (col & 31)
+            got = (bytes(bus.wram[0:256]) == zp,
+                   bytes(bus.wram[RAW + raw:RAW + raw + n]) == run,
+                   bytes(bus.wram[NTSHADOW + row * 128 + col * 2:][:2 * n:2]) == run,
+                   (bus.wram[COLLO + row], bus.wram[COLHI + row]) == (col, col + n - 1),
+                   [r for r in range(32) if r != row and (bus.wram[COLLO + r], bus.wram[COLHI + r]) != (0xFF, 0)],
+                   bus.wram[HDIRTY], bus.wram[HADDR] | bus.wram[HADDR + 1] << 8)
+            want = (True, True, True, True, [], 1, nt + n)
+            if got != want:
+                bad.append((row, col, n, got))
+    check("hal_ntblit: its run, its row's marks and the address, and no zero page byte or other row touched",
+          bad[:3], [])
 
 def test_ntflush():
     """The tilemap in VRAM is the HAL's shadow after every flush.  The game's
@@ -13727,7 +13778,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,
