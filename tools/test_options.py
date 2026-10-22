@@ -5608,6 +5608,109 @@ def test_menuscratch():
     check("...and a boot cooks them again over what an old visit left", bytes(bus.sram[OPTD:OPTD + 11]), want)
 
 
+# --- New Game's screens, in turn ----------------------------------------------------
+def test_ngflow():
+    """ng_flow: the list, then -- Custom Game, or a preset that randomizes --
+    the randomization screen and the options; START on, B back; Vanilla
+    and Improved Vanilla straight on (menus.txt).  The screens are answered
+    by this test where they begin, as a player's choices, and the order
+    they come in, the answer, and the options as the presets leave them are
+    what is checked.  Then the randomization screen itself, a frame at a
+    time: its rows, START and B."""
+    import genpresets as G, presetdefs as P
+    NG = 0xA1 + K["CHUNK_NEWGAME"]
+    names = {SYM["opt_newgamelist"]: "list", SYM["opt_randoscreen"]: "rando", SYM["opt_settings"]: "options"}
+    FWD, BACK, CUSTOM, NBACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"], K["NGPICK_CUSTOM"], K["NGPICK_BACK"]
+
+    def flow(script):
+        """Run ng_flow, each screen answering the next of script.  Out: the
+        screens in order, the answer, the option page after."""
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        seen, answers = [], list(script)
+        for _ in range(2_000_000):
+            if cpu.pc == 0xFFFE:
+                return seen, cpu.a & 0xFF, bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+            if cpu.pbr == OPTMENU_BANK and cpu.pc in names:
+                seen.append(names[cpu.pc])
+                if not answers:
+                    return seen, None, None
+                cpu.a = answers.pop(0)
+                lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # as its RTL
+                cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
+                continue
+            cpu.step()
+        raise RuntimeError("ng_flow ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def preset_block(i):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        cpu.a = i
+        call(cpu, "ngp_apply")
+        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
+    _, _, start = flow([NBACK])
+    check("the list, B: back to the title", flow([NBACK])[:2], (["list"], BACK))
+    check("Custom Game: the randomization screen, the options, on; the options untouched",
+          flow([CUSTOM, FWD, FWD]), (["list", "rando", "options"], FWD, start))
+    check("Vanilla: straight on, the preset applied", flow([0, ])[0:2] + (flow([0])[2] == preset_block(0),),
+          (["list"], FWD, True))
+    check("Improved Vanilla: straight on", flow([1])[:2], (["list"], FWD))
+    check("Beginner: the randomization screen and the options, its settings applied",
+          flow([2, FWD, FWD])[:2] + (flow([2, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "options"], FWD, True))
+    check("B, screen by screen, back to the list and on again",
+          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD])[:2],
+          (["list", "rando", "list", "rando", "options", "rando", "options"], FWD))
+    seen, ans, page = flow([2, BACK, NBACK])
+    check("a preset backed out of: the title, the preset left applied, as the title's presets are",
+          (seen, ans, page == preset_block(2)), (["list", "rando", "list"], BACK, True))
+    check("every preset but Vanilla and Improved Vanilla randomizes, so goes on to the screen",
+          list(ROMDATA[(NG & 0x1F) * 0x10000 + SYM["lut_NgpFlow"]:][:K["NGP_COUNT"]]),
+          [int(G.randomizes(p[3], P.rows())) for p in G.resolve(G.load(), P.rows())])
+
+    #  The randomization screen: its rows TREASURES to the key items' last,
+    #  opening on Starting items; START on, B back.
+    UJ = SYM["UpdateJoy"]
+    SEL, TOP = 0x6E, 0x6F
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    def frame(bus, cpu, nes):
+        pad(bus, nes)
+        cpu.step()
+        for _ in range(3_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            cpu.step()
+        raise RuntimeError("a frame ran away")
+    def screen_up():
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        in_vblank(bus)
+        pad(bus, 0)
+        cpu.run(OPTMENU_BANK, SYM["opt_randoscreen"], stop=UJ, limit=20_000_000)
+        frame(bus, cpu, 0)
+        return bus, cpu
+    bus, cpu = screen_up()
+    check("the randomization screen opens on Starting items", bus.wram[SEL], optrow("Starting items"))
+    check("...its window: TREASURES to the New Game list's rows",
+          bus.wram[TOP], optrow("TREASURES"))
+    for _ in range(140):
+        frame(bus, cpu, 0x04)
+        frame(bus, cpu, 0)
+    check("...down to its end: the key items' last", bus.wram[SEL], K["NGROW_HEAD"] - 1)
+    for button, want in ((0x10, FWD), (0x40, BACK)):
+        bus, cpu = screen_up()
+        more = frame(bus, cpu, button)
+        for _ in range(8):
+            if not more:
+                break
+            more = frame(bus, cpu, 0)
+        check("...button $%02X: it answers %d" % (button, want), (not more, cpu.a & 0xFF), (True, want))
+
+
 # --- New Game's list -------------------------------------------------------------
 def test_ngscreen():
     """New Game opens a list (opt_newgamelist; menus.txt): Custom Game, then
@@ -5690,10 +5793,16 @@ def test_ngscreen():
     bus, cpu = start("opt_settings")
     for _ in range(140):
         press(bus, cpu, DOWN)
-    check("the settings screen, down to its end: its last row, not the list's", bus.wram[SEL], HEAD - 1)
+    #  The options: everything above TREASURES, whose rows moved to the
+    #  randomization screen.  Its last setting is the last row above that
+    #  heading which is not a blank.
+    treasures = optrow("TREASURES")
+    rows_ = [ROMDATA[rom_at("lut_OptRows") + r * 32] for r in range(treasures)]
+    last = max(r for r in range(treasures) if rows_[r] != 3)
+    check("the settings screen, down to its end: its last option, above TREASURES", bus.wram[SEL], last)
     for _ in range(4):
         press(bus, cpu, RIGHT)
-    check("...paged on: still there", bus.wram[SEL], HEAD - 1)
+    check("...paged on: still there", bus.wram[SEL], last)
 
     #  A window ending short of the screen draws nothing past its end -- as
     #  the options' will, above the randomization rows.  The engine's own
@@ -12538,12 +12647,12 @@ def test_saveview():
                           ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33)):
         at = (bank & 0x1F) * 0x10000 + SYM[name]
         stubbed[at:at + 7] = bytes([0xA9, v, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0x6B])
-    ngl = (OPTMENU_BANK & 0x1F) * 0x10000 + SYM["opt_newgamelist"]
-    stubbed[ngl:ngl + 9] = bytes([0xA9, 0x44, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0xA9, K["NGPICK_CUSTOM"], 0x6B])
+    ngl = (0xA1 + K["CHUNK_NEWGAME"] & 0x1F) * 0x10000 + SYM["ng_flow"]
+    stubbed[ngl:ngl + 9] = bytes([0xA9, 0x44, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0xA9, K["NGNAV_FORWARD"], 0x6B])
 
     def title(cur, buttons, save=True, at=None, stop=None, pick=None):
         bus, cpu = machine()
-        stubbed[ngl + 7] = K["NGPICK_CUSTOM"] if pick is None else pick
+        stubbed[ngl + 7] = K["NGNAV_FORWARD"] if pick is None else pick
         bus.rom = stubbed
         if save:
             saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
@@ -12575,34 +12684,11 @@ def test_saveview():
         r = title(0, b)
         check("Continue, button $%02X: leave, not New Game" % b, flags(r, "shown", "N", "Z", "C"), (0, False, False, False))
         r = title(1, b)
-        check("New Game, button $%02X: its list, Custom Game: leave, New Game" % b,
+        check("New Game, button $%02X: its screens, through them: leave, New Game" % b,
               flags(r, "shown", "N", "Z", "C"), (0x44, False, False, True))
-    check("New Game, its list, B: back, the title rebuilt",
-          flags(title(1, A_, pick=K["NGPICK_BACK"]), "shown", "Z", "N"), (0x44, True, False))
-    #  A preset picked: written over the options, as ngp_apply writes it, and
-    #  New Game.  The block compared to ngp_apply's own on the same start.
-    def chosen(pick):
-        bus, cpu = machine()
-        bus.rom = stubbed
-        stubbed[ngl + 7] = pick
-        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
-        bus.wram[K["cursor"]], bus.wram[K["joy_a"]] = 1, 1
-        cpu.dbr = BANK_0E
-        cpu.run(OPT, SYM["opt_titlechoose"])
-        return bool(cpu.p & C), bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
-    def direct(pick):
-        bus, cpu = machine()
-        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
-        cpu.a = pick
-        call(cpu, "ngp_apply")
-        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
-    check("New Game, its list, Beginner: the preset applied, New Game", chosen(2), (True, direct(2)))
-    def before():
-        bus, cpu = machine()
-        saved(bus, cpu, 1, [0] * K["OPT_NG_SIZE"])
-        return bytes(bus.sram[OPTBLOCK - 0x6000:][:256])
-    check("...and Custom Game leaves the options as they were, New Game",
-          chosen(K["NGPICK_CUSTOM"]), (True, before()))
+    check("New Game, its screens, backed out of: the title rebuilt",
+          flags(title(1, A_, pick=K["NGNAV_BACK"]), "shown", "Z", "N"), (0x44, True, False))
+    #  (What the screens do, and the presets they apply: test_ngflow.)
     check("A on the mode row: the settings, then rebuild",
           flags(title(2, A_), "shown", "Z", "N"), (0x22, True, False))
     check("A on Credits: the credits, then rebuild",
@@ -13152,7 +13238,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

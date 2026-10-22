@@ -88,8 +88,8 @@
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
 .export opt_titleupdown, opt_titleleftright, opt_titlechoose, opt_savevalid
 .export opt_savevalidfar
-.import opt_settings, opt_saveview, opt_newgamelist, credits_screen, VerifyChecksum
-.import ngp_apply
+.import opt_settings, opt_saveview, credits_screen, VerifyChecksum
+.import ng_flow
 .export opt_commit_body
 
 .import DrawBox
@@ -765,17 +765,12 @@ opt_titlechoose:
     LDA #$01                    ; ...and Z and N clear
     RTL
   @newgame:
-    ;  New Game opens its list first (opt_newgamelist; menus.txt): B there
-    ;  comes back here, Custom Game goes on with the options as they stand,
-    ;  and a preset is written over them first (ngp_apply) -- and stays
-    ;  written, as the title's own presets do.
-    JSL opt_newgamelist + OPTMENUFAR
-    CMP #NGPICK_BACK
+    ;  New Game's screens first (ng_flow; menus.txt): back out of them all
+    ;  and the title is rebuilt; through them, and New Game goes on.
+    JSL ng_flow + NEWGAMEFAR
+    CMP #NGNAV_BACK
     BEQ @shown
-    CMP #NGPICK_CUSTOM
-    BEQ :+
-    JSL ngp_apply + NEWGAMEFAR
-:   SEC                         ; C: New Game...
+    SEC                         ; C: New Game...
     LDA #$01                    ; ...and Z and N clear
     RTL
   @screen:

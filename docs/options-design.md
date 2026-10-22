@@ -290,11 +290,35 @@ it describing each -- Custom Game "the options as they stand, from the
 last game or the settings screen, to change on the screens that follow".
 A or START picks; B goes back to the title, which is rebuilt as after the
 settings screen.  A preset is written over the options as it is picked
-(`ngp_apply`) and stays written; Custom Game writes nothing.  Then New
-Game goes on as before -- party creation, the map edit screen, the roll --
-until the next steps put the randomization screen, the options, and the
-seed between (`randomization-notes.md` 12).  The title screen itself is
-unchanged (user: "nothing here should require modifying it").
+(`ngp_apply`) and stays written; Custom Game writes nothing.  The title
+screen itself is unchanged (user: "nothing here should require modifying
+it").
+
+### New Game's screens
+
+**Built 2026-10-21, not yet played.**  `ng_flow` (`newgame.asm`), from the
+title's New Game, runs the screens in turn (`menus.txt`;
+`randomization-notes.md` 12): the list; then, for Custom Game or a preset
+that randomizes anything, the **randomization screen** -- the TREASURES,
+RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- and the
+**options**, the rest of the settings.  START goes on, B back to the screen
+before; B on the list goes back to the title.  Vanilla and Improved Vanilla
+go straight on, randomizing nothing: a preset goes on to the randomization
+screen when it sets anything there away from its first value (genpresets'
+`lut_NgpFlow`).  Then New Game goes on as before -- party creation, the map
+edit screen, the roll -- until the next steps put the map edits and the
+seed between, and party creation's B back into them.  Both screens are the
+engine's windows: the options everything above TREASURES
+(`ROW_TREASURES`), the randomization screen TREASURES to the list's rows,
+and the engine answers `NGNAV_FORWARD` for START and `NGNAV_BACK` for B.
+**The title's options row opens the options too**, so it no longer shows
+the three sections that moved -- the main menu's "Options select" in
+`menus.txt`, B and START both back to the title (user, 2026-10-21) -- and
+they are reached only through New Game.  `test_ngflow` answers the screens
+as a player would and checks the order they come in, the answer, and the
+options the presets leave -- B screen by screen, a preset backed out of
+staying applied -- then runs the randomization screen a frame at a time.
+Seven mutations, all caught.
 
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows

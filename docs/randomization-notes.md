@@ -2134,7 +2134,7 @@ Settled in review 1:
       - Vanilla and Improved Vanilla randomize nothing and go straight to
         party creation.
       - Custom Game, and every other preset, goes to the **randomization
-        screen** first: the shuffles, the key item and incentive rows, the
+        screen** first (built 2026-10-21, with the options after it): the shuffles, the key item and incentive rows, the
         Early flags, Map shuffle, and the TREASURES rows -- everything
         New Game alone reads, and everything the map edit screen's
         winnability check reads, which is why it now comes first (user,

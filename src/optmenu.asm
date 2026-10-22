@@ -22,7 +22,7 @@
 ;  The row kinds and the description format, shared with opttext.asm.
 .include "optmenu.inc"
 
-.export opt_settings, opt_saveview, opt_newgamelist
+.export opt_settings, opt_saveview, opt_newgamelist, opt_randoscreen
 .export opt_menu_drawall        ; for tools/test_options.py
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
@@ -155,8 +155,32 @@ opt_settings:
     STA OPTMENU_VIEW            ; the settings, not the save view
     STA OPTMENU_SEL             ; row 0 is a heading; step onto the first
     STA OPTMENU_TOP             ;   real setting below
-    LDX #NGROW_HEAD             ; every row but the New Game list's
+    LDX #ROW_TREASURES          ; the options: everything above what
+    JSR opt_menu_window         ;   moved to the randomization screen
+    JSR opt_menu_nextsel
+    BRA opt_menu_screen
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The randomization screen (menus.txt): the TREASURES, RANDOMIZATION and
+;;  KEY ITEMS sections -- what New Game alone reads, and what the map edit
+;;  screen's check reads -- which the options screen no longer shows.  From
+;;  the New Game flow (ng_flow), by JSL.  Out: A = NGNAV_FORWARD for START,
+;;  NGNAV_BACK for B.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_randoscreen:
+    PHB
+    PHK
+    PLB
+    LDA #$00
+    STA OPTMENU_VIEW
+    LDA #ROW_TREASURES
+    STA OPTMENU_TOP
+    LDX #NGROW_HEAD
     JSR opt_menu_window
+    LDA #ROW_TREASURES + 2      ; Starting items, under the heading
+    STA OPTMENU_SEL
     JSR opt_menu_nextsel
     BRA opt_menu_screen
 
@@ -341,10 +365,13 @@ opt_menu_screen:
     BNE @act
     LDA f:OPTMENU_EDGE
     AND #PAD_DOWN
-    BNE @down
-    LDA f:OPTMENU_EDGE
+    BEQ :+
+    JMP @down                   ; (past a branch's reach, both)
+:   LDA f:OPTMENU_EDGE
     AND #PAD_UP
-    BNE @up
+    BEQ :+
+    JMP @up
+:
     LDA f:OPTMENU_EDGE
     AND #PAD_LEFT | PAD_RIGHT
     BNE :+
@@ -374,11 +401,22 @@ opt_menu_screen:
     ;  The game plays the selection effect for B as well as A -- backing out
     ;  of a menu is a choice.  LineupMenu_UpdateJoy ORs the two catchers
     ;  together and plays the one sound for either.
-    JSR opt_sfx_sel
+    ;  Out: A = NGNAV_FORWARD for START, NGNAV_BACK for B -- which the New
+    ;  Game flow follows, and the title, where both mean back, ignores.
+    LDA #NGNAV_FORWARD
+    PHA
+    LDA f:OPTMENU_EDGE
+    AND #PAD_START
+    BNE :+
+    PLA
+    LDA #NGNAV_BACK
+    PHA
+:   JSR opt_sfx_sel
     JSR opt_waitrelease         ; ...and nothing carries back out either
     LDA #$00
     STA OPTMENU_VIEW            ; set only while the view is on screen
     wPPUMASK
+    PLA
     PLB
     RTL
 
@@ -1851,6 +1889,7 @@ lut_OptRows:
   OPTLABEL {"Short ToFR"}
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
+lut_OptRowTreasures:   ; the randomization screen's rows start here
   .BYTE $00, $00   ; TREASURES
   FFPAD "TREASURES", 30
   .BYTE $03, $00   ; (blank)
@@ -1995,6 +2034,9 @@ lut_OptRowsEnd:
 ;  top, the heading, the seed's row, then the rest of the section to the end.
 ;  The section has to be the last.
 VIEW_HEAD  = (lut_OptRowRando - lut_OptRows) / OPTROW_STRIDE
+;  The options and the randomization screen: the rows above TREASURES, and
+;  TREASURES to the New Game list's.
+ROW_TREASURES = (lut_OptRowTreasures - lut_OptRows) / OPTROW_STRIDE
 VIEW_TOP   = VIEW_HEAD - 1
 VIEW_SEED  = VIEW_HEAD + 1
 VIEW_FIRST = VIEW_HEAD + 2

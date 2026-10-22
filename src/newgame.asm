@@ -19,8 +19,9 @@
 .include "fftext.inc"
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
-.export ngp_apply
-.export lut_NgpTitle, lut_NgpDataPtr   ; for tools/test_options.py
+.import opt_newgamelist, opt_randoscreen, opt_settings
+.export ngp_apply, ng_flow
+.export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
 
 .segment "BANK_NEWGAME"
 
@@ -132,3 +133,51 @@ ngp_apply:
 
 lut_NgpBit:
   .BYTE $01, $02, $04, $08, $10, $20, $40, $80
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  ng_flow -- New Game's screens, from the title's New Game (menus.txt;
+;;  randomization-notes.md, 12)
+;;
+;;    the list -- Custom Game, or a preset, applied as it is picked;
+;;      Vanilla and Improved Vanilla go straight on to party creation
+;;    the randomization screen -- TREASURES, RANDOMIZATION, KEY ITEMS
+;;    the options -- the rest of the settings
+;;
+;;  START goes on to the next, B back to the one before; B on the list goes
+;;  back to the title.  Still to come between and after: overworld select,
+;;  the map edits, the seed; party creation's B back into these.  Each
+;;  screen takes the PPU and leaves it off, and the title or party creation
+;;  builds its own after.
+;;
+;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = NGNAV_FORWARD to
+;;  start the game (party creation), NGNAV_BACK to go back to the title.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+ng_flow:
+  @list:
+    JSL opt_newgamelist + OPTMENUFAR
+    CMP #NGPICK_BACK
+    BEQ @back
+    CMP #NGPICK_CUSTOM
+    BEQ @rando
+    PHA
+    JSL ngp_apply + NEWGAMEFAR  ; the preset, written as it is picked
+    PLA
+    TAX
+    LDA f:NEWGAMEFAR + lut_NgpFlow, X
+    BEQ @go                     ; nothing randomized: to party creation
+  @rando:
+    JSL opt_randoscreen + OPTMENUFAR
+    CMP #NGNAV_BACK
+    BEQ @list
+  @options:
+    JSL opt_settings + OPTMENUFAR
+    CMP #NGNAV_BACK
+    BEQ @rando
+  @go:
+    LDA #NGNAV_FORWARD
+    RTL
+  @back:
+    LDA #NGNAV_BACK
+    RTL

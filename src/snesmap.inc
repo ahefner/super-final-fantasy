@@ -64,6 +64,8 @@ CHUNK_OPTMENU   = $1B           ; the settings screen's engine and rows (optmenu
 OPTMENUFAR      = (CHUNK0 + CHUNK_OPTMENU) * $10000
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
+NGNAV_FORWARD   = 0             ; what a screen of the New Game flow answers:
+NGNAV_BACK      = 1             ;   START, on; B, back to the one before
 
 ;  The credits screen's variables and HDMA buffers.  The game's RAM, the
 ;  HAL's and every shadow are in bank $7E; the one thing in $7F is the ending
