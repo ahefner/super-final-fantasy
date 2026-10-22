@@ -6022,8 +6022,16 @@ def test_seedscreen():
     MOVE, SELSFX, MUSIC = SYM["opt_sfx_move"], SYM["opt_sfx_sel"], SYM["CallMusicPlay"]
     W4007, PADRESET = SYM["nesio_w4007"], SYM["opt_padreset"]
 
+    #  The layout (user, 2026-10-22): "Seed Entry" on row 3, the seed on row
+    #  5, the grid's rows 9, 11, 13 and 15.
+    HEADROW, SEEDROW, GRIDROW = 3, 5, 9
+
     def text(bus, row, col, n):
         return "".join(_decode(b) or "?" for b in bus.wram[NT + row * 32 + col:NT + row * 32 + col + n])
+
+    def shown(bus):
+        """The seed as drawn."""
+        return text(bus, SEEDROW, 12, 8)
 
     def pad(bus, nes):
         bus.io[0x4218] = nes & 0x80
@@ -6079,7 +6087,7 @@ def test_seedscreen():
     def at(digit):
         """Where the hand stands for a digit: two cells before it, a pixel
         above its row, as the settings screen's stands by its box."""
-        return ((10 + 4 * (digit & 3)) * 8 - 16, (8 + 2 * (digit >> 2)) * 8 - 1)
+        return ((10 + 4 * (digit & 3)) * 8 - 16, (GRIDROW + 2 * (digit >> 2)) * 8 - 1)
 
     def type_(bus, cpu, digits):
         """Walk the hand to each digit by the shortest wrap and press A."""
@@ -6093,9 +6101,12 @@ def test_seedscreen():
             press(bus, cpu, A_)
 
     bus, cpu = up()
-    check("the screen: SEED, the seed given, the grid of sixteen digits",
-          (text(bus, 1, 4, 4), text(bus, 4, 12, 8), [text(bus, 8 + 2 * r, 10, 13) for r in range(4)]),
-          ("SEED", "1A2B3C4D", ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]))
+    check("the screen: Seed Entry, the seed given, the grid of sixteen digits",
+          (text(bus, HEADROW, 4, 10), shown(bus), [text(bus, GRIDROW + 2 * r, 10, 13) for r in range(4)]),
+          ("Seed Entry", "1A2B3C4D", ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]))
+    check("...and nothing else above the description box", sorted(
+          r for r in range(1, 21) if r not in [HEADROW, SEEDROW] + [GRIDROW + 2 * k for k in range(4)]
+          and text(bus, r, 0, 32).strip()), [])
     check("...described in the pane", pane(bus),
           ["The world is built from this", "seed -- the same seed and", "settings, the same world.",
            "START keeps it, or type one", "of your own, eight digits."])
@@ -6106,7 +6117,7 @@ def test_seedscreen():
     grids = {}
     for sd in (0x000000FF, 0x80808080, 0xFFFFFFFF, 0x7F00FF80, 0x12345680):
         b2, _ = up(sd)
-        grids[sd] = [text(b2, 8 + 2 * r, 10, 13) for r in range(4)]
+        grids[sd] = [text(b2, GRIDROW + 2 * r, 10, 13) for r in range(4)]
     check("...the grid the same whatever the seed, its bytes' top bits set or not",
           {sd: g for sd, g in grids.items() if g != ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]}, {})
     frame(bus, cpu, 0)
@@ -6130,14 +6141,14 @@ def test_seedscreen():
     press(bus, cpu, RIGHT)
     frame(bus, cpu, A_)
     check("A on 1: the seed blanked but for it, with the select's chirp, the hand still on 1",
-          (text(bus, 4, 12, 8), counts["sel"], hand(bus)), ("1-------", 1, at(1)))
+          (shown(bus), counts["sel"], hand(bus)), ("1-------", 1, at(1)))
     frame(bus, cpu, 0)
     type_(bus, cpu, [0xC, 0xA])
-    check("...and C, A", text(bus, 4, 12, 8), "1CA-----")
+    check("...and C, A", shown(bus), "1CA-----")
     frame(bus, cpu, START)
     check("START with three in: refused, the error sound begun -- square 1, the triangle's reload and "
           "the noise silenced, square 2 the sound's",
-          (text(bus, 4, 12, 8), bus.wram[APUSHADOW], bus.wram[APUSHADOW + 8], bus.wram[APUSHADOW + 0x0C],
+          (shown(bus), bus.wram[APUSHADOW], bus.wram[APUSHADOW + 8], bus.wram[APUSHADOW + 0x0C],
            bus.wram[K["sq2_sfx"]]), ("1CA-----", 0x30, 0x30, 0x30, 1))
     #  (frame() runs from one pad read to the next: START's, the rest of its
     #  pass, and the next frame's sound -- the first of the sixteen.)
@@ -6150,24 +6161,24 @@ def test_seedscreen():
           "then the music", recs, [(0, 1, (0x8C, 0x89, 0x80, 0x00))] * 15
           + [(0, 1, (0x30, 0x89, 0x00, 0x00))] + [(1, None, None)] * 2)
     frame(bus, cpu, B_)
-    check("B: the last taken back, with the select's chirp", (text(bus, 4, 12, 8), counts["sel"]), ("1C------", 1))
+    check("B: the last taken back, with the select's chirp", (shown(bus), counts["sel"]), ("1C------", 1))
     frame(bus, cpu, 0)
     press(bus, cpu, B_)
     press(bus, cpu, B_)
-    check("...to nothing typed: all dashes, the screen still up", (text(bus, 4, 12, 8), hand(bus) is not None),
+    check("...to nothing typed: all dashes, the screen still up", (shown(bus), hand(bus) is not None),
           ("--------", True))
     check("...and B again: back", leave(bus, cpu, B_)[0], BACK)
 
     bus, cpu = up()
     type_(bus, cpu, [0xD, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF])
-    check("all eight typed: the seed, the hand hidden", (text(bus, 4, 12, 8), hand(bus)), ("DEADBEEF", None))
+    check("all eight typed: the seed, the hand hidden", (shown(bus), hand(bus)), ("DEADBEEF", None))
     press(bus, cpu, RIGHT)
     check("...the d-pad moves nothing hidden", bus.wram[W("MENURAM") + 0x20], 0xF)
     check("...A: on, with the seed typed, marked typed", leave(bus, cpu, A_), (FWD, 0xDEADBEEF, 1))
     bus, cpu = up()
     type_(bus, cpu, [0, 1, 2, 3, 4, 5, 6, 7])
     press(bus, cpu, B_)
-    check("...or B: the last taken back, the hand again where it was", (text(bus, 4, 12, 8), hand(bus)),
+    check("...or B: the last taken back, the hand again where it was", (shown(bus), hand(bus)),
           ("0123456-", at(7)))
     press(bus, cpu, A_)
     check("...typed again, START: on with it", leave(bus, cpu, START), (FWD, 0x01234567, 1))
@@ -6175,9 +6186,9 @@ def test_seedscreen():
     #  Back from party creation: the seed chosen.  Typed, it comes back
     #  whole with the hand hidden, B taking a digit back; latched, as given.
     bus, cpu = up(0x89ABCDEF, typed=1)
-    check("back to a typed seed: shown, the hand hidden", (text(bus, 4, 12, 8), hand(bus)), ("89ABCDEF", None))
+    check("back to a typed seed: shown, the hand hidden", (shown(bus), hand(bus)), ("89ABCDEF", None))
     press(bus, cpu, B_)
-    check("...B: a digit back, the hand shown", (text(bus, 4, 12, 8), hand(bus) is not None), ("89ABCDE-", True))
+    check("...B: a digit back, the hand shown", (shown(bus), hand(bus) is not None), ("89ABCDE-", True))
     check("...START now refused", leave(bus, cpu, START), None)
     check("back to a latched seed: as given, START on with it", leave(*up(0x00C0FFEE), START), (FWD, 0x00C0FFEE, 0))
 

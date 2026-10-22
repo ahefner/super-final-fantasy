@@ -387,9 +387,12 @@ the hand hidden, B taking a digit back; a latched one comes back as given.
 Without the screen the flow latches all the same, so New Game's seed is
 always `NGF_SEED`, which `rando_newgame` takes as it takes the edits.
 
-It is laid out as the flow's other screens are -- their blue, the heading
-where the New Game list's is, the description box with a description of
-its own (`lut_DescSeed`, drawn by the engine's `opt_menu_desctext`) -- and
+It is laid out as the flow's other screens are -- their blue, the
+description box with a description of its own (`lut_DescSeed`, drawn by
+the engine's `opt_menu_desctext`) -- under "Seed Entry" on row 3, the seed
+on row 5 and the grid on rows 9-15, centred down the space above the box
+(user, 2026-10-22: it read "SEED" on row 1, the seed on 4, the grid on
+8-14; built, not yet played) -- and
 handled as the game's name input is: the grid's hand wraps at each edge,
 the move's chirp on a move, the select's on A and B.  Its digits are four
 cells apart, so the hand, two cells before its digit, stands clear of the

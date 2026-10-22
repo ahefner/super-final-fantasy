@@ -39,14 +39,16 @@
 
 .segment "BANK_OPTMENU"
 
-;  Where things are, in nametable cells.  The heading where the New Game
-;  list's is; the seed centred; the grid's digits four columns apart, so the
-;  hand, two cells before its digit, stands clear of the one to its left.
-SEED_HEADROW = OPTLIST_TOP
+;  Where things are, in nametable cells: the heading, the seed centred
+;  under it, and the grid, the three centred down the space above the
+;  description box (user, 2026-10-22: the heading two rows down, the seed
+;  and the grid one); the grid's digits four columns apart, so the hand,
+;  two cells before its digit, stands clear of the one to its left.
+SEED_HEADROW = OPTLIST_TOP + 2
 SEED_HEADCOL = OPTLIST_COL + 2
-SEED_ROW     = 4
+SEED_ROW     = 5
 SEED_COL     = 12               ; eight digits, columns 12-19
-GRID_ROW     = 8                ; the grid's rows 8, 10, 12, 14
+GRID_ROW     = 9                ; the grid's rows 9, 11, 13, 15
 GRID_COL     = 10               ; ...and its columns 10, 14, 18, 22
 GRID_DX      = 4
 GRID_DY      = 2
@@ -315,7 +317,7 @@ seed_drawhead:
     RTS
 
 lut_SeedHead:
-  FFTEXT "SEED"
+  FFTEXT "Seed Entry"
 lut_SeedHead_end:
 
 
