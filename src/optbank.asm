@@ -69,7 +69,7 @@
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
-.import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP
+.import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
 .import DrawItemTargetMenu
@@ -751,6 +751,7 @@ opt_titlechoose:
     BNE @nothing                ; only Continue has a save behind it
     JSR opt_savevalid
     BCS @nothing
+    JSR opt_titlechirp
     JSL opt_saveview + OPTMENUFAR
     BRA @shown
   @nothing:
@@ -773,6 +774,7 @@ opt_titlechoose:
   @newgame:
     ;  New Game's screens first (ng_flow; menus.txt): back out of them all
     ;  and the title is rebuilt; through them, and New Game goes on.
+    JSR opt_titlechirp
     JSL ng_flow + NEWGAMEFAR
     CMP #NGNAV_BACK
     BEQ @shown
@@ -780,6 +782,7 @@ opt_titlechoose:
     LDA #$01                    ; ...and Z and N clear
     RTL
   @screen:
+    JSR opt_titlechirp          ; (A, the row, kept)
     CMP #TITLEROW_CREDITS
     BEQ @credits
     JSL opt_settings + OPTMENUFAR
@@ -789,6 +792,19 @@ opt_titlechoose:
   @shown:
     LDA #$00                    ; Z set
     RTL
+
+;;  The select chirp for a title row that opens a screen, as the press is
+;;  heard.  The game's title plays none -- Continue and New Game left it for
+;;  a game -- and the screens it now opens played it themselves as they
+;;  appeared, which in New Game's flow made two of every step back to one
+;;  (user, 2026-10-22): the screen left had chirped at the press already.
+;;  Now every screen's chirp is the press's, heard where it is pressed, and
+;;  no screen chirps for appearing.  A, X, Y kept.
+opt_titlechirp:
+    PHA
+    CALL0E PlaySFX_MenuSel
+    PLA
+    RTS
 
 ;;  opt_savevalid from another chunk, by JSL (owscreen.asm), emulation mode.
 opt_savevalidfar:

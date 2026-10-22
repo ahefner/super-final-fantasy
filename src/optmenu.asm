@@ -222,10 +222,10 @@ opt_menu_screen:
     LDA #$1E
     wPPUMASK                    ; ...and back on
 
-    ;  The press that opened this screen belongs to the title screen's loop,
-    ;  which does not chirp for it -- it has no way to know whether the mode
-    ;  row leads anywhere.  So answer it here, as the list appears.
-    JSR opt_sfx_sel
+    ;  No chirp for appearing: the press that opened this screen chirped as
+    ;  it was heard, on the title (opt_titlechirp) or the screen before it.
+    ;  This played one here too until 2026-10-22, which in New Game's flow
+    ;  made two of every step back (user).
 
     JSR opt_waitrelease         ; nothing the title screen was holding carries in
 

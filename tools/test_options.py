@@ -6240,6 +6240,123 @@ def test_seedscreen():
         seen.append(cpu.p & 1)
     check("...each preset as genpresets judges it, the Map edits row aside", seen, want)
 
+def test_chirps():
+    """The select chirp is the press's, played once where it is heard, and no
+    screen plays one for appearing (user, 2026-10-22: in New Game's flow a
+    screen's press chirped and the next screen chirped again as it came up,
+    so every step back sounded twice).  Each screen: nothing from its entry
+    to its first pad read, then one chirp for the press that leaves it.
+    The title: one for a row that opens a screen, none for Continue."""
+    UJ, SEL = SYM["UpdateJoy"], SYM["PlaySFX_MenuSel"]
+    A_, B_, START = 0x80, 0x40, 0x10
+    CREDITS = K["CHUNK0"] + K["CHUNK_CREDITS"]
+    OWS = 0xA1 + K["CHUNK_OWS"]
+    count = [0]
+
+    def spy(cpu):
+        step = cpu.step
+        def counted():
+            if cpu.pbr == BANK_0E and cpu.pc == SEL:
+                count[0] += 1
+            step()
+        cpu.step = counted
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    TICKON = K["OWS_TICKON"] - 0x7E0000
+
+    def run_screen(bank, name, leave, a=0, native=False):
+        """Chirps from entry to the first pad read, then from the leaving
+        press to the screen's return; None if it never came up or never
+        left.  The native screens keep their own time (bus.frames); the
+        engine's need the harness's vblank held."""
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        bus.frames()
+        if not native:
+            in_vblank(bus)
+        spy(cpu)
+        pad(bus, 0)
+        cpu.a = a
+        count[0] = 0
+        if not cpu.run(bank, SYM[name], stop=UJ, limit=60_000_000):
+            return None
+        entry, count[0] = count[0], 0
+        queue = [0] * 12 + [leave]                 # past the entry's wait for release (the
+                                                   #   credits' takes some eight frames)
+        for _ in range(400):
+            #  The map edit screen's checks read the pad too: the presses
+            #  are its own frames'.
+            pad(bus, 0 if bus.wram[TICKON] or not queue else queue.pop(0))
+            cpu.step()
+            for _ in range(20_000_000):
+                if cpu.pc in (UJ, 0xFFFE):
+                    break
+                cpu.step()
+            if cpu.pc == 0xFFFE:
+                return entry, count[0]
+        return entry, None
+
+    got = {
+        "the New Game list, A": run_screen(OPTMENU_BANK, "opt_newgamelist", A_),
+        "the options, START": run_screen(OPTMENU_BANK, "opt_settings", START),
+        "the options, B": run_screen(OPTMENU_BANK, "opt_settings", B_),
+        "the randomization screen, START": run_screen(OPTMENU_BANK, "opt_randoscreen", START),
+        "the seed, START": run_screen(OPTMENU_BANK, "seed_choose", START),
+        "the seed, B": run_screen(OPTMENU_BANK, "seed_choose", B_),
+        "the map edits, START": run_screen(OWS, "ows_choose", START, a=K["OWS_CANBACK"], native=True),
+        "the map edits, B": run_screen(OWS, "ows_choose", B_, a=K["OWS_CANBACK"], native=True),
+        "the credits, B": run_screen(CREDITS, "credits_screen", B_, native=True),
+    }
+    check("no screen chirps for appearing; each once for the press that leaves it",
+          {k: v for k, v in got.items() if v != (0, 1)}, {})
+
+    #  The title: its choice chirps as it is heard, before the screen it
+    #  opens runs -- each screen stubbed here to note how many chirps came
+    #  before it -- and Continue to a saved game, leaving the title for the
+    #  game, none, as the game's title has it.
+    stubbed = bytearray(ROMDATA)
+    MARK = 0x1FF0
+    for name, bank in (("opt_saveview", OPTMENU_BANK), ("opt_settings", OPTMENU_BANK),
+                       ("credits_screen", CREDITS), ("ng_flow", 0xA1 + K["CHUNK_NEWGAME"])):
+        at = (bank & 0x1F) * 0x10000 + SYM[name]
+        stubbed[at:at + 9] = bytes([0xA9, 0x01, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0xA9, K["NGNAV_BACK"], 0x6B])
+
+    def title(cur, buttons, save=True):
+        bus, cpu = machine()
+        bus.rom = stubbed
+        if save:
+            at = K["RANDO_SAVE"] - 0x6000
+            bus.sram[at:at + 4] = (1).to_bytes(4, "little")
+            cpu.dbr = BANK_0E
+            cpu.run(BANK_0E, SYM["SaveGame"])
+        bus.wram[K["cursor"]] = cur
+        for b, name in ((A_, "joy_a"), (START, "joy_start"), (0x20, "joy_select")):
+            bus.wram[K[name]] = 1 if buttons & b else 0
+        cpu.dbr = BANK_0E
+        spy(cpu)
+        seen = []
+        write = bus.write
+        def w(bank, addr, val):
+            if addr == MARK:
+                seen.append(count[0])       # the chirps before the screen ran
+            write(bank, addr, val)
+        bus.write = w
+        count[0] = 0
+        cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
+        return seen, count[0]
+    rows = {"Continue": (0, A_, True), "New Game": (1, START, True), "the options row": (2, A_, True),
+            "Credits": (3, A_, True), "Select on Continue": (0, 0x20, True),
+            "Continue with no save (a New Game)": (0, A_, False), "Select with no save": (0, 0x20, False)}
+    check("the title: one chirp as a row that opens a screen is chosen, before the screen; none for "
+          "Continue to a game or a Select that opens nothing",
+          {k: title(*v) for k, v in rows.items()},
+          {"Continue": ([], 0), "New Game": ([1], 1), "the options row": ([1], 1), "Credits": ([1], 1),
+           "Select on Continue": ([1], 1), "Continue with no save (a New Game)": ([1], 1),
+           "Select with no save": ([], 0)})
+
 def test_ngparty():
     """Party creation as New Game's last screen (menus.txt): bank $0E's
     NewGamePartyUI, which the flow calls through OptCallFar -- B on the
@@ -13798,7 +13915,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_chirps, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

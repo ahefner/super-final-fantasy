@@ -1224,8 +1224,9 @@ ows_input:
     JSR ows_check
 :   LDA f:V_WON
     BEQ @lost
-    SEC                         ; START ends it
-    RTS
+    JSR ows_sfxsel              ; START ends it, chirping as every screen's
+    SEC                         ;   press does (it was the options' chirp, as
+    RTS                         ;   they appeared, until 2026-10-22)
   @lost:
     LDA f:V_WHY
     JSR ows_warn                ; no: why, and the screen stays

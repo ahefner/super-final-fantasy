@@ -2183,6 +2183,25 @@ covered part of it.  Nothing built is waiting on a playtest.
     shadow store, and the HAL's sweep infers a replayed effect from `sq2_sfx`
     going *up* -- get either wrong and the chirp sounds once and then stays
     flat however fast the cursor moves.
+  - **A chirp is the press's, played once where it is heard; no screen
+    chirps for appearing** (2026-10-22; built, not yet played).  The
+    game's title plays no chirp for its choice, so the screens it opens --
+    the settings, the save view, the credits -- each played one as they
+    appeared.  In New Game's flow that made two of most steps, the screen
+    left chirping at the press and the next chirping again once built,
+    a moment later, as if on the release (user: "the sound to play twice
+    when transitioning between menus").  Now `opt_titlechirp` chirps as the
+    title hears a row that opens a screen -- New Game, the options row,
+    Credits, Select on Continue, and Continue with no save, which is a New
+    Game -- and Continue to a game stays silent, as the game has it; no
+    screen chirps on entry; and the map edit screen's START, the one
+    leaving press that was silent (the options' entry chirp covered it),
+    chirps.  So every step of the flow is one chirp, at the press:
+    `test_chirps` runs each screen -- the list, the options, the
+    randomization screen, the seed, the map edits, the credits -- for no
+    chirp from entry to its first pad read and one for the press that
+    leaves it, and the title for one before the screen it opens and none
+    for Continue.  Seven mutations, all caught.
   - **The Credits row and the credits screen.**  The title screen has four
     rows: Continue and New Game moved up four (`optcredits_continue.patch`,
     `optcredits_newgame.patch`) so the mode box sits at row 16, Credits at 20

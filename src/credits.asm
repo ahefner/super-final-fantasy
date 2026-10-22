@@ -138,9 +138,8 @@ credits_screen:
     PHK
     PLB                         ; this chunk's low half is the I/O map
 
-    ;  The title screen does not chirp for a row that opens a screen; the
-    ;  screen answers the press as it appears, as the settings screen does.
-    CALL0E PlaySFX_MenuSel
+    ;  No chirp for appearing: the title's press chirped as it was heard
+    ;  (opt_titlechirp).
 
     ;  Dark from the top of a vblank, so nothing of the title screen tears.
     JSR cr_frame
