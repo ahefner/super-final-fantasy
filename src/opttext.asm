@@ -15,7 +15,6 @@
 .include "optmenu.inc"
 
 .export lut_DescLo, lut_DescHi
-.export lut_DescSeed            ; the seed screen's, in its own chunk
 
 .segment "BANK_OPTTEXT"
 
@@ -1055,14 +1054,6 @@ lut_Desc_91:  ; Early Ordeals
   FFPAD {"without the CROWN."}, 28
 
 .include "presetdesc.inc"       ; the presets' descriptions, and NGP_DESCLO/HI
-
-lut_DescSeed:  ; the seed screen's (seedscreen.asm)
-  FFLINES 5
-  FFPAD {"The world is built from this"}, 28
-  FFPAD {"seed -- the same seed and"}, 28
-  FFPAD {"settings, the same world."}, 28
-  FFPAD {"START keeps it, or type one"}, 28
-  FFPAD {"of your own, eight digits."}, 28
 
 lut_DescCustom:  ; Custom Game
   FFLINES 4

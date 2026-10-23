@@ -374,10 +374,10 @@ as map edits alone randomize nothing) -- so not for Vanilla or Improved
 Vanilla, nor for Custom Game on options that randomize nothing.  The flow
 latches a seed from the pool as it goes on to the screen (`ng_latch`; an
 `FFSEED` build's seed instead), into `NGF_SEED`, and the screen shows it,
-eight hex digits high nibble first as the save view shows a seed, above a
+eight hex digits high nibble first as the save view shows a seed, beside a
 grid of the sixteen digits.  As menus.txt has it: A on a digit types it,
-the first blanking the seed shown -- the rest of the eight are dashes until
-typed -- and the eighth hides the hand; B takes the last digit back, the
+the first blanking the seed shown -- the rest of the eight are blank
+pieces until typed -- and the eighth hides the hand; B takes the last digit back, the
 hand showing again; B on the seed as given, or with nothing typed, goes
 back to the options.  START goes on with the seed as given, or with the one
 typed once all eight are in, and before then plays the game's error sound;
@@ -387,32 +387,74 @@ the hand hidden, B taking a digit back; a latched one comes back as given.
 Without the screen the flow latches all the same, so New Game's seed is
 always `NGF_SEED`, which `rando_newgame` takes as it takes the edits.
 
-It is laid out as the flow's other screens are -- their blue, the
-description box with a description of its own (`lut_DescSeed`, drawn by
-the engine's `opt_menu_desctext`) -- under "Seed Entry" on row 3, centred
-over the seed (columns 11-20, worked out from the two widths), the seed
-on row 5 and the grid on rows 9-15, centred down the space above the box
-(user, 2026-10-22: it read "SEED" on row 1, the seed on 4, the grid on
-8-14; built, not yet played) -- and
-handled as the game's name input is: the grid's hand wraps at each edge,
-the move's chirp on a move, the select's on A and B.  Its digits are four
-cells apart, so the hand, two cells before its digit, stands clear of the
-digit to its left (the name input's two-cell spacing puts its hand over
-the letter before).  It runs in the engine's chunk on the engine's frame:
-`WaitForVBlank_L`, so the music and the L + X / L + Y reset, the engine's
-release waits, and its pad bytes (`OPTMENU_PREV`, `_EDGE`), whose
-definitions moved to `optmenu.inc` with the screen's layout for the two
-files to share.  The error sound is the map edit screen's way of playing
-it, `PlaySFX_Error`'s writes on the screen's own frames while the screen
-goes on (`seed_sfxerr`, `seed_music`), written out again because the two
-screens are in different chunks and modes.  (Its grid's digits drew odd
-in rows 1-3 for one seed in two, `hal_ntblit` shifting a word of zero page
-on each blit -- fixed 2026-10-22; "Things learned the hard way".)  Its
-scratch is `MENURAM`+$20
-on (`SEED_SEL`, `SEED_N`, `SEED_ERR`, `SEED_DIG`).
+**Its art is the 15-puzzle minigame's** (user, 2026-10-22: "a more
+artistic take ... base it on the artwork from the 15-puzzle game"; built,
+not yet played).  The background is the bridge scene the minigame is
+played over -- the logo, the cliff, the birds -- its story box taken out,
+and one black box across the top in its place: columns 2-29, rows 2-11
+(the user's "S2", of the mockups in the project directory's
+`map-renders/seed-screen/`), inside the
+cells a CRT shows and clear of the birds (user).  In it the sixteen
+buttons are the minigame's pieces, 16x16, a cell apart across and touching
+down; 1-9 its own, and 0 and A-F drawn in their style (5x7, the stems two
+pixels wide, as its 6, 8 and 9 have them; its 10-15 are two digits).
+"Seed Entry" and the read-out, two rows of four pieces -- untyped places
+the blank piece -- are beside them.  The description box is gone.  The
+hand stands two cells before its piece, in front, over the right half of
+the piece to its left, as the name input's stands over the letter before
+(user: of that, the hand behind the pieces with only its finger showing,
+and wider gaps with "Seed" over "Entry", that one); and without its shadow
+here (user: on black it is unseen, and over a white piece a dark smear):
+`seed_hand` loads the hand's four tiles with the shadow's rows -- the
+bottom four of the lower two -- cleared, and puts them back whole.
 
-`test_seedscreen` runs it a frame at a time: the screen as drawn and
-described, the hand's wrap and chirp, START and B on the seed given,
+`tools/genseedart.py` makes it from the game's own art, as the
+disassembly keeps it (`game/bin`: the bridge scene's CHR and nametable,
+the minigame's pieces, the menu font) -- `gen/seedart.inc`: 96 tiles from
+$80, over the menu font's (the pieces 0-F and the blank, four tiles each,
+the box's border recoloured, a tile of backdrop, the letters of "Seed
+Entry" recoloured), the whole nametable with its attributes, the box,
+grid and heading already in it, the palette, and the layout as constants.
+The pieces are background tiles, not sprites as in the minigame: 24
+pieces would be 96 sprites of the 64 the HAL's NES sprite list holds.  The
+box is in palette 0, which the bridge scene gives only to rows below the
+picture: the pieces' black (the backdrop), red ($15, the minigame's),
+grey and white; the border and letters recoloured onto those, the box's
+inside the backdrop tile, so nothing in it needs another palette and only
+the box's outer edges need lie on the 16-pixel attribute grid -- which the
+generator asserts, with the CRT cells and the birds.  `seed_build`
+loads it all through `hal_chrload`, the game's own bulk path -- the bridge
+scene's tiles from bank $0B, the screen's over the font's, the nametable
+-- a breath after each for the music; keeps `cur_pal` to put back and sets
+the background's; `seed_drawread` draws the read-out, four runs of eight
+tiles, as digits are typed.  Leaving, `seed_restore` loads the menu font
+back from where `LoadMenuCHR` takes it, the hand whole and the palette,
+for the options or party creation after.
+
+It is handled as the game's name input is: the grid's hand wraps at each
+edge, the move's chirp on a move, the select's on A and B.  It runs in the
+engine's chunk on the engine's frame: `WaitForVBlank_L`, so the music and
+the L + X / L + Y reset, the engine's release waits, and its pad bytes
+(`OPTMENU_PREV`, `_EDGE`), whose definitions moved to `optmenu.inc` for
+the two files to share.  The error sound is the map edit screen's way of
+playing it, `PlaySFX_Error`'s writes on the screen's own frames while the
+screen goes on (`seed_sfxerr`, `seed_music`), written out again because
+the two screens are in different chunks and modes.  (The text grid it had
+before the art drew odd digits in rows 1-3 for one seed in two,
+`hal_ntblit` shifting a word of zero page on each blit -- fixed 2026-10-22;
+"Things learned the hard way".)  Its scratch is `MENURAM`+$20 on
+(`SEED_SEL`, `SEED_N`, `SEED_ERR`, `SEED_DIG`, and `SEED_PAL`, the palette
+it found).
+
+`test_seedscreen` runs it a frame at a time: the screen as built, checked
+against the game's own art rather than the generator's word -- the grid's
+pieces 0-F where the layout has them, the seed read out, the nametable
+the bridge scene's but for the story box and the box, inside the CRT's
+cells with the birds untouched, the bridge tiles and the screen's loaded,
+the pieces 1-9 the minigame's own and 0, A-F sixteen different glyphs on
+its back, the palette, the hand shadowless, and on leaving the font, the
+hand and the palette as they were; the read-out over seeds with their top
+bits set; then the hand's wrap and chirp, START and B on the seed given,
 typing and taking back, START refused with the error sound's sixteen
 frames and no music, B down to nothing and back, all eight hiding the hand
 with the d-pad then idle, A and START going on, a typed seed and a latched
@@ -2996,9 +3038,9 @@ text region in the game references.
                              randomizer's chunk) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  1303 free  the settings screen's descriptions (measured
-                             2026-10-21, the presets' and the seed
-                             screen's, 141, since); Map
+    BANK_OPTTEXT  1444 free  the settings screen's descriptions (measured
+                             2026-10-22, the presets' since; the seed
+                             screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
@@ -3054,12 +3096,13 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  8248 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  5538 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
-                             seed screen is (796, with opt_needseed); it
-                             reaches opt_commit by JSL now
+                             seed screen is (3500 with its art: 1536 of
+                             tiles, 1024 of nametable; measured
+                             2026-10-22); it reaches opt_commit by JSL now
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

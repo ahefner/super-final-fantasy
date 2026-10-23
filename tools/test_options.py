@@ -6022,16 +6022,29 @@ def test_seedscreen():
     MOVE, SELSFX, MUSIC = SYM["opt_sfx_move"], SYM["opt_sfx_sel"], SYM["CallMusicPlay"]
     W4007, PADRESET = SYM["nesio_w4007"], SYM["opt_padreset"]
 
-    #  The layout (user, 2026-10-22): "Seed Entry" on row 3, the seed on row
-    #  5, the grid's rows 9, 11, 13 and 15.
-    HEADROW, SEEDROW, GRIDROW = 3, 5, 9
+    #  The layout (user, 2026-10-22, "S2"): one box, columns 2-29 and rows
+    #  2-11; the grid's pieces on columns 5, 8, 11, 14 and rows 3, 5, 7, 9;
+    #  "Seed Entry" on row 4 from column 18; the read-out's two rows of four
+    #  from column 19, rows 6 and 8.  The pieces are background tiles from
+    #  $80, four to a piece (UL, UR, DL, DR), 16 the blank.
+    GRIDCOL, GRIDROW, READCOL, READROW, PIECE = 5, 3, 19, 6, 0x80
+    nt_at = lambda bus, c, r: bus.wram[NT + r * 32 + c]
 
-    def text(bus, row, col, n):
-        return "".join(_decode(b) or "?" for b in bus.wram[NT + row * 32 + col:NT + row * 32 + col + n])
+    def piece_at(bus, c, r):
+        """The piece whose four tiles are at (c, r), or None."""
+        t = nt_at(bus, c, r) - PIECE
+        if t < 0 or t % 4 or t // 4 > 16:
+            return None
+        quad = [nt_at(bus, c + (k & 1), r + (k >> 1)) for k in range(4)]
+        return t // 4 if quad == [PIECE + t + k for k in range(4)] else None
 
     def shown(bus):
-        """The seed as drawn."""
-        return text(bus, SEEDROW, 12, 8)
+        """The read-out: the seed's digits as drawn, '-' a blank piece."""
+        out = ""
+        for i in range(8):
+            p = piece_at(bus, READCOL + (i & 3) * 2, READROW + (i >> 2) * 2)
+            out += "?" if p is None else "-" if p == 16 else "%X" % p
+        return out
 
     def pad(bus, nes):
         bus.io[0x4218] = nes & 0x80
@@ -6085,9 +6098,9 @@ def test_seedscreen():
         return (bus.wram[OAM + 3], bus.wram[OAM]) if bus.wram[OAM] < 0xEF else None
 
     def at(digit):
-        """Where the hand stands for a digit: two cells before it, a pixel
-        above its row, as the settings screen's stands by its box."""
-        return ((10 + 4 * (digit & 3)) * 8 - 16, (GRIDROW + 2 * (digit >> 2)) * 8 - 1)
+        """Where the hand stands for a digit: two cells before its piece, a
+        pixel above its row, as the settings screen's stands by its box."""
+        return ((GRIDCOL + 3 * (digit & 3)) * 8 - 16, (GRIDROW + 2 * (digit >> 2)) * 8 - 1)
 
     def type_(bus, cpu, digits):
         """Walk the hand to each digit by the shortest wrap and press A."""
@@ -6100,30 +6113,100 @@ def test_seedscreen():
                 press(bus, cpu, RIGHT)
             press(bus, cpu, A_)
 
-    bus, cpu = up()
-    check("the screen: Seed Entry, the seed given, the grid of sixteen digits",
-          (text(bus, HEADROW, 0, 32).strip(), shown(bus), [text(bus, GRIDROW + 2 * r, 10, 13) for r in range(4)]),
-          ("Seed Entry", "1A2B3C4D", ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]))
-    def ends(row):
-        line = text(bus, row, 0, 32)
-        return len(line) - len(line.lstrip()), len(line.rstrip()) - 1
-    check("...the heading centred over the seed (user, 2026-10-22)", sum(ends(HEADROW)), sum(ends(SEEDROW)))
-    check("...and nothing else above the description box", sorted(
-          r for r in range(1, 21) if r not in [HEADROW, SEEDROW] + [GRIDROW + 2 * k for k in range(4)]
-          and text(bus, r, 0, 32).strip()), [])
-    check("...described in the pane", pane(bus),
-          ["The world is built from this", "seed -- the same seed and", "settings, the same world.",
-           "START keeps it, or type one", "of your own, eight digits."])
+    #  The art, independently of the generator: the game's own blobs.
+    gbin = lambda f: open(os.path.join(ROOT, "game", "bin", f), "rb").read()
+    BRIDGE = gbin("0B_A800_endingbridge_chrnt.bin")
+    BRIDGE_CHR, BRIDGE_NT = BRIDGE[0xC00:0x1400], BRIDGE[0x1400:0x1800]
+    PUZZLE = gbin("0D_9E00_puzzle_1bpp.chr")
+    SHADOW = K["CHRSHADOW"] - 0x7E0000
+    def tile(bus, t):
+        """Tile t of the HAL's pattern shadow (0-255 BG, 256-511 sprites), as
+        the NES's 16 bytes."""
+        src = bus.wram[SHADOW + t * 32:SHADOW + t * 32 + 16]
+        return bytes(src[2 * y] for y in range(8)) + bytes(src[2 * y + 1] for y in range(8))
+    def px(raw, y, x):
+        return ((raw[y] >> (7 - x)) & 1) | (((raw[8 + y] >> (7 - x)) & 1) << 1)
+    def piece_px(bus, p):
+        """Piece p's 16x16 colour values, from the shadow."""
+        return [[px(tile(bus, PIECE + p * 4 + (y >= 8) * 2 + (x >= 8)), y & 7, x & 7) for x in range(16)]
+                for y in range(16)]
+    hand_src = bytes(ROMDATA[(0xA1 + 9 & 0x1F) * 0x10000 + 0xAF00:][:64])
+    HANDT = 256 + 0xF0
+
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    in_vblank(bus)
+    cpu.dbr = BANK_0E
+    cpu.run(BANK_0E, SYM["LoadMenuCHRPal"], limit=20_000_000)    # the title's, as the screen finds them
+    pal_before = bytes(bus.wram[K["cur_pal"]:K["cur_pal"] + 32])
+    font_before = b"".join(tile(bus, 0x80 + t) for t in range(0x80))
+    bus.wram[SEED:SEED + 4] = (0x1A2B3C4D).to_bytes(4, "little")
+    pad(bus, 0)
+    cpu.dbr = 0xA7
+    cpu.run(OPTMENU_BANK, SYM["seed_choose"], stop=UJ, limit=60_000_000)
+    frame(bus, cpu, 0)
+    check("the screen: the grid's sixteen pieces, 0-F, where the user's layout has them",
+          [piece_at(bus, GRIDCOL + 3 * (d & 3), GRIDROW + 2 * (d >> 2)) for d in range(16)], list(range(16)))
+    check("...the seed given, read out in pieces", shown(bus), "1A2B3C4D")
     check("...the hand on 0", hand(bus), at(0))
-    #  The grid whatever the seed: a seed byte left in tmp, its top bit set,
-    #  was shifted into the grid's row counter by hal_ntblit's stray ASL
-    #  (user, 2026-10-22: "5 5 7 7", "9 9 B B", "D D F F").
-    grids = {}
+    art = lambda name: (OPTMENU_BANK & 0x1F) * 0x10000 + SYM[name]     # gen/seedart.inc's, in seedscreen.asm
+    seednt = bytes(ROMDATA[art("lut_SeedNT"):][:0x400])
+    check("...the rest as the generator made it: the box, its border and \"Seed Entry\"",
+          [i for i in range(0x400) if bus.wram[NT + i] != seednt[i]
+           and not (READROW <= i // 32 < READROW + 4 and READCOL <= i % 32 < READCOL + 8)], [])
+    changed = [(i % 32, i // 32) for i in range(960) if seednt[i] != BRIDGE_NT[i]]
+    story = lambda c, r: 4 <= c <= 21 and 4 <= r <= 15
+    check("...the bridge scene's own picture but for the story box and the box, inside the cells a CRT "
+          "shows, the birds untouched (user)",
+          ([cr for cr in changed if not story(*cr) and not (2 <= cr[0] <= 29 and 2 <= cr[1] <= 11)],
+           [cr for cr in changed if not (1 <= cr[0] <= 30 and 2 <= cr[1] <= 27)],
+           [seednt[r * 32 + c] == BRIDGE_NT[r * 32 + c] for c, r in ((26, 13), (27, 14), (26, 15), (25, 17))]),
+          ([], [], [True] * 4))
+    check("...the bridge scene's tiles under it, the screen's own over the font's from $80",
+          (b"".join(tile(bus, t) for t in range(0x80)) == BRIDGE_CHR,
+           b"".join(tile(bus, 0x80 + t) for t in range(0x60)) == bytes(ROMDATA[art("lut_SeedCHR"):][:0x600])),
+          (True, True))
+    #  The pieces: 1-9 the minigame's own -- its back white (3), its glyph,
+    #  the holes in it, red (1), outside it the backdrop (0) -- and 0, A-F
+    #  new, sixteen glyphs all different, each inside the piece's face.
+    def minigame(p):
+        b = lambda t, y, x: (PUZZLE[t * 8 + y] >> (7 - x)) & 1
+        return [[(3 if b(p * 4 + (y >= 8) * 2 + (x >= 8), y & 7, x & 7) else 1)
+                 if b((y >= 8) * 2 + (x >= 8), y & 7, x & 7) else 0 for x in range(16)] for y in range(16)]
+    glyphs = [frozenset((y, x) for y in range(16) for x in range(16) if piece_px(bus, p)[y][x] == 1)
+              for p in range(17)]
+    check("...the pieces 1-9 the minigame's own, and the blank its back", [piece_px(bus, p) == minigame(p)
+          for p in list(range(1, 10)) + [0]], [True] * 9 + [False])
+    check("...0 and A-F drawn on its back, inside its face; sixteen glyphs all different, the blank none",
+          (all(g and all(3 <= y <= 11 and 3 <= x <= 11 for y, x in g) for g in glyphs[:16]),
+           len(set(glyphs[:16])), glyphs[16], piece_px(bus, 16) == minigame(0)),
+          (True, 16, frozenset(), True))
+    check("...the palette: the scene's, and palette 0 the pieces' -- black, red, grey, white -- the "
+          "sprites' as they were",
+          (list(bus.wram[K["cur_pal"]:K["cur_pal"] + 16]), bytes(bus.wram[K["cur_pal"] + 16:K["cur_pal"] + 32])),
+          ([0x0F, 0x15, 0x00, 0x30, 0x0F, 0x3B, 0x11, 0x24, 0x0F, 0x3B, 0x0B, 0x2B, 0x0F, 0x00, 0x0F, 0x30],
+           pal_before[16:]))
+    nohand = b"".join(tile(bus, HANDT + k) for k in range(4))
+    check("...the hand without its shadow (user, 2026-10-22): the bottom four rows of its lower tiles "
+          "clear, the rest the game's",
+          (nohand == bytes(0 if (i & 0x24) == 0x24 else v for i, v in enumerate(hand_src)),
+           any(v for i, v in enumerate(hand_src) if (i & 0x24) == 0x24)), (True, True))
+    out = leave(bus, cpu, B_)
+    check("...and leaving, all put back: the menu font, the hand whole, the palette",
+          (out[0], b"".join(tile(bus, 0x80 + t) for t in range(0x80)) == font_before,
+           b"".join(tile(bus, HANDT + k) for k in range(4)) == hand_src,
+           bytes(bus.wram[K["cur_pal"]:K["cur_pal"] + 32]) == pal_before), (BACK, True, True, True))
+
+    #  The read-out whatever the seed: its digits' places are worked out in
+    #  tmp, beside the seed's bytes, and a blit once shifted zero page
+    #  (hal_ntblit; user, 2026-10-22: "5 5 7 7").
+    reads = {}
     for sd in (0x000000FF, 0x80808080, 0xFFFFFFFF, 0x7F00FF80, 0x12345680):
         b2, _ = up(sd)
-        grids[sd] = [text(b2, GRIDROW + 2 * r, 10, 13) for r in range(4)]
-    check("...the grid the same whatever the seed, its bytes' top bits set or not",
-          {sd: g for sd, g in grids.items() if g != ["0   1   2   3", "4   5   6   7", "8   9   A   B", "C   D   E   F"]}, {})
+        reads[sd] = shown(b2)
+    check("...the read-out right whatever the seed, its bytes' top bits set or not",
+          {sd: r for sd, r in reads.items() if r != "%08X" % sd}, {})
+    bus, cpu = up()
     frame(bus, cpu, 0)
     check("...each frame the music and the menus' reset check, as the settings screen's",
           (counts["music"], counts["reset"]), (1, 1))

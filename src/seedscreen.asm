@@ -1,7 +1,14 @@
 ; ---------------------------------------------------------------------------
 ;  seedscreen.asm -- New Game's seed screen (menus.txt), in the settings
-;  screen's chunk (CHUNK_OPTMENU): its background, description box, chirps,
-;  release wait and frame are that engine's.
+;  screen's chunk (CHUNK_OPTMENU): its chirps, release wait and frame are
+;  that engine's.
+;
+;  Drawn from the 15-puzzle minigame's art (user, 2026-10-22): its pieces,
+;  0-F, as the sixteen buttons and as the read-out of the seed, in one black
+;  box over the bridge scene it is played on, the story box taken out --
+;  tools/genseedart.py makes the tiles, the nametable and the palette
+;  (gen/seedart.inc).  The pieces are background tiles over the menu font's
+;  slots, which the screen puts back as it leaves, with the palette.
 ;
 ;  The seed the world will be built from, and a grid of the sixteen hex
 ;  digits to type another, as the game's name input has its letters (user):
@@ -9,7 +16,7 @@
 ;    - It shows the seed it is given, NGF_SEED -- latched from the pool by
 ;      the flow on the way in, or, back from party creation, the one chosen.
 ;    - A on a digit types it.  The first blanks the seed shown, the digits
-;      not yet typed showing as dashes; the eighth hides the hand.
+;      not yet typed showing as blank pieces; the eighth hides the hand.
 ;    - B takes the last digit typed back, the hand showing again.  B on the
 ;      seed as given, or with nothing typed, goes back a screen.
 ;    - START goes on with the seed shown, or the one typed once all eight
@@ -32,41 +39,39 @@
 .include "optmenu.inc"
 
 .export seed_choose
-.import opt_menu_fillbg, opt_menu_drawdesc, opt_menu_desctext, opt_menu_breathe
+.export lut_SeedCHR, lut_SeedNT, lut_SeedPal    ; for tools/test_options.py
+.import opt_menu_breathe
 .import opt_sfx_move, opt_sfx_sel, opt_waitrelease
-.import lut_DescSeed
-.import DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
+.import DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L, DrawPalette_L
+.import hal_chrload
+.import data_BridgeCHR          ; bank $0B's
 
 .segment "BANK_OPTMENU"
 
-;  Where things are, in nametable cells: the heading, the seed centred
-;  under it, and the grid, the three centred down the space above the
-;  description box (user, 2026-10-22: the heading two rows down, the seed
-;  and the grid one); the grid's digits four columns apart, so the hand,
-;  two cells before its digit, stands clear of the one to its left.
-SEED_HEADROW = OPTLIST_TOP + 2
-SEED_ROW     = 5
-SEED_COL     = 12               ; eight digits, columns 12-19
-;  The heading centred over the seed (user, 2026-10-22): "Seed Entry", ten
-;  wide, on columns 11-20.
-SEED_HEADCOL = SEED_COL + (SEED_DIGITS - (lut_SeedHead_end - lut_SeedHead)) / 2
-.assert (lut_SeedHead_end - lut_SeedHead - SEED_DIGITS) .mod 2 = 0, error, "the heading cannot centre exactly over the seed: make their widths both odd or both even"
-GRID_ROW     = 9                ; the grid's rows 9, 11, 13, 15
-GRID_COL     = 10               ; ...and its columns 10, 14, 18, 22
-GRID_DX      = 4
-GRID_DY      = 2
-.assert GRID_DX = 4 && GRID_DY = 2, error, "seed_cursor and seed_drawgrid multiply by shifting"
+;  The art: the tiles, the nametable, the palette and the layout.
+.include "seedart.inc"
+.assert SEEDART_GRIDDC = 3 && SEEDART_GRIDDR = 2, error, "seed_cursor multiplies by the grid's pitch"
+
+;  The menu font, where LoadMenuCHR takes it from (bank $09's $8800), to put
+;  back over the pieces as the screen leaves.
+MENUCHR_BANK = CHUNK0 + BANK_MENUCHR
+MENUCHR_AT   = $8800
+BRIDGE_BANK  = CHUNK0 + BANK_BRIDGEGFX
+;  The hand's four tiles, sprite $F0-$F3, where LoadBatSprCHRPalettes takes
+;  them from (lut_BatObjCHR's last rows, at PPU $1800).
+HANDCHR      = (CHUNK0 + BANK_BTLCHR) * $10000 + lut_BatObjCHR + $700
+HAND_PPU     = $1F00
 
 ;  The screen's scratch, in the engine's (MENURAM), past the flow's.
 SEED_SEL   = MENURAM + $20      ; the digit the hand is on, 0-15
 SEED_N     = MENURAM + $21      ; how many are typed, 0-8, or SEED_SHOWN
 SEED_ERR   = MENURAM + $22      ; the error sound's frames still to strike
 SEED_DIG   = MENURAM + $23      ; 8 bytes: the digits, a nibble each, high first
+SEED_PAL   = MENURAM + $30      ; 32 bytes: cur_pal as the screen found it
 SEED_SHOWN = $FF                ; nothing typed: the seed as given, shown
 SEED_DIGITS = 8
-.assert SEED_DIG + SEED_DIGITS <= MENURAM_END, error, "the seed screen's scratch runs past the engine's"
-
-CHR_DASH = $C2                  ; fftext.inc's '-'
+.assert SEED_DIG + SEED_DIGITS <= SEED_PAL, error, "the seed screen's scratch overlaps itself"
+.assert SEED_PAL + 32 <= MENURAM_END, error, "the seed screen's scratch runs past the engine's"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -95,17 +100,8 @@ seed_choose:
 
     LDA #$00
     wPPUMASK                    ; screen off while it is built
-    JSL hal_clearnt + HALFAR
-    JSR opt_menu_fillbg
-    JSR seed_drawhead
-    JSR seed_drawseed
-    JSR seed_drawgrid
-    JSR opt_menu_drawdesc       ; the description box, as the settings'
-    LDA #<lut_DescSeed
-    STA OPTMENU_DESC
-    LDA #>lut_DescSeed
-    STA OPTMENU_DESC + 1
-    JSR opt_menu_desctext
+    JSR seed_build
+    JSR seed_drawread
 
     ;  The hand in place before the screen comes on, as opt_menu_screen
     ;  puts it, and for the same two breaths.
@@ -162,7 +158,7 @@ seed_choose:
     BEQ @back                   ; nothing typed: back a screen
     DEC A                       ; else the last digit taken back
     STA f:SEED_N
-    JSR seed_drawseed
+    JSR seed_drawread
     JSR opt_sfx_sel
     BRA @loop
 
@@ -188,7 +184,7 @@ seed_choose:
     INX
     TXA
     STA f:SEED_N
-    JSR seed_drawseed
+    JSR seed_drawread
     JSR opt_sfx_sel
     JMP @loop
 
@@ -209,6 +205,7 @@ seed_choose:
     JSR opt_waitrelease         ; nothing carries on to the next screen
     LDA #$00
     wPPUMASK
+    JSR seed_restore            ; the font and the palette, for the next
     PLA
     PLB
     RTL
@@ -252,8 +249,11 @@ seed_move:
     JMP opt_sfx_move
 
 
-;;  The hand beside its digit, as the settings screen's stands beside its
-;;  box: two cells before it, a pixel above its row.  None with all eight in.
+;;  The hand beside its piece, as the settings screen's stands beside its
+;;  box: two cells before it, a pixel above its row -- in front, over the
+;;  right half of the piece before it, as the name input's hand stands over
+;;  the letter before (user, 2026-10-22: the pieces a cell apart, the box
+;;  kept tight).  None with all eight in.
 seed_cursor:
     JSR ClearOAM
     LDA f:SEED_N
@@ -261,20 +261,21 @@ seed_cursor:
     BEQ @hidden
     LDA f:SEED_SEL
     AND #3                      ; the column...
+    STA tmp
+    ASL A
+    ADC tmp                     ; ...times SEEDART_GRIDDC (3; C clear)...
     ASL A
     ASL A
-    ASL A
-    ASL A
-    ASL A                       ; ...times GRID_DX cells of 8 pixels
+    ASL A                       ; ...cells of 8 pixels
     CLC
-    ADC #GRID_COL * 8 - 16
+    ADC #SEEDART_GRIDCOL * 8 - 16
     STA spr_x
     LDA f:SEED_SEL
     AND #$0C                    ; the row times 4...
     ASL A
-    ASL A                       ; ...times 4 again: GRID_DY cells of 8 pixels
+    ASL A                       ; ...times 4 again: SEEDART_GRIDDR cells of 8
     CLC
-    ADC #GRID_ROW * 8 - 1
+    ADC #SEEDART_GRIDROW * 8 - 1
     STA spr_y
     JMP DrawCursor
   @hidden:
@@ -306,83 +307,172 @@ seed_ppu:
     RTS
 
 
-seed_drawhead:
-    LDA #SEED_HEADROW
-    LDX #SEED_HEADCOL
-    JSR seed_ppu
-    LDX #0
-  : LDA lut_SeedHead, X
-    STA f:NTSTAGE, X
-    INX
-    CPX #lut_SeedHead_end - lut_SeedHead
-    BCC :-
-    JSL hal_ntblit + HALFAR     ; X is the count
-    RTS
+;;  The screen's art, the screen off: the bridge scene's tiles, the screen's
+;;  over the menu font's, the nametable with its box, grid and "Seed Entry"
+;;  already in it, and the palette -- cur_pal kept to put back.  Each load
+;;  through hal_chrload, the game's own bulk path, a breath after each for
+;;  the music.
+seed_build:
+    LDX #31
+  : LDA cur_pal, X
+    STA f:SEED_PAL, X
+    DEX
+    BPL :-
+    LDA #BRIDGE_BANK
+    LDX #>data_BridgeCHR
+    LDY #$00                    ; the bridge scene's tiles, to $0000
+    JSR seed_load8
+    PHK
+    PLA                         ; this chunk's own
+    LDX #<lut_SeedCHR
+    STX tmp
+    LDX #>lut_SeedCHR
+    STX tmp + 1
+    LDY #>(SEEDART_BASE * 16)
+    LDX #SEEDART_ROWS
+    JSR seed_load               ; the screen's tiles, over the font's
+    PHK
+    PLA
+    LDX #<lut_SeedNT
+    STX tmp
+    LDX #>lut_SeedNT
+    STX tmp + 1
+    LDY #$20
+    LDX #4
+    JSR seed_load               ; the nametable and its attributes, to $2000
+    LDA #1
+    JSR seed_hand               ; the hand without its shadow
+    LDX #15
+  : LDA lut_SeedPal, X
+    STA cur_pal, X
+    DEX
+    BPL :-
+    JMP DrawPalette_L
 
-lut_SeedHead:
-  FFTEXT "Seed Entry"
-lut_SeedHead_end:
-
-
-;;  The seed: the digits typed, then dashes for the rest -- or, nothing
-;;  typed, the seed given, all eight (SEED_SHOWN is past every index).
-seed_drawseed:
-    LDA #SEED_ROW
-    LDX #SEED_COL
-    JSR seed_ppu
-    LDX #0
-  @dig:
-    TXA
-    CMP f:SEED_N
-    BCS @dash
-    LDA f:SEED_DIG, X
-    ORA #$80                    ; a nibble is its own tile from $80: the
-    BRA @put                    ;   digits run on into the capitals
-  @dash:
-    LDA #CHR_DASH
-  @put:
-    STA f:NTSTAGE, X
-    INX
-    CPX #SEED_DIGITS
-    BCC @dig
-    JSL hal_ntblit + HALFAR
-    RTS
-
-
-;;  The grid, a row at a time: a digit every GRID_DX cells, blank between.
-seed_drawgrid:
+;;  ...and back: the menu font, as LoadMenuCHR loads it, the hand whole, and
+;;  the palette.
+seed_restore:
+    LDA #MENUCHR_BANK
+    LDX #>MENUCHR_AT
+    LDY #$08
+    JSR seed_load8
     LDA #0
-    STA tmp + 1                 ; the row's first digit: 0, 4, 8, 12
-  @row:
-    LSR A                       ; the row times GRID_DY
-    CLC
-    ADC #GRID_ROW
-    LDX #GRID_COL
-    JSR seed_ppu
+    JSR seed_hand
+    LDX #31
+  : LDA f:SEED_PAL, X
+    STA cur_pal, X
+    DEX
+    BPL :-
+    JMP DrawPalette_L
+
+;;  The hand's tiles, from where the game loads them -- without its shadow
+;;  if A is nonzero (user, 2026-10-22: the hand stands over the pieces here,
+;;  and its shadow, unseen on the black, is a dark smear on their white).
+;;  The shadow is the slab under the hand, the bottom four rows of its two
+;;  lower tiles: in each plane, the bytes whose index has $24 set.
+seed_hand:
+    STA tmp + 3
+    bPPUSTATUS
+    LDA #>HAND_PPU
+    wPPUADDR
+    LDA #<HAND_PPU
+    wPPUADDR
     LDX #0
-  @cell:
+  @byte:
     TXA
-    AND #GRID_DX - 1
-    BEQ @digit
-    LDA #NT_BOXBODY
+    AND #$24
+    CMP #$24
+    BNE @keep
+    LDA tmp + 3
+    BEQ @keep
+    LDA #0                      ; the shadow's rows: nothing
     BRA @put
-  @digit:
+  @keep:
+    LDA f:HANDCHR, X
+  @put:
+    wPPUDATA
+    INX
+    CPX #64
+    BCC @byte
+    RTS
+
+;;  Eight rows of 256 bytes from bank A, page X, to PPU page Y.
+seed_load8:
+    STZ tmp
+    STX tmp + 1
+    LDX #8
+    ;  ...and on into seed_load.
+
+;;  X rows of 256 bytes from bank A at (tmp) to PPU page Y, through
+;;  hal_chrload with the data bank the source's; then a breath.
+seed_load:
+    PHB
+    PHA
+    PLB
+    bPPUSTATUS
+    TYA
+    wPPUADDR
+    LDA #$00
+    wPPUADDR
+    LDY #$00
+    JSL hal_chrload + HALFAR
+    PLB
+    JMP opt_menu_breathe
+
+
+;;  The read-out: the digits typed, then blank pieces for the rest -- or,
+;;  nothing typed, the seed given, all eight (SEED_SHOWN is past every
+;;  index).  Two rows of four pieces, so four rows of the nametable, each a
+;;  run of eight tiles: a piece's top or bottom half, its left and right.
+seed_drawread:
+    LDA #0
+    STA tmp + 1                 ; the nametable row, 0-3
+  @row:
+    CLC
+    ADC #SEEDART_READROW
+    LDX #SEEDART_READCOL
+    JSR seed_ppu
+    LDX #0                      ; the run's cell, 0-7
+  @cell:
+    LDA tmp + 1
+    AND #2
+    ASL A                       ; the row of pieces's first digit, 0 or 4
+    STA tmp + 2
     TXA
     LSR A
-    LSR A                       ; the column
-    ORA tmp + 1
-    ORA #$80
-  @put:
+    ORA tmp + 2                 ; the digit's place
+    CMP f:SEED_N
+    BCS @blank
+    PHX
+    TAX
+    LDA f:SEED_DIG, X
+    PLX
+    BRA @piece
+  @blank:
+    LDA #SEEDART_BLANK
+  @piece:
+    ASL A
+    ASL A                       ; its four tiles...
+    STA tmp + 2
+    LDA tmp + 1
+    AND #1
+    ASL A                       ; ...the bottom two on the second row...
+    ORA tmp + 2
+    STA tmp + 2
+    TXA
+    AND #1                      ; ...the right one on the odd cell
+    ORA tmp + 2
+    CLC
+    ADC #SEEDART_PIECE
     STA f:NTSTAGE, X
     INX
-    CPX #3 * GRID_DX + 1
+    CPX #8
     BCC @cell
-    JSL hal_ntblit + HALFAR
+    JSL hal_ntblit + HALFAR     ; X is the count
     LDA tmp + 1
-    CLC
-    ADC #4
+    INC A
     STA tmp + 1
-    CMP #16
+    CMP #4
     BCC @row
     RTS
 

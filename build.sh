@@ -25,6 +25,7 @@ python3 tools/gentactics.py
 python3 tools/genitemmagic.py
 python3 tools/genowedits.py
 python3 tools/genows.py
+python3 tools/genseedart.py
 python3 tools/genpresets.py
 python3 tools/convert.py
 

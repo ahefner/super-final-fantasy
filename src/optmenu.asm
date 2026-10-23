@@ -24,8 +24,7 @@
 
 .export opt_settings, opt_saveview, opt_newgamelist, opt_randoscreen, opt_needseed
 ;  The seed screen's (seedscreen.asm), this engine's too.
-.export opt_menu_fillbg, opt_menu_drawdesc, opt_menu_desctext, opt_menu_breathe
-.export opt_waitrelease
+.export opt_menu_breathe, opt_waitrelease
 .export opt_menu_drawall        ; for tools/test_options.py
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
@@ -758,8 +757,6 @@ OPTTEXT_BANK = CHUNK0 + CHUNK_OPTTEXT
 
 opt_menu_desc:
     JSR opt_menu_descptr
-;;  ...or the record at OPTMENU_DESC, a screen's own (seedscreen.asm).
-opt_menu_desctext:
     PHB
     LDA #OPTTEXT_BANK
     PHA
