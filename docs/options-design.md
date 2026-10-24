@@ -2294,9 +2294,11 @@ covered part of it.  Nothing built is waiting on a playtest.
     calls frame by frame, had the screens after the list running silent
     for two to seven frames at a time.  Now one HAL routine, `framedue`,
     answers every tick -- the menus' (`menutick`), the randomizer's yields
-    (`rando_yield`: the roll screen, the map edit screen's checks), the map
-    edit screen's build (`ows_audio`) and a boss's thinking (`tac_yield`):
-    has a frame begun whose music nobody has played?  It reads the V
+    for the map edit screen's checks (`rando_yield`), the map edit
+    screen's build (`ows_audio`) and a boss's thinking (`tac_yield`): has
+    a frame begun whose music nobody has played?  (The roll screen's ticks
+    took it too, and went back to RDNMI at the user's word, 2026-10-24: its
+    missed frames made the tune's tempo wander, which the user liked.)  It reads the V
     counter as a phase from the vblank's first line, 225, the lines above
     it pushed past by 512, so NTSC's and PAL's alike count in order, and
     the phase only goes down when a vblank has begun since the last look.
@@ -3376,7 +3378,8 @@ instruction had already set.
     and in ares each fired only when a look happened to land inside the
     vblank: the music stalled frames at a time through the menus.  The
     HAL's `framedue` reads the V counter instead, which says it at any
-    look less than a frame after the last.  A harness answering a hardware
+    look less than a frame after the last -- all but the roll screen's,
+    whose wandering tempo the user keeps.  A harness answering a hardware
     register should answer it as the hardware does, its clearing too; the
     instrumented ares counting the driver's calls frame by frame is what
     showed it.

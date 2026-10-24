@@ -455,12 +455,15 @@ rando_belowfar:
 
 ;;  New Game's roll screen ticks from here (roll.asm): called often -- every
 ;;  draw, every ask the logic makes, every visit of entrance shuffle's
-;;  fixpoint -- it ticks the screen when the screen is up and a frame has
-;;  begun whose music nobody has played (the HAL's framedue, which reads the
-;;  V counter: RDNMI's latch is gone by the vblank's end, and looks this far
-;;  apart missed it); otherwise it is nine instructions.  ROLL_ON is zero but while the screen is up, so the cache
-;;  build at @Begin, and the harness, never tick.  The map edit screen's
-;;  unwinnable check ticks its music the same way (OWS_TICKON).  Native, any
+;;  fixpoint -- it ticks the screen when the screen is up and a look finds
+;;  RDNMI's latch set; otherwise it is nine instructions.  The latch clears
+;;  at the vblank's end as well as when read, so a look between vblanks
+;;  misses the frame, and the tune's notes come unevenly -- which the user
+;;  liked, and keeps (2026-10-24: "I liked that the note tempos seemed to
+;;  vary").  ROLL_ON is zero but while the screen is up, so the cache build
+;;  at @Begin, and the harness, never tick.  The map edit screen's
+;;  unwinnable check ticks its music here too (OWS_TICKON), for every frame
+;;  begun whose music nobody has played (the HAL's framedue).  Native, any
 ;;  widths; everything kept.
 rando_yield:
     PHP
@@ -470,13 +473,16 @@ rando_yield:
     LDA f:ROLL_ON
     ORA f:OWS_TICKON
     BEQ @out
+    LDA f:OWS_TICKON            ; the map edit screen's check (rando_winnable):
+    BEQ @roll                   ;   its music, every frame
     JSL hal_framedue + HALFAR
     BCC @out
-    LDA f:OWS_TICKON            ; the map edit screen's check (rando_winnable):
-    BEQ :+                      ;   its music
     JSL ows_tick + OWSFAR
     BRA @out
-:   JSL roll_tick + ROLLFAR
+  @roll:
+    LDA f:RDNMI                 ; the roll screen: when a look sees the latch
+    BPL @out
+    JSL roll_tick + ROLLFAR
   @out:
     PLA
     PLP
