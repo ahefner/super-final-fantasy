@@ -2004,9 +2004,11 @@ Where it departs from the plan below or from §1:
     **How it ticks without interrupts** (`roll.asm`): the randomizer yields
     -- every draw, every ask the logic makes, every placement cycle, the
     outer loops of entrance shuffle's logic and the reward deal -- and a
-    yield ticks the screen when a vblank has begun since the last, which
-    RDNMI latches: sixty a second while no stretch between yields passes a
-    frame; the longest measured is about two.  A tick changes only what is
+    yield ticks the screen when a frame has begun since the last (the HAL's
+    `framedue`, from the V counter -- RDNMI, which this once asked, clears
+    at the vblank's end too, and a yield between vblanks missed the frame):
+    sixty a second while no stretch between yields passes a frame; the
+    longest measured is about two.  A tick changes only what is
     safe mid-picture: the brightness, and the scroll -- both frames sit side
     by side in one 64x32 tilemap, and the step is BG1HOFS -- and sends a
     frame of sound (`hal_audioframe`, new: `hal_vblaudio` without the wait).

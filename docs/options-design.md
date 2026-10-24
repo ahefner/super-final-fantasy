@@ -976,9 +976,11 @@ run caught the reckoning missing.
 **Thinking takes frames; the music does not wait.**  A decision is up to
 about 120000 instructions -- Chaos against four casters each with a full
 spell list -- a fifth of a second; most are a few thousand.  The game's own
-calls each frame drive the music, so the thinking yields: whenever RDNMI
-says a vblank has begun (its latch holds until read, so no frame is missed)
-it runs the battle's frame of music -- `music_track`'s follow-up, then
+calls each frame drive the music, so the thinking yields: whenever a frame
+has begun whose music nobody has played -- the HAL's `framedue`, from the V
+counter; RDNMI, which this once asked, clears its latch at the vblank's end
+as well as when read, so a look between vblanks missed the frame -- it
+runs the battle's frame of music -- `music_track`'s follow-up, then
 `CallMusicPlay` with `cur_bank` at this chunk so the driver swaps back here
 -- and the HAL's frame of sound.  Nothing on screen moves while a boss
 thinks, so nothing else of the frame is owed.
@@ -1755,7 +1757,7 @@ minimap, the title and description beside the zoom.
     toggle an item. It makes the sound ... but the checkbox doesn't
     change", until the hand moved; played 2026-10-18, not seen again, and
     the user called it fixed).  A tick comes
-    when `rando_yield` next reads RDNMI, and during a check those reads are
+    when `rando_yield` next looks (`framedue`), and during a check its looks are
     up to 6,800 instructions apart, so a tick could run `ows_vblank` past
     the end of the vblank: the PPU dropped the tilemap with the new box
     while its flag (`V_NTD`) was cleared, and only a move's description
@@ -1797,8 +1799,9 @@ minimap, the title and description beside the zoom.
     display goes on: about 117,000 instructions with nothing ticked,
     223,000 with all eleven that play, a fifth to a third of a second black
     by a rough rate.  The title's music is kept going meanwhile, a frame of
-    it whenever RDNMI shows a vblank has begun, as the roll screen keeps its
-    sound.  Runs fill by MVN, and the zoom's doubled lines are copied, not
+    it whenever a frame has begun whose music nobody has played (`ows_audio`,
+    the HAL's `framedue`), the setup looking every half frame or so, as the
+    roll screen keeps its sound.  Runs fill by MVN, and the zoom's doubled lines are copied, not
     packed twice.
   - The selection's pixels flash and rings mark its places
     (`tools/genows.py` clusters each list's writes); the zoom shows one
@@ -2258,7 +2261,8 @@ covered part of it.  Nothing built is waiting on a playtest.
     creation (the game's own CHR loads and clears).  Now the HAL's bulk
     calls -- `hal_chrload`, `hal_ntfill`, `hal_clearnt` at its entry and
     its end -- ask, at their entry, `menutick`: with `MENU_TICKON` set and
-    a vblank begun since `RDNMI` was last read, `menu_tick` (`optmenu.asm`)
+    a frame begun whose music nobody has played (`framedue`; at first this
+    asked RDNMI, which the next entry mends), `menu_tick` (`optmenu.asm`)
     plays the frame's music and the HAL's audio frame, as the map edit
     screen's checks tick theirs (`ows_tick`).  It keeps everything the
     interrupted code holds: the registers, the data bank, `cur_bank`, and
@@ -2279,6 +2283,77 @@ covered part of it.  Nothing built is waiting on a playtest.
     the music is now about half a frame on the settings engine's screens
     and the title's rebuild, under three quarters on the seed screen and
     party creation.
+  - **The menus' music, a frame of it every frame, in ares** (user,
+    2026-10-23: "It still sounds like multiple frames of stalling between
+    most of the frames (all of them after preset selection)"; built, not
+    yet played).  The ticks above asked RDNMI whether a vblank had begun,
+    and RDNMI's latch clears at the vblank's end as well as when read --
+    ares as the hardware, which the harness never modelled -- so a look had
+    to land in the vblank's 37 lines, and work that looks every half frame
+    mostly did not.  The instrumented ares, counting the music driver's
+    calls frame by frame, had the screens after the list running silent
+    for two to seven frames at a time.  Now one HAL routine, `framedue`,
+    answers every tick -- the menus' (`menutick`), the randomizer's yields
+    (`rando_yield`: the roll screen, the map edit screen's checks), the map
+    edit screen's build (`ows_audio`) and a boss's thinking (`tac_yield`):
+    has a frame begun whose music nobody has played?  It reads the V
+    counter as a phase from the vblank's first line, 225, the lines above
+    it pushed past by 512, so NTSC's and PAL's alike count in order, and
+    the phase only goes down when a vblank has begun since the last look.
+    `h_vframe` counts those, `h_vplayed` is the last frame played
+    (`HAL_VARS+$D0`); a look that finds a frame due marks it and takes
+    RDNMI's latch, so a wait inside the same vblank waits for the next;
+    every frame wait marks its frame as it returns (`hal_waitvbl`,
+    `hal_vblaudio`), its caller playing that one.  It needs a look at
+    least once a frame -- one more than a frame after the last cannot see
+    the vblank between -- so the long work looks every half frame or so:
+      - The map edit screen's setup: its VRAM clear in eight pieces (the
+        whole a frame and a half of DMA, the CPU stopped), the font every
+        32 glyphs, either side of the map, the baked minimap's copy in
+        four.  Its loop played each frame's music before
+        the wait, the frame before the wait's, and left the last frame
+        unplayed as it left for the options; now after the wait's
+        transfers (`ows_playframe`), the next wait sending it -- sending it
+        there as well clocked the APU's half frames twice, the error
+        sound's envelope at double pace.  `ows_wait` ticks first, as the
+        HAL's wait does, and a check's tick sends its transfers only in
+        vblank as HVBJOY has it: a tick can come in the picture now.
+      - `hal_ppureclaim`'s VRAM clear, the way back from that screen: in
+        eight pieces, `menutick` before each.
+      - `hal_waitvbl` in the menus: a frame whose vblank it will not serve
+        -- gone by already, or too late in it to flush -- plays its music
+        first if nobody has: party creation's drawing ran past a vblank and
+        then waited, and the randomization screen's build, backing out of
+        the map edits, came to its wait too late in one.  Not one it will
+        serve: a tick there would take the latch, the wait would pass the
+        vblank by, and the late-arrival rescue would be lost.
+      - `TurnMenuScreenOn` plays the music straight after its wait
+        (`optturnonmusic*.patch`, byte-neutral, a ten-byte helper in bank
+        `$0E`'s unused space): after party creation's build its wait's
+        flush -- the screen's whole CHR and nametable -- ran most of a
+        frame, and the music, after the sprites and the palette, came after
+        the next vblank, a frame late and then doubled.  Every menu's
+        turn-on goes this way now; the register writes are the HAL's
+        shadows', so their order with the music is nothing to the picture.
+    Measured in ares, the whole flow from the title to party creation and
+    back out from the map edits to the title: a call of the music driver
+    in every frame, none doubled.  The one gap left is the prologue's
+    START, which restarts the game and its track, as the original does.
+    The harness: its frame clock (`bus.frames()`) has a V counter now, a
+    share of the frame at each look; `Clock` keeps ares's time -- RDNMI's
+    latch gone at the vblank's end, the V counter moving with the
+    instructions, a DMA and an MVN taking the time they stop the CPU --
+    and `test_menumusic` times every menu screen's build with it, one frame
+    of the music in every frame (the committed build failed it on four),
+    and the reclaim's clear; the wait's three cases; `TurnMenuScreenOn`'s
+    order; and both clears whole, whatever VRAM held.  Twenty-nine
+    mutations: twenty-four caught at first; of the five, one showed a tick
+    redundant -- after the map edit screen's text, 42 instructions before
+    the copy's first -- and it went, and four wanted sharper tests: the
+    latch a tick takes, `ows_wait`'s tick (the frame-by-frame run now goes
+    a frame further), a tick that plays whatever, and the copy's pieces
+    against a staging of junk (the test's own setup had laid the right
+    minimap there).  All caught now.
   - **Back on the title, its music plays on** rather than starting over
     (user, 2026-10-23).  The title rebuilds after each of its screens
     through `IntroTitlePrepare`, whose `LDA #$41 / STA music_track` started
@@ -3292,6 +3367,19 @@ instruction had already set.
     `OPTDRINKROW` -- scratch on scratch -- and moved too.
     `test_menuscratch`: the screen through every path that writes them, and
     a boot over a poisoned block; five mutations caught.
+
+  - **RDNMI is not "has a vblank begun since I last asked"**
+    (2026-10-23/24).  Its latch is set as a vblank begins and cleared when
+    read -- and when the vblank ends.  The harness held it set until read,
+    so four ticks built on it passed their tests -- the menus', the
+    randomizer's yields, the map edit screen's build, a boss's thinking --
+    and in ares each fired only when a look happened to land inside the
+    vblank: the music stalled frames at a time through the menus.  The
+    HAL's `framedue` reads the V counter instead, which says it at any
+    look less than a frame after the last.  A harness answering a hardware
+    register should answer it as the hardware does, its clearing too; the
+    instrumented ares counting the driver's calls frame by frame is what
+    showed it.
 
   - **A test named twice fork-bombed the machine** (2026-10-21).  A second
     `def` of an existing test's name silently replaced it, and the name went

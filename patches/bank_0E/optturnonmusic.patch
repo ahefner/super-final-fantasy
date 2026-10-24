@@ -1,0 +1,13 @@
+--- OLD
+TurnMenuScreenOn:
+    JSR WaitForVBlank_L      ; wait for VBlank (don't want to turn the screen on midway through the frame)
+--- NEW
+TurnMenuScreenOn:
+    ;  The frame's music straight after the wait (TurnMenuScreenOn_Wait),
+    ;  not after the rest: in the port the wait's flush can run most of a
+    ;  frame -- a screen's whole CHR and nametable after its build -- and
+    ;  the music then came after the next vblank, a frame late and doubled
+    ;  (party creation's, ares, 2026-10-24).  The register writes below are
+    ;  the HAL's shadows', which the next flush sends, so their order with
+    ;  the music is nothing to the picture.
+    JSR TurnMenuScreenOn_Wait

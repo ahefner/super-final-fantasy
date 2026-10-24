@@ -67,7 +67,7 @@
 .export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
 
 .import UpdateJoy, CallMusicPlay
-.import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim
+.import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue
 .import opt_savevalidfar, opt_padreset, rando_winnable
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_OweRow, lut_OweEnt
@@ -116,9 +116,9 @@ INSET_PX  = INSET_W * 8
 .assert INSET_COL >= 2 && INSET_COL + INSET_W <= 30, error, "the zoom's frame inside the 30 columns"
 
 ;  The last scanline at which ows_tick still sends a vblank's transfers.  A
-;  tick comes when rando_yield next looks at RDNMI, and its looks are up to
-;  6,800 instructions apart -- past the end of the vblank, whose writes the
-;  PPU then drops, though ows_vblank has cleared their flags: a box ticked,
+;  tick comes when rando_yield next looks (the HAL's framedue), and its looks
+;  are up to 6,800 instructions apart -- past the end of the vblank, whose
+;  writes the PPU then drops, though ows_vblank has cleared their flags: a box ticked,
 ;  chirping, never drawn until the hand moved and sent the tilemap again
 ;  (user, 2026-10-18).  ows_vblank's worst is the tilemap and the zoom,
 ;  3,360 bytes and 267 instructions, some 26 lines; vblank is 225-261.
@@ -420,15 +420,31 @@ ows_setup:
     LDA #$80
     STA a:INIDISP
     STZ a:HDMAEN
-    ;  VRAM all zero: every character blank.
+    JSR ows_playframe           ; the frame waited for's music
+    ;  VRAM all zero: every character blank.  In eight pieces, the music's
+    ;  chance before each (ows_audio): the whole is a frame and a half of DMA
+    ;  with the CPU stopped, and the setup after it more than a frame of
+    ;  work, which stalled the title's music five frames as the screen came
+    ;  up (ares, 2026-10-24).  ows_audio sees a frame begun only if it looks
+    ;  at least once a frame (the HAL's framedue), so the setup looks every
+    ;  half frame or so throughout.
     LDA #$80
     STA a:VMAIN
     REP #$20
     .a16
-    STZ a:VMADDL
+    STZ a:VMADDL                ; on from piece to piece
+    SEP #$20
+    .a8
+    LDA #8
+  @zero:
+    PHA
+    JSR ows_audio
+    REP #$20
+    .a16
     LDA #.LOWORD(lut_Zero)
     STA a:A1T0L
-    STZ a:DAS0L                 ; 0: 64KB
+    LDA #$10000 / 8
+    STA a:DAS0L
     SEP #$20
     .a8
     LDA #^OWSFAR
@@ -439,6 +455,9 @@ ows_setup:
     STA a:BBAD0
     LDA #$01
     STA a:MDMAEN
+    PLA
+    DEC A
+    BNE @zero
     ;  The font: NES CHR, its glyphs colour 3 on 2.  As SNES 2bpp, a row's
     ;  planes a word: the glyph colour 1, the rest 0, so clear.
     REP #$20
@@ -464,8 +483,13 @@ ows_setup:
     CLC
     ADC #8
     TAX
+    BIT #$01FF
     SEP #$20
     .a8
+    BNE @font                   ; every 32 glyphs, the music's chance
+    PHX
+    JSR ows_audio
+    PLX
     CPX #$80 * 16
     BCC @font
     ;  The boxes, characters 1 and 2.
@@ -513,7 +537,9 @@ ows_setup:
     CPX #($FE - $80 + 1) * 16
     BCC @frame
     JSR ows_objchr
+    JSR ows_audio
     JSR ows_bg1map
+    JSR ows_audio
     ;  CGRAM.
     STZ a:CGADD
     LDX #$0000
@@ -616,6 +642,7 @@ ows_setup:
     BCC @nt
     SEP #$20
     .a8
+    JSR ows_audio
     JSR ows_actives
     JSR ows_select              ; V_VIEW, V_HLMASK; the zoom started
     LDA #$FF
@@ -639,17 +666,25 @@ ows_setup:
     .a8
     .i16
 ows_first:
+    LDX #.LOWORD(lut_OwsBaked)
+    LDY #.LOWORD(OWS_CHR)
+  @copy:                        ; in four pieces, the whole near a frame
+    PHX
+    PHY
+    JSR ows_audio
+    PLY
+    PLX
     PHB
     REP #$20
     .a16
-    LDX #.LOWORD(lut_OwsBaked)
-    LDY #.LOWORD(OWS_CHR)
-    LDA #256 * 32 - 1
-    MVN #^OWSFAR, #^OWSRAM      ; leaves DBR = $7F, which PLB puts back
+    LDA #256 * 32 / 4 - 1
+    MVN #^OWSFAR, #^OWSRAM      ; X and Y on past it; DBR = $7F, which PLB puts back
     LDA #0                      ; B zero, as the rest expect
     SEP #$20
     .a8
     PLB
+    CPY #.LOWORD(OWS_CHR) + 256 * 32
+    BCC @copy
     ;  The rows each ticked box's lists write, and the selection's.
     LDA #0
     STA f:V_K
@@ -695,15 +730,33 @@ ows_first:
     .a8
     JMP ows_dma
 
-;;  A frame of the title's music, if a vblank has begun since the last look
-;;  (RDNMI's latch), as roll.asm keeps its sound going while the randomizer
-;;  works: for work longer than a frame.  A8 I16 in and out; X and Y not
-;;  kept.
+;;  A frame of the title's music, if a frame has begun whose music nobody
+;;  has played (the HAL's framedue), as roll.asm keeps its sound going while
+;;  the randomizer works: for work longer than a frame -- and the HAL's
+;;  frame of sound with it, sent now (hal_audioframe), no wait coming to
+;;  send it.  ows_playframe is the frame's music alone, a wait's caller's,
+;;  which the next wait sends as it begins (hal_vblaudio): sending it here
+;;  too would clock the APU's half frames twice in the frame, an envelope
+;;  -- the error sound's -- decaying at twice its pace.  CallMusicPlay with
+;;  cur_bank this chunk.  A8 I16 in and out; X and Y not kept.
     .a8
     .i16
 ows_audio:
-    LDA a:RDNMI
-    BPL @out
+    JSL hal_framedue + HALFAR
+    BCC @out
+    JSR ows_playframe
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    JSL hal_audioframe + HALFAR
+    CLC
+    XCE
+    REP #$10
+    .i16
+  @out:
+    RTS
+ows_playframe:
     SEP #$30
     .i8
     SEC
@@ -711,12 +764,10 @@ ows_audio:
     LDA #CHUNK_OWS
     STA cur_bank
     JSR ows_music               ; the frame's music, or the error sound's
-    JSL hal_audioframe + HALFAR
     CLC
     XCE
     REP #$10
     .i16
-  @out:
     RTS
 
 ;;  The ring and the hand, OBJ characters 0, 1, 16, 17 and 2, 3, 18, 19: the
@@ -868,6 +919,7 @@ ows_loop:
   @frame:
     JSR ows_wait
     JSR ows_vblank
+    JSR ows_playframe
     JSR ows_reset
     LDA f:V_T
     INC A
@@ -882,19 +934,25 @@ ows_loop:
   @done:
     RTS
 
-;;  The title's music on, the game's pad reader, then the top of the next
-;;  vblank: all game code in emulation mode.  cur_bank is where
-;;  CallMusicPlay swaps back to.  A8 I16 in and out.
+;;  The game's pad reader, then the top of the next vblank, in emulation
+;;  mode.  The frame's music is the caller's, after the vblank's transfers
+;;  (ows_playframe): the HAL's wait marks it played (framedue), so a tick
+;;  does not play it too.  It played before the wait once, the frame before
+;;  the wait's, which left the last frame's music unplayed as the screen
+;;  left for the options and doubled one as it came up (ares, 2026-10-24).
+;;  First, a frame begun since the last look whose music nobody has played
+;;  plays now (ows_audio), as the HAL's frame wait does in the menus: the
+;;  setup's end, the minimap sent and the display on, ran into one, and the
+;;  wait's look would have taken it for the frame it waits for.  A8 I16 in
+;;  and out.
     .a8
     .i16
 ows_wait:
+    JSR ows_audio
     SEP #$30
     .i8
     SEC
     XCE
-    LDA #CHUNK_OWS
-    STA cur_bank
-    JSR ows_music               ; the frame's music, or the error sound's
     JSR UpdateJoy
     JSL hal_vblaudio + HALFAR
     CLC
@@ -1350,10 +1408,11 @@ ows_check:
 ;;  it -- the vblank's transfers first, then the frame's music, the pad, the
 ;;  reset -- the moves answered, A and START kept for after (ows_busy); the
 ;;  drawing waits.  The transfers only by OWS_TICK_LAST, as hal_waitvbl reads
-;;  the V counter -- in vblank, RDNMI having just read set, lines 224-255
-;;  read as themselves and 256-261 as 0-5 -- or they wait, flags and all,
+;;  the V counter -- in vblank, as HVBJOY says (a tick comes on the first look
+;;  after a vblank begins, which may be in the picture), lines 225-255 read as
+;;  themselves and 256-261 as 0-5 -- or they wait, flags and all,
 ;;  for a tick on time or ows_loop's next frame.  For New Game's, OWS_TICKMUSIC, the music alone.  The
-;;  music as ows_wait's: CallMusicPlay, then the HAL's frame of sound
+;;  music as ows_audio's: CallMusicPlay, then the HAL's frame of sound
 ;;  (hal_audioframe, as the roll screen's tick sends it), cur_bank this chunk
 ;;  for the call and as it was after.  From native code, any widths, by
 ;;  JSL; everything kept.
@@ -1376,6 +1435,8 @@ ows_tick:
     LDA f:OWS_TICKON
     CMP #OWS_TICKFRAME
     BNE :+
+    LDA a:HVBJOY
+    BPL :+                      ; the picture: the transfers wait
     LDA a:STAT78                ; reset the counter's own read toggle
     LDA a:SLHV                  ; latch H and V
     LDA a:OPVCT

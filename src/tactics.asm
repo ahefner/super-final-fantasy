@@ -34,9 +34,9 @@
 ;  overkill from the normal tail (gentactics.py's tables).
 ;
 ;  Thinking takes some frames, and the game's own calls each frame drive the
-;  music: so the thinking yields -- whenever RDNMI says a vblank has begun
-;  it runs the battle's own frame of music (tac_yield), and the music plays
-;  on while the boss decides.
+;  music: so the thinking yields -- whenever a frame has begun whose music
+;  nobody has played, it runs the battle's own frame of music (tac_yield),
+;  and the music plays on while the boss decides.
 ;
 ;  Entered by JSL from bank $0C: tac_turn from Enemy_DoAi once its script is
 ;  known, tac_swing from EnemyAttackPlayer_Physical, tac_cast from
@@ -58,7 +58,7 @@
 .export tac_div, tac_divl, tac_mul, tac_f, tac_hits, tac_aim, tac_var
 .import BattleRNG_L, CallMusicPlay
 .import opt_isbossfar, opt_scaleatk, opt_spellbytefar
-.import hal_audioframe
+.import hal_audioframe, hal_framedue
 .import lut_MagicData, Enemy_DoMagicEffect, EnemyAttackPlayer_Physical
 
 CAP             = 64 * 256      ; 64 rounds: the most anything is worth
@@ -3493,10 +3493,12 @@ tac_sqrt:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  tac_yield -- a frame of music, if a vblank has begun since the last look
+;;  tac_yield -- a frame of music, if a frame has begun whose music nobody
+;;  has played
 ;;
-;;  RDNMI latches at the top of every vblank and clears when read, so one
-;;  read says whether a frame has gone by, however long since.  If one has:
+;;  The HAL's framedue says, from the V counter -- not RDNMI, whose latch is
+;;  gone by the end of the vblank, so a look between its lines missed the
+;;  frame.  If one has:
 ;;  the battle's own frame of music -- BattleUpdateAudio's follow-up track,
 ;;  then CallMusicPlay, swapping back to this chunk -- and the HAL's frame of
 ;;  sound.  Nothing on screen moves while a boss thinks, so nothing else of
@@ -3509,8 +3511,8 @@ tac_yield:
     PHP
     SEP #$20
     .a8
-    LDA a:RDNMI
-    BMI :+
+    JSL hal_framedue + HALFAR
+    BCS :+
     PLP
     RTS
 :   REP #$30

@@ -36,7 +36,7 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export aux_edge, aux_capture
 .export hal_wipewindow, hal_chrload, hal_drawattr
-.export hal_menutick
+.export hal_menutick, hal_framedue
 .import menu_tick               ; optmenu.asm's
 .export hal_theendclear, hal_theendplot, hal_theendand
 .export hal_ntblit
@@ -1269,9 +1269,9 @@ hal_waitvbl:
     ;
     ;    RDNMI bit 7 latches "a vblank has begun" and clears on read, and the
     ;    two serving paths below are its readers -- with the ticks that play a
-    ;    frame of music in the middle of long work (rando_yield's, and
-    ;    menutick's below), which take the vblank as theirs: a wait inside it
-    ;    then waits for the next, so no frame plays two.  Set means this is a
+    ;    frame of music in the middle of long work (framedue's, below), which
+    ;    take the vblank as theirs: a wait inside it then waits for the next,
+    ;    so no frame plays two.  Set means this is a
     ;    vblank nothing has flushed into yet.  Clear means we already served it
     ;    and the game has come round again inside the same one, which must wait
     ;    -- otherwise a fast pass would run twice in one frame.
@@ -1281,19 +1281,32 @@ hal_waitvbl:
     ;    vblank: lines 224..255 read as themselves, and 256..261 read as 0..5.
     ;    That is why a value below 224 at this point means the vblank is nearly
     ;    over, not that the picture has started.
+    ;
+    ;  In the menus, a frame whose vblank this wait will not serve -- gone
+    ;  by already, or too late in it -- and whose music nobody has played
+    ;  plays it now (menutick), or it is lost with the frame: party
+    ;  creation's drawing ran past a vblank and then waited, and the wait
+    ;  took that frame for the one it waited for (ares, 2026-10-24).  Not
+    ;  for a vblank it will serve: its caller plays that one, and a tick
+    ;  would take the latch, the wait then passing it by.
     lda a:HVBJOY
-    bpl @wait                   ; not in vblank yet: the ordinary path
+    bpl @picture                ; not in vblank yet: the ordinary path
     lda a:RDNMI
     bpl @inside                 ; already flushed into this one: take the next
     lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV                  ; latch H and V
     lda a:OPVCT
     cmp #224
-    bcc @inside                 ; lines 256..261: too little of it left
+    bcc @late                   ; lines 256..261: too little of it left
     cmp #LATE_FLUSH_LAST+1
-    bcs @inside                 ; too close to the end to fit a flush
+    bcs @late                   ; too close to the end to fit a flush
     bra @serve                  ; room enough -- save the frame
 
+@picture:
+    jsr menutick
+    bra @wait
+@late:
+    jsr menutick
 @inside:                        ; wait out the rest of this vblank...
     lda a:HVBJOY
     bmi @inside
@@ -1326,6 +1339,7 @@ hal_waitvbl:
 
     jsr hal_flush
     jsr aux_detect              ; once a frame, and the only place it happens
+    jsr framedue_e              ; the frame's music the caller's: marked played
     ENTER16
     inc a:h_frame
     LEAVE16
@@ -1385,6 +1399,7 @@ hal_vblaudio:
     lda a:HVBJOY
     bpl @wait
     lda a:RDNMI                 ; consume the latch, as the flush paths do
+    jsr framedue_e              ; the frame's music the caller's: marked played
     ENTER16
     inc a:h_frame
     LEAVE16
@@ -1439,7 +1454,7 @@ hal_ppureclaim:
     sta a:INIDISP               ; forced blank while VRAM is open
     stz a:HDMAEN                ; the flush builds this afresh every frame
 
-    jsr clear_vram
+    jsr clear_vram_ticked
     jsr clear_cgram
     jsr init_ppu
 
@@ -2960,8 +2975,8 @@ hal_drawattr:
 ;;  after another, and nothing calls the music driver until the first frame
 ;;  wait: the music stalled between them (user, 2026-10-23).  So the entries
 ;;  of hal_chrload, hal_ntfill and hal_clearnt, each well under a frame of
-;;  work, ask: with MENU_TICKON set, and a vblank begun since RDNMI was last
-;;  read, menu_tick (optmenu.asm) plays the frame's music.  The flag is the
+;;  work, ask: with MENU_TICKON set, and a frame begun whose music nobody has
+;;  played (framedue), menu_tick (optmenu.asm) plays it.  The flag is the
 ;;  title's, set as it opens a screen and cleared as it leaves for a game, so
 ;;  a game's own loads -- and the soft reset's path -- are as they were.
 ;;  hal_menutick is the same ask for code of ours with long work between
@@ -2976,12 +2991,96 @@ menutick:
     pha
     lda f:MENU_TICKON
     beq @out
-    lda f:RDNMI                 ; read, the vblank is this tick's
-    bpl @out
+    jsr framedue_e
+    bcc @out                    ; this frame's music played already
     jsl menu_tick + OPTMENUFAR
 @out:
     pla
     plp
+    rts
+
+;;  framedue -- a frame begun whose music nobody has played?  For the ticks
+;;  that play it from inside long work: the menus' (menutick), the
+;;  randomizer's (rando_yield), the map edit screen's build (ows_audio), a
+;;  boss's thinking (tac_yield).
+;;
+;;  Not RDNMI's to say, though they all asked it once.  Its latch clears when
+;;  it is read and also when the vblank ends, which the harness did not model:
+;;  a look had to land inside the vblank's 37 lines to see it, and work that
+;;  looks every half frame mostly did not -- the menus' music stalled, frames
+;;  at a time, as the user heard in ares (2026-10-23).  So each look reads the
+;;  V counter instead, as a phase from the vblank's first line (225, the
+;;  picture being 224 lines): the vblank's own lines first, then those above
+;;  it pushed past them by 512, more lines than any frame has, so NTSC's 262
+;;  and PAL's 312 alike count in order, and the phase only goes down when a
+;;  vblank has begun since the last look.  h_vframe counts those -- so long as
+;;  something looks at least once a frame, which the ticking work does, and
+;;  every frame wait as it returns (hal_waitvbl, hal_vblaudio), marking its
+;;  frame played: its caller plays that frame's music.  A frame is due when
+;;  h_vframe has gone past h_vplayed; a look that finds it so marks it played
+;;  and takes RDNMI's latch, so a wait inside the same vblank waits for the
+;;  next and no frame plays twice.
+;;
+;;  Native, any widths, any DBR.  Out: C set if a frame was due, now marked
+;;  played; else clear.  Everything else kept but the other flags.  For
+;;  native code, hal_framedue by JSL; framedue_e is the bank's own call from
+;;  emulation mode.
+hal_framedue:
+    jsr framedue
+    rtl
+framedue_e:
+    clc
+    xce
+    jsr framedue
+    php                         ; the answer, through the way back
+    sec
+    xce
+    plp
+    rts
+framedue:
+    php
+    rep #$20
+    .a16
+    pha
+    sep #$20
+    .a8
+    lda f:STAT78                ; the counters' read toggle reset
+    lda f:SLHV                  ; latch H and V
+    lda f:OPVCT
+    xba
+    lda f:OPVCT                 ; the ninth bit
+    and #$01
+    xba                         ; B:A the line
+    rep #$20
+    .a16
+    cmp #225
+    bcs :+
+    adc #512                    ; above the vblank: after all of its lines
+:   sec
+    sbc #225
+    cmp f:h_vphase
+    sta f:h_vphase
+    sep #$20
+    .a8
+    bcs :+                      ; on from the last look, in the same frame
+    lda f:h_vframe
+    inc a
+    sta f:h_vframe              ; a vblank has begun since
+:   lda f:h_vframe
+    cmp f:h_vplayed
+    beq @played
+    sta f:h_vplayed
+    lda f:RDNMI                 ; the vblank's latch, if it is still up, ours
+    rep #$20
+    pla
+    plp
+    sec
+    rts
+@played:
+    rep #$20
+    pla
+    plp
+    clc
     rts
 
 .a8
@@ -4742,6 +4841,39 @@ clear_vram:
     LEAVE16
     lda #$01
     sta a:MDMAEN
+    rts
+
+;  ...for hal_ppureclaim, which the menus' screens leave through: in eight
+;  pieces, the menus' music's chance before each (menutick), the whole being
+;  a frame and a half of DMA with the CPU stopped -- New Game's map edit
+;  screen's way back to the options stalled the music two frames (ares,
+;  2026-10-24).  With MENU_TICKON clear, as the credits' way back from a game
+;  has it, the same clear with seven more DMA starts.
+clear_vram_ticked:
+    lda #$80
+    sta a:VMAIN
+    ENTER16
+    stz a:VMADDL                ; on from piece to piece
+    LEAVE16
+    ldx #8
+@piece:
+    jsr menutick
+    lda #$09                    ; fixed source, two registers
+    sta a:DMAP0
+    lda #$18
+    sta a:BBAD0
+    lda #HALBANK
+    sta a:A1B0
+    ENTER16
+    lda #.loword(zerobyte)
+    sta a:A1T0L
+    lda #$10000 / 8
+    sta a:DAS0L
+    LEAVE16
+    lda #$01
+    sta a:MDMAEN
+    dex
+    bne @piece
     rts
 
 ;  CGRAM powers up arbitrary on real hardware, and the port only ever writes

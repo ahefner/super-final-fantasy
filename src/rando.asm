@@ -60,6 +60,7 @@
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
 .import ows_choose, ows_tick, rando_winnable
+.import hal_framedue
 
 .segment "BANK_RANDO"
 
@@ -454,9 +455,10 @@ rando_belowfar:
 
 ;;  New Game's roll screen ticks from here (roll.asm): called often -- every
 ;;  draw, every ask the logic makes, every visit of entrance shuffle's
-;;  fixpoint -- it ticks the screen when the screen is up and a vblank has
-;;  begun since the last tick, which RDNMI latches; otherwise it is nine
-;;  instructions.  ROLL_ON is zero but while the screen is up, so the cache
+;;  fixpoint -- it ticks the screen when the screen is up and a frame has
+;;  begun whose music nobody has played (the HAL's framedue, which reads the
+;;  V counter: RDNMI's latch is gone by the vblank's end, and looks this far
+;;  apart missed it); otherwise it is nine instructions.  ROLL_ON is zero but while the screen is up, so the cache
 ;;  build at @Begin, and the harness, never tick.  The map edit screen's
 ;;  unwinnable check ticks its music the same way (OWS_TICKON).  Native, any
 ;;  widths; everything kept.
@@ -468,8 +470,8 @@ rando_yield:
     LDA f:ROLL_ON
     ORA f:OWS_TICKON
     BEQ @out
-    LDA f:RDNMI
-    BPL @out
+    JSL hal_framedue + HALFAR
+    BCC @out
     LDA f:OWS_TICKON            ; the map edit screen's check (rando_winnable):
     BEQ :+                      ;   its music
     JSL ows_tick + OWSFAR

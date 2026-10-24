@@ -940,6 +940,9 @@ def test_winnable():
     #  triangle's reload and the noise $30 at once and square 2 the sound's;
     #  then sixteen frames each striking square 2 ($8C $89 $80 $00) with no
     #  music, the last also silencing it ($30, period 0); then the music.
+    #  A frame's music comes after its wait (ows_playframe), before the pad
+    #  is read, so the press's own frame has its music and the sixteen
+    #  begin the frame after.
     APU = K["APUSHADOW"]
     MUSIC, W4007 = SYM["CallMusicPlay"], SYM["nesio_w4007"]
     recs, opened = [], None
@@ -957,9 +960,9 @@ def test_winnable():
     check("...START refused: square 1, the triangle's reload, the noise silenced, square 2 the sound's",
           opened, (0x30, 0x30, 0x30, 1))
     check("...sixteen frames of the error with no music, then the music",
-          [r[0] for r in recs], [0] * 16 + [1] * 3)
+          [r[0] for r in recs], [1] + [0] * 16 + [1] * 2)
     check("...each of the sixteen striking square 2 as PlaySFX_Error's @Frame, the last silencing it",
-          recs[:16], [(0, 1, (0x8C, 0x89, 0x80, 0x00))] * 15 + [(0, 1, (0x30, 0x89, 0x00, 0x00))])
+          recs[1:17], [(0, 1, (0x8C, 0x89, 0x80, 0x00))] * 15 + [(0, 1, (0x30, 0x89, 0x00, 0x00))])
     #  ...then down two to North Docks, START refused there -- the warning
     #  back over its description -- and A: winnable with the FLOATER gone,
     #  found by a whole check (a removal is set, so no fast path): blue, and
@@ -1909,6 +1912,27 @@ def test_owscreen():
             bad.append("flags $%04X: the display left off" % flags)
         music.append((frames, plays))
     check("the screen up whole: the minimap and the zoom in VRAM as the display goes on", bad, [])
+    #  ...and the whole of VRAM the screen's own, whatever it or the
+    #  minimap's staging held: its clear goes in eight pieces and the baked
+    #  minimap's copy in four, the music's chance between.
+    def setup_vram(junk):
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        setup(bus, 0, 0)
+        if junk:                        # (setup lays the baked minimap in the staging)
+            bus.vram[:] = bytes((7 * i + 1) & 0xFF for i in range(0x10000))
+            chr_ = W("OWS_CHR")
+            bus.wram[chr_:chr_ + 0x2000] = bytes((5 * i + 3) & 0xFF for i in range(0x2000))
+        cpu.pbr, cpu.pc = OWS, SYM["ows_testsetup"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        for _ in range(8_000_000):
+            if cpu.pc == 0xFFFE:
+                break
+            cpu.step()
+        return bytes(bus.vram)
+    check("...the whole of VRAM the screen's own, whatever it held", setup_vram(True) == setup_vram(False), True)
     check("...a frame of music for every frame sent, more than the first's with much to draw",
           [f == p for f, p in music] + [music[2][0] > 1], [True] * 4)
 
@@ -1987,14 +2011,15 @@ def test_owscreen():
           events, [(2, "move"), (4, "tick"), (6, "claim"), (6, "reset")])
 
     #  A check's tick sends the vblank's transfers only early enough in it
-    #  (OWS_TICK_LAST): its looks at RDNMI come up to 6,800 instructions
-    #  apart, and a tick past the vblank had the PPU drop the tilemap whose
-    #  flag it cleared -- a box ticked, chirping, not drawn till the hand
-    #  moved (user, 2026-10-18).  The harness keeps no time; its V counter
-    #  is OPVCT as set.  A box's character in the tilemap, V_NTD set, then a
-    #  tick at each line: at 0 (the picture), 3 (256-261 read as 0-5) and 233
-    #  on it stays to send, the flag kept; at 224-232 it goes.  The music and
-    #  the pad every tick.
+    #  (OWS_TICK_LAST): its looks come up to 6,800 instructions apart, and a
+    #  tick past the vblank had the PPU drop the tilemap whose flag it
+    #  cleared -- a box ticked, chirping, not drawn till the hand moved
+    #  (user, 2026-10-18).  And only in it: a tick comes on the first look
+    #  after a vblank begins (framedue), which may be in the picture.  The
+    #  clock off, the V counter and HVBJOY as set.  A box's character in the
+    #  tilemap, V_NTD set, then a tick at each line: at 0 and 224 (the
+    #  picture), 3 (256-261 read as 0-5) and 233 on it stays to send, the
+    #  flag kept; at 225-232 it goes.  The music and the pad every tick.
     bus, cpu = machine()
     bus.frames()
     bus.ppu()
@@ -2011,10 +2036,12 @@ def test_owscreen():
     check("...the tilemap in VRAM as the screen comes up", bytes(bus.vram[VT:VT + 28 * 64]),
           bytes(bus.wram[NT3:NT3 + 28 * 64]))
     got = []
-    for i, line in enumerate((0, 3, 233, 244, 255, 224, 230, 232)):
+    bus.clock = None
+    for i, line in enumerate((0, 3, 233, 244, 255, 224, 225, 230, 232)):
         bus.wram[NT3 + cell] = 0x40 + i
         bus.wram[NTD] = 1
         bus.io[K["OPVCT"]] = line
+        bus.io[K["HVBJOY"]] = 0x80 if line in (3, 233, 244, 255, 225, 230, 232) else 0
         bus.wram[TICKON] = K["OWS_TICKFRAME"]
         cpu.e, cpu.p = False, cpu.p | 0x30
         cpu.pbr, cpu.pc = OWS, SYM["ows_tick"]
@@ -2028,10 +2055,10 @@ def test_owscreen():
             cpu.step()
         got.append((line, bus.vram[VT + cell] == 0x40 + i, bus.wram[NTD], music > 0, joy > 0))
     bus.wram[TICKON] = 0
-    check("...a check's tick: the tilemap sent only at lines 224-232, else kept to send",
+    check("...a check's tick: the tilemap sent only at lines 225-232, else kept to send",
           got, [(0, False, 1, True, True), (3, False, 1, True, True), (233, False, 1, True, True),
-                (244, False, 1, True, True), (255, False, 1, True, True), (224, True, 0, True, True),
-                (230, True, 0, True, True), (232, True, 0, True, True)])
+                (244, False, 1, True, True), (255, False, 1, True, True), (224, False, 1, True, True),
+                (225, True, 0, True, True), (230, True, 0, True, True), (232, True, 0, True, True)])
 
 
 def test_es_tree():
@@ -6455,16 +6482,99 @@ def test_chirps():
            "Select on Continue": ([1], 1), "Continue with no save (a New Game)": ([1], 1),
            "Select with no save": ([], 0)})
 
+class Clock:
+    """A clock for the harness, which keeps none: time passes with the
+    instructions stepped, per_frame of them a frame of 262 lines, and the
+    registers that tell time read as the hardware's do -- the V counter,
+    latched through SLHV and read low byte then high through OPVCT, the
+    toggle reset by STAT78; HVBJOY's vblank bit, lines 225-261; and RDNMI's
+    latch, set as each vblank begins and cleared when it is read *or when
+    the vblank ends*.  That last is what the first menus' music ticks got
+    wrong (2026-10-23): the harness's RDNMI stayed set, ares's did not.
+    ~12,000 instructions a frame is what the instrumented ares counts in the
+    menus (12,000-16,000).  The CPU stopped is time too, which the harness
+    does in a step: a DMA, 8 master clocks a byte, and an MVN, 7 cycles a
+    byte, some 50 -- a frame being 357,366 -- so a VRAM clear of 64KB takes
+    its frame and a half here as in ares."""
+    LINES, VBLANK, MASTER = 262, 225, 357366
+
+    def __init__(self, bus, cpu, per_frame=12000):
+        self.bus, self.cpu, self.per_frame = bus, cpu, per_frame
+        self.n, self.latched, self.toggle, self.taken = 0, 0, 0, set()
+        self.music = {}                     # frame -> music driver calls
+        music = SYM["CallMusicPlay"]
+        step, read, write = cpu.step, bus.read, bus.write
+        per_insn = self.MASTER / per_frame  # master clocks an instruction
+
+        def stepped():
+            self.n += 1
+            if cpu.pc == music:
+                self.music[self.frame()] = self.music.get(self.frame(), 0) + 1
+            if read(cpu.pbr, cpu.pc) in (0x54, 0x44):
+                self.n += int(((cpu.a & 0xFFFF) + 1) * 50 / per_insn)
+            step()
+
+        def timed_write(bank, addr, val):
+            if (bank & 0xFF) not in (0x7E, 0x7F) and addr & 0xFFFF == 0x420B:
+                for ch in range(8):
+                    if val & 1 << ch:
+                        r = 0x4305 + ch * 16
+                        n = (bus.io.get(r, 0) | bus.io.get(r + 1, 0) << 8) or 0x10000
+                        self.n += int(n * 8 / per_insn)
+            write(bank, addr, val)
+
+        def timed_read(bank, addr):
+            a = addr & 0xFFFF
+            if (bank & 0xFF) not in (0x7E, 0x7F) and a in (0x4210, 0x4212, 0x2137, 0x213D, 0x213F):
+                line = self.line()
+                if a == 0x4212:
+                    return 0x80 if line >= self.VBLANK else 0
+                if a == 0x4210:
+                    f = self.frame()
+                    up = line >= self.VBLANK and f not in self.taken
+                    self.taken.add(f)
+                    return 0x80 if up else 0
+                if a == 0x2137:
+                    self.latched = line
+                    return 0
+                if a == 0x213F:
+                    self.toggle = 0
+                    return 0
+                v = self.latched & 0xFF if self.toggle == 0 else self.latched >> 8
+                self.toggle ^= 1
+                return v
+            return read(bank, addr)
+        cpu.step, bus.read, bus.write = stepped, timed_read, timed_write
+
+    def line(self):
+        return (self.n % self.per_frame) * self.LINES // self.per_frame
+
+    def frame(self):
+        """Frames counted from vblank to vblank: frame k begins at the
+        start of the k-th vblank."""
+        return (self.n + self.per_frame * (self.LINES - self.VBLANK) // self.LINES) // self.per_frame
+
+    def silent(self, first, last):
+        """The longest run of frames from first to last with no music."""
+        run = best = 0
+        for f in range(first, last + 1):
+            run = 0 if self.music.get(f) else run + 1
+            best = max(best, run)
+        return best
+
 def test_menumusic():
     """The title's music through the menus' builds (user, 2026-10-23: "the
     music stalls between most of these screen transitions").  The HAL's
     bulk calls -- hal_chrload, hal_ntfill, hal_clearnt -- play a frame of
-    music at their entry when MENU_TICKON is set and a vblank has begun
-    (menu_tick), keeping everything the interrupted code holds; a long
-    CHR load goes in ticking pieces; with the flag clear nothing changes.
-    Every screen of the menus then builds with no stretch near a frame
-    without a chance at the music.  And the title's rebuild leaves its music
-    playing rather than starting it over."""
+    music at their entry when MENU_TICKON is set and a frame has begun
+    whose music nobody has played (framedue, from the V counter), keeping
+    everything the interrupted code holds; a long CHR load goes in ticking
+    pieces; with the flag clear nothing changes.  Every screen of the menus
+    then builds with no stretch near a frame without a chance at the music,
+    and, timed as ares times them (user, 2026-10-23: "It still sounds like
+    multiple frames of stalling"), with one frame of the music in every
+    frame.  And the title's rebuild leaves its music playing rather than
+    starting it over."""
     MUSIC, AUDIO, TICK = SYM["CallMusicPlay"], SYM["hal_audioframe"], SYM["hal_menutick"] + 4
     WAIT, UJ = SYM["hal_waitvbl"], SYM["UpdateJoy"]
     TICKON, KEEP = K["MENU_TICKON"] - 0x7E0000, K["MENU_KEEPMUSIC"] - 0x7E0000
@@ -6482,13 +6592,22 @@ def test_menumusic():
         cpu.step = spy
         return seen
 
-    def ntfill(on, nmi):
-        """hal_ntfill of a run, the flag and RDNMI as given, tmp and the
-        registers full of decoys: the music frames played, and whether
-        everything the caller holds came back as it was."""
+    VPHASE = K["h_vphase"]
+
+    def frames(bus, due):
+        """The harness's frame clock: a frame begun at every look, the last
+        look long ago so the first sees one too -- or never one."""
+        bus.frames(every=1 if due else 10 ** 9)
+        if due:
+            bus.wram[VPHASE] = bus.wram[VPHASE + 1] = 0xFF
+
+    def ntfill(on, due):
+        """hal_ntfill of a run, the flag as given and a frame begun or not,
+        tmp and the registers full of decoys: the music frames played, and
+        whether everything the caller holds came back as it was."""
         bus, cpu = machine()
         bus.wram[TICKON] = on
-        bus.io[K["RDNMI"]] = 0x80 if nmi else 0
+        frames(bus, due)
         bus.wram[TMP:TMP + 16] = bytes(range(0xA0, 0xB0))
         bus.wram[K["music_track"]] = 0x41      # a track to start: the driver's work is in tmp
         bus.wram[K["cur_bank"]] = 0x0E
@@ -6502,19 +6621,19 @@ def test_menumusic():
                 cpu.dbr, bus.wram[K["cur_bank"]], bytes(bus.wram[nt + 0x142:nt + 0x149]))
         return seen["music"], seen["audio"], kept
     want_kept = (True, 0x5D, 0x33, OPTMENU_BANK, 0x0E, bytes([0x5D] * 7))
-    check("a bulk call with the menus' ticks on and a vblank begun: a frame of the music and of the "
+    check("a bulk call with the menus' ticks on and a frame begun: a frame of the music and of the "
           "audio, the caller's tmp, registers, data bank, cur_bank and its run kept",
           ntfill(1, True), (1, 1, want_kept))
-    check("...with no vblank begun since: none", ntfill(1, False)[:2], (0, 0))
+    check("...with no frame begun since: none", ntfill(1, False)[:2], (0, 0))
     check("...with the ticks off, as a game's calls are: none", ntfill(0, True), (0, 0, want_kept))
 
     #  hal_clearnt is a chance at its end as well as its entry: what follows
     #  it is the caller's, a clear and a run of boxes after (party creation's,
-    #  the title's).  The harness's RDNMI says a vblank has begun at both.
+    #  the title's).  The clock has a frame begun at both.
     def clearnt():
         bus, cpu = machine()
         bus.wram[TICKON] = 1
-        bus.io[K["RDNMI"]] = 0x80
+        frames(bus, True)
         seen = counting(cpu)
         cpu.run(0xC0, SYM["hal_clearnt"], limit=2_000_000)
         return seen["music"]
@@ -6527,7 +6646,7 @@ def test_menumusic():
     def chrload(on):
         bus, cpu = machine()
         bus.wram[TICKON] = on
-        bus.io[K["RDNMI"]] = 0x80
+        frames(bus, True)
         src = 0x2800                    # free WRAM, nothing of the HAL's
         bus.wram[src:src + 0x800] = bytes((7 * i + 3) & 0xFF for i in range(0x800))
         bus.wram[TMP], bus.wram[TMP + 1] = src & 0xFF, src >> 8
@@ -6587,6 +6706,140 @@ def test_menumusic():
     long_ = {k: stretch(*v) for k, v in screens.items()}
     check("each menu screen's build: no stretch of 10,000 instructions without a chance at the music",
           {k: v for k, v in long_.items() if v > 10000}, {})
+
+    #  ...and timed as ares times it (Clock: RDNMI's latch gone at the
+    #  vblank's end, the V counter moving with the instructions), each frame
+    #  from the one after the screen's entry to the one before its first pad
+    #  read has one frame of the music: none silent, none doubled.  The map
+    #  edit screen reads the pad as its setup begins, so to its loop's
+    #  second frame's, which takes in the frame the setup ends in.
+    def by_frame(bank, entry, setup=None, a=0, reads=1):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        in_vblank(bus)
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["LoadMenuCHRPal"], limit=20_000_000)
+        cpu.dbr = 0xA7
+        bus.wram[TICKON] = 1
+        bus.wram[K["music_track"]] = 0x41
+        if setup:
+            setup(bus, cpu)
+        clk = Clock(bus, cpu)
+        bus.io[0x4218] = bus.io[0x4219] = 0
+        cpu.a = a
+        start = clk.frame()
+        cpu.run(bank, SYM[entry], stop=UJ, limit=300_000_000)
+        for _ in range(reads - 1):
+            cpu.step()
+            for _ in range(50_000_000):
+                if cpu.pc == UJ:
+                    break
+                cpu.step()
+        up = clk.frame()
+        return [clk.music.get(f, 0) for f in range(start + 1, up)]
+    timed = {k: by_frame(*v) for k, v in screens.items()}
+    timed["the map edits"] = by_frame(0xA1 + K["CHUNK_OWS"], "ows_choose", a=K["OWS_CANBACK"], reads=3)
+    check("...and frame by frame as ares times it: a frame of the music in every frame of each build",
+          {k: v for k, v in timed.items() if set(v) - {1}}, {})
+    check("...the map edit screen's build long enough to show it", len(timed["the map edits"]) > 4, True)
+
+    #  A frame wait in the menus plays a frame begun and unplayed whose
+    #  vblank it will not serve -- gone by already, as party creation's
+    #  drawing ran past one and then waited, or too late in it to flush --
+    #  and not one it will, whose music is its caller's: a tick there would
+    #  take the latch and the wait pass the vblank by.  HVBJOY as each case
+    #  reads it in turn, the V counter and RDNMI as set.
+    def wait_case(on, hvbjoy, line):
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.io[K["OPVCT"]] = line
+        bus.wram[TICKON] = on
+        bus.wram[VPHASE] = bus.wram[VPHASE + 1] = 0xFF      # the last look long ago
+        read, left = bus.read, list(hvbjoy)
+        def r(bank, addr):
+            if (bank & 0xFF) not in (0x7E, 0x7F) and addr & 0xFFFF == K["HVBJOY"]:
+                return left.pop(0) if len(left) > 1 else left[0]
+            return read(bank, addr)
+        bus.read = r
+        seen = counting(cpu)
+        served = []
+        step = cpu.step
+        def spy():
+            if cpu.pbr == 0xC0 and cpu.pc == SYM["hal_flush"]:
+                served.append(cpu.steps)
+            step()
+        cpu.step = spy
+        cpu.run(0xC0, WAIT, limit=2_000_000)
+        return seen["music"], len(served)
+    cases = {"gone by": ([0, 0x80], 100), "too late": ([0x80, 0, 0x80], 250), "to serve": ([0x80], 230)}
+    check("hal_waitvbl in the menus: the music of a frame whose vblank it will not serve, not of one it will; "
+          "a game's wait as ever",
+          {k: (wait_case(1, *v), wait_case(0, *v)) for k, v in cases.items()},
+          {"gone by": ((1, 1), (0, 1)), "too late": ((1, 1), (0, 1)), "to serve": ((0, 1), (0, 1))})
+
+    #  A tick takes the vblank's latch, so a frame wait in that vblank after
+    #  it waits for the next rather than serve this one, whose music the
+    #  tick has played: else the frame plays twice.  Timed from just inside
+    #  a vblank.
+    def tick_then_wait():
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.wram[TICKON] = 1
+        bus.wram[VPHASE] = bus.wram[VPHASE + 1] = 0xFF      # the last look long ago
+        clk = Clock(bus, cpu)
+        clk.n = clk.per_frame * (Clock.VBLANK + 1) // Clock.LINES + 1
+        first = clk.frame()
+        seen = counting(cpu)
+        cpu.run(0xC0, SYM["hal_menutick"], limit=200_000)
+        played = seen["music"]
+        cpu.run(0xC0, WAIT, limit=2_000_000)
+        return played, clk.frame() - first
+    check("a tick in a vblank takes its latch: a frame wait after it waits for the next vblank",
+          tick_then_wait(), (1, 1))
+
+    #  hal_ppureclaim, the map edit screen's way back to the options, clears
+    #  VRAM in eight pieces with a chance at the music before each: whole,
+    #  a frame and a half of DMA, it stalled the music (ares, 2026-10-24).
+    #  The pieces clear it all, whatever it held.
+    def reclaim(on, junk=False):
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.ppu()
+        bus.dma = True
+        if junk:
+            bus.vram[:] = bytes((7 * i + 1) & 0xFF for i in range(0x10000))
+        bus.wram[TICKON] = on
+        bus.wram[K["music_track"]] = 0x41
+        clk = Clock(bus, cpu)
+        start = clk.frame()
+        cpu.run(0xC0, SYM["hal_ppureclaim"], limit=5_000_000)
+        return [clk.music.get(f, 0) for f in range(start + 1, clk.frame())], bytes(bus.vram)
+    (on, vram), (off, _), (_, junked) = reclaim(1), reclaim(0), reclaim(1, junk=True)
+    check("hal_ppureclaim in the menus: a frame of the music in each frame of its clear; a game's as ever; "
+          "VRAM the same whatever it held",
+          (len(on) > 0 and set(on) == {1}, set(off), junked == vram), (True, {0}, True))
+
+    #  TurnMenuScreenOn plays the frame's music straight after its wait, not
+    #  after the sprites, the palette and the registers: in ares its wait's
+    #  flush, a screen's whole CHR and nametable after party creation's
+    #  build, ran most of a frame, and the music then came after the next
+    #  vblank (optturnonmusic.patch).
+    def turn_on():
+        bus, cpu = machine()
+        in_vblank(bus)
+        order = []
+        step = cpu.step
+        marks = {WAIT: "wait", MUSIC: "music", SYM["DrawPalette"]: "palette", SYM["hal_oamdma"]: "sprites"}
+        def spy():
+            if cpu.pc in marks and (cpu.pc != WAIT and cpu.pc != SYM["hal_oamdma"] or cpu.pbr == 0xC0):
+                order.append(marks[cpu.pc])
+            step()
+        cpu.step = spy
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["TurnMenuScreenOn"], limit=2_000_000)
+        return order
+    check("TurnMenuScreenOn: the music straight after its wait, then the sprites and the palette",
+          turn_on(), ["wait", "music", "sprites", "palette"])
 
     #  The title: its screens' presses turn the ticks on, leaving for a game
     #  turns them off, and coming back to rebuild keeps its music playing.

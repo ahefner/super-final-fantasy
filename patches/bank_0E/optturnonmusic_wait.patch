@@ -1,0 +1,19 @@
+--- OLD
+ ;; unused space
+
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0
+--- NEW
+;;  TurnMenuScreenOn's wait and the frame's music after it, as it played them
+;;  at its end (optturnonmusic.patch).  Ten bytes of the unused space below.
+TurnMenuScreenOn_Wait:
+    JSR WaitForVBlank_L      ; wait for VBlank (don't want to turn the screen on midway through the frame)
+    LDA #BANK_THIS           ; record current bank and CallMusicPlay
+    STA cur_bank
+    JMP CallMusicPlay
+
+
+ ;; unused space
+
+  .BYTE 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+  .BYTE 0,0

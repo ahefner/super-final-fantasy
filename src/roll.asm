@@ -22,9 +22,10 @@
 ;
 ;  There are no interrupts in this port, and the randomizer has no frame
 ;  loop.  So the randomizer yields, often -- every draw, every ask the logic
-;  makes (rando_yield) -- and a yield ticks this screen when a vblank has
-;  begun since the last one, which RDNMI latches: a steady sixty a second for
-;  as long as no stretch between yields runs past a frame.  A tick changes
+;  makes (rando_yield) -- and a yield ticks this screen when a frame has
+;  begun since the last tick (the HAL's framedue, from the V counter): a
+;  steady sixty a second for as long as no stretch between yields runs past a
+;  frame, though a tick may come late in the picture.  A tick changes
 ;  only what is safe to change in the middle of a picture -- the brightness,
 ;  and the scroll, which is how the sprite steps: both frames are drawn side
 ;  by side in one 64x32 tilemap, and the step is BG1HOFS, 0 or 256 -- and
@@ -452,7 +453,7 @@ lut_RollTiles:
   .endrep
 
 
-;;  One tick: from rando_yield, by JSL, when the screen is up and a vblank has
+;;  One tick: from rando_yield, by JSL, when the screen is up and a frame has
 ;;  begun since the last.  Any mode and widths; everything kept.
 roll_tick:
     PHP

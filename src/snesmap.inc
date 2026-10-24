@@ -1315,6 +1315,12 @@ PALSTAGE        = $7E4840       ; 128 bytes: the next flush's CGRAM writes,
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
 h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
 h_chrqn         = HAL_VARS+$CF  ; words in CHRQUEUE; above CHRQ_CAP, too many: the span
+;  The frames the music has been played for, against the frames begun
+;  (framedue, hal.asm): the ticks that play it from inside long work, and the
+;  frame waits whose callers play it.
+h_vphase        = HAL_VARS+$D0  ; 2 bytes: the line at the last look, from the vblank's first
+h_vframe        = HAL_VARS+$D2  ; the vblanks those looks have seen begin
+h_vplayed       = HAL_VARS+$D3  ; ...and the last whose frame's music has been played
 GATHERBUF       = $0C80         ; 128 bytes: one tilemap column, made contiguous
 CHRQUEUE        = $0D00         ; 128 bytes: CHR words written this frame, as
                                 ;   offsets into CHRSHADOW (chr_write, flush_chr)

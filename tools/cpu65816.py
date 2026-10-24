@@ -32,8 +32,18 @@ class Bus:
         alternates read by read, so a wait for it to clear and then set
         passes in two reads, and RDNMI's latch reads set once in every
         `every` reads -- a vblank every so many of a polling loop's looks.
-        Time is still not modelled; this only lets the waits finish."""
+        And the V counter, latched by SLHV and read low byte then high
+        through OPVCT (STAT78 resetting the toggle), for the HAL's
+        framedue, which reads it, not RDNMI, to tell a frame has begun --
+        by its going back past the vblank's first line, 225.  Each latch is
+        a look: `every` looks a frame, a share of its 262 lines each from
+        the vblank's start; with `every` 1 a line back each, a frame begun
+        at every look but one in 262 (a whole frame on would look like no
+        time at all); with it huge, the same line ever, never one.  Time is
+        still not modelled; this only lets the waits finish and the ticks
+        come."""
         self.clock = [0, every, 0]
+        self.vlooks = self.vlatch = self.vhigh = 0
 
     def ppu(self):
         """VRAM, CGRAM and OAM as the CPU's ports write them: $2115-$2119 with
@@ -69,6 +79,19 @@ class Bus:
         if self.clock is not None and addr == 0x4210:
             self.clock[2] += 1
             return 0x80 if self.clock[2] % self.clock[1] == 0 else 0x00
+        if self.clock is not None and addr in (0x2137, 0x213D, 0x213F):
+            if addr == 0x2137:
+                k, every = self.vlooks, self.clock[1]
+                self.vlooks += 1
+                at = 261 - k % 262 if every == 1 else (k % every) * 262 // every
+                self.vlatch = (225 + at) % 262
+            elif addr == 0x213F:
+                self.vhigh = 0
+            else:
+                v = self.vlatch >> 8 if self.vhigh else self.vlatch & 0xFF
+                self.vhigh ^= 1
+                return v
+            return 0
         if addr < 0x6000:
             return self.io.get(addr, 0)
         if addr < 0x8000:

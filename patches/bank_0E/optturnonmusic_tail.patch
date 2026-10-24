@@ -1,0 +1,13 @@
+--- OLD
+    STA $2005                ; reset scroll
+
+    LDA #BANK_THIS           ; record current bank and CallMusicPlay
+    STA cur_bank
+    JMP CallMusicPlay
+--- NEW
+    STA $2005                ; reset scroll
+    RTS                      ; the music played after the wait
+
+    ;  The seven bytes the bank and the music's call took, which nothing
+    ;  reaches: the bank's data after keeps its addresses.
+    .BYTE 0,0,0,0, 0,0
