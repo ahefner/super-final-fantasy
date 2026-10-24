@@ -108,7 +108,10 @@ opt_randoscreen:
     PLB
     LDA #$00
     STA OPTMENU_VIEW
-    LDA #ROW_TREASURES
+    ;  From the blank row above TREASURES, as the options open on a blank
+    ;  row above SCALE: the top visible row is half in a CRT's overscan,
+    ;  and the heading there was clipped (user, 2026-10-24).
+    LDA #ROW_TREASURES - 1
     STA OPTMENU_TOP
     LDX #ROW_HIDDEN
     JSR opt_menu_window

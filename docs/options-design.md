@@ -317,7 +317,9 @@ creation** is the flow's last screen (below), its B on the first
 character back to the screen before; the world is built after it, the roll
 screen up meanwhile, and the game begins.  Both settings screens are the
 engine's windows: the options everything above TREASURES
-(`ROW_TREASURES`), the randomization screen TREASURES to the list's rows,
+(`ROW_TREASURES`), the randomization screen the blank row above TREASURES
+to the list's rows -- the heading a row down, clear of a CRT's overscan, as
+the options' SCALE is (user, 2026-10-24: the top of it was cut off) --
 and the engine answers `NGNAV_FORWARD` for START and `NGNAV_BACK` for B.
 **The title's options row opens the options too**, so it no longer shows
 the three sections that moved -- the main menu's "Options select" in

@@ -5898,8 +5898,11 @@ def test_ngflow():
         return bus, cpu
     bus, cpu = screen_up()
     check("the randomization screen opens on Starting items", bus.wram[SEL], optrow("Starting items"))
-    check("...its window: TREASURES to the New Game list's rows",
-          bus.wram[TOP], optrow("TREASURES"))
+    nt = K["NESNT"] - 0x7E0000
+    row_text = lambda r: " ".join("".join(_decode(b) or "?" for b in bus.wram[nt + r * 32 + 4:nt + r * 32 + 26]).split())
+    check("...its window: the blank row above TREASURES to the New Game list's rows, TREASURES "
+          "a row down, clear of a CRT's overscan (as the options' SCALE)",
+          (bus.wram[TOP], row_text(1), row_text(2)), (optrow("TREASURES") - 1, "", "TREASURES"))
     for _ in range(140):
         frame(bus, cpu, 0x04)
         frame(bus, cpu, 0)
