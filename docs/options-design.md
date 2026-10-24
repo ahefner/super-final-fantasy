@@ -2256,7 +2256,7 @@ covered part of it.  Nothing built is waiting on a playtest.
     for Continue.  Seven mutations, all caught.
   - **The title's music plays through the menus' builds** (user,
     2026-10-23: "the music stalls between most of these screen
-    transitions"; built, not yet played).  A screen builds with the screen
+    transitions"; played 2026-10-24, with the next entry's mends).  A screen builds with the screen
     off, and nothing called the music driver until its first frame wait:
     some three frames into the settings engine's screens (the clear, the
     blue fill, the description box), ten into the seed screen (its
@@ -2288,8 +2288,9 @@ covered part of it.  Nothing built is waiting on a playtest.
     party creation.
   - **The menus' music, a frame of it every frame, in ares** (user,
     2026-10-23: "It still sounds like multiple frames of stalling between
-    most of the frames (all of them after preset selection)"; built, not
-    yet played).  The ticks above asked RDNMI whether a vblank had begun,
+    most of the frames (all of them after preset selection)"; played
+    2026-10-24 -- the menus' music, the dialogue boxes at full speed after
+    the fix below, the roll screen's wandering tempo back).  The ticks above asked RDNMI whether a vblank had begun,
     and RDNMI's latch clears at the vblank's end as well as when read --
     ares as the hardware, which the harness never modelled -- so a look had
     to land in the vblank's 37 lines, and work that looks every half frame
