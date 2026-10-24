@@ -249,7 +249,9 @@ from a preset and leaving without touching anything keeps the preset selected.
 **Built 2026-10-21, the first step of the New Game flow (`menus.txt` in the
 project directory; `randomization-notes.md` 12); built, not yet played.**  The list's entries, in
 filename order: Vanilla, Improved Vanilla, Beginner, Classic, Entrance
-Shuffle, Entrance and Floor Shuffle, Chaos Rush, Free Enterprise -- their
+Shuffle, Entrance and Floor Shuffle, Chaos Rush, Free Enterprise, and since
+2026-10-24 Oops All Loose and Floaterless (built, not yet played; after the
+rest, so a saved preset's number keeps its meaning) -- their
 settings from `ffr-presets.md` and FFR's own preset files, each file saying
 where.  The user's requirement: "in a subdirectory under snes/, in some
 easily-edited format. Flags set there should default against the Improved
@@ -259,8 +261,9 @@ shows them ("Gold and XP" = "250%", "Speed hacks" = true;
 `presets/README.md`).  Improved Vanilla is the base and sets every setting,
 the build stopping if it misses one, so a new row gets its default there;
 the rest set only what differs, `inherit` naming another preset to start
-from (Classic, the two shuffles, Chaos Rush and Free Enterprise start from
-Beginner; Entrance and Floor Shuffle from Entrance Shuffle).  `title`
+from (Classic, the two shuffles, Chaos Rush, Free Enterprise, Oops All
+Loose and Floaterless start from Beginner; Entrance and Floor Shuffle from
+Entrance Shuffle).  `title`
 names the title screen's preset an entry is (Vanilla, Improved), so the
 title's options row reads that name after choosing it; any other reads
 Custom.  `skip_to_party = true` sends a preset straight to party creation,
@@ -667,7 +670,7 @@ tail bytes are unspent again.
 ### Menu cursors move on a new press -- not a flag
 
 **Decision (user, 2026-10-24): unconditional, every menu cursor in the game
-that moves on both axes.**  The report: in the Magic or Status menu's 2x2
+that moves on both axes.  Played 2026-10-24 on a SNES, in various menus.**  The report: in the Magic or Status menu's 2x2
 of characters, a quick Down then Right landed somewhere unexpected -- a bug of the original, and
 FFR's.  Every one of the game's menu cursors moved on *any change* of the
 directions held and took the whole set held as the press: roll from Down

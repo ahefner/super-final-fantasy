@@ -1,0 +1,28 @@
+# Oops All Loose: FFR's Oops_All_Loose.json.  Beginner with every incentive
+# location off, so every key item is placed loose -- forward and spread
+# (LooseItemsForwardPlacement, LooseItemsSpreadPlacement), as this
+# cartridge's loose placement always is.  FFR keeps the Masamune and the
+# Ribbon "incentivized" with no incentive spot to put them in; here they
+# are ordinary treasure.  Its dungeon encounters at 60% against Beginner's
+# 70% the one dial does not distinguish.
+name = "Oops All Loose"
+inherit = "Beginner"
+description = """
+Beginner with no incentive spots. Every key item lies loose somewhere in
+the world, placed forward and spread out.
+"""
+
+[settings]
+"SHIP" = "Loose"
+"AIRSHIP" = "Loose"
+"CANAL" = "Loose"
+"CANOE" = "Loose"
+"KEY" = "Loose"
+"CHIME" = "Loose"
+"CROWN" = "Loose"
+"LUTE" = "Loose"
+"TAIL" = "Loose"
+"ROD" = "Loose"
+"Other items" = "Loose"
+"Masmune" = "Treasure"
+"Ribbon" = "Treasure"

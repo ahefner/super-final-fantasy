@@ -7172,9 +7172,21 @@ def test_ngpresets():
     check("inheritance: Entrance and Floor Shuffle's own, Entrance Shuffle's, Beginner's, the base's",
           [efs[k] for k in ("Map shuffle", "Short ToFR", "Key items", "Gold and XP", "Speed hacks")],
           ["Floors", True, "Standard", "250%", True])
-    check("eight presets, in the list's order", [p[0] for p in presets],
+    check("ten presets, in the list's order -- the two from 2026-10-24 after the rest, so a saved "
+          "preset's number keeps its meaning", [p[0] for p in presets],
           ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
-           "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise"])
+           "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise", "Oops All Loose", "Floaterless"])
+    resolved = lambda name: {r.label: (r.values[v] if r.values else bool(v)) for r in rows
+                             for v in [dict((p[0], p[3]) for p in presets)[name][r.label]]}
+    oal, fl = resolved("Oops All Loose"), resolved("Floaterless")
+    keyrows = ["SHIP", "AIRSHIP", "BRIDGE", "CANAL", "CANOE", "KEY", "CHIME", "CROWN", "LUTE", "TAIL", "ROD",
+               "Other items"]
+    check("Oops All Loose: every key item loose (the BRIDGE Beginner's, free), no gear incentive, Beginner's rest",
+          ([oal[k] for k in keyrows], oal["Masmune"], oal["Ribbon"], oal["Gold and XP"]),
+          (["Loose"] * 2 + ["Free"] + ["Loose"] * 9, "Treasure", "Treasure", "250%"))
+    check("Floaterless: no FLOATER, every map edit that adds a way, the Opal an incentive, 40% encounters",
+          (fl["AIRSHIP"], fl["SHIP"], fl["Map edits"], fl["Opal"], fl["Encounter rate"], fl["Gold and XP"]),
+          ("Remove", "Incentive", "All", "Incentive", "40%", "250%"))
 
     #  Vanilla and Improved Vanilla are the title's Vanilla and Improved: the
     #  same block but the respond rate, which only the title's resets.

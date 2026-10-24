@@ -21,6 +21,23 @@ tooltips.
 | Entrance and Floor Shuffle | `Entrance_Floor_Shuffle.json`                    |
 | Chaos Rush                 | `Chaos_Rush.json`                                |
 | Free Enterprise            | `Free_Enterprise.json`, without recruitment (user) |
+| Oops All Loose             | `Oops_All_Loose.json` (2026-10-24)               |
+| Floaterless                | `Floaterless.json` (2026-10-24)                  |
+
+**Oops All Loose and Floaterless** (user, 2026-10-24: "we can now probably
+port credible versions"; built, not yet played) need nothing the cartridge
+lacks but one map edit.  Oops All Loose is Beginner with every incentive
+location off, so every key item loose -- placed forward and spread, as this
+cartridge's loose placement always is -- and here the Masamune and Ribbon,
+which FFR keeps "incentivized" with nowhere to put them, are ordinary
+treasure.  Floaterless is Beginner with no FLOATER, the Opal an incentive,
+40% encounters (FFR's 33% outdoors and 70% in dungeons, one dial), and
+seven map edits, which a preset can only give as Off, Open or All: All is
+those seven and four more that only add a way through, which the map edit
+screen can take back.  FFR's Bahamut's Hoard -- Cardia's chests moved behind
+Bahamut, where the ship reaches them without the airship -- is a dungeon
+edit the cartridge lacks; without it those chests hold nothing placement
+needs.  Five seeds of each built in the harness.
 
 **Entrance and Floor Shuffle is Beginner plus the wiring.**  Its only other
 differences are the Short ToFR, a 60% encounter rate in dungeons as well as

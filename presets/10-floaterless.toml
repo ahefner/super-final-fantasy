@@ -1,0 +1,22 @@
+# Floaterless: FFR's Floaterless.json.  Beginner with no FLOATER (NoFloater),
+# the Opal an incentive, and seven map edits -- Early and Extended Open
+# Progression, the Northern, Ryukahn and Bahamut Cardia docks, the Lefein
+# River dock and Gaia Mountain Pass.  A preset sets the edits as Off, Open
+# or All, and All is those seven and four more that only add a way through
+# (Bridge to Lefein, Highway to Ordeals, River to Melmond, the Hiking
+# Trail); the map edit screen can take any back.  Not on the cartridge:
+# Bahamut's Hoard, Cardia's chests moved behind Bahamut where the ship
+# reaches them.  FFR has 33% encounters outdoors and 70% in dungeons; the
+# one dial takes 40%.
+name = "Floaterless"
+inherit = "Beginner"
+description = """
+Beginner without the FLOATER, so no airship. Map edits open the world to
+the ship and canoe, and the Opal is an incentive.
+"""
+
+[settings]
+"AIRSHIP" = "Remove"
+"Opal" = "Incentive"
+"Map edits" = "All"
+"Encounter rate" = "40%"
