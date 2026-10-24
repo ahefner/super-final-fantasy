@@ -169,15 +169,25 @@ def shot(name):
     print("  shot -> %s" % out)
 
 
+#  Only the ares this script runs: a killall took the user's own ares (or
+#  Snes9x) down with it, mid-game, whenever one was open.
+def kill_ours():
+    subprocess.run(["pkill", "-f", ARES], capture_output=True)
+
+
 def main():
     script = sys.argv[1] if len(sys.argv) > 1 else "w6, shot:boot"
-    subprocess.run(["killall", "ares", "Snes9x"], capture_output=True)
+    kill_ours()
     time.sleep(1)
+    #  Silent (ARES_MUTE, which the instrumented build honours without saving
+    #  it into the settings): at the profiler's half speed the sound comes out
+    #  garbled, and loud when the user has not muted the machine (2026-10-24).
     subprocess.Popen([ARES,
                       "--system", "Super Famicom", "--no-file-prompt",
                       ROM]
                      + (["--save-state", os.environ["STATE"]]
                         if os.environ.get("STATE") else []),
+                     env=dict(os.environ, ARES_MUTE="1"),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(3)
     activate()
@@ -248,7 +258,7 @@ def main():
     #  amounts of whatever the game drifted into once the script stopped
     #  driving it, which is not a difference between the builds.  A capture has
     #  to end where the script ends to mean anything.
-    subprocess.run(["killall", "ares"], capture_output=True)
+    kill_ours()
     time.sleep(0.3)
     print("done")
 
