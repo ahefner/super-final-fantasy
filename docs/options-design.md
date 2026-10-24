@@ -664,6 +664,38 @@ This replaced four hooks with one, and **gave banks `$0B` and `$0C` their slack
 back**: the four `.res` NOPs in `optthiefgrowth.patch` and `$0C`'s four unused
 tail bytes are unspent again.
 
+### Menu cursors move on a new press -- not a flag
+
+**Decision (user, 2026-10-24): unconditional, every menu cursor in the game
+that moves on both axes.**  The report: in the Magic or Status menu's 2x2 of characters, a quick
+Down then Right landed somewhere unexpected -- a bug of the original, and
+FFR's.  Every one of the game's menu cursors moved on *any change* of the
+directions held and took the whole set held as the press: roll from Down
+onto Right and Down+Right read as Down again (the 2x2 tests "up or down in
+it?" first), the cursor going back up, and letting go of Down read as Right
+-- top right, not bottom right.  A list that moves on one axis only would
+need two opposite directions held at once, which a d-pad cannot do; the
+first cut patched the four lists too, on a claim the user tested in a shop
+and found did not hold, and they went back as they were.
+
+Now a direction counts only on the frame it is newly pressed.  The seven
+two-axis tests -- party creation's class, name entry, the title (its rows
+and the respond rate), the item menu, the Magic/Status target, the magic
+menu and the equip menu -- are each `LDA #$0F / JSL opt_dpadnew / BEQ` and
+six NOPs in the fourteen bytes the old test took
+(`patches/bank_0E/dpadnew_*.patch`, generated from the source, so each
+matches its routine exactly); `opt_dpadnew` (`optbank.asm`) answers the
+directions held now and not last time, keeping `joy_prevdir` as the game
+kept it.  Each routine's dispatch reads that as it read the held set, so a
+single press moves as ever.  Two directions newly pressed on the very same
+frame still move one axis, as before -- the 2x2's diagonal comes from the
+rolled presses a quick thumb makes.  The settings engine, the seed screen
+and the map edit screen already counted presses so.  `test_dpadnew`: the
+helper over every mask, pad and last pad; the 2x2 rolled both ways, held,
+and round the square; no two-axis test left in the bank, seven calls.
+Mutations caught: the 2x2's patch undone (it reproduces the report), and
+the helper answering the held or not keeping them.
+
 ### None in the party -- not a flag
 
 **Decision (user, 2026-10-09): unconditional, with no menu row.**  On the

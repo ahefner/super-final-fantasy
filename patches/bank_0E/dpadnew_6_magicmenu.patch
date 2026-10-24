@@ -1,0 +1,19 @@
+--- OLD
+    LDA joy                      ; get joypad state
+    AND #$0F                     ; isolate directional buttons
+    CMP joy_prevdir              ; compare to previous buttons to see if any have been pressed/released
+    BEQ MoveMagicMenuCursor_Exit ; if there's no change, just exit
+    STA joy_prevdir              ;  otherwise record changes
+    CMP #0                       ; see if buttons have been pressed (rather than released)
+    BEQ MoveMagicMenuCursor_Exit ; if no buttons pressed, just exit
+--- NEW
+.export MoveMagicMenuCursor           ; for tools/test_options.py
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ MoveMagicMenuCursor_Exit  ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP

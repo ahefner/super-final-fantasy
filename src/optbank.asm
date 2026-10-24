@@ -69,6 +69,7 @@
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
+.export opt_dpadnew
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
@@ -824,6 +825,36 @@ opt_titleleave:
     STA f:MENU_TICKON
     PLA
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_dpadnew -- the game's menu cursors' d-pad, newly pressed only
+;;
+;;  The game's menu cursors moved on any change of the directions held, not
+;;  on a new press, and took the whole set held as the press: roll from Down
+;;  onto Right in the Magic or Status menu's 2x2 of characters and Down+Right
+;;  read as Down again, the cursor going back up, then letting go of Down
+;;  read as Right -- top right, not bottom right (user, 2026-10-24; a bug of
+;;  the original that FFR keeps).  Only where both axes move a cursor: a
+;;  d-pad cannot hold Up and Down together, so the lists never meet it.
+;;  Those seven open with this in place of their test (the dpadnew_*.patch
+;;  set in bank $0E): the
+;;  directions within the mask held now and not last time, joy_prevdir the
+;;  held as the game kept it.  In: A = the mask.  Out: A = those newly
+;;  pressed, Z and N from it.  By JSL, emulation mode; X and Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+opt_dpadnew:
+    AND joy                     ; held, within the mask
+    PHA
+    LDA joy_prevdir
+    EOR #$FF
+    AND 1, S                    ; ...and not held last time
+    PHA
+    LDA 2, S
+    STA joy_prevdir             ; the held, as the menus keep it
+    PLA
+    STA 1, S
+    PLA                         ; the newly pressed, Z and N from it
+    RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  opt_titlemusic -- IntroTitlePrepare's "start up the crystal theme",

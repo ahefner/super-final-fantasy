@@ -6914,6 +6914,64 @@ def test_menumusic():
     check("...the title's track started as ever -- or, rebuilding after a screen, left playing, the "
           "mark used up", (intro_title(0), intro_title(1)), ((0x41, 0), (0x80, 0)))
 
+def test_dpadnew():
+    """The game's menu cursors move on a direction newly pressed, not on any
+    change of those held (user, 2026-10-24: in the Magic or Status menu's
+    2x2 of characters, a quick Down then Right landed somewhere unexpected;
+    the original's bug, FFR's too).  Only the cursors that move on both
+    axes: a d-pad cannot hold Up and Down together, so the lists never saw
+    it.  opt_dpadnew over every mask and every pad and last pad; the 2x2
+    with rolled presses; and none of the seven two-axis tests the game had
+    left in bank $0E, each a call to it now."""
+    JOY, PREV, CURSOR = K["joy"], K["joy_prevdir"], K["cursor"]
+    bad = []
+    for mask in (0x0F, 0x0C, 0x03):
+        for joy in range(16):
+            for prev in range(16):
+                bus, cpu = machine()
+                bus.wram[JOY], bus.wram[PREV] = joy | 0xA0, prev      # A and Select held: not directions
+                cpu.a, cpu.x, cpu.y = mask, 0x5A, 0xC3
+                cpu.run(CHUNK_OPT_BANK, SYM["opt_dpadnew"], limit=1000)
+                new = joy & mask & ~prev
+                got = (cpu.a & 0xFF, bus.wram[PREV], cpu.x & 0xFF, cpu.y & 0xFF, bool(cpu.p & 0x02))
+                if got != (new, joy & mask, 0x5A, 0xC3, new == 0):
+                    bad.append((mask, joy, prev, got))
+    check("opt_dpadnew: the directions newly pressed within the mask, the held kept, X and Y kept, Z",
+          bad[:4], [])
+
+    R, L, D, U = 0x01, 0x02, 0x04, 0x08
+    def run(routine, start, pads, cursor_max=None):
+        """The routine once a frame for each pad, as its menu calls it."""
+        bus, cpu = machine()
+        bus.wram[CURSOR], bus.wram[PREV] = start, 0
+        if cursor_max is not None:
+            bus.wram[K["cursor_max"]] = cursor_max
+        seen = []
+        for pad in pads:
+            bus.wram[JOY] = pad
+            cpu.dbr = BANK_0E
+            cpu.run(BANK_0E, SYM[routine], limit=100_000)
+            seen.append(bus.wram[CURSOR])
+        return seen
+    #  The 2x2: 0 1 / 2 3.  A rolled Down then Right from the top left is the
+    #  bottom right; the original went down, back up, then right.
+    check("the Magic and Status menus' 2x2: Down rolled onto Right, top left to bottom right",
+          run("MoveMainMenuSubCursor", 0, [D, D | R, R, 0]), [2, 3, 3, 3])
+    check("...Right rolled onto Down", run("MoveMainMenuSubCursor", 0, [R, R | D, D, 0]), [1, 3, 3, 3])
+    check("...held, or let go, nothing", run("MoveMainMenuSubCursor", 3, [U, U, U, 0, 0]), [1, 1, 1, 1, 1])
+    check("...each press once, round the square",
+          run("MoveMainMenuSubCursor", 0, [R, 0, D, 0, L, 0, U, 0]), [1, 1, 3, 3, 2, 2, 0, 0])
+
+    #  All seven of the game's two-axis tests ($0F, every direction) are gone
+    #  from the bank, each a call; the one-axis lists keep theirs.
+    img = bytes(ROMDATA[(BANK_0E & 0x1F) * 0x10000 + 0x8000:][:0x4000])
+    old = re.compile(rb"\xA5\x20\x29\x0F\xC5\x61\xF0.\x85\x61\xC9\x00\xF0", re.S)
+    t = SYM["opt_dpadnew"]
+    jsl = bytes([0x22, t & 0xFF, t >> 8, CHUNK_OPT_BANK])
+    check("the game's two-axis menu cursors: no test of any change left in bank $0E, seven calls of "
+          "opt_dpadnew", (len(old.findall(img)), img.count(jsl)), (0, 7))
+
+
 def test_ngparty():
     """Party creation as New Game's last screen (menus.txt): bank $0E's
     NewGamePartyUI, which the flow calls through OptCallFar -- B on the
@@ -14472,7 +14530,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

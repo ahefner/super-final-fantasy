@@ -1,0 +1,19 @@
+--- OLD
+    LDA joy            ; get joy data
+    AND #$0F           ; isolate directional buttons
+    CMP joy_prevdir    ; see if there were changes
+    BEQ @Exit          ; if not, exit
+
+    STA joy_prevdir    ; otherwise, record changes
+    CMP #0             ; see if buttons are being pressed
+    BEQ @Exit          ; if not, exit
+--- NEW
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ @Exit                     ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP

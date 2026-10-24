@@ -1,0 +1,19 @@
+--- OLD
+    LDA joy                 ; otherwise mask out the directional buttons from the joy data
+    AND #$0F
+    CMP joy_prevdir         ; see if the state of any directional buttons changed
+    BEQ @Loop               ; if not, keep looping
+
+    STA joy_prevdir         ; otherwise, record changes to direction
+    CMP #0                  ;  see if the change was buttons being pressed or lifted
+    BEQ @Loop               ;  if buttons were being lifted, do nothing (keep looping)
+--- NEW
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ @Loop                     ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP

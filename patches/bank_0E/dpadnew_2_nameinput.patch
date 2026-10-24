@@ -1,0 +1,20 @@
+--- OLD
+    LDA joy                 ; Otherwise see if D-pad state has changed
+    AND #$0F
+    CMP joy_prevdir
+    BEQ @MainLoop           ; no change?  Jump back
+    STA joy_prevdir
+    
+       ; D-pad state has changed, see what it changed to
+    CMP #$00
+    BEQ @MainLoop           ; if released, do nothing and loop
+--- NEW
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ @MainLoop                 ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP

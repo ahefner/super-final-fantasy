@@ -1,0 +1,20 @@
+--- OLD
+    : LDA joy
+      AND #$0F
+      CMP joy_prevdir
+      BEQ @MainLoop             ; if there was no change in directional input, loop to another frame
+      
+      STA joy_prevdir           ; otherwise, record new directional input as prevdir
+      CMP #$00                  ; if directional input released (rather than pressed)
+      BEQ @MainLoop             ;   loop to another frame.
+--- NEW
+.import opt_dpadnew
+    : LDA #$0F                    ; a direction newly pressed, not any change
+      JSL opt_dpadnew + OPTFAR    ;   of those held (opt_dpadnew): a rolled
+      BEQ @MainLoop               ;   press moved the cursor twice
+      NOP                         ; the six bytes the old test took more
+      NOP
+      NOP
+      NOP
+      NOP
+      NOP

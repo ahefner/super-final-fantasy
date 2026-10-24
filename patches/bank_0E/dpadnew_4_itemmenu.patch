@@ -1,0 +1,18 @@
+--- OLD
+    LDA joy                   ; get current joy data
+    AND #$0F                  ; mask out the directional bits
+    CMP joy_prevdir           ; see if any bits have changed (button has been pressed/released)
+    BEQ MoveItemMenuCurs_Exit ; if there was no change, there's nothing to do here, just exit
+    STA joy_prevdir           ; write the new value back so that the joy changes are recorded
+    CMP #0                    ; see if a button is being pressed or released (since either would cause a transition)
+    BEQ MoveItemMenuCurs_Exit ; if 'joy' was zero... then buttons are released.. no buttons being pressed.. so just exit
+--- NEW
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ MoveItemMenuCurs_Exit     ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP

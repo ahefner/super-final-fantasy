@@ -1,0 +1,20 @@
+--- OLD
+    LDA joy              ; get joy buttons
+    AND #$0F             ; isolate directional arrows
+    CMP joy_prevdir      ; compare to prev directions to see if there was a change
+    BEQ @Exit            ; no change... exit
+
+    STA joy_prevdir      ; otherwise record change
+    CMP #0               ; see if the change was a press or release
+    BEQ @Exit            ; if release... exit
+--- NEW
+.export MoveMainMenuSubCursor           ; for tools/test_options.py
+    LDA #$0F                      ; a direction newly pressed, not any change
+    JSL opt_dpadnew + OPTFAR      ;   of those held (opt_dpadnew): a rolled
+    BEQ @Exit                     ;   press moved the cursor twice
+    NOP                           ; the six bytes the old test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
