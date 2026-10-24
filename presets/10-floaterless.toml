@@ -1,13 +1,9 @@
 # Floaterless: FFR's Floaterless.json.  Beginner with no FLOATER (NoFloater),
-# the Opal an incentive, and seven map edits -- Early and Extended Open
-# Progression, the Northern, Ryukahn and Bahamut Cardia docks, the Lefein
-# River dock and Gaia Mountain Pass.  A preset sets the edits as Off, Open
-# or All, and All is those seven and four more that only add a way through
-# (Bridge to Lefein, Highway to Ordeals, River to Melmond, the Hiking
-# Trail); the map edit screen can take any back.  Not on the cartridge:
-# Bahamut's Hoard, Cardia's chests moved behind Bahamut where the ship
-# reaches them.  FFR has 33% encounters outdoors and 70% in dungeons; the
-# one dial takes 40%.
+# the Opal an incentive, and seven map edits: Early Open Progression, which
+# Beginner's row gives, and six more.  Not on the cartridge: Bahamut's
+# Hoard, Cardia's chests moved behind Bahamut where the ship reaches them.
+# FFR has 33% encounters outdoors and 70% in dungeons; the one dial takes
+# 40%.
 name = "Floaterless"
 inherit = "Beginner"
 description = """
@@ -18,5 +14,12 @@ the ship and canoe, and the Opal is an incentive.
 [settings]
 "AIRSHIP" = "Remove"
 "Opal" = "Incentive"
-"Map edits" = "All"
 "Encounter rate" = "40%"
+
+[map_edits]                             # and Beginner's Early Open
+"Extended Open" = true                  # MapOpenProgressionExtended
+"North Docks" = true                    # MapOpenProgressionDocks
+"Ryukahn Dock" = true                   # MapAirshipDock
+"Bahamut Dock" = true                   # MapBahamutCardiaDock
+"Lefein River" = true                   # MapLefeinRiver
+"Gaia Pass" = true                      # MapGaiaMountainPass

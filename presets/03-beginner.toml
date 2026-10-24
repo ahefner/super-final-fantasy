@@ -51,7 +51,6 @@ by the standard incentives, and the BRIDGE free.
 
 # Key items
 "Key items" = "Standard"
-"Map edits" = "Open"                    # FFR's MapOpenProgression
 "BRIDGE" = "Free"
 "Masmune" = "Incentive"
 "Ribbon" = "Incentive"
@@ -59,3 +58,6 @@ by the standard incentives, and the BRIDGE free.
 "Early Sarda" = "On"
 "Early Sage" = "On"
 "Early Ordeals" = "On"
+
+[map_edits]
+"Early Open" = true                     # FFR's MapOpenProgression

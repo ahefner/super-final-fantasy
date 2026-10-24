@@ -124,6 +124,14 @@ def _readouts(src, label, consts):
     return items
 
 
+def map_edits():
+    """The map edit screen's labels (owscreen.asm's lut_OwsName), in its
+    order, which is the edits' bits' (lut_OwsBit16): label i is bit i of
+    RANDO_OWEDITS."""
+    src = open(os.path.join(SRC, "owscreen.asm")).read()
+    return _readouts(src, "lut_OwsName", _consts())
+
+
 def rows():
     src = open(os.path.join(SRC, "optmenu.asm")).read()
     consts = _consts()

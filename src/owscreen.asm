@@ -65,6 +65,7 @@
 .export ows_choose, ows_tick
 ;  For tools/test_options.py.
 .export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
+.export lut_OwsName, lut_OwsBit16       ; for tools/test_options.py: the screen's edits as the presets name them
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue

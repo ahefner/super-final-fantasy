@@ -5659,13 +5659,15 @@ def test_ngflow():
 
     edits = {}
 
-    def flow(script, ticks=(), ng=None, typed=()):
+    def flow(script, ticks=(), ng=None, typed=(), rom=None):
         """Run ng_flow, each screen answering the next of script; the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
         noting what it was given (its A, and RANDO_OWEDITS).  Out: the
         screens in order, the answer, the option page after; edits holds the
         map edit screen's starts and New Game's edits."""
         bus, cpu = machine()
+        if rom is not None:
+            bus.rom = rom
         call(cpu, "opt_init")
         ngoff, ngsize = K["OPT_NG"] - 0x6000, K["OPT_NG_SIZE"]
         if ng is not None:
@@ -5800,6 +5802,22 @@ def test_ngflow():
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, 0)], (0x0041, 1)))
     flow([0, FWD])
     check("Vanilla: no screen; New Game's edits its row's, none", edits["ngf"], (0, 1))
+    #  A preset's own [map_edits] over its row's (user, 2026-10-24): Floaterless
+    #  is Beginner's Open and six more, the screen starting from all seven.
+    fl = [p[0] for p in G.resolve(G.load(), P.rows())].index("Floaterless")
+    flow([fl, FWD, FWD, FWD, FWD, FWD], ticks=[0x00BF])
+    seven = sum(K["OWEDIT_" + n] for n in ("OPENPROG", "EXTENDED", "DOCKS", "AIRSHIPDOCK", "BAHAMUTDOCK",
+                                           "LEFEINRIVER", "GAIAPASS"))
+    check("Floaterless: the map edit screen from its row's edit and its own six; New Game's what it ticked",
+          (edits["given"], edits["ngf"], seven), ([(KEEP | CANBACK, seven)], (0x00BF, 1), 0x00BF))
+    #  ...and whatever bits a preset's word holds, past the first eight too
+    #  (Ordeals Road), in a ROM so altered: no preset ticks one yet.
+    ticked = bytearray(ROMDATA)
+    at = (NG & 0x1F) * 0x10000 + SYM["lut_NgpEdits"] + 2 * 2
+    ticked[at], ticked[at + 1] = (OPEN | K["OWEDIT_HIGHWAY"]) & 0xFF, (OPEN | K["OWEDIT_HIGHWAY"]) >> 8
+    flow([2, FWD, FWD, FWD, FWD, FWD], ticks=[0], rom=bytes(ticked))
+    check("...a preset's every bit, past the first eight too (Ordeals Road)",
+          edits["given"], [(KEEP | CANBACK, OPEN | K["OWEDIT_HIGHWAY"])])
     seen, ans, page = flow([2, BACK, NBACK])
     check("a preset backed out of: the title, the preset left applied, as the title's presets are",
           (seen, ans, page == preset_block(2)), (["list", "rando", "list"], BACK, True))
@@ -7172,6 +7190,57 @@ def test_ngpresets():
     check("inheritance: Entrance and Floor Shuffle's own, Entrance Shuffle's, Beginner's, the base's",
           [efs[k] for k in ("Map shuffle", "Short ToFR", "Key items", "Gold and XP", "Speed hacks")],
           ["Floors", True, "Standard", "250%", True])
+    #  [map_edits]: the edits the map edit screen starts from, by its labels,
+    #  a preset's table over its parent's; true ticked, false not.
+    E = P.map_edits()
+    bit = lambda *ls: sum(1 << E.index(l) for l in ls)
+    fake = [("1.toml", {"name": "B", "base": True}),
+            ("2.toml", {"name": "C", "inherit": "B", "map_edits": {"Gaia Pass": True, "Early Open": False}}),
+            ("3.toml", {"name": "D", "inherit": "C", "map_edits": {"Gaia Pass": False, "North Docks": True}})]
+    check("[map_edits]: the bits, inherited, a child's over its parent's",
+          G.edit_bits(fake), [0, bit("Gaia Pass"), bit("North Docks")])
+    def refused(fn, files):
+        try:
+            fn(files)
+        except G.PresetError as e:
+            return str(e)
+        return None
+    typo = [fake[0], ("x.toml", {"name": "X", "map_edits": {"Gaia Passs": True}})]
+    check("...refused: an edit the screen has not (naming the nearest), a value not true or false, an "
+          "edit on a preset that skips the screens, the hidden Map edits row on any but the base",
+          ["did you mean \"Gaia Pass\"" in (refused(G.edit_bits, typo) or ""),
+           bool(refused(G.edit_bits, [fake[0], ("x.toml", {"name": "X", "map_edits": {"Gaia Pass": "yes"}})])),
+           bool(refused(G.edit_bits, [fake[0], ("x.toml", {"name": "X", "skip_to_party": True,
+                                                            "map_edits": {"Gaia Pass": True}})])),
+           bool(refused(lambda f: G.resolve(f, rows),
+                        G.load() + [("z.toml", {"name": "Z", "settings": {"Map edits": "Open"}})]))],
+          [True, True, True, True])
+    #  The built game's view: each preset's starting edits in the ROM, named
+    #  through the ROM's own screen table (lut_OwsName, its bits lut_OwsBit16),
+    #  against its file's [map_edits] resolved here, not by genpresets -- so
+    #  the file and the cart cannot drift apart unseen.
+    OWSB = (0xA1 + K["CHUNK_OWS"] & 0x1F) * 0x10000
+    nameb = ROMDATA[OWSB + SYM["lut_OwsName"]:][:14 * 13]
+    screen = [" ".join("".join(_decode(b) or "?" for b in nameb[13 * i:13 * i + 13]).split()) for i in range(14)]
+    bits16 = [ROMDATA[OWSB + SYM["lut_OwsBit16"] + 2 * i] | ROMDATA[OWSB + SYM["lut_OwsBit16"] + 2 * i + 1] << 8
+              for i in range(14)]
+    files = dict((t["name"], t) for _, t in G.load())
+    def wanted(name):
+        t = files[name]
+        out = {} if t.get("base") else wanted(t.get("inherit") or next(n for n, x in files.items() if x.get("base")))
+        return {**out, **t.get("map_edits", {})}
+    names = [p[0] for p in presets]
+    lo = (NEWGAME_BANK & 0x1F) * 0x10000
+    word = lambda i: ROMDATA[lo + SYM["lut_NgpEdits"] + 2 * i] | ROMDATA[lo + SYM["lut_NgpEdits"] + 2 * i + 1] << 8
+    cart = {n: sorted(screen[k] for k in range(14) if word(i) & bits16[k]) for i, n in enumerate(names)}
+    file = {n: sorted(l for l, v in wanted(n).items() if v) for n in names}
+    check("each preset's map edits in the cart, by the cart's own labels, its file's", cart, file)
+    check("...the cart's labels the screen's fourteen, a bit each", (screen, bits16),
+          (E, [1 << k for k in range(14)]))
+    check("...Floaterless's FFR's seven, Beginner's Early Open, Improved Vanilla's none",
+          (cart["Floaterless"], cart["Beginner"], cart["Improved Vanilla"]),
+          (sorted(["Early Open", "Extended Open", "North Docks", "Ryukahn Dock", "Bahamut Dock",
+                   "Lefein River", "Gaia Pass"]), ["Early Open"], []))
     check("ten presets, in the list's order -- the two from 2026-10-24 after the rest, so a saved "
           "preset's number keeps its meaning", [p[0] for p in presets],
           ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
@@ -7184,9 +7253,9 @@ def test_ngpresets():
     check("Oops All Loose: every key item loose (the BRIDGE Beginner's, free), no gear incentive, Beginner's rest",
           ([oal[k] for k in keyrows], oal["Masmune"], oal["Ribbon"], oal["Gold and XP"]),
           (["Loose"] * 2 + ["Free"] + ["Loose"] * 9, "Treasure", "Treasure", "250%"))
-    check("Floaterless: no FLOATER, every map edit that adds a way, the Opal an incentive, 40% encounters",
-          (fl["AIRSHIP"], fl["SHIP"], fl["Map edits"], fl["Opal"], fl["Encounter rate"], fl["Gold and XP"]),
-          ("Remove", "Incentive", "All", "Incentive", "40%", "250%"))
+    check("Floaterless: no FLOATER, the Opal an incentive, 40% encounters",
+          (fl["AIRSHIP"], fl["SHIP"], fl["Opal"], fl["Encounter rate"], fl["Gold and XP"]),
+          ("Remove", "Incentive", "Incentive", "40%", "250%"))
 
     #  Vanilla and Improved Vanilla are the title's Vanilla and Improved: the
     #  same block but the respond rate, which only the title's resets.

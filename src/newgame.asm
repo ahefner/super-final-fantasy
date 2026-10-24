@@ -26,6 +26,7 @@
 .import OptCallFar, NewGamePartyUI
 .export ngp_apply, ng_flow
 .export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
+.export lut_NgpEdits
 
 .segment "BANK_NEWGAME"
 
@@ -168,9 +169,10 @@ lut_NgpBit:
 ;;  The map edits ticked are kept in NGF_OWEDITS, which rando_newgame takes
 ;;  for New Game's (NGF_ACTIVE): the save's first page, where RANDO_OWEDITS
 ;;  is, is set afresh by New Game before then.  The screen starts from the
-;;  edits last ticked in this pass; first, after a preset, from its Map
-;;  edits row's; after Custom Game, as it always has, from the saved game's
-;;  if Continue would load one with any, else the row's.
+;;  edits last ticked in this pass; first, after a preset, from its file's
+;;  [map_edits] (ng_presetedits); after Custom Game, as it always has, from
+;;  the saved game's if Continue would load one with any, else the hidden
+;;  Map edits row's.
 ;;
 ;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = NGNAV_FORWARD to
 ;;  start the game (party creation), NGNAV_BACK to go back to the title.
@@ -195,7 +197,7 @@ ng_flow:
     TAX
     LDA f:NEWGAMEFAR + lut_NgpFlow, X
     BNE @rando
-    JSR ng_rowedits             ; no screens: its row's edits (none, for
+    JSR ng_presetedits          ; no screens: its map edits (none, for
     JSR ng_keepedits            ;   Vanilla), and
     JSR ng_latch                ;   on to party creation, with the pool's seed
     JSR ng_party
@@ -212,11 +214,14 @@ ng_flow:
     JSR ng_restoreedits         ; back here: the edits last ticked
     BRA @keep
   @fresh:
-    JSR ng_rowedits
     LDA f:NGF_PICK
     CMP #NGPICK_CUSTOM
-    BNE @keep                   ; a preset: its row's, as given
-    LDA #OWS_CANBACK            ; Custom Game: the saved game's, else the row's
+    BEQ @custom
+    JSR ng_presetedits          ; a preset: its map edits, as given
+    BRA @keep
+  @custom:
+    JSR ng_rowedits             ; Custom Game: the saved game's, else the row's
+    LDA #OWS_CANBACK
     BRA @show
   @keep:
     LDA #OWS_KEEP | OWS_CANBACK
@@ -293,8 +298,8 @@ ng_settings:
     BPL @ng
     RTS
 
-;;  RANDO_OWEDITS: the Map edits row's mode as the flags it stands for, as
-;;  rando_newgame makes them (lut_OwEditsMode).
+;;  RANDO_OWEDITS: the hidden Map edits row's mode as the flags it stands
+;;  for, as rando_newgame makes them (lut_OwEditsMode) -- Custom Game's.
 ng_rowedits:
     LDA f:OPT_NGFAR + (OPT_NG_EARLY - OPT_NG)
     AND #OWEDITS_FIELD
@@ -305,6 +310,19 @@ ng_rowedits:
     LDA f:RANDOFAR + lut_OwEditsMode, X
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     LDA f:RANDOFAR + lut_OwEditsMode + 1, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    RTS
+
+;;  RANDO_OWEDITS: a preset's map edits, its file's [map_edits] as
+;;  genpresets.py makes them bits (lut_NgpEdits; user, 2026-10-24: "Presets
+;;  should be able to toggle map edits individually").  NGF_PICK the preset.
+ng_presetedits:
+    LDA f:NGF_PICK
+    ASL A
+    TAX
+    LDA f:NEWGAMEFAR + lut_NgpEdits, X
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:NEWGAMEFAR + lut_NgpEdits + 1, X
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     RTS
 

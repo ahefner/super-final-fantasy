@@ -32,9 +32,9 @@ cartridge's loose placement always is -- and here the Masamune and Ribbon,
 which FFR keeps "incentivized" with nowhere to put them, are ordinary
 treasure.  Floaterless is Beginner with no FLOATER, the Opal an incentive,
 40% encounters (FFR's 33% outdoors and 70% in dungeons, one dial), and
-seven map edits, which a preset can only give as Off, Open or All: All is
-those seven and four more that only add a way through, which the map edit
-screen can take back.  FFR's Bahamut's Hoard -- Cardia's chests moved behind
+FFR's seven map edits exactly: Beginner's Open and six more by name, a
+preset's `[map_edits]` table (user, 2026-10-24: "Presets should be able to
+toggle map edits individually").  FFR's Bahamut's Hoard -- Cardia's chests moved behind
 Bahamut, where the ship reaches them without the airship -- is a dungeon
 edit the cartridge lacks; without it those chests hold nothing placement
 needs.  Five seeds of each built in the harness.

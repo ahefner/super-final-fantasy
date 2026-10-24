@@ -92,7 +92,7 @@ bugfixes, and double gold and XP. Nothing is randomized.
 # Key items
 "Key items" = "Vanilla"
 "Map shuffle" = "Off"
-"Map edits" = "Off"
+"Map edits" = "Off"                      # the hidden row, Custom Game's: a preset's own are its [map_edits]
 "SHIP" = "Incentive"
 "AIRSHIP" = "Incentive"
 "BRIDGE" = "Incentive"

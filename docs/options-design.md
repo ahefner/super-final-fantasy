@@ -266,7 +266,21 @@ Loose and Floaterless start from Beginner; Entrance and Floor Shuffle from
 Entrance Shuffle).  `title`
 names the title screen's preset an entry is (Vanilla, Improved), so the
 title's options row reads that name after choosing it; any other reads
-Custom.  `skip_to_party = true` sends a preset straight to party creation,
+Custom.  `[map_edits]` (user, 2026-10-24: "Presets should be able to toggle
+map edits individually") is the set of edits the map edit screen starts
+from for the preset, by the screen's own labels, true or false, a preset's
+table over its parent's.  genpresets.py reads the labels from the screen's
+table (`lut_OwsName`; label i is bit i), makes each preset one word of
+`RANDO_OWEDITS` bits (`lut_NgpEdits`), and `ng_presetedits` puts it there
+as the flow brings the screen up for a preset.  The hidden Map edits row is
+the base's alone, what Custom Game falls back on; the build refuses it in
+any other preset, and refuses a label the screen lacks (naming the
+nearest), a value not true or false, and an edit on a preset that skips the
+screens.  So the file and the cart cannot drift: `test_ngpresets` names
+each preset's word in the ROM through the ROM's own label and bit tables
+and compares it with the file's table, resolved without genpresets;
+`test_ngflow` has the screen start from Floaterless's seven and from a word
+with a bit past the first eight.  `skip_to_party = true` sends a preset straight to party creation,
 past every screen of New Game's flow (`lut_NgpFlow`): Vanilla's alone
 (user, 2026-10-22: Improved Vanilla goes through them, being "the baseline
 preset one might customize"; before, every preset that randomized nothing
