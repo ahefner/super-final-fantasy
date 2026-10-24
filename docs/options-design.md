@@ -976,14 +976,17 @@ run caught the reckoning missing.
 **Thinking takes frames; the music does not wait.**  A decision is up to
 about 120000 instructions -- Chaos against four casters each with a full
 spell list -- a fifth of a second; most are a few thousand.  The game's own
-calls each frame drive the music, so the thinking yields: whenever a frame
-has begun whose music nobody has played -- the HAL's `framedue`, from the V
-counter; RDNMI, which this once asked, clears its latch at the vblank's end
-as well as when read, so a look between vblanks missed the frame -- it
-runs the battle's frame of music -- `music_track`'s follow-up, then
+calls each frame drive the music, so the thinking yields: whenever RDNMI
+says a vblank has begun it runs the battle's frame of music -- `music_track`'s follow-up, then
 `CallMusicPlay` with `cur_bank` at this chunk so the driver swaps back here
 -- and the HAL's frame of sound.  Nothing on screen moves while a boss
-thinks, so nothing else of the frame is owed.
+thinks, so nothing else of the frame is owed.  RDNMI's latch clears at the
+vblank's end as well as when read, so a look between vblanks misses the
+frame and the music can lose one now and then while a boss thinks.  The
+HAL's `framedue` would tell every frame (the menus use it), but only by
+the game's frame waits keeping count after their vblank, which the
+dialogue box has no time for: tried on 2026-10-24, it slowed every open
+box to half speed, and the boss went back to RDNMI.
 
 **Where it is.**  Its own chunk, `CHUNK_TACTICS` (`$18`, `src/tactics.asm`),
 native and sixteen bits wide, with its scratch at `TC_BASE` in bank `$7F`
@@ -2293,22 +2296,36 @@ covered part of it.  Nothing built is waiting on a playtest.
     mostly did not.  The instrumented ares, counting the music driver's
     calls frame by frame, had the screens after the list running silent
     for two to seven frames at a time.  Now one HAL routine, `framedue`,
-    answers every tick -- the menus' (`menutick`), the randomizer's yields
-    for the map edit screen's checks (`rando_yield`), the map edit
-    screen's build (`ows_audio`) and a boss's thinking (`tac_yield`): has
-    a frame begun whose music nobody has played?  (The roll screen's ticks
-    took it too, and went back to RDNMI at the user's word, 2026-10-24: its
-    missed frames made the tune's tempo wander, which the user liked.)  It reads the V
+    answers the menus' ticks -- the HAL's (`menutick`), the map edit
+    screen's build (`ows_audio`) and its checks (`rando_yield`): has a
+    frame begun whose music nobody has played?  (The roll screen's ticks and
+    a boss's thinking took it too, and went back to RDNMI, 2026-10-24: the
+    roll screen at the user's word -- its missed frames made the tune's
+    tempo wander, which the user liked -- and the boss with the game's
+    frame waits, below.)  It reads the V
     counter as a phase from the vblank's first line, 225, the lines above
     it pushed past by 512, so NTSC's and PAL's alike count in order, and
     the phase only goes down when a vblank has begun since the last look.
     `h_vframe` counts those, `h_vplayed` is the last frame played
     (`HAL_VARS+$D0`); a look that finds a frame due marks it and takes
-    RDNMI's latch, so a wait inside the same vblank waits for the next;
-    every frame wait marks its frame as it returns (`hal_waitvbl`,
-    `hal_vblaudio`), its caller playing that one.  It needs a look at
-    least once a frame -- one more than a frame after the last cannot see
-    the vblank between -- so the long work looks every half frame or so:
+    RDNMI's latch, so a wait inside the same vblank waits for the next.
+    Every frame wait, before it spins, marks the frame it is about to serve
+    as played -- its caller plays that one -- and sets the phase so the
+    first look after that vblank counts it however long the wait spun
+    (`waitahead`); in the menus `hal_waitvbl` looks again after its flush,
+    which can run near a frame.  A game's wait looks at nothing after its
+    vblank begins.  At first every wait looked after its flush, 45
+    instructions, and a game's dialogue box -- which must reach scanline 9
+    after the wait and arrived in line 9 itself, 183 frames of 184 in ares
+    -- missed it and waited a whole frame each time: half speed and the
+    music with it while a box was open (user, 2026-10-24: "if I open the
+    black orb, it plays the treasure sound at a very slow speed").  Now the
+    game pays 8 cycles there for the menus' test, and 13 less for the frame
+    counter (eight bits and a carry, not a trip to sixteen): its dialogue
+    reaches line 9 as it always did, 188 frames of 189, none spun.  It needs
+    a look at least once a frame -- one more than a frame after the last
+    cannot see the vblank between -- so the long work looks every half
+    frame or so:
       - The map edit screen's setup: its VRAM clear in eight pieces (the
         whole a frame and a half of DMA, the CPU stopped), the font every
         32 glyphs, either side of the map, the baked minimap's copy in
@@ -2355,7 +2372,17 @@ covered part of it.  Nothing built is waiting on a playtest.
     latch a tick takes, `ows_wait`'s tick (the frame-by-frame run now goes
     a frame further), a tick that plays whatever, and the copy's pieces
     against a staging of junk (the test's own setup had laid the right
-    minimap there).  All caught now.
+    minimap there).  All caught now.  After the dialogue box's slowdown
+    (2026-10-24, above): measured in ares on a guard's box in Coneria
+    Castle, line 9 reached on time 188 frames of 189 and none spun (the
+    build before had 102 of 205 spun), and the flow forward and back again
+    a call every frame; `test_menumusic` asks that a game's wait reads no
+    V counter from its flush on, that its frame is marked for the menus'
+    ticks coming on after it (the title's press doubled one before that
+    went in), and that the frame counter still carries.  Nine more
+    mutations, all caught once the frame-by-frame run went on into the map
+    edit screen's own loop and the ticks-on check started from a stale
+    count.
   - **Back on the title, its music plays on** rather than starting over
     (user, 2026-10-23).  The title rebuilds after each of its screens
     through `IntroTitlePrepare`, whose `LDA #$41 / STA music_track` started
@@ -3377,9 +3404,11 @@ instruction had already set.
     randomizer's yields, the map edit screen's build, a boss's thinking --
     and in ares each fired only when a look happened to land inside the
     vblank: the music stalled frames at a time through the menus.  The
-    HAL's `framedue` reads the V counter instead, which says it at any
-    look less than a frame after the last -- all but the roll screen's,
-    whose wandering tempo the user keeps.  A harness answering a hardware
+    menus' ticks read the V counter instead (`framedue`), which says it
+    at any look less than a frame after the last; the roll screen's and a
+    boss's still ask RDNMI (the roll's wandering tempo the user keeps; the
+    boss's because counting frames in a game cost the dialogue box its
+    frame, entry above).  A harness answering a hardware
     register should answer it as the hardware does, its clearing too; the
     instrumented ares counting the driver's calls frame by frame is what
     showed it.

@@ -6711,8 +6711,8 @@ def test_menumusic():
     #  vblank's end, the V counter moving with the instructions), each frame
     #  from the one after the screen's entry to the one before its first pad
     #  read has one frame of the music: none silent, none doubled.  The map
-    #  edit screen reads the pad as its setup begins, so to its loop's
-    #  second frame's, which takes in the frame the setup ends in.
+    #  edit screen reads the pad as its setup begins, so on into its own
+    #  loop, whose frames each wait in the same place.
     def by_frame(bank, entry, setup=None, a=0, reads=1):
         bus, cpu = machine()
         call(cpu, "opt_init")
@@ -6738,7 +6738,7 @@ def test_menumusic():
         up = clk.frame()
         return [clk.music.get(f, 0) for f in range(start + 1, up)]
     timed = {k: by_frame(*v) for k, v in screens.items()}
-    timed["the map edits"] = by_frame(0xA1 + K["CHUNK_OWS"], "ows_choose", a=K["OWS_CANBACK"], reads=3)
+    timed["the map edits"] = by_frame(0xA1 + K["CHUNK_OWS"], "ows_choose", a=K["OWS_CANBACK"], reads=8)
     check("...and frame by frame as ares times it: a frame of the music in every frame of each build",
           {k: v for k, v in timed.items() if set(v) - {1}}, {})
     check("...the map edit screen's build long enough to show it", len(timed["the map edits"]) > 4, True)
@@ -6747,35 +6747,68 @@ def test_menumusic():
     #  vblank it will not serve -- gone by already, as party creation's
     #  drawing ran past one and then waited, or too late in it to flush --
     #  and not one it will, whose music is its caller's: a tick there would
-    #  take the latch and the wait pass the vblank by.  HVBJOY as each case
-    #  reads it in turn, the V counter and RDNMI as set.
-    def wait_case(on, hvbjoy, line):
+    #  take the latch and the wait pass the vblank by.  The frame it serves
+    #  is marked played, at its end, so a tick after it in that frame plays
+    #  nothing.  A game's wait looks at nothing from its flush on: the
+    #  dialogue box must reach scanline 9 after the wait, arrives in line 9
+    #  itself, and a look there made it wait a whole frame each time, the
+    #  music at half speed while a box was open (user, 2026-10-24).  HVBJOY
+    #  and the V counter as each case reads them in turn; RDNMI as set.
+    def wait_case(on, hvbjoy, lines, tick_on=None, phase=0xFFFF):
         bus, cpu = machine()
         in_vblank(bus)
-        bus.io[K["OPVCT"]] = line
         bus.wram[TICKON] = on
-        bus.wram[VPHASE] = bus.wram[VPHASE + 1] = 0xFF      # the last look long ago
-        read, left = bus.read, list(hvbjoy)
+        bus.wram[VPHASE], bus.wram[VPHASE + 1] = phase & 0xFF, phase >> 8   # the last look's
+        read, seqs, late = bus.read, {K["HVBJOY"]: list(hvbjoy), K["OPVCT"]: list(lines)}, []
+        flushed = [False]
         def r(bank, addr):
-            if (bank & 0xFF) not in (0x7E, 0x7F) and addr & 0xFFFF == K["HVBJOY"]:
-                return left.pop(0) if len(left) > 1 else left[0]
+            a = addr & 0xFFFF
+            if (bank & 0xFF) not in (0x7E, 0x7F):
+                if a == 0x2137 and flushed[0]:
+                    late.append(a)
+                if a in seqs:
+                    q = seqs[a]
+                    return q.pop(0) if len(q) > 1 else q[0]
             return read(bank, addr)
         bus.read = r
         seen = counting(cpu)
-        served = []
         step = cpu.step
         def spy():
             if cpu.pbr == 0xC0 and cpu.pc == SYM["hal_flush"]:
-                served.append(cpu.steps)
+                flushed[0] = True
             step()
         cpu.step = spy
         cpu.run(0xC0, WAIT, limit=2_000_000)
-        return seen["music"], len(served)
-    cases = {"gone by": ([0, 0x80], 100), "too late": ([0x80, 0, 0x80], 250), "to serve": ([0x80], 230)}
-    check("hal_waitvbl in the menus: the music of a frame whose vblank it will not serve, not of one it will; "
-          "a game's wait as ever",
+        waited = seen["music"]
+        flushed[0] = False
+        if tick_on is not None:
+            bus.wram[TICKON] = tick_on
+        cpu.run(0xC0, SYM["hal_menutick"], limit=200_000)
+        return waited, seen["music"] - waited, len(late)
+    cases = {"gone by": ([0, 0x80], [100, 100, 230, 230, 235]),
+             "too late": ([0x80, 0, 0x80], [250, 250, 250, 228, 228, 233]),
+             "to serve": ([0x80], [230, 230, 230, 235])}
+    check("hal_waitvbl in the menus: the music of a frame it will not serve, not of one it will, that one "
+          "marked at its end for a tick after; a game's wait looks at nothing from its flush on",
           {k: (wait_case(1, *v), wait_case(0, *v)) for k, v in cases.items()},
-          {"gone by": ((1, 1), (0, 1)), "too late": ((1, 1), (0, 1)), "to serve": ((0, 1), (0, 1))})
+          {"gone by": ((1, 0, 1), (0, 0, 0)), "too late": ((1, 0, 1), (0, 0, 0)),
+           "to serve": ((0, 0, 1), (0, 0, 0))})
+    #  The frame counter the wait keeps, eight bits and a carry now (cheaper
+    #  than going sixteen-bit, which pays for the menus' test after the
+    #  flush): on from 255 to 256.
+    bus, cpu = machine()
+    in_vblank(bus)
+    bus.wram[K["h_frame"]], bus.wram[K["h_frame"] + 1] = 0xFF, 0x00
+    cpu.run(0xC0, WAIT, limit=2_000_000)
+    check("hal_waitvbl's frame counter carries", bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 0x100)
+    #  ...and a game's wait marks the frame it serves too, before it spins,
+    #  so the menus' ticks coming on in that frame -- the title's press,
+    #  which first doubled a frame -- find it played: counted however long
+    #  since the last look, which in a game was any time (here at a line
+    #  that comes after the tick's, which would hide the vblank between).
+    check("...a game's wait: its frame marked for the menus' ticks coming on after it",
+          {k: wait_case(0, *cases[k], tick_on=1, phase=0) for k in ("gone by", "too late")},
+          {"gone by": (0, 0, 0), "too late": (0, 0, 0)})
 
     #  A tick takes the vblank's latch, so a frame wait in that vblank after
     #  it waits for the next rather than serve this one, whose music the

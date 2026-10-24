@@ -1282,31 +1282,35 @@ hal_waitvbl:
     ;    That is why a value below 224 at this point means the vblank is nearly
     ;    over, not that the picture has started.
     ;
-    ;  In the menus, a frame whose vblank this wait will not serve -- gone
-    ;  by already, or too late in it -- and whose music nobody has played
-    ;  plays it now (menutick), or it is lost with the frame: party
-    ;  creation's drawing ran past a vblank and then waited, and the wait
-    ;  took that frame for the one it waited for (ares, 2026-10-24).  Not
-    ;  for a vblank it will serve: its caller plays that one, and a tick
-    ;  would take the latch, the wait then passing it by.
+    ;  Before it waits, in time it would spend spinning (waitahead), the
+    ;  wait plays a frame begun and unplayed, in the menus (party
+    ;  creation's drawing ran past a vblank and then waited), and marks the
+    ;  vblank it serves as played, its caller's, for framedue to count at
+    ;  the next look -- in the menus at its end, after the flush, which can
+    ;  run near a frame.  A game's frame pays nothing for it after its vblank
+    ;  begins: the dialogue box must reach scanline 9 by then
+    ;  (dlgbox.patch) and arrives in line 9 itself, and 45 instructions
+    ;  more after the flush made it miss the line and wait a whole frame,
+    ;  every other frame -- the music at half speed while a box was open
+    ;  (user, 2026-10-24).
     lda a:HVBJOY
     bpl @picture                ; not in vblank yet: the ordinary path
     lda a:RDNMI
-    bpl @inside                 ; already flushed into this one: take the next
+    bpl @ahead                  ; already flushed into this one: take the next
     lda a:STAT78                ; reset the counter's own read toggle
     lda a:SLHV                  ; latch H and V
     lda a:OPVCT
     cmp #224
-    bcc @late                   ; lines 256..261: too little of it left
+    bcc @ahead                  ; lines 256..261: too little of it left
     cmp #LATE_FLUSH_LAST+1
-    bcs @late                   ; too close to the end to fit a flush
+    bcs @ahead                  ; too close to the end to fit a flush
     bra @serve                  ; room enough -- save the frame
 
 @picture:
-    jsr menutick
+    jsr waitahead
     bra @wait
-@late:
-    jsr menutick
+@ahead:
+    jsr waitahead
 @inside:                        ; wait out the rest of this vblank...
     lda a:HVBJOY
     bmi @inside
@@ -1339,11 +1343,13 @@ hal_waitvbl:
 
     jsr hal_flush
     jsr aux_detect              ; once a frame, and the only place it happens
-    jsr framedue_e              ; the frame's music the caller's: marked played
-    ENTER16
-    inc a:h_frame
-    LEAVE16
-    ply
+    lda f:MENU_TICKON           ; in the menus, the frame served marked
+    beq :+                      ;   played, its caller's (framedue)
+    jsr framedue_e
+:   inc a:h_frame               ; eight bits and a carry, not sixteen: five
+    bne :+                      ;   cycles less than that took, more than the
+    inc a:h_frame + 1           ;   test above costs a game's frame
+:   ply
     plx
     pla
     plp
@@ -1392,6 +1398,7 @@ hal_vblaudio:
     ;  heavy and a lost one is visible stutter; a native screen has no such
     ;  excuse, and starting at the top every time is what makes "the whole of
     ;  vblank is yours" true.
+    jsr waitahead               ; the vblank coming its caller's
 @inside:
     lda a:HVBJOY
     bmi @inside
@@ -1399,7 +1406,6 @@ hal_vblaudio:
     lda a:HVBJOY
     bpl @wait
     lda a:RDNMI                 ; consume the latch, as the flush paths do
-    jsr framedue_e              ; the frame's music the caller's: marked played
     ENTER16
     inc a:h_frame
     LEAVE16
@@ -2999,10 +3005,31 @@ menutick:
     plp
     rts
 
-;;  framedue -- a frame begun whose music nobody has played?  For the ticks
-;;  that play it from inside long work: the menus' (menutick), the
-;;  randomizer's (rando_yield), the map edit screen's build (ows_audio), a
-;;  boss's thinking (tac_yield).
+;;  A frame wait's look before it spins: menutick (the menus' only), then
+;;  the next frame to begin -- the vblank the wait serves -- marked played,
+;;  its caller's, and the phase put past any line, so the first look after
+;;  that vblank counts it and finds it so however long the wait spun (a look
+;;  more than a frame after the last sees no vblank between).  Time the wait
+;;  would spend spinning, so a game's waits do it too, and the count is
+;;  right whenever the menus' ticks come on.  Emulation mode, everything
+;;  kept.
+waitahead:
+    jsr menutick
+    php
+    pha
+    lda f:h_vframe
+    inc a
+    sta f:h_vplayed
+    lda #$FF
+    sta f:h_vphase
+    sta f:h_vphase + 1
+    pla
+    plp
+    rts
+
+;;  framedue -- a frame begun whose music nobody has played?  For the menus'
+;;  ticks that play it from inside long work: the HAL's (menutick), the map
+;;  edit screen's build (ows_audio) and its checks (rando_yield).
 ;;
 ;;  Not RDNMI's to say, though they all asked it once.  Its latch clears when
 ;;  it is read and also when the vblank ends, which the harness did not model:
@@ -3015,8 +3042,12 @@ menutick:
 ;;  and PAL's 312 alike count in order, and the phase only goes down when a
 ;;  vblank has begun since the last look.  h_vframe counts those -- so long as
 ;;  something looks at least once a frame, which the ticking work does, and
-;;  every frame wait as it returns (hal_waitvbl, hal_vblaudio), marking its
-;;  frame played: its caller plays that frame's music.  A frame is due when
+;;  the frame waits, marking the frame they serve played -- their callers
+;;  play that frame's music -- before they spin (waitahead); hal_waitvbl
+;;  looks again after its flush in the menus, which can run near a frame
+;;  (a game's looks at nothing then: the dialogue box has no time to spare
+;;  after it).  A game's own ticks (the roll screen's, a boss's thinking)
+;;  ask RDNMI.  A frame is due when
 ;;  h_vframe has gone past h_vplayed; a look that finds it so marks it played
 ;;  and takes RDNMI's latch, so a wait inside the same vblank waits for the
 ;;  next and no frame plays twice.

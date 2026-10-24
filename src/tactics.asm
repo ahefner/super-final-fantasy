@@ -34,9 +34,9 @@
 ;  overkill from the normal tail (gentactics.py's tables).
 ;
 ;  Thinking takes some frames, and the game's own calls each frame drive the
-;  music: so the thinking yields -- whenever a frame has begun whose music
-;  nobody has played, it runs the battle's own frame of music (tac_yield),
-;  and the music plays on while the boss decides.
+;  music: so the thinking yields -- whenever RDNMI says a vblank has begun
+;  it runs the battle's own frame of music (tac_yield), and the music plays
+;  on while the boss decides.
 ;
 ;  Entered by JSL from bank $0C: tac_turn from Enemy_DoAi once its script is
 ;  known, tac_swing from EnemyAttackPlayer_Physical, tac_cast from
@@ -58,7 +58,7 @@
 .export tac_div, tac_divl, tac_mul, tac_f, tac_hits, tac_aim, tac_var
 .import BattleRNG_L, CallMusicPlay
 .import opt_isbossfar, opt_scaleatk, opt_spellbytefar
-.import hal_audioframe, hal_framedue
+.import hal_audioframe
 .import lut_MagicData, Enemy_DoMagicEffect, EnemyAttackPlayer_Physical
 
 CAP             = 64 * 256      ; 64 rounds: the most anything is worth
@@ -3493,12 +3493,14 @@ tac_sqrt:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  tac_yield -- a frame of music, if a frame has begun whose music nobody
-;;  has played
+;;  tac_yield -- a frame of music, if a vblank has begun since the last look
 ;;
-;;  The HAL's framedue says, from the V counter -- not RDNMI, whose latch is
-;;  gone by the end of the vblank, so a look between its lines missed the
-;;  frame.  If one has:
+;;  RDNMI latches at the top of every vblank and clears when read -- and
+;;  as the vblank ends, so a look between vblanks misses the frame, and the
+;;  music can lose one now and then while a boss thinks.  Kept so: the
+;;  HAL's framedue would tell every frame, but only by the game's frame
+;;  waits keeping count after their vblank, which the dialogue box has no
+;;  time for (2026-10-24; the menus' music uses it).  If one has:
 ;;  the battle's own frame of music -- BattleUpdateAudio's follow-up track,
 ;;  then CallMusicPlay, swapping back to this chunk -- and the HAL's frame of
 ;;  sound.  Nothing on screen moves while a boss thinks, so nothing else of
@@ -3511,8 +3513,8 @@ tac_yield:
     PHP
     SEP #$20
     .a8
-    JSL hal_framedue + HALFAR
-    BCS :+
+    LDA a:RDNMI
+    BMI :+
     PLP
     RTS
 :   REP #$30
