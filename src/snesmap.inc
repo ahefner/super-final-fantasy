@@ -105,6 +105,10 @@ NGF_PICK        = MENURAM+$13   ; the list's answer: a preset, or NGPICK_CUSTOM
 NGF_ACTIVE      = MENURAM+$14   ; nonzero: the flow ran, so NGF_OWEDITS are New Game's
 NGF_SEED        = MENURAM+$15   ; 4 bytes: New Game's seed, low byte first, as RANDO_SEED
 NGF_TYPED       = MENURAM+$19   ; nonzero: typed on the seed screen, not latched
+;  The menus' music through their bulk work (menu_tick, optmenu.asm): set by
+;  the title as it opens a screen, cleared as it leaves for a game.
+MENU_TICKON     = MENURAM+$1A   ; nonzero: the HAL's bulk calls play a frame of music
+MENU_KEEPMUSIC  = MENURAM+$1B   ; nonzero: the title's rebuild leaves its music playing
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 

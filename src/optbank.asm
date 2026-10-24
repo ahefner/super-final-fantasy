@@ -86,7 +86,7 @@
 .import lut_CantHoldWhat
 .import lut_YouFound
 .export opt_drawpresetbox, opt_drawpresetname, opt_titlecursor
-.export opt_titleupdown, opt_titleleftright, opt_titlechoose, opt_savevalid
+.export opt_titleupdown, opt_titleleftright, opt_titlechoose, opt_savevalid, opt_titlemusic
 .export opt_savevalidfar
 .import opt_settings, opt_saveview, credits_screen, VerifyChecksum
 .import ng_flow
@@ -768,6 +768,7 @@ opt_titlechoose:
     ;  it -- and New Game's party is made in its flow now, so through that.
     JSR opt_savevalid
     BCS @newgame
+    JSR opt_titleleave
     CLC                         ; Continue: C clear...
     LDA #$01                    ; ...and Z and N clear
     RTL
@@ -778,6 +779,7 @@ opt_titlechoose:
     JSL ng_flow + NEWGAMEFAR
     CMP #NGNAV_BACK
     BEQ @shown
+    JSR opt_titleleave
     SEC                         ; C: New Game...
     LDA #$01                    ; ...and Z and N clear
     RTL
@@ -790,6 +792,10 @@ opt_titlechoose:
   @credits:
     JSL credits_screen + CREDITSFAR
   @shown:
+    ;  Every screen of the title's leaves its music playing, so the rebuild
+    ;  need not start it again (opt_titlemusic).
+    LDA #1
+    STA f:MENU_KEEPMUSIC
     LDA #$00                    ; Z set
     RTL
 
@@ -803,8 +809,42 @@ opt_titlechoose:
 opt_titlechirp:
     PHA
     CALL0E PlaySFX_MenuSel
+    ;  ...and from here the menus' bulk work plays the music through it (the
+    ;  HAL's menutick), until the title leaves for a game.
+    LDA #1
+    STA f:MENU_TICKON
     PLA
     RTS
+
+;;  The title leaving for a game: the HAL's bulk work is the game's again,
+;;  with no music played through it.  A kept.
+opt_titleleave:
+    PHA
+    LDA #0
+    STA f:MENU_TICKON
+    PLA
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_titlemusic -- IntroTitlePrepare's "start up the crystal theme",
+;;  which the title's rebuild after one of its screens ran too, starting the
+;;  music over though it was still playing (user, 2026-10-23).  Every screen
+;;  of the title's keeps it playing, so after one (MENU_KEEPMUSIC, set as
+;;  opt_titlechoose returns to rebuild) it is left alone; the intro's and
+;;  the title's first entry start it as ever.  From the patched
+;;  IntroTitlePrepare, by JSL, in place of its LDA #$41 / STA music_track.
+;;  A not kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+TITLEMUSIC = $41
+opt_titlemusic:
+    LDA f:MENU_KEEPMUSIC
+    BNE @keep
+    LDA #TITLEMUSIC
+    STA music_track
+  @keep:
+    LDA #0
+    STA f:MENU_KEEPMUSIC
+    RTL
 
 ;;  opt_savevalid from another chunk, by JSL (owscreen.asm), emulation mode.
 opt_savevalidfar:

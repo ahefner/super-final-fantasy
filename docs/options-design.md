@@ -2248,6 +2248,54 @@ covered part of it.  Nothing built is waiting on a playtest.
     chirp from entry to its first pad read and one for the press that
     leaves it, and the title for one before the screen it opens and none
     for Continue.  Seven mutations, all caught.
+  - **The title's music plays through the menus' builds** (user,
+    2026-10-23: "the music stalls between most of these screen
+    transitions"; built, not yet played).  A screen builds with the screen
+    off, and nothing called the music driver until its first frame wait:
+    some three frames into the settings engine's screens (the clear, the
+    blue fill, the description box), ten into the seed screen (its
+    nametable, through the slow path a byte at a time), seven into party
+    creation (the game's own CHR loads and clears).  Now the HAL's bulk
+    calls -- `hal_chrload`, `hal_ntfill`, `hal_clearnt` at its entry and
+    its end -- ask, at their entry, `menutick`: with `MENU_TICKON` set and
+    a vblank begun since `RDNMI` was last read, `menu_tick` (`optmenu.asm`)
+    plays the frame's music and the HAL's audio frame, as the map edit
+    screen's checks tick theirs (`ows_tick`).  It keeps everything the
+    interrupted code holds: the registers, the data bank, `cur_bank`, and
+    all of `tmp`, which the music driver works in (`mu_scoreptr` is
+    `tmp+8`) and `hal_chrload` takes its source from.  Taking the vblank's
+    latch, it makes a frame wait inside that vblank wait for the next, so
+    no frame plays twice.  With the flag on a long `hal_chrload` goes two
+    rows at a time with a chance between (`CHRLOAD_TICKROWS`); with it off,
+    whole as ever.  The flag is the title's: `opt_titlechirp` sets it as a
+    row opens a screen, `opt_titleleave` clears it as the title leaves for
+    a game, so a game's own loads, and the soft reset's path, are as they
+    were; a reset zeroes `MENURAM`.  The seed screen's nametable now goes a
+    row at a time through `hal_ntblit`'s fast path, a chance every fourth
+    row, and its attributes 8 at a time -- and the screen is up in some
+    seven frames' work rather than twelve (86,000 instructions, from
+    147,000).  Measured as the harness can, in
+    instructions (~12,000 a frame): the longest stretch without a chance at
+    the music is now about half a frame on the settings engine's screens
+    and the title's rebuild, under three quarters on the seed screen and
+    party creation.
+  - **Back on the title, its music plays on** rather than starting over
+    (user, 2026-10-23).  The title rebuilds after each of its screens
+    through `IntroTitlePrepare`, whose `LDA #$41 / STA music_track` started
+    the title's track again; its four bytes are a JSL to `opt_titlemusic`
+    now (`patches/bank_0E/opttitlemusic.patch`), which leaves the track
+    alone when `opt_titlechoose` marked the rebuild (`MENU_KEEPMUSIC`, set
+    as it returns to rebuild -- every screen of the title's keeps the
+    title's music) and starts it otherwise, the intro's and the title's
+    first entry as ever.  `test_menumusic`: the hook on and off and
+    without a vblank, everything kept; a long load in pieces, byte for
+    byte a whole one's, from a first row's middle; `hal_clearnt` a chance
+    at both ends; every menu screen's longest stretch; the title's flags;
+    the music left playing on a rebuild and started otherwise.  Fifteen
+    mutations: fourteen caught, and the fifteenth showed the pieces' reset
+    of Y redundant -- each piece leaves it zero -- so it went.  A reset
+    zeroes the flags with `MENURAM`, and leaving for a game is two stores,
+    so the soft reset's way to Continue gains nothing.
   - **The Credits row and the credits screen.**  The title screen has four
     rows: Continue and New Game moved up four (`optcredits_continue.patch`,
     `optcredits_newgame.patch`) so the mode box sits at row 16, Credits at 20

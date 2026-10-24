@@ -1,0 +1,9 @@
+--- OLD
+    LDA #$41
+    STA music_track        ; Start up the crystal theme music
+--- NEW
+    ;  Start up the crystal theme music -- unless it is playing already,
+    ;  the title rebuilding after one of its screens (opt_titlemusic).  The
+    ;  four bytes the LDA and STA took.
+.import opt_titlemusic
+    JSL opt_titlemusic + OPTFAR

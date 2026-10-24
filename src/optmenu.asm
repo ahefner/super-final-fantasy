@@ -25,6 +25,8 @@
 .export opt_settings, opt_saveview, opt_newgamelist, opt_randoscreen, opt_needseed
 ;  The seed screen's (seedscreen.asm), this engine's too.
 .export opt_menu_breathe, opt_waitrelease
+.export menu_tick               ; the HAL's (hal.asm's menutick)
+.import hal_audioframe
 .export opt_menu_drawall        ; for tools/test_options.py
 ;  Reached by tools/test_options.py.
 .export opt_sfx_move, opt_sfx_sel, opt_value_adjust, opt_menu_desc
@@ -1074,6 +1076,49 @@ opt_menu_cursor:
   @x:
     STA spr_x
     JMP DrawCursor
+
+
+;;  menu_tick -- a frame of the music from inside the HAL's bulk work, for
+;;  the HAL's menutick, which has seen MENU_TICKON set and a vblank begun:
+;;  the music driver's frame and the HAL's audio frame, as ows_tick plays
+;;  them in the map edit screen's checks.  The driver's working bytes are
+;;  tmp's -- tmp itself, and mu_scoreptr at tmp+8 -- which the interrupted
+;;  code is using (hal_chrload's source is at tmp), so all sixteen are kept;
+;;  and cur_bank names this chunk for CallMusicPlay's way back, and is put
+;;  back.  By JSL, emulation mode; everything kept.
+menu_tick:
+    PHP
+    PHA
+    PHX
+    PHY
+    PHB
+    PHK
+    PLB
+    LDX #$0F
+  : LDA tmp, X
+    PHA
+    DEX
+    BPL :-
+    LDA cur_bank
+    PHA
+    LDA #CHUNK_OPTMENU
+    STA cur_bank
+    JSR CallMusicPlay
+    JSL hal_audioframe + HALFAR
+    PLA
+    STA cur_bank
+    LDX #$00
+  : PLA
+    STA tmp, X
+    INX
+    CPX #$10
+    BCC :-
+    PLB
+    PLY
+    PLX
+    PLA
+    PLP
+    RTL
 
 
 ;;  The two menu chirps.

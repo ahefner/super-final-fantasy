@@ -6455,6 +6455,176 @@ def test_chirps():
            "Select on Continue": ([1], 1), "Continue with no save (a New Game)": ([1], 1),
            "Select with no save": ([], 0)})
 
+def test_menumusic():
+    """The title's music through the menus' builds (user, 2026-10-23: "the
+    music stalls between most of these screen transitions").  The HAL's
+    bulk calls -- hal_chrload, hal_ntfill, hal_clearnt -- play a frame of
+    music at their entry when MENU_TICKON is set and a vblank has begun
+    (menu_tick), keeping everything the interrupted code holds; a long
+    CHR load goes in ticking pieces; with the flag clear nothing changes.
+    Every screen of the menus then builds with no stretch near a frame
+    without a chance at the music.  And the title's rebuild leaves its music
+    playing rather than starting it over."""
+    MUSIC, AUDIO, TICK = SYM["CallMusicPlay"], SYM["hal_audioframe"], SYM["hal_menutick"] + 4
+    WAIT, UJ = SYM["hal_waitvbl"], SYM["UpdateJoy"]
+    TICKON, KEEP = K["MENU_TICKON"] - 0x7E0000, K["MENU_KEEPMUSIC"] - 0x7E0000
+    TMP = K["tmp"]
+
+    def counting(cpu):
+        seen = {"music": 0, "audio": 0}
+        step = cpu.step
+        def spy():
+            if cpu.pc == MUSIC:
+                seen["music"] += 1
+            elif cpu.pbr == 0xC0 and cpu.pc == AUDIO:
+                seen["audio"] += 1
+            step()
+        cpu.step = spy
+        return seen
+
+    def ntfill(on, nmi):
+        """hal_ntfill of a run, the flag and RDNMI as given, tmp and the
+        registers full of decoys: the music frames played, and whether
+        everything the caller holds came back as it was."""
+        bus, cpu = machine()
+        bus.wram[TICKON] = on
+        bus.io[K["RDNMI"]] = 0x80 if nmi else 0
+        bus.wram[TMP:TMP + 16] = bytes(range(0xA0, 0xB0))
+        bus.wram[K["music_track"]] = 0x41      # a track to start: the driver's work is in tmp
+        bus.wram[K["cur_bank"]] = 0x0E
+        bus.wram[K["h_addr"]], bus.wram[K["h_addr"] + 1] = 0x42, 0x21
+        seen = counting(cpu)
+        cpu.a, cpu.x, cpu.y, cpu.dbr = 0x5D, 7, 0x33, OPTMENU_BANK
+        p = cpu.p
+        cpu.run(0xC0, SYM["hal_ntfill"], limit=2_000_000)
+        nt = K["NESNT"] - 0x7E0000
+        kept = (bytes(bus.wram[TMP:TMP + 16]) == bytes(range(0xA0, 0xB0)), cpu.a & 0xFF, cpu.y & 0xFF,
+                cpu.dbr, bus.wram[K["cur_bank"]], bytes(bus.wram[nt + 0x142:nt + 0x149]))
+        return seen["music"], seen["audio"], kept
+    want_kept = (True, 0x5D, 0x33, OPTMENU_BANK, 0x0E, bytes([0x5D] * 7))
+    check("a bulk call with the menus' ticks on and a vblank begun: a frame of the music and of the "
+          "audio, the caller's tmp, registers, data bank, cur_bank and its run kept",
+          ntfill(1, True), (1, 1, want_kept))
+    check("...with no vblank begun since: none", ntfill(1, False)[:2], (0, 0))
+    check("...with the ticks off, as a game's calls are: none", ntfill(0, True), (0, 0, want_kept))
+
+    #  hal_clearnt is a chance at its end as well as its entry: what follows
+    #  it is the caller's, a clear and a run of boxes after (party creation's,
+    #  the title's).  The harness's RDNMI says a vblank has begun at both.
+    def clearnt():
+        bus, cpu = machine()
+        bus.wram[TICKON] = 1
+        bus.io[K["RDNMI"]] = 0x80
+        seen = counting(cpu)
+        cpu.run(0xC0, SYM["hal_clearnt"], limit=2_000_000)
+        return seen["music"]
+    check("hal_clearnt: a chance at the music at its entry and at its end", clearnt(), 2)
+
+    #  A long CHR load with the ticks on goes in pieces, a tick's chance
+    #  between: the same tiles, tmp+1 on by the rows and X and Y zero after,
+    #  as one call leaves them -- from the first row's middle, as a caller's
+    #  Y may start it.
+    def chrload(on):
+        bus, cpu = machine()
+        bus.wram[TICKON] = on
+        bus.io[K["RDNMI"]] = 0x80
+        src = 0x2800                    # free WRAM, nothing of the HAL's
+        bus.wram[src:src + 0x800] = bytes((7 * i + 3) & 0xFF for i in range(0x800))
+        bus.wram[TMP], bus.wram[TMP + 1] = src & 0xFF, src >> 8
+        bus.wram[K["h_addr"]], bus.wram[K["h_addr"] + 1] = 0x00, 0x08
+        seen = counting(cpu)
+        cpu.x, cpu.y, cpu.dbr = 8, 0x80, 0x7E
+        cpu.run(0xC0, SYM["hal_chrload"], limit=5_000_000)
+        sh = K["CHRSHADOW"] - 0x7E0000 + 0x80 * 32
+        return (seen["music"], bytes(bus.wram[sh:sh + 128 * 32]), bus.wram[TMP + 1], cpu.x & 0xFF, cpu.y & 0xFF)
+    whole, pieces = chrload(0), chrload(1)
+    check("a long CHR load, the ticks on: in pieces, a tick between, the tiles as a whole load's, "
+          "tmp+1 on by the rows, X and Y zero",
+          (pieces[0] > 1, pieces[1:] == whole[1:], whole[0], whole[2:]), (True, True, 0, (0x28 + 8, 0, 0)))
+
+    #  Each menu screen's build, the ticks on as the title sets them: the
+    #  longest stretch outside a music call, a frame wait or a tick's chance,
+    #  well under a frame's ~12,000 instructions.  (The harness keeps no
+    #  time; instructions are its measure.)
+    def stretch(bank, entry, setup=None):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        in_vblank(bus)
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["LoadMenuCHRPal"], limit=20_000_000)
+        cpu.dbr = 0xA7
+        bus.wram[TICKON] = 1
+        if setup:
+            setup(bus, cpu)
+        last, worst, n, inside = [0], [0], [0], [None]
+        step = cpu.step
+        def spy():
+            if inside[0] is not None:
+                if cpu.s > inside[0]:
+                    inside[0], last[0] = None, n[0]
+                step()
+                return
+            n[0] += 1
+            if cpu.pc == MUSIC or (cpu.pbr == 0xC0 and cpu.pc in (WAIT, TICK)):
+                worst[0] = max(worst[0], n[0] - last[0])
+                last[0], inside[0] = n[0], cpu.s
+            step()
+        cpu.step = spy
+        bus.io[0x4218] = bus.io[0x4219] = 0
+        cpu.run(bank, SYM[entry], stop=UJ, limit=200_000_000)
+        return max(worst[0], n[0] - last[0])
+    def party(bus, cpu):
+        bus.wram[K["OPTCALLV"]] = SYM["NewGamePartyUI"] & 0xFF
+        bus.wram[K["OPTCALLV"] + 1] = SYM["NewGamePartyUI"] >> 8
+        bus.wram[K["cur_bank"]] = 0x0E
+        cpu.dbr = BANK_0E
+    screens = {"the New Game list": (OPTMENU_BANK, "opt_newgamelist", None),
+               "the randomization screen": (OPTMENU_BANK, "opt_randoscreen", None),
+               "the options": (OPTMENU_BANK, "opt_settings", None),
+               "the seed screen": (OPTMENU_BANK, "seed_choose", None),
+               "party creation": (BANK_0E, "OptCallFar", party),
+               "the title's rebuild": (BANK_0E, "EnterTitleScreen", None)}
+    long_ = {k: stretch(*v) for k, v in screens.items()}
+    check("each menu screen's build: no stretch of 10,000 instructions without a chance at the music",
+          {k: v for k, v in long_.items() if v > 10000}, {})
+
+    #  The title: its screens' presses turn the ticks on, leaving for a game
+    #  turns them off, and coming back to rebuild keeps its music playing.
+    stubbed = bytearray(ROMDATA)
+    for name, bank in (("opt_settings", OPTMENU_BANK), ("ng_flow", 0xA1 + K["CHUNK_NEWGAME"])):
+        at = (bank & 0x1F) * 0x10000 + SYM[name]
+        stubbed[at:at + 3] = bytes([0xA9, K["NGNAV_BACK"] if name == "opt_settings" else 0x77, 0x6B])
+    def title(cur, back_from_flow=True):
+        bus, cpu = machine()
+        bus.rom = stubbed
+        at = (0xA1 + K["CHUNK_NEWGAME"] & 0x1F) * 0x10000 + SYM["ng_flow"]
+        stubbed[at + 1] = K["NGNAV_BACK"] if back_from_flow else K["NGNAV_FORWARD"]
+        bus.wram[K["cursor"]], bus.wram[K["joy_a"]] = cur, 1
+        bus.wram[KEEP] = 0
+        cpu.dbr = BANK_0E
+        cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
+        return bus.wram[TICKON], bus.wram[KEEP]
+    check("the title: a screen opened turns the ticks on, and its rebuild keeps the music",
+          (title(2), title(1, back_from_flow=True)), ((1, 1), (1, 1)))
+    check("...New Game through its screens, for a game: the ticks off", title(1, back_from_flow=False), (0, 0))
+    #  IntroTitlePrepare's LDA #$41 / STA music_track is a JSL to
+    #  opt_titlemusic now, its four bytes; run from there to past it.
+    img0e = bytes(ROMDATA[(BANK_0E & 0x1F) * 0x10000 + 0x8000:][:0x4000])
+    t = SYM["opt_titlemusic"]
+    jsl = bytes([0x22, t & 0xFF, t >> 8, CHUNK_OPT_BANK])
+    site = 0x8000 + img0e.find(jsl)
+    check("IntroTitlePrepare's music start is opt_titlemusic's, once, the old store gone",
+          (img0e.count(jsl), img0e.count(bytes([0xA9, 0x41, 0x85, K["music_track"]]))), (1, 0))
+    def intro_title(keep):
+        bus, cpu = machine()
+        bus.wram[KEEP] = keep
+        bus.wram[K["music_track"]] = 0x80
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, site, stop=site + 4, limit=200_000)
+        return bus.wram[K["music_track"]], bus.wram[KEEP]
+    check("...the title's track started as ever -- or, rebuilding after a screen, left playing, the "
+          "mark used up", (intro_title(0), intro_title(1)), ((0x41, 0), (0x80, 0)))
+
 def test_ngparty():
     """Party creation as New Game's last screen (menus.txt): bank $0E's
     NewGamePartyUI, which the flow calls through OptCallFar -- B on the
@@ -14013,7 +14183,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_chirps, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

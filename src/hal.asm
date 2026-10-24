@@ -36,6 +36,8 @@
 .export hal_w2005, hal_w2006, hal_w2007, hal_r2007
 .export aux_edge, aux_capture
 .export hal_wipewindow, hal_chrload, hal_drawattr
+.export hal_menutick
+.import menu_tick               ; optmenu.asm's
 .export hal_theendclear, hal_theendplot, hal_theendand
 .export hal_ntblit
 .export hal_oamdma, hal_joystrobe, hal_joyread, hal_r4015
@@ -1266,7 +1268,10 @@ hal_waitvbl:
     ;  left of it.  Two things have to be true, and both are cheap to ask:
     ;
     ;    RDNMI bit 7 latches "a vblank has begun" and clears on read, and the
-    ;    two serving paths below are its only readers.  Set means this is a
+    ;    two serving paths below are its readers -- with the ticks that play a
+    ;    frame of music in the middle of long work (rando_yield's, and
+    ;    menutick's below), which take the vblank as theirs: a wait inside it
+    ;    then waits for the next, so no frame plays two.  Set means this is a
     ;    vblank nothing has flushed into yet.  Clear means we already served it
     ;    and the game has come round again inside the same one, which must wait
     ;    -- otherwise a fast pass would run twice in one frame.
@@ -2946,9 +2951,70 @@ hal_drawattr:
 ;;  a nametable through it.  So the destination decides which path is taken --
 ;;  getting that wrong scrambles nametable data into the pattern shadow, which
 ;;  is exactly what a first version of this did.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  A frame of the menus' music from inside their bulk work
+;;
+;;  The title's screens and New Game's -- and party creation and the title's
+;;  own rebuild, which are the game's code -- build with the screen off for
+;;  several frames at a time, a CHR load, a clear, a fill, a row of boxes
+;;  after another, and nothing calls the music driver until the first frame
+;;  wait: the music stalled between them (user, 2026-10-23).  So the entries
+;;  of hal_chrload, hal_ntfill and hal_clearnt, each well under a frame of
+;;  work, ask: with MENU_TICKON set, and a vblank begun since RDNMI was last
+;;  read, menu_tick (optmenu.asm) plays the frame's music.  The flag is the
+;;  title's, set as it opens a screen and cleared as it leaves for a game, so
+;;  a game's own loads -- and the soft reset's path -- are as they were.
+;;  hal_menutick is the same ask for code of ours with long work between
+;;  calls (the seed screen's).  Emulation mode, everything kept.
+CHRLOAD_TICKROWS = 2            ; a menus' load's piece: 512 bytes, some 3,000
+                                ;   instructions of CHR
+hal_menutick:
+    jsr menutick
+    rtl
+menutick:
+    php
+    pha
+    lda f:MENU_TICKON
+    beq @out
+    lda f:RDNMI                 ; read, the vblank is this tick's
+    bpl @out
+    jsl menu_tick + OPTMENUFAR
+@out:
+    pla
+    plp
+    rts
+
 .a8
 .i8
 hal_chrload:
+    jsr menutick
+    ;  The menus' long loads -- party creation's eight rows at a time among
+    ;  them, about a frame each -- go CHRLOAD_TICKROWS at a time with the
+    ;  music's chance between; a game's, with MENU_TICKON clear, whole as
+    ;  ever.  Each piece is a call as the whole was: Y the first row's start,
+    ;  then the 0 each piece leaves it; tmp+1 and the PPU address carried on
+    ;  by the piece before.
+    pha
+    lda f:MENU_TICKON
+    beq @whole
+    cpx #CHRLOAD_TICKROWS + 1
+    bcc @whole
+    pla
+@piece:
+    phx
+    ldx #CHRLOAD_TICKROWS
+    jsl hal_chrload_run
+    jsr menutick
+    pla
+    sec
+    sbc #CHRLOAD_TICKROWS
+    tax
+    cpx #CHRLOAD_TICKROWS + 1
+    bcs @piece
+    bra hal_chrload_run         ; the rest, returning to the caller
+@whole:
+    pla
+hal_chrload_run:
     php
     ENTER16
     txa
@@ -4197,6 +4263,7 @@ hal_ntblit:
 .a8
 .i8
 hal_ntfill:
+    jsr menutick
     php
     pha
     phx
@@ -4342,6 +4409,7 @@ hal_ntfill:
 .a8
 .i8
 hal_clearnt:
+    jsr menutick
     php
     ENTER16
     ;  the raw NES bytes, kept for readback and for attribute conversion
@@ -4401,7 +4469,8 @@ hal_clearnt:
     lda #$2400                  ; $2000 plus the $400 bytes written
     sta a:h_addr
     LEAVE16
-    plp
+    jsr menutick                ; ...and its end, the clear done: what comes
+    plp                         ;   next is the caller's
     rtl
 
 ;;  A write to a pulse or triangle high-timer register, pushed to the SPC700

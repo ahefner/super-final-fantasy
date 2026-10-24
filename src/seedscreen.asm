@@ -43,7 +43,7 @@
 .import opt_menu_breathe
 .import opt_sfx_move, opt_sfx_sel, opt_waitrelease
 .import DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L, DrawPalette_L
-.import hal_chrload
+.import hal_chrload, hal_menutick
 .import data_BridgeCHR          ; bank $0B's
 
 .segment "BANK_OPTMENU"
@@ -331,15 +331,7 @@ seed_build:
     LDY #>(SEEDART_BASE * 16)
     LDX #SEEDART_ROWS
     JSR seed_load               ; the screen's tiles, over the font's
-    PHK
-    PLA
-    LDX #<lut_SeedNT
-    STX tmp
-    LDX #>lut_SeedNT
-    STX tmp + 1
-    LDY #$20
-    LDX #4
-    JSR seed_load               ; the nametable and its attributes, to $2000
+    JSR seed_loadnt             ; the nametable and its attributes, to $2000
     LDA #1
     JSR seed_hand               ; the hand without its shadow
     LDX #15
@@ -347,7 +339,12 @@ seed_build:
     STA cur_pal, X
     DEX
     BPL :-
-    JMP DrawPalette_L
+    ;  The hand and the palette go a byte at a time, and the read-out after
+    ;  them: a chance for the music between each.
+    JSL hal_menutick + HALFAR
+    JSR DrawPalette_L
+    JSL hal_menutick + HALFAR
+    RTS
 
 ;;  ...and back: the menu font, as LoadMenuCHR loads it, the hand whole, and
 ;;  the palette.
@@ -363,7 +360,10 @@ seed_restore:
     STA cur_pal, X
     DEX
     BPL :-
-    JMP DrawPalette_L
+    JSL hal_menutick + HALFAR
+    JSR DrawPalette_L
+    JSL hal_menutick + HALFAR
+    RTS
 
 ;;  The hand's tiles, from where the game loads them -- without its shadow
 ;;  if A is nonzero (user, 2026-10-22: the hand stands over the pieces here,
@@ -395,6 +395,84 @@ seed_hand:
     CPX #64
     BCC @byte
     RTS
+
+;;  The nametable, in pieces each well under a frame, the menus' music
+;;  ticking between them (the HAL's menutick, hal_menutick) -- in one piece
+;;  the load ran some nine frames without it (user, 2026-10-23: "the music
+;;  stalls").  Its thirty rows of tiles through hal_ntblit, a row's run
+;;  staged in NTSTAGE, a tick's chance every fourth row; its attributes --
+;;  each of which repaints sixteen tilemap words -- through hal_chrload, 8
+;;  at a time, which ticks at its entry.  hal_chrload reads from (tmp)+Y to
+;;  the end of the page, so 8 is Y = 248 with tmp the piece's start less
+;;  248.  DBR this chunk.
+seed_loadnt:
+    LDA #0
+    STA tmp + 4                 ; the row
+  @row:
+    LDA tmp + 4
+    AND #3
+    BNE :+
+    JSL hal_menutick + HALFAR
+:   LDA tmp + 4
+    LDX #0
+    JSR seed_ppu
+    LDA tmp + 4                 ; the row's 32 bytes of lut_SeedNT
+    STA tmp
+    LDA #0
+    STA tmp + 1
+    LDX #5
+  : ASL tmp
+    ROL tmp + 1
+    DEX
+    BNE :-
+    LDA tmp
+    CLC
+    ADC #<lut_SeedNT
+    STA tmp
+    LDA tmp + 1
+    ADC #>lut_SeedNT
+    STA tmp + 1
+    LDY #0
+    TYX
+  : LDA (tmp), Y
+    STA f:NTSTAGE, X
+    INX
+    INY
+    CPY #32
+    BCC :-
+    JSL hal_ntblit + HALFAR     ; X is the count
+    INC tmp + 4
+    LDA tmp + 4
+    CMP #30
+    BCC @row
+
+    LDA #0
+  @attr:
+    STA tmp + 4                 ; the attribute byte, 0-56 by 8
+    bPPUSTATUS
+    LDA #>$23C0
+    wPPUADDR
+    LDA tmp + 4
+    CLC
+    ADC #<$23C0
+    wPPUADDR
+    LDA tmp + 4
+    CLC
+    ADC #<(lut_SeedNT + $3C0 - 248)
+    STA tmp
+    LDA #>(lut_SeedNT + $3C0 - 248)
+    ADC #0
+    STA tmp + 1
+    LDY #248
+    LDX #1
+    JSL hal_chrload + HALFAR
+    LDA tmp + 4
+    CLC
+    ADC #8
+    CMP #64
+    BCC @attr
+    RTS
+
 
 ;;  Eight rows of 256 bytes from bank A, page X, to PPU page Y.
 seed_load8:
