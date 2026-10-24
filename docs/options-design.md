@@ -667,8 +667,8 @@ tail bytes are unspent again.
 ### Menu cursors move on a new press -- not a flag
 
 **Decision (user, 2026-10-24): unconditional, every menu cursor in the game
-that moves on both axes.**  The report: in the Magic or Status menu's 2x2 of characters, a quick
-Down then Right landed somewhere unexpected -- a bug of the original, and
+that moves on both axes.**  The report: in the Magic or Status menu's 2x2
+of characters, a quick Down then Right landed somewhere unexpected -- a bug of the original, and
 FFR's.  Every one of the game's menu cursors moved on *any change* of the
 directions held and took the whole set held as the press: roll from Down
 onto Right and Down+Right read as Down again (the 2x2 tests "up or down in
@@ -684,15 +684,21 @@ and the respond rate), the item menu, the Magic/Status target, the magic
 menu and the equip menu -- are each `LDA #$0F / JSL opt_dpadnew / BEQ` and
 six NOPs in the fourteen bytes the old test took
 (`patches/bank_0E/dpadnew_*.patch`, generated from the source, so each
-matches its routine exactly); `opt_dpadnew` (`optbank.asm`) answers the
-directions held now and not last time, keeping `joy_prevdir` as the game
-kept it.  Each routine's dispatch reads that as it read the held set, so a
-single press moves as ever.  Two directions newly pressed on the very same
-frame still move one axis, as before -- the 2x2's diagonal comes from the
-rolled presses a quick thumb makes.  The settings engine, the seed screen
+matches its routine exactly); `opt_dpadnew` (`optbank.asm`) answers a
+direction held now and not last time, keeping `joy_prevdir` as the game
+kept it.  Each routine reads a single direction right, so a single press
+moves as ever -- and two at once each wrongly in its own way: name entry took
+anything with Up or Down in it but Up alone for Down, so Up+Right moved the
+cursor *down* (the user's further find, on party creation's naming screen,
+2026-10-24), and the item menu took Down+Right for Up.  So the helper hands
+over one direction a frame, the lowest bit, leaving any other pressed in the
+same frame out of `joy_prevdir` to come the next: Down and Right together
+are right, then down, the diagonal.  The settings engine, the seed screen
 and the map edit screen already counted presses so.  `test_dpadnew`: the
-helper over every mask, pad and last pad; the 2x2 rolled both ways, held,
-and round the square; no two-axis test left in the bank, seven calls.
+helper over every mask, pad and last pad; the 2x2 rolled both ways,
+pressed together, held, and round the square; name entry with Up and Right
+together, frame by frame through party creation (right, then up -- the
+last build moved it down); no two-axis test left in the bank, seven calls.
 Mutations caught: the 2x2's patch undone (it reproduces the report), and
 the helper answering the held or not keeping them.
 

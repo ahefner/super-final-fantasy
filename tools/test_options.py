@@ -6933,11 +6933,12 @@ def test_dpadnew():
                 cpu.a, cpu.x, cpu.y = mask, 0x5A, 0xC3
                 cpu.run(CHUNK_OPT_BANK, SYM["opt_dpadnew"], limit=1000)
                 new = joy & mask & ~prev
+                one = new & -new
                 got = (cpu.a & 0xFF, bus.wram[PREV], cpu.x & 0xFF, cpu.y & 0xFF, bool(cpu.p & 0x02))
-                if got != (new, joy & mask, 0x5A, 0xC3, new == 0):
+                if got != (one, (prev & joy & mask) | one, 0x5A, 0xC3, one == 0):
                     bad.append((mask, joy, prev, got))
-    check("opt_dpadnew: the directions newly pressed within the mask, the held kept, X and Y kept, Z",
-          bad[:4], [])
+    check("opt_dpadnew: one direction newly pressed within the mask, any other left new for the next "
+          "frame, the held kept, X and Y kept, Z", bad[:4], [])
 
     R, L, D, U = 0x01, 0x02, 0x04, 0x08
     def run(routine, start, pads, cursor_max=None):
@@ -6959,8 +6960,49 @@ def test_dpadnew():
           run("MoveMainMenuSubCursor", 0, [D, D | R, R, 0]), [2, 3, 3, 3])
     check("...Right rolled onto Down", run("MoveMainMenuSubCursor", 0, [R, R | D, D, 0]), [1, 3, 3, 3])
     check("...held, or let go, nothing", run("MoveMainMenuSubCursor", 3, [U, U, U, 0, 0]), [1, 1, 1, 1, 1])
+    #  Pressed together, Down and Right come a frame apart: still the
+    #  diagonal (name entry read Up+Right as Down, the item menu Down+Right
+    #  as Up -- every routine reads one direction right and two wrong).
+    check("...Down and Right on the same frame: right, then down, the diagonal",
+          run("MoveMainMenuSubCursor", 0, [D | R, D | R, D | R, 0]), [1, 3, 3, 3])
     check("...each press once, round the square",
           run("MoveMainMenuSubCursor", 0, [R, 0, D, 0, L, 0, U, 0]), [1, 1, 3, 3, 2, 2, 0, 0])
+
+    #  Name entry, as the user found it on party creation: Up and Right
+    #  pressed together moved the cursor down (Up+Right is not exactly Up,
+    #  and anything else with Up or Down in it was Down).  Now right, then
+    #  up -- a frame apart -- and nothing on letting go.
+    UJ, A_ = SYM["UpdateJoy"], 0x80
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    def frame(bus, cpu, nes):
+        pad(bus, nes)
+        cpu.step()
+        for _ in range(5_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return
+            cpu.step()
+        raise RuntimeError("a frame ran away")
+    bus, cpu = machine()
+    in_vblank(bus)
+    V = K["OPTCALLV"]
+    bus.wram[V], bus.wram[V + 1] = SYM["NewGamePartyUI"] & 0xFF, SYM["NewGamePartyUI"] >> 8
+    bus.wram[K["cur_bank"]] = 0x0E
+    pad(bus, 0)
+    cpu.dbr = BANK_0E
+    cpu.run(BANK_0E, SYM["OptCallFar"], stop=UJ, limit=40_000_000)
+    for nes in (A_, 0, 0):              # A on the first character: name entry
+        frame(bus, cpu, nes)
+    NX, NY = K["namecurs_x"], K["namecurs_y"]
+    start = (bus.wram[NX], bus.wram[NY])
+    seen = []
+    for nes in (U | R, U | R, U | R, 0, 0):
+        frame(bus, cpu, nes)
+        seen.append((bus.wram[NX], bus.wram[NY]))
+    x0, y0 = start
+    check("name entry: Up and Right together, right then up, nothing on letting go",
+          seen, [((x0 + 1) % 10, y0)] + [((x0 + 1) % 10, (y0 - 1) % 7)] * 4)
 
     #  All seven of the game's two-axis tests ($0F, every direction) are gone
     #  from the bank, each a call; the one-axis lists keep theirs.

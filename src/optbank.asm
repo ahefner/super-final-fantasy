@@ -837,10 +837,15 @@ opt_titleleave:
 ;;  the original that FFR keeps).  Only where both axes move a cursor: a
 ;;  d-pad cannot hold Up and Down together, so the lists never meet it.
 ;;  Those seven open with this in place of their test (the dpadnew_*.patch
-;;  set in bank $0E): the
-;;  directions within the mask held now and not last time, joy_prevdir the
-;;  held as the game kept it.  In: A = the mask.  Out: A = those newly
-;;  pressed, Z and N from it.  By JSL, emulation mode; X and Y kept.
+;;  set in bank $0E): a
+;;  direction within the mask held now and not last time -- one, the
+;;  lowest bit: each routine reads a single direction right and two at once
+;;  wrong in its own way (name entry took Up+Right for Down, the item menu
+;;  Down+Right for Up; user, 2026-10-24), so two pressed in the same frame
+;;  come one a frame, the other left out of joy_prevdir to be new next time.
+;;  joy_prevdir otherwise the held, as the game kept it.  In: A = the mask.
+;;  Out: A = the direction, or 0; Z and N from it.  By JSL, emulation mode;
+;;  X and Y kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 opt_dpadnew:
     AND joy                     ; held, within the mask
@@ -849,11 +854,17 @@ opt_dpadnew:
     EOR #$FF
     AND 1, S                    ; ...and not held last time
     PHA
-    LDA 2, S
-    STA joy_prevdir             ; the held, as the menus keep it
+    EOR #$FF
+    INC A
+    AND 1, S                    ; the lowest of them alone
+    STA 1, S
+    LDA joy_prevdir
+    AND 2, S                    ; held then and still
+    ORA 1, S                    ;   and this one: any other new one stays new
+    STA joy_prevdir
     PLA
     STA 1, S
-    PLA                         ; the newly pressed, Z and N from it
+    PLA                         ; the direction, Z and N from it
     RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
