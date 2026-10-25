@@ -21,7 +21,7 @@
 .include "optcall.inc"
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
-.import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose, lut_OwEditsMode
+.import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose
 .import opt_needseed, seed_choose
 .import OptCallFar, NewGamePartyUI
 .export ngp_apply, ng_flow
@@ -170,9 +170,8 @@ lut_NgpBit:
 ;;  for New Game's (NGF_ACTIVE): the save's first page, where RANDO_OWEDITS
 ;;  is, is set afresh by New Game before then.  The screen starts from the
 ;;  edits last ticked in this pass; first, after a preset, from its file's
-;;  [map_edits] (ng_presetedits); after Custom Game, as it always has, from
-;;  the saved game's if Continue would load one with any, else the hidden
-;;  Map edits row's.
+;;  [map_edits] (ng_presetedits); after Custom Game from the saved game's,
+;;  if Continue would load one with any, else none.
 ;;
 ;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = NGNAV_FORWARD to
 ;;  start the game (party creation), NGNAV_BACK to go back to the title.
@@ -220,7 +219,9 @@ ng_flow:
     JSR ng_presetedits          ; a preset: its map edits, as given
     BRA @keep
   @custom:
-    JSR ng_rowedits             ; Custom Game: the saved game's, else the row's
+    LDA #0                      ; Custom Game: the saved game's, else none
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     LDA #OWS_CANBACK
     BRA @show
   @keep:
@@ -296,21 +297,6 @@ ng_settings:
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
-    RTS
-
-;;  RANDO_OWEDITS: the hidden Map edits row's mode as the flags it stands
-;;  for, as rando_newgame makes them (lut_OwEditsMode) -- Custom Game's.
-ng_rowedits:
-    LDA f:OPT_NGFAR + (OPT_NG_EARLY - OPT_NG)
-    AND #OWEDITS_FIELD
-    LSR A
-    LSR A
-    LSR A                       ; the mode, in words
-    TAX
-    LDA f:RANDOFAR + lut_OwEditsMode, X
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
-    LDA f:RANDOFAR + lut_OwEditsMode + 1, X
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     RTS
 
 ;;  RANDO_OWEDITS: a preset's map edits, its file's [map_edits] as

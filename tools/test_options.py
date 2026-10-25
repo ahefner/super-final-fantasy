@@ -773,9 +773,9 @@ def test_winnable():
     the FLOATER removed or not, Early flags and map edits -- winnable and not,
     both reasons among them.  The map edit screen will not take START on
     edits that cannot be won: it says why where the description goes, the
-    music going on through the check, and takes START once they can; and New
-    Game brings it up for that alone, the Map edits row Off, when the
-    settings as they are cannot be won."""
+    music going on through the check, and takes START once they can; and it
+    finds the settings as they are unwinnable with no edit ticked, a removed
+    FLOATER, refusing START with the game's error sound."""
     rows = [[0x00, 0, 0], [0x20, 0, 0], [0x23, 0, 0], [0x2C, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
     edits = [0, K["OWEDIT_SAFE"], 0x2000, 0x2001, 0x1341, 0x3FFF, 0x0402, 0x1000]
     jobs = [(ki, r, e, f) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits]
@@ -825,13 +825,12 @@ def test_winnable():
     bus.frames()
     bus.ppu()
     bus.dma = True
-    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
     UJ = SYM["UpdateJoy"]
     def pad(nes):
         bus.io[0x4218] = nes & 0x80
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
     pad(0)
-    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    mapscreen_up(bus, cpu, start=K["OWEDIT_OPENPROG"])
     WIN, TICK = SYM["rando_winnable"], SYM["ows_tick"]
     OWS = 0xA1 + K["CHUNK_OWS"]
     V, TICKON = rw("OWS_VARS"), rw("OWS_TICKON")
@@ -893,9 +892,8 @@ def test_winnable():
     #  ticks off, so nothing after -- placement, the cache -- calls ows_tick.
     bus, cpu = machine()
     bus.frames()
-    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
     pad(0)
-    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    mapscreen_up(bus, cpu, start=K["OWEDIT_OPENPROG"])
     script, frame, reset, busy_n = [0, 0, 0x08, 0, 0x80], 0, None, 0
     for _ in range(400):
         if bus.wram[TICKON]:
@@ -917,8 +915,10 @@ def test_winnable():
             break
     check("L + X in a check's frame: reset, the ticks off", reset, (2, 0))
 
-    #  New Game, the row Off, the FLOATER removed, Key items Standard: the
-    #  screen up for the warning, from the row's edits, none.
+    #  The FLOATER removed, Key items Standard, no edit ticked (Custom Game's
+    #  start with no saved game): checked on the screen's first frame -- a
+    #  removal is set, so no fast path -- and red, the first edit's
+    #  description still up.
     bus, cpu = machine()
     bus.frames()
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
@@ -926,15 +926,24 @@ def test_winnable():
     pad(0)
     bus.ppu()
     bus.dma = True
-    up = cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
-    for _ in range(2):                  # setup's pad read, then the loop's first
+    up = mapscreen_up(bus, cpu)
+    V = rw("OWS_VARS")
+    checked = 0
+    for _ in range(400):                # setup's pad read, then frames until the check is done
+        checked += cpu.pbr == WORLD_BANK and cpu.pc == WIN
         cpu.step()
         while cpu.pc not in (UJ, 0xFFFE):
+            checked += cpu.pbr == WORLD_BANK and cpu.pc == WIN
             cpu.step()
-    V = rw("OWS_VARS")
-    check("New Game, Map edits Off, the FLOATER removed: the screen up, red, saying why, no edit ticked",
-          (bool(up), text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8,
-           bus.cgram[0] | bus.cgram[1] << 8), (True, warn0, 0, RED))
+        if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
+            break
+    cpu.step()                          # ...and a frame more, whose vblank sends the backdrop
+    while cpu.pc not in (UJ, 0xFFFE):
+        cpu.step()
+    first = (textwrap.wrap(GO.DESCRIPTIONS[0], width) + [""] * 5)[:len(warn0)]
+    check("the FLOATER removed, no edit ticked: checked at once, red, the first edit's description up",
+          (bool(up), checked, bus.wram[V] | bus.wram[V + 1] << 8, bus.wram[V + 0x47],
+           bus.cgram[0] | bus.cgram[1] << 8, text_at(bus, len(warn0))), (True, 1, 0, 0, RED, first))
     #  START refused on it: the game's error sound, PlaySFX_Error's writes on
     #  this screen's own frames (user, 2026-10-20) -- square 1, the
     #  triangle's reload and the noise $30 at once and square 2 the sound's;
@@ -959,6 +968,7 @@ def test_winnable():
             opened = (bus.wram[APU], bus.wram[APU + 8], bus.wram[APU + 0x0C], bus.wram[K["sq2_sfx"]])
     check("...START refused: square 1, the triangle's reload, the noise silenced, square 2 the sound's",
           opened, (0x30, 0x30, 0x30, 1))
+    check("...saying why where the description goes", text_at(bus, len(warn0)), warn0)
     check("...sixteen frames of the error with no music, then the music",
           [r[0] for r in recs], [1] + [0] * 16 + [1] * 2)
     check("...each of the sixteen striking square 2 as PlaySFX_Error's @Frame, the last silencing it",
@@ -1452,11 +1462,47 @@ def land_in_room(m, x, y):
 
 
 def newgame_pressing(bus, cpu, presses=(), entry="rando_newgame"):
-    """rando_newgame -- or `entry`, opt_freestuff, which runs it -- with the
-    map edit screen's pad (owscreen.asm) held as presses says, one a frame,
-    then START.  Out: how many frames the screen read the pad, 0 if it never
-    came up.  A screen still up after 400 frames is a failure the caller sees
-    as the screen's result never written."""
+    """rando_newgame -- or `entry`, opt_freestuff, which runs it -- with a
+    map edit screen's pad (owscreen.asm) held as presses says, should one
+    come up: none does since New Game's flow put it in its own place (the
+    flow's edits, NGF_ACTIVE, or none).  Out: how many frames a screen read
+    the pad, 0 if none came up."""
+    return screen_pressing(bus, cpu, presses, RANDO_BANK if entry == "rando_newgame" else CHUNK_OPT_BANK,
+                           SYM[entry])
+
+
+def mapscreen_pressing(bus, cpu, presses=(), start=0, a=0):
+    """The map edit screen as New Game's flow calls it (ows_choose): the
+    options' new-game rows copied into the save first, which its check
+    reads (ng_settings), RANDO_OWEDITS start -- the saved game's taken over
+    it, as ever, unless a has OWS_KEEP -- and the pad held as presses says,
+    then START.  Out: as screen_pressing; RANDO_OWEDITS as it ended."""
+    mapscreen_prep(bus, cpu, start, a)
+    return screen_pressing(bus, cpu, presses, 0xA1 + K["CHUNK_OWS"], SYM["ows_choose"])
+
+
+def mapscreen_up(bus, cpu, start=0, a=0):
+    """The map edit screen, prepared as mapscreen_pressing prepares it, run
+    to its first pad read (UpdateJoy).  Out: True if it got there."""
+    if bus.clock is None:
+        bus.frames()
+    mapscreen_prep(bus, cpu, start, a)
+    return cpu.run(0xA1 + K["CHUNK_OWS"], SYM["ows_choose"], stop=SYM["UpdateJoy"], limit=60_000_000)
+
+
+def mapscreen_prep(bus, cpu, start, a):
+    ng, save = K["OPT_NG"] - 0x6000, K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
+    bus.sram[save:save + K["OPT_NG_SIZE"]] = bus.sram[ng:ng + K["OPT_NG_SIZE"]]
+    ow = K["RANDO_OWEDITS"] - 0x6000
+    bus.sram[ow:ow + 2] = start.to_bytes(2, "little")
+    cpu.a = a
+
+
+def screen_pressing(bus, cpu, presses, bank, addr):
+    """Run bank:addr with the map edit screen's pad held as presses says,
+    one a frame, then START.  Out: how many frames the screen read the pad,
+    0 if it never came up.  A screen still up after 400 frames is a failure
+    the caller sees as the screen's result never written."""
     UJ = SYM["UpdateJoy"]
     if bus.clock is None:
         bus.frames()
@@ -1467,8 +1513,7 @@ def newgame_pressing(bus, cpu, presses=(), entry="rando_newgame"):
     pad(0)
     reads = 0
     TICKON = K["OWS_TICKON"] - 0x7E0000
-    stopped = cpu.run(RANDO_BANK if entry == "rando_newgame" else CHUNK_OPT_BANK, SYM[entry],
-                      stop=UJ, limit=60_000_000)
+    stopped = cpu.run(bank, addr, stop=UJ, limit=60_000_000)
     while stopped:
         #  Then START, let go between: the screen counts a press only from
         #  a pad that was let go, so one held as it comes up never ends it.
@@ -1487,6 +1532,14 @@ def newgame_pressing(bus, cpu, presses=(), entry="rando_newgame"):
         stopped = cpu.pc == UJ and reads < 400
     pad(0)
     return reads
+
+
+def flow_edits(bus, flags):
+    """New Game as its flow leaves it for rando_newgame (ng_flow): the map
+    edits ticked, NGF_OWEDITS, and the mark that the flow ran."""
+    ngf = K["NGF_OWEDITS"] - 0x7E0000
+    bus.wram[ngf], bus.wram[ngf + 1] = flags & 0xFF, flags >> 8
+    bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 1
 
 
 def owedits_ffr_source():
@@ -1509,8 +1562,8 @@ def test_owedits():
     each is applied under; the cart's rows, as LoadOWMapRow leaves them in the
     window and CallMinimapDecompress in the minimap's two buffers, the map as
     owedits.apply edits it, flag by flag and together; and New Game, which
-    expands the Map edits row into RANDO_OWEDITS and moves the BRIDGE under
-    Bridge to Lefein."""
+    takes the edits its flow ticked into RANDO_OWEDITS and moves the BRIDGE
+    under Bridge to Lefein."""
     import owedits as O
     src = owedits_ffr_source()
     if src is None:
@@ -1687,48 +1740,51 @@ def test_owedits():
                 bad.append("flags $%04X rows %d,%d" % (flags, r, r + 1))
     check("the minimap: both rows as owedits.apply edits them", bad[:4], [])
 
-    #  New Game: the row's mode, in RANDO_EARLY above the Early flags, as
-    #  the flags it stands for; the Early flags copied as they were.
+    #  New Game: the edits its flow ticked, the Early flags copied as they
+    #  were -- bits 4-5 of their byte too, a Map edits row's until it went
+    #  (2026-10-24), which nothing reads -- the BRIDGE moved under Bridge to
+    #  Lefein only; and without the flow, which only tests start a game
+    #  without, none.
     BX, BY = K["bridge_x"] - 0x6000, K["bridge_y"] - 0x6000
     early_at = K["OPT_NG_EARLY"] - 0x6000
-    modes = {K["OWEDITS_OFF"]: 0, K["OWEDITS_OPEN"]: K["OWEDIT_OPENPROG"], K["OWEDITS_ALL"]: SAFE, 3: 0}
+    LEFEIN = K["OWEDIT_BRIDGELEFEIN"]
     got, want = [], []
-    for mode, flags in sorted(modes.items()):
-        for early in (0, K["EARLY_KING"] | K["EARLY_ORDEALS"]):
+    for flags in (None, 0, K["OWEDIT_OPENPROG"], SAFE, LEFEIN):
+        for early in (0, K["EARLY_KING"] | K["EARLY_ORDEALS"] | 0x20):
             bus, cpu = machine()
-            bus.sram[early_at] = early | mode << K["OWEDITS_SHIFT"]
+            bus.sram[early_at] = early
             bus.sram[at:at + 2] = b"\xa5\x5a"                # decoys
             bus.sram[BX], bus.sram[BY] = 0x11, 0x22
-            newgame_pressing(bus, cpu)          # the map edit screen, START at once
+            if flags is not None:
+                flow_edits(bus, flags)
+            shown = newgame_pressing(bus, cpu)
             got.append((int.from_bytes(bus.sram[at:at + 2], "little"), bus.sram[K["RANDO_EARLY"] - 0x6000],
-                        (bus.sram[BX], bus.sram[BY])))
-            lefein = flags & K["OWEDIT_BRIDGELEFEIN"]
-            want.append((flags, early | mode << K["OWEDITS_SHIFT"],
-                         (O.BRIDGE_LEFEIN_XY if lefein else (0x11, 0x22))))
-    check("New Game: each mode's flags, the Early byte as set, the BRIDGE moved under All only", got, want)
-    #  Ship in Drydock, ticked on the map edit screen (up from the first line
-    #  is the last): the ship moored at Gaia's drydock before anyone has it --
-    #  Bikke's, under Key items Vanilla, only shows it where it is.
+                        (bus.sram[BX], bus.sram[BY]), shown))
+            want.append((flags or 0, early, (O.BRIDGE_LEFEIN_XY if (flags or 0) & LEFEIN else (0x11, 0x22)), 0))
+    check("New Game: the flow's edits, none without it, the Early byte as set, the BRIDGE moved under "
+          "Bridge to Lefein only, no screen", got, want)
+    #  Ship in Drydock: the ship moored at Gaia's drydock before anyone has
+    #  it -- Bikke's, under Key items Vanilla, only shows it where it is.
     SX = K["ship_x"] - 0x6000
     bus, cpu = machine()
-    bus.sram[early_at] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
-    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]   # winnable: Vanilla is not
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
     bus.sram[SX], bus.sram[SX + 1] = 0x11, 0x22
-    newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0])
-    check("New Game, Ship in Drydock ticked: the ship at Gaia's drydock",
+    flow_edits(bus, K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"])
+    newgame_pressing(bus, cpu)
+    check("New Game, Ship in Drydock: the ship at Gaia's drydock",
           (int.from_bytes(bus.sram[at:at + 2], "little"), (bus.sram[SX], bus.sram[SX + 1])),
           (K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"], O.DRYDOCK_XY))
 
-    #  The row: a field of OPT_NG_EARLY above the four Early flags, which
-    #  share the byte -- and no two of the page's fields overlap, read from
-    #  the tables rather than from what this row should be.
+    #  The option page's fields: no two overlap, read from the tables
+    #  rather than from what any row should be; and none in bits 4-5 of the
+    #  Early byte, which an option block from before may still hold the old
+    #  Map edits row in.
     tbl = lambda name, i: ROMDATA[rom_at(name) + i]
     n = (SYM["lut_ValTabHi"] - SYM["lut_ValTabLo"])
     fields = [(tbl("lut_ValOff", i), tbl("lut_ValMask", i), tbl("lut_ValBit", i), tbl("lut_ValCount", i))
               for i in range(n)]
-    me = [i for i, f in enumerate(fields) if f[0] == (K["OPT_NG_EARLY"] & 0xFF) and f[2] == K["OWEDITS_SHIFT"]]
-    check("Map edits: one scalar, bits 4-5 of the Early byte, three modes",
-          [fields[i][1:] for i in me], [(K["OWEDITS_FIELD"], 4, 3)])
+    check("no field in the Early byte's bits 4-5, the old Map edits row's",
+          [i for i, f in enumerate(fields) if f[0] == (K["OPT_NG_EARLY"] & 0xFF) and f[1] & 0x30], [])
     clash = [(i, j) for i in range(n) for j in range(i) if fields[i][0] == fields[j][0]
              and fields[i][1] & fields[j][1]]
     check("no two of the page's fields share a bit", clash, [])
@@ -1943,7 +1999,7 @@ def test_owscreen():
         bus.io[0x4218] = nes & 0x80
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
 
-    def newgame(saved_flags, presses, row=K["OWEDITS_ALL"]):
+    def newgame(saved_flags, presses, start=0):
         bus, cpu = machine()
         bus.frames()
         ow = K["RANDO_OWEDITS"] - 0x6000
@@ -1952,22 +2008,20 @@ def test_owscreen():
             cpu.dbr = BANK_0E
             cpu.run(BANK_0E, SYM["SaveGame"])
             cpu.dbr = 0xA7
-        bus.sram[K["OPT_NG_EARLY"] - 0x6000] = row << K["OWEDITS_SHIFT"]
-        reads = newgame_pressing(bus, cpu, presses)
+        reads = mapscreen_pressing(bus, cpu, presses, start=start)
         return int.from_bytes(bytes(bus.sram[ow:ow + 2]), "little"), reads
 
-    got = newgame(0x0402, [0, 0, 0, 0x10])
+    got = newgame(0x0402, [0, 0, 0, 0x10], start=SAFE)
     check("the saved game's: Extended Open and Sarda's Forest", got[0], 0x0402)
     got = newgame(0x0002, [0, 0, 0x80, 0, 0x10])
     check("A ticks the selected, Early Open", got[0], 0x0003)
     got = newgame(None, [0, 0, 0x10])
-    check("no save: the row's, All", got[0], SAFE)
-    check("...the screen up for it", got[1] > 0, True)
-    got = newgame(None, [], row=K["OWEDITS_OFF"])
-    check("the row Off: no screen, no edits", got, (0, 0))
-    got = newgame(None, [0, 0, 0x04, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
-    check("Open, the selection down one, Extended ticked", got[0], 0x0003)
-    got = newgame(None, [0, 0, 0x01, 0, 0x80, 0, 0x10], row=K["OWEDITS_OPEN"])
+    check("no save: the edits given, none (Custom Game's), the screen up", (got[0], got[1] > 0), (0, True))
+    got = newgame(None, [0, 0, 0x10], start=SAFE)
+    check("...or all of those that only add a way, given", got[0], SAFE)
+    got = newgame(None, [0, 0, 0x04, 0, 0x80, 0, 0x10], start=K["OWEDIT_OPENPROG"])
+    check("Early Open given, the selection down one, Extended ticked", got[0], 0x0003)
+    got = newgame(None, [0, 0, 0x01, 0, 0x80, 0, 0x10], start=K["OWEDIT_OPENPROG"])
     check("...right: the next in the column",
           got[0], 0x0003)
 
@@ -1976,9 +2030,8 @@ def test_owscreen():
     #  taken from the screen's own loop, the PPU handed back to the HAL first.
     bus, cpu = machine()
     bus.frames()
-    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
     pad(bus, 0)
-    cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=UJ, limit=60_000_000)
+    mapscreen_up(bus, cpu, start=K["OWEDIT_OPENPROG"])
     MOVE, SEL = SYM["PlaySFX_MenuMove"], SYM["PlaySFX_MenuSel"]
     CLAIM, RESET = SYM["hal_ppureclaim"], SYM["OnReset"]
     events = []
@@ -5659,12 +5712,13 @@ def test_ngflow():
 
     edits = {}
 
-    def flow(script, ticks=(), ng=None, typed=(), rom=None):
+    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None):
         """Run ng_flow, each screen answering the next of script; the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
-        noting what it was given (its A, and RANDO_OWEDITS).  Out: the
-        screens in order, the answer, the option page after; edits holds the
-        map edit screen's starts and New Game's edits."""
+        noting what it was given (its A, and RANDO_OWEDITS); stale, the
+        live game's RANDO_OWEDITS before.  Out: the screens in order, the
+        answer, the option page after; edits holds the map edit screen's
+        starts and New Game's edits."""
         bus, cpu = machine()
         if rom is not None:
             bus.rom = rom
@@ -5673,6 +5727,8 @@ def test_ngflow():
         if ng is not None:
             bus.sram[ngoff:ngoff + ngsize] = bytes(ng)
         bus.sram[POOL:POOL + 4] = (0x2468ACE1).to_bytes(4, "little")    # a pool to tell from none
+        if stale is not None:
+            bus.sram[OWE], bus.sram[OWE + 1] = stale & 0xFF, stale >> 8
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
         seen, answers, tick, typing = [], list(script), list(ticks), list(typed)
@@ -5732,6 +5788,8 @@ def test_ngflow():
     check("Custom Game: the randomization screen, the map edits, the options, party creation, on; "
           "the options untouched",
           flow([CUSTOM, FWD, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options", "party"], FWD, start))
+    check("...on a blank battery, Improved Vanilla's, byte for byte (opt_init's own row and the list's "
+          "preset agree)", start == preset_block(1), True)
     check("Vanilla: straight to party creation, the preset applied",
           flow([0, FWD])[0:2] + (flow([0, FWD])[2] == preset_block(0),), (["list", "party"], FWD, True))
     check("Improved Vanilla: the screens all the same, the baseline one might customize (user, 2026-10-22); "
@@ -5781,13 +5839,13 @@ def test_ngflow():
             "options", "party"], FWD))
 
     #  The map edit screen: B allowed, and where it starts.  Custom Game: its
-    #  own start (the saved game's, else the row's, given); a preset: its
-    #  row's, kept; back on it: what was ticked last, kept.  New Game's: what
-    #  it ticked last, the flow marked as having run.
+    #  own start (the saved game's, else none, given -- not the live game's);
+    #  a preset: its row's, kept; back on it: what was ticked last, kept.
+    #  New Game's: what it ticked last, the flow marked as having run.
     OPEN = K["OWEDIT_OPENPROG"]
     CANBACK, KEEP = K["OWS_CANBACK"], K["OWS_KEEP"]
-    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0x0041])
-    check("Custom Game: the screen's own start, B allowed; New Game's edits what it ticked",
+    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0x0041], stale=0x1243)
+    check("Custom Game: the screen's own start, none given, B allowed; New Game's edits what it ticked",
           (edits["given"], edits["ngf"]), ([(CANBACK, 0)], (0x0041, 1)))
     flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
     check("...the screen's check reads the options' settings, copied into the save first",
@@ -5875,9 +5933,7 @@ def test_ngflow():
     #  rando_newgame after the flow: its edits, once, and no screen of its own.
     bus, cpu = machine()
     bus.frames()
-    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_ALL"] << K["OWEDITS_SHIFT"]   # the row would bring it up
-    ngf = K["NGF_OWEDITS"] - 0x7E0000
-    bus.wram[ngf], bus.wram[ngf + 1], bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 0x41, 0x00, 1
+    flow_edits(bus, 0x0041)
     bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
     shown = newgame_pressing(bus, cpu, [])
     RS = K["RANDO_SEED"] - 0x6000
@@ -5888,8 +5944,11 @@ def test_ngflow():
     bus.frames()
     bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
     bus.sram[POOL:POOL + 4] = (0x13572468).to_bytes(4, "little")
-    newgame_pressing(bus, cpu, [])
-    check("...and without it, the pool's, as ever", int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"), 0x13572468)
+    bus.sram[OWE0:OWE0 + 2] = (0x1243).to_bytes(2, "little")            # the last game's
+    shown = newgame_pressing(bus, cpu, [])
+    check("...and without it, the pool's, as ever; no edits, no screen",
+          (int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"), int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"),
+           shown), (0x13572468, 0, 0))
 
     #  The randomization screen: its rows TREASURES to the key items' last,
     #  opening on Starting items; START on, B back.
@@ -5924,14 +5983,8 @@ def test_ngflow():
     for _ in range(140):
         frame(bus, cpu, 0x04)
         frame(bus, cpu, 0)
-    #  Its last row is the key items' last: the Map edits row past it is
-    #  hidden (ROW_HIDDEN), the map edit screen having replaced it.
-    check("...down to its end: the key items' last, the Map edits row hidden",
-          bus.wram[SEL], optrow("Map edits") - 1)
-    check("...which no screen shows", any(screen_text == "Map edits" for screen_text in
-          [" ".join("".join(_decode(b) or "?" for b in bus.wram[K["NESNT"] - 0x7E0000 + (1 + r) * 32 + 4:
-                                                              K["NESNT"] - 0x7E0000 + (1 + r) * 32 + 26]).split())
-           for r in range(20)]), False)
+    #  Its last row is the key items' last, the New Game list's after it.
+    check("...down to its end: the key items' last, Early Ordeals", bus.wram[SEL], optrow("Early Ordeals"))
     for button, want in ((0x10, FWD), (0x40, BACK)):
         bus, cpu = screen_up()
         more = frame(bus, cpu, button)
@@ -6342,11 +6395,11 @@ def test_seedscreen():
 
     #  opt_needseed: the screen comes up when anything on the randomization
     #  screen is away from its first value, one row at a time, and not for
-    #  the options above it or the hidden Map edits row -- genpresets' rule
-    #  for a preset's way past that screen, but for the hidden row.
+    #  the options above it -- genpresets' rule for a preset's way past that
+    #  screen.
     rows = P.rows()
     tbl = lambda name, i: ROMDATA[rom_at(name) + i]
-    first, hidden = optrow("TREASURES"), optrow("Map edits")
+    first = optrow("TREASURES")
     table = rom_at("lut_OptRows")
     def needs(setup):
         bus, cpu = machine()
@@ -6371,11 +6424,10 @@ def test_seedscreen():
     got = {r: needs(one(r)) for r in settable}
     check("opt_needseed: nothing set, no seed", needs(lambda bus: None), 0)
     check("...each row of the randomization screen set alone: a seed",
-          [r for r in settable if first <= r < hidden and not got[r]], [])
-    check("...an option above it, or the hidden Map edits row, set alone: none",
-          [r for r in settable if (r < first or r >= hidden) and got[r]], [])
+          [r for r in settable if first <= r and not got[r]], [])
+    check("...an option above it set alone: none", [r for r in settable if r < first and got[r]], [])
     presets = G.resolve(G.load(), rows)
-    want = [int(G.randomizes(p[3], [r for r in rows if r.label != "Map edits"])) for p in presets]
+    want = [int(G.randomizes(p[3], rows)) for p in presets]
     seen = []
     for i in range(len(presets)):
         bus, cpu = machine()
@@ -6384,7 +6436,7 @@ def test_seedscreen():
         call(cpu, "ngp_apply", bank=0xA1 + K["CHUNK_NEWGAME"])
         call(cpu, "opt_needseed")
         seen.append(cpu.p & 1)
-    check("...each preset as genpresets judges it, the Map edits row aside", seen, want)
+    check("...each preset as genpresets judges it", seen, want)
 
 def test_chirps():
     """The select chirp is the press's, played once where it is heard, and no
@@ -7207,7 +7259,7 @@ def test_ngpresets():
         return None
     typo = [fake[0], ("x.toml", {"name": "X", "map_edits": {"Gaia Passs": True}})]
     check("...refused: an edit the screen has not (naming the nearest), a value not true or false, an "
-          "edit on a preset that skips the screens, the hidden Map edits row on any but the base",
+          "edit on a preset that skips the screens, a \"Map edits\" setting (the old row, gone)",
           ["did you mean \"Gaia Pass\"" in (refused(G.edit_bits, typo) or ""),
            bool(refused(G.edit_bits, [fake[0], ("x.toml", {"name": "X", "map_edits": {"Gaia Pass": "yes"}})])),
            bool(refused(G.edit_bits, [fake[0], ("x.toml", {"name": "X", "skip_to_party": True,
@@ -10066,9 +10118,9 @@ def test_treasures():
     #  drydock: FFR's UpdateDocks moves the free ship's place with the rest.
     bus, cpu = machine()
     set_free(bus, 1 << FREE_BIT["ship_vis"])
-    bus.sram[K["OPT_NG_EARLY"] - 0x6000] = K["OWEDITS_OPEN"] << K["OWEDITS_SHIFT"]
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]   # winnable: Vanilla is not
-    newgame_pressing(bus, cpu, [0, 0, 0x08, 0, 0x80, 0], entry="opt_freestuff")
+    flow_edits(bus, K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"])
+    newgame_pressing(bus, cpu, entry="opt_freestuff")
     check("...and under Ship in Drydock to Gaia's drydock", (bus.sram[1], bus.sram[2], bus.sram[0]),
           (211, 31, 1))
     check("a free ship leaves the airship where it was",
@@ -13759,7 +13811,7 @@ def test_saveview():
     OPT = CHUNK_OPT_BANK
     OPTLIST_ROWS = 20                    # the window, optmenu.asm
     SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
-    COUNT = optrow("Map edits")          # the save view's rows end where the hidden ones begin
+    COUNT = K["NGROW_HEAD"]              # the save view's rows end where the New Game list's begin
     A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     UJ = SYM["UpdateJoy"]
     optimg = (OPTMENU_BANK & 0x1F) * 0x10000

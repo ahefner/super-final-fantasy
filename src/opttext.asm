@@ -896,32 +896,6 @@ lut_Desc_93_2:  ; Map shuffle: Floors
   FFPAD {"items Standard or Wide."}, 28
   FFPAD {"FFR's."}, 28
 
-lut_Desc_101:  ; Map edits, by value
-  .BYTE DESC_BYVALUE
-  .WORD lut_Desc_101_0, lut_Desc_101_1, lut_Desc_101_2
-  .assert * - lut_Desc_101 = 1 + 2 * OWEDITS_MODES, error, "one Map edits description per mode"
-
-lut_Desc_101_0:  ; Map edits: Off
-  FFLINES 2
-  FFPAD {"The overworld is as it"}, 28
-  FFPAD {"always is."}, 28
-
-lut_Desc_101_1:  ; Map edits: Open
-  FFLINES 5
-  FFPAD {"Early Open Progression, as"}, 28
-  FFPAD {"FFR's presets have it.  Walk"}, 28
-  FFPAD {"from Coneria to the Dwarf"}, 28
-  FFPAD {"Cave, and canoe from Pravoka"}, 28
-  FFPAD {"to Crescent Lake."}, 28
-
-lut_Desc_101_2:  ; Map edits: All
-  FFLINES 5
-  FFPAD {"Every FFR map edit that only"}, 28
-  FFPAD {"adds a way through -- docks,"}, 28
-  FFPAD {"rivers and passes, and the"}, 28
-  FFPAD {"BRIDGE between Pravoka and"}, 28
-  FFPAD {"Lefein."}, 28
-
 ;  Each item row by value: the first two shared, Free the item's own.
 lut_DescItemInc:  ; an item row: Incentive
   FFLINES 4
@@ -1082,7 +1056,6 @@ lut_DescLo:
   .BYTE <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86, <lut_Desc_86
   .BYTE <lut_Desc_86, <lut_Desc_87, <lut_DescBlank, <lut_Desc_88, <lut_Desc_89, <lut_Desc_90
   .BYTE <lut_Desc_91
-  .BYTE <lut_Desc_101                     ; Map edits, hidden (ROW_HIDDEN)
   .BYTE <lut_DescBlank, <lut_DescBlank, <lut_DescCustom   ; blank, blank, Custom Game
   NGP_DESCLO
 lut_DescLoEnd:
@@ -1106,7 +1079,6 @@ lut_DescHi:
   .BYTE >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86
   .BYTE >lut_Desc_86, >lut_Desc_87, >lut_DescBlank, >lut_Desc_88, >lut_Desc_89, >lut_Desc_90
   .BYTE >lut_Desc_91
-  .BYTE >lut_Desc_101                     ; Map edits, hidden (ROW_HIDDEN)
   .BYTE >lut_DescBlank, >lut_DescBlank, >lut_DescCustom
   NGP_DESCHI
 lut_DescHiEnd:

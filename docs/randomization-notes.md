@@ -1439,8 +1439,9 @@ Two edits are more than tiles:
 Everything else is additive, so as you note, a placement made without the
 edits stays valid with them.
 
-**Built 2026-10-17, phase 1 (not yet played): the Map edits row**
-(`options-design.md`).  Mechanism (b):
+**Built 2026-10-17, phase 1 (never played; the row removed 2026-10-24,
+the map edit screen in its place): the Map edits row** (`options-design.md`).
+Mechanism (b):
 
   - `tools/owedits.py` transcribes every list, in FFR's order, with the
     flag each is applied under and FFR's two Cardia rules (`active_lists`)
@@ -2153,7 +2154,7 @@ Settled in review 1:
         overworld select and goes as if the vanilla map were chosen (user,
         2026-10-21).  The map edit screen is in the flow (built
         2026-10-21; `options-design.md`, "New Game's screens"), and the
-        Map edits row it stood in for is on no screen.
+        Map edits row it stood in for is gone (2026-10-24).
       - Then **options** (the existing screen, less the sections that
         moved) -> **seed**, when anything needs one -> **party creation**,
         after which the world is built and placed, the roll screen up

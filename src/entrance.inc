@@ -1973,8 +1973,8 @@ rando_esmasks:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_winnable -- can the save's settings make a world that is won?
-;;  (randoref.winnable; the unwinnable warning, owscreen.asm and
-;;  rando_newgame.)
+;;  (randoref.winnable; the map edit screen's unwinnable warning,
+;;  owscreen.asm.)
 ;;
 ;;  The vanilla wiring's logic under the save's map edits and Early flags
 ;;  (es_vanilla, es_fixpoint, es_locmasks).  Under Key items Standard or

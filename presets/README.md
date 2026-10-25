@@ -30,8 +30,7 @@ preset, and inherits as settings do: a preset's table goes over its
 parent's, and the base has none.  The labels are read from the map edit
 screen's own table, so a name the screen lacks stops the build.  A preset
 that skips New Game's screens may have none, as nothing would check them
-winnable.  The hidden "Map edits" row is the base's alone: it is what
-Custom Game falls back on.
+winnable.  Custom Game starts from the saved game's edits, or none.
 
 Keys are the settings screen's labels and values its readouts, so a preset
 can be written by looking at the screen.  Improved Vanilla is the base

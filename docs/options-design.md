@@ -272,10 +272,9 @@ from for the preset, by the screen's own labels, true or false, a preset's
 table over its parent's.  genpresets.py reads the labels from the screen's
 table (`lut_OwsName`; label i is bit i), makes each preset one word of
 `RANDO_OWEDITS` bits (`lut_NgpEdits`), and `ng_presetedits` puts it there
-as the flow brings the screen up for a preset.  The hidden Map edits row is
-the base's alone, what Custom Game falls back on; the build refuses it in
-any other preset, and refuses a label the screen lacks (naming the
-nearest), a value not true or false, and an edit on a preset that skips the
+as the flow brings the screen up for a preset.  Custom Game starts from
+the saved game's edits, or none.  The build refuses a label the screen
+lacks (naming the nearest), a value not true or false, and an edit on a preset that skips the
 screens.  So the file and the cart cannot drift: `test_ngpresets` names
 each preset's word in the ROM through the ROM's own label and bit tables
 and compares it with the file's table, resolved without genpresets;
@@ -352,44 +351,61 @@ Every New Game through the randomization screen comes to it, after that
 screen, so that what it ticks is checked against settings already chosen:
 everything that can make a world unwinnable -- Key items, the removals and
 Free rows, the Early flags -- is on the randomization screen, none on the
-options after it.  The Map edits row is on no screen any more: it is past
-the key items, in rows no window reaches (`lut_OptRowHidden`,
-`ROW_HIDDEN`, where the randomization screen and the save view end), and
-the presets still set it, as the edits a preset's screen starts from.  The
-screen is `ows_choose` with `OWS_CANBACK`: B leaves it too, with the
+options after it.  The screen took the place of a Map edits row, Off /
+Open / All, which is gone (below).  The screen is `ows_choose` with `OWS_CANBACK`: B leaves it too, with the
 select's chirp and the edits as ticked, answering `NGNAV_BACK`; START is
-refused on unwinnable edits as ever.  It starts, for Custom Game, as it
-always has -- the saved game's edits when Continue would load that save,
-else the Map edits row's -- and for a preset from its row's (`OWS_KEEP`,
-`RANDO_OWEDITS` as given); come back to from the options, from what was
+refused on unwinnable edits as ever.  It starts, for Custom Game, from the
+saved game's edits when Continue would load that save, else none -- on a
+blank battery, then, Custom Game is Improved Vanilla byte for byte (the
+option block `opt_init` writes) with no edit ticked -- and for a preset
+from its `[map_edits]` (`OWS_KEEP`, `RANDO_OWEDITS` as given); come back to from the options, from what was
 ticked last, B having kept it.  What it leaves goes to `NGF_OWEDITS`
 (`MENURAM`, which party creation's clearing of the save block's page
 leaves alone), and at the flow's end `NGF_ACTIVE` tells `rando_newgame` to
-take those edits as they are -- no row expanded, no screen brought up
-again, the mark cleared as it is used.  Vanilla takes its row's edits,
-Off, without a screen.  Before the screen comes up,
+take those edits as they are, the mark cleared as it is used.  Vanilla
+takes its own, none, without a screen.  Before the screen comes up,
 `ng_settings` copies the options' new-game bytes into the save block,
-where its check reads the settings.  `rando_newgame`'s old way, the row
-expanded and the screen up when it is not Off or when the settings cannot
-be won without edits, is now reached only by the tests, every New Game
-coming through the flow -- Continue with no save too, since party
-creation moved into it.  Taking it out means moving `test_owscreen`'s and
-`test_winnable`'s New Game cases onto the flow's call of the screen; not
-done yet.
+where its check reads the settings.
+
+**The Map edits row, removed** (user, 2026-10-24: "No value in it ...
+Clean it up").  A stopgap to test the edits before the screen existed
+(below), hidden once the screen replaced it, and since presets carried
+their own `[map_edits]` nothing but Custom Game's fallback, which the base
+preset set Off.  Gone with it: the row (`lut_OptRowHidden`, `ROW_HIDDEN`
+-- the randomization screen and the save view now end at `NGROW_HEAD`),
+its scalar, readouts and descriptions, `lut_OwEditsMode`, and
+`rando_newgame`'s old way without the flow, the row expanded and the
+screen brought up from it -- or forced up (`OWS_FORCED`, the music-only
+tick `OWS_TICKMUSIC`) when the settings could not be won without edits.
+Every New Game comes through the flow; without it, which only the tests
+start a game without, `rando_newgame` takes no edits and shows no screen.
+Bits 4-5 of the Early byte are free, and an option block from before may
+still hold the row there: every reader of the Early flags tests its own
+bit, and `test_owedits` checks no field claims them.  The tests that came
+to the screen through the row come to it as the flow does (`mapscreen_pressing`,
+`mapscreen_up`: `ows_choose`, the settings copied first), or give
+`rando_newgame` the flow's edits (`flow_edits`); the forced start's case is
+now the screen's own first check finding the settings unwinnable, red,
+START refused with the warning and the error sound.  `test_ngflow` also
+holds a blank battery's Custom Game to Improved Vanilla byte for byte (the
+block `opt_init` writes and the list's preset).  Nine mutations, all
+caught (the save view's window one short hangs `test_saveview`, as
+before).  Built, not yet played.
 `test_ngflow` answers the map edit screen too: what each start gives it,
 B from it back to the randomization screen and from the options back to
 it, the ticks kept, and the settings in the save block when it comes up;
 then drives the real screen, B leaving and `OWS_KEEP` starting from the
 edits given, and `rando_newgame` after the flow taking its edits without
-a screen.  `test_saveview`'s window ends at the hidden row.  Ten
+a screen.  `test_saveview`'s window ends at the New Game list's rows.  Ten
 mutations, all caught.  `tools/mutate.py` now gives a test 900 seconds: a
-mutation that showed the hidden row hung `test_saveview` for good.
+mutation that showed the (since removed) hidden row hung `test_saveview`
+for good.
 
 **The seed screen** (`seedscreen.asm`, `seed_choose`; built 2026-10-21, not
 yet played).  After the options, when anything on the randomization screen
 is away from its first value (`opt_needseed`: genpresets' rule for a
-preset's way past that screen, at run time, less the hidden Map edits row,
-as map edits alone randomize nothing) -- so not for Vanilla or Improved
+preset's way past that screen, at run time; map edits alone randomize
+nothing) -- so not for Vanilla or Improved
 Vanilla, nor for Custom Game on options that randomize nothing.  The flow
 latches a seed from the pool as it goes on to the screen (`ng_latch`; an
 `FFSEED` build's seed instead), into `NGF_SEED`, and the screen shows it,
@@ -479,7 +495,7 @@ frames and no music, B down to nothing and back, all eight hiding the hand
 with the d-pad then idle, A and START going on, a typed seed and a latched
 one coming back, five seeds typed reading back as typed; and
 `opt_needseed` over every row set alone -- each of the randomization
-screen's needing a seed, the options' and the hidden row not -- and every
+screen's needing a seed, the options' not -- and every
 preset as genpresets judges it.  `test_ngflow` the seed screen in the flow:
 after the options for a preset that randomizes, not for Custom Game on the
 defaults, B back to the options, a fresh seed latched for each visit and
@@ -545,8 +561,7 @@ It is the settings screen's engine, held to a **window** of the row table:
 and one past its last, where every bound was `OPTROW_COUNT` or 0 -- moving,
 seeking, scrolling, paging, a section's toggle, the drawing.  The options'
 window ends at TREASURES; the randomization screen's and the save view's
-at the hidden rows (`ROW_HIDDEN`), after the key items; the list's is its
-own rows, after those (`NGROW_HEAD`).  The list is a window with `OPTMENU_PICK` set: only its **pick rows**
+after the key items, where the list's own rows begin (`NGROW_HEAD`).  The list is a window with `OPTMENU_PICK` set: only its **pick rows**
 (`OPTROW_PICK`, kind 5; byte 1 the preset, `NGPICK_CUSTOM` for Custom Game)
 can hold the cursor, A and START answer with the row's byte, B with
 `NGPICK_BACK`, and left and right do nothing.  A pick row draws its name
@@ -1548,7 +1563,7 @@ and shown by the save view with them:
 
     Key items        Vanilla / Standard / Wide
     Map shuffle      Off / Entrances / Floors     (below)
-    Map edits        Off / Open / All             (below)
+    Map edits        Off / Open / All             (below; removed 2026-10-24)
     SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows; the
                      (SHIP, AIRSHIP: ... / Remove) SHIP's and AIRSHIP's go on
     Other items      Incentive / Loose            the nine with no Free
@@ -1667,9 +1682,12 @@ Map shuffle is on.  `test_es_tree` holds it to the shuffle's own roots.
 
 ### Map edits
 
-**Built 2026-10-17; not yet played.  Hidden from every screen 2026-10-21**,
-the map edit screen having taken its place in New Game's flow (above): the
-row is now only what a preset sets, the edits its screen starts from.
+**Removed 2026-10-24** (user: "No value in it ... Clean it up"; "New
+Game's screens", above).  Built 2026-10-17, never played; hidden from
+every screen 2026-10-21, the map edit screen having taken its place in New
+Game's flow, then only Custom Game's fallback once presets carried their
+own `[map_edits]`.  What follows is its history; the edits themselves,
+`RANDO_OWEDITS`, the BRIDGE and the docks, and the tests of them, stay.
 FFR's overworld map edits, one row
 standing in for its fourteen flags until New Game has a screen of its own
 (user: "don't mess up labels on the existing options screen just for the
@@ -1735,10 +1753,11 @@ was chosen.  All inside the 30x26 cells a CRT shows: the column is rows
 minimap, the title and description beside the zoom.
 
   - It comes up in New Game's flow, between the randomization screen and
-    the options (2026-10-21; "New Game's screens", above).  Before that it
-    came up from `rando_newgame` when the Map edits row was not Off,
-    starting from the saved game's edits when Continue would load that save
-    and it has any (no option block bytes), else the row's.  START keeps
+    the options (2026-10-21; "New Game's screens", above), starting, for
+    Custom Game, from the saved game's edits when Continue would load that
+    save and it has any (no option block bytes), else none; for a preset,
+    from its `[map_edits]`.  Before the flow it came up from
+    `rando_newgame` when the Map edits row was not Off.  START keeps
     what is ticked, all fourteen (Sarda's Forest, the Cardia Land Bridge and
     Ship in Drydock were grey and dropped until the logic knew them,
     2026-10-18).  The title's music plays on through it (`rando_newgame`
@@ -1778,12 +1797,10 @@ minimap, the title and description beside the zoom.
     each place reached giving its vanilla item (`lut_LogicVanBit`) but a
     removed one; Ship in Drydock with Early Open is winnable placed and not
     at home, where the CANOE waits on the Earth Orb.  130,000 to 265,000
-    instructions.  Before the flow (and still in `rando_newgame`'s old way,
-    which only the tests reach), with the Map edits row Off New Game checked
-    only when the
-    SHIP or the FLOATER is removed -- nothing else can leave the unedited
-    map unwinnable -- and if so brings the screen up all the same, from no
-    edits, saying why; L + X leaves it.
+    instructions.  Before the flow, with the Map edits row Off New Game
+    checked only when the SHIP or the FLOATER was removed and if so forced
+    the screen up, saying why (`OWS_FORCED`); removed with the row
+    (2026-10-24), the flow's screen checking on its first frame instead.
   - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
     built, not yet played): the backdrop, which the minimap's ocean and the
     boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked
@@ -1791,9 +1808,8 @@ minimap, the title and description beside the zoom.
     second, so the screen goes on through it: each vblank `rando_yield`
     calls `ows_tick`, which with `OWS_TICKFRAME` runs the screen's frame --
     the transfers, the music, the pad, the reset -- the hand moving, A and
-    START kept for after (`V_PEND`); New Game's own check ticks the music
-    alone (`OWS_TICKMUSIC`), and a reset taken in a check's frame turns the
-    ticks off.  But a tick checks only with Ship in Drydock ticked or the
+    START kept for after (`V_PEND`); a reset taken in a check's frame turns
+    the ticks off.  But a tick checks only with Ship in Drydock ticked or the
     SHIP or the FLOATER removed (user: "running down the column checking
     every box"): without them every combination of the edits can be won,
     under every Key items mode and Early flag, which `tools/checkwin.py`
@@ -3243,7 +3259,8 @@ text region in the game references.
                              scalar, opt_lockpick, Thief hit's mask), and
                              Item magic (59: its row, readouts and scalar;
                              opt_itemspell shrank, asking the readers), and
-                             Map edits (51: its row, readouts and scalar),
+                             Map edits (51: its row, readouts and scalar;
+                             removed 2026-10-24),
                              and Short ToFR's row (32; its code went to the
                              randomizer's chunk) --
                              the next feature with much code goes to a
@@ -3255,7 +3272,8 @@ text region in the game references.
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115, Thief
                              lockpicking's 115, Item magic's 115, Map
-                             edits' three 348, Short ToFR's 143
+                             edits' three 348 (freed 2026-10-24), Short
+                             ToFR's 143
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
@@ -3281,7 +3299,8 @@ text region in the game references.
                              it 32; the caster item's draw 43; Item
                              magic 416 -- its two pools 104, the deal,
                              gear_spellat and the dealt names; Map edits'
-                             New Game, BRIDGE and Matoya's dock 68; Short
+                             New Game, BRIDGE and Matoya's dock 68 (the
+                             row's part removed 2026-10-24); Short
                              ToFR 485, 110 of it the room; New Game taking
                              the flow's edits and seed 21 + 21
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),

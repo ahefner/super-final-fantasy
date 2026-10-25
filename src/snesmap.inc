@@ -509,16 +509,10 @@ EARLY_SARDA     = $02
 EARLY_SAGE      = $04
 EARLY_ORDEALS   = $08
 EARLY_MODES     = 2               ; each a row, Off / On
-;  Map edits, the field above the Early flags in RANDO_EARLY, whose readers
-;  all test their own bit: one row standing in for FFR's overworld edit flags
-;  until New Game has a screen of its own.  New Game expands it into
-;  RANDO_OWEDITS (lut_OwEditsMode), which is all the game reads.
-OWEDITS_OFF     = 0
-OWEDITS_OPEN    = 1               ; Early Open Progression, FFR's presets' one edit
-OWEDITS_ALL     = 2               ; every edit the logic can take as it stands
-OWEDITS_MODES   = 3
-OWEDITS_FIELD   = $30
-OWEDITS_SHIFT   = 4
+;  Bits 4-5 above them were a Map edits row, Off / Open / All, until New
+;  Game's map edit screen took its place; it is gone (user, 2026-10-24), and
+;  an option block from before may still hold it there.  Every reader of the
+;  Early flags tests its own bit.
 ;  RANDO_OWEDITS: a bit per FFR flag, as its overworld tab names them
 ;  (tools/owedits.py's SETTINGS).  Each edits the map as the game unpacks a
 ;  row of it (world.asm's ow_edit).  The three marked "not yet" have no mode
@@ -1686,7 +1680,7 @@ RANDO_KEYITEMS  = RANDO_SAVE+$13  ; KEYITEMS_* below: whether key items move, an
 RANDO_ITEMS     = RANDO_SAVE+$14  ; 3 bytes, two bits per row, ITEM_* below, rows ITEMROW_* in
                                   ;   order from bit 0 of the first byte
 RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in order: set, an incentive
-RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags; Map edits above
+RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
 RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
 ;  What New Game made of the settings, under entrance shuffle (rando_place):
 ;  which attempt's wiring the game has, so the cache can draw it again, and
@@ -1695,9 +1689,9 @@ RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
 ;  in every save made before them.
 RANDO_ESK       = RANDO_SAVE+$1B  ; the attempt k whose wiring placed
 RANDO_SHIPDOCK  = RANDO_SAVE+$1C  ; the ship's dock, 0..4 (es_dock)
-;  ...and the overworld's edits, OWEDIT_* bits, from the Map edits field of
-;  RANDO_EARLY.  A bit each, so a New Game screen can set them one by one;
-;  zero, no edit, in every save made before them.
+;  ...and the overworld's edits, OWEDIT_* bits, as New Game's map edit
+;  screen ticked them.  A bit each; zero, no edit, in every save made before
+;  them.
 RANDO_OWEDITS   = RANDO_SAVE+$1D  ; 2 bytes
 RANDO_SETTINGS_SIZE = $1B
 RANDO_SAVE_SIZE = $1F
@@ -2037,18 +2031,15 @@ ROLL_YNOTES     = RANDOWRAM+$33DC ; 4 bytes: its notes, as steps of lut_RollPitc
 ROLL_END        = RANDOWRAM+$33E0
 .assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
 .assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
-;  The map edit screen's twin of ROLL_ON (owscreen.asm): nonzero while an
-;  unwinnable check runs (rando_winnable), so rando_yield ticks ows_tick each
-;  vblank -- OWS_TICKMUSIC, New Game's check before the screen, the title's
-;  music alone; OWS_TICKFRAME, the screen's own, its whole frame.  Past the
+;  The map edit screen's twin of ROLL_ON (owscreen.asm): nonzero while the
+;  screen's unwinnable check runs (rando_winnable), so rando_yield ticks
+;  ows_tick each vblank, the screen's whole frame.  Past the
 ;  roll screen's, which roll_begin clears up to ROLL_END, and zero but then
 ;  as ROLL_ON is: power-on zeroes it, each check clears it after, and so
 ;  does a reset taken from the screen in the middle of one (ows_reset).
 OWS_TICKON      = ROLL_END
-OWS_TICKMUSIC   = 1
 OWS_TICKFRAME   = 2
-OWS_FORCED      = $80             ; ows_choose's A: up only for the warning, its reason below
-OWS_CANBACK     = $40             ; ...or, from the New Game flow: B leaves, answering NGNAV_BACK
+OWS_CANBACK     = $40             ; ows_choose's A: B leaves, answering NGNAV_BACK
 OWS_KEEP        = $20             ; ...and start from RANDO_OWEDITS as given, not the save's
 .assert OWS_TICKON + 2 <= RANDOWRAM + $3400, error, "OWS_TICKON runs into boss tactics' scratch"
 

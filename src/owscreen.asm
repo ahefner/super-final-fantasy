@@ -7,20 +7,19 @@
 ;  it, the zoom below it.
 ;
 ;  From New Game's flow (ng_flow), after the randomization screen, B going
-;  back to it (OWS_CANBACK); before the flow, from rando_newgame when the
-;  Map edits row was not Off, which only the tests still reach.  The screen
-;  starts from the saved game's, when Continue would load it and it has any
-;  -- so the choice carries from game to game without a byte of the option
-;  block -- else the row's; a preset's, or the edits last ticked, as given
-;  (OWS_KEEP).  START ends it, and RANDO_OWEDITS is what is ticked: placement's
-;  logic knows every edit (worldgraph/edited.py) -- but not on edits that,
-;  with the rest of the settings, make a world that cannot be won
-;  (rando_winnable, user): then the description says so, and the screen
-;  stays, until a move or a tick that can be won puts the description back.  And blue is red while they cannot -- the backdrop, which the
-;  minimap's ocean and the boxes are -- checked again on every tick (user).
-;  New Game brings it up for that alone, the row Off, when the settings as
-;  they are cannot be won.  A check is a quarter of a second, so the screen
-;  goes on through it: each vblank it runs the frame (ows_tick), the hand
+;  back to it (OWS_CANBACK).  For Custom Game the screen starts from the
+;  saved game's, when Continue would load it and it has any -- so the choice
+;  carries from game to game without a byte of the option block -- else
+;  none; for a preset, or back on it, the edits given (OWS_KEEP): the
+;  preset's, or the ones last ticked.  START ends it, and RANDO_OWEDITS is
+;  what is ticked: placement's logic knows every edit (worldgraph/edited.py)
+;  -- but not on edits that, with the rest of the settings, make a world
+;  that cannot be won (rando_winnable, user): then the description says so,
+;  and the screen stays, until a move or a tick that can be won puts the
+;  description back.  And blue is red while they cannot -- the backdrop,
+;  which the minimap's ocean and the boxes are -- checked again on every
+;  tick (user).  A check is a quarter of a second, so the screen goes on
+;  through it: each vblank it runs the frame (ows_tick), the hand
 ;  moving, A and START kept for after -- its transfers only when the tick
 ;  comes early enough in the vblank for them (OWS_TICK_LAST).  The title's
 ;  music plays on throughout.
@@ -177,7 +176,7 @@ V_VADDR   = OWV+$40             ; 2
 V_K       = OWV+$42
 V_VIEW    = OWV+$43             ; what the selection shows: lut_OwsGates's, the sites'
 V_MASK    = OWV+$44             ; 2: ows_prow's characters still to pack, a bit each
-V_FORCED  = OWV+$46             ; ows_choose's A: OWS_FORCED and the warning's reason, or 0
+;  OWV+$46 free (a forced start's, the Map edits row's, until 2026-10-24)
 V_WON     = OWV+$47             ; nonzero: the ticked edits can be won, as last checked
 V_WHY     = OWV+$48             ; ...and if not, rando_winnable's reason
 V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
@@ -215,12 +214,11 @@ aINSETCHR = .LOWORD(OWS_INSETCHR)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  ows_choose -- the screen.  In: RANDO_OWEDITS the row's flags; A = 0, or
-;;  OWS_FORCED and rando_winnable's reason, up only because the settings
-;;  cannot be won: the row's flags then, not the saved game's, and the
-;;  warning at once.  Or, from the New Game flow (ng_flow), OWS_CANBACK, B
-;;  leaving as well as START, and with it OWS_KEEP, RANDO_OWEDITS as given
-;;  rather than the saved game's -- the edits last ticked, or a preset's.
+;;  ows_choose -- the screen.  In: RANDO_OWEDITS the edits to start from,
+;;  unless Continue would load a saved game that has some; A = 0, or, from
+;;  the New Game flow (ng_flow), OWS_CANBACK, B leaving as well as START,
+;;  and with it OWS_KEEP, RANDO_OWEDITS as given rather than the saved
+;;  game's -- the edits last ticked, or a preset's.
 ;;  Out: RANDO_OWEDITS as ticked; A = NGNAV_BACK if B ended it, else
 ;;  NGNAV_FORWARD.  By JSL, in emulation mode; out the same, X and Y kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -234,15 +232,11 @@ ows_choose:
     PLB                         ; this chunk's low half is the I/O map
     SEP #$30
     STA f:V_FLOW
-    STA f:V_FORCED
-    CMP #OWS_FORCED
-    BCS @forced                 ; the row's, not the saved game's
     LDA #0
-    STA f:V_FORCED              ; (the flow's bits are not the warning's)
     STA f:V_BACK
     LDA f:V_FLOW
     AND #OWS_KEEP
-    BNE @forced                 ; as given: as the row's, below
+    BNE @given
     JSL opt_savevalidfar + OPTFAR       ; C clear: a save Continue would load
     LDA #0
     ROL A
@@ -259,7 +253,7 @@ ows_choose:
     ORA f:SAVEDOWE + 1
     BEQ @row
     BRA @saved
-  @forced:
+  @given:
     CLC
     XCE
     REP #$10
@@ -281,24 +275,14 @@ ows_choose:
     STA f:V_FLAGS
     SEP #$20
     .a8
-    ;  Up for the warning: red, why already known.  Else blue, checked on
-    ;  the first frame, with the screen up.
+    ;  Blue, checked on the first frame, with the screen up.
     LDA #0
     STA f:V_PEND
     STA f:V_ERR                 ; before ows_setup, whose drawing plays music
-    LDA f:V_FORCED
-    CMP #OWS_FORCED
-    BCC :+
-    AND #$7F
-    STA f:V_WHY
-    LDA #0
+    LDA #1
     STA f:V_WON
     STA f:V_CHECK
-    BRA :++
-:   LDA #1
-    STA f:V_WON
-    STA f:V_CHECK
-:   JSR ows_setup
+    JSR ows_setup
     JSR ows_loop
     REP #$20
     .a16
@@ -354,8 +338,6 @@ ows_testsetup:
     .i16
     SEP #$20
     .a8
-    LDA #0
-    STA f:V_FORCED
     JSR ows_setup
     BRA ows_testout
 ows_testinset:
@@ -649,11 +631,7 @@ ows_setup:
     LDA #$FF
     STA f:V_PREV                ; nothing counts as pressed until let go
     JSR ows_drawall
-    LDA f:V_FORCED              ; up for the warning: it, not the description
-    BPL :+
-    AND #$7F
-    JSR ows_warn
-:   JSR ows_first
+    JSR ows_first
     JSR ows_vblank              ; the tilemap, the zoom and the hand out
     LDA #$0F
     STA a:INIDISP
@@ -1404,18 +1382,17 @@ ows_check:
     JMP ows_rewarn
 
 ;;  ows_tick -- from rando_yield when a vblank has begun while rando_winnable
-;;  works for this screen or for New Game before it (OWS_TICKON).  For the
-;;  screen's own check, OWS_TICKFRAME, this screen's frame as ows_loop runs
+;;  works for this screen (OWS_TICKON): this screen's frame as ows_loop runs
 ;;  it -- the vblank's transfers first, then the frame's music, the pad, the
 ;;  reset -- the moves answered, A and START kept for after (ows_busy); the
 ;;  drawing waits.  The transfers only by OWS_TICK_LAST, as hal_waitvbl reads
 ;;  the V counter -- in vblank, as HVBJOY says (a tick comes on the first look
 ;;  after a vblank begins, which may be in the picture), lines 225-255 read as
-;;  themselves and 256-261 as 0-5 -- or they wait, flags and all,
-;;  for a tick on time or ows_loop's next frame.  For New Game's, OWS_TICKMUSIC, the music alone.  The
-;;  music as ows_audio's: CallMusicPlay, then the HAL's frame of sound
-;;  (hal_audioframe, as the roll screen's tick sends it), cur_bank this chunk
-;;  for the call and as it was after.  From native code, any widths, by
+;;  themselves and 256-261 as 0-5 -- or they wait, flags and all, for a tick
+;;  on time or ows_loop's next frame.  The music as ows_audio's:
+;;  CallMusicPlay, then the HAL's frame of sound (hal_audioframe, as the roll
+;;  screen's tick sends it), cur_bank this chunk for the call and as it was
+;;  after.  From native code, any widths, by
 ;;  JSL; everything kept.
 ows_tick:
     PHP
@@ -1433,9 +1410,6 @@ ows_tick:
     .a8
     PHK
     PLB
-    LDA f:OWS_TICKON
-    CMP #OWS_TICKFRAME
-    BNE :+
     LDA a:HVBJOY
     BPL :+                      ; the picture: the transfers wait
     LDA a:STAT78                ; reset the counter's own read toggle
@@ -1459,9 +1433,6 @@ ows_tick:
     STA cur_bank
     JSR ows_music               ; the frame's music, or the error sound's
     JSL hal_audioframe + HALFAR
-    LDA f:OWS_TICKON
-    CMP #OWS_TICKFRAME
-    BNE @back
     JSR UpdateJoy
     CLC
     XCE
@@ -1476,7 +1447,6 @@ ows_tick:
     .i8
     SEC
     XCE
-  @back:
     PLA
     STA cur_bank
     CLC

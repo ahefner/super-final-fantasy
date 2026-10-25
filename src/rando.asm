@@ -59,7 +59,7 @@
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_newgame works.
 .import roll_begin, roll_tick, roll_end
-.import ows_choose, ows_tick, rando_winnable
+.import ows_tick
 .import hal_framedue
 
 .segment "BANK_RANDO"
@@ -595,8 +595,7 @@ rando_stir:
 ;;  starting stats come after, and touch neither page 0 nor the cache, so
 ;;  GameStart's @Begin finds the cache whole and only compares the tag.
 ;;
-;;  The title's music plays on through the flow and party creation, and,
-;;  without the flow, through the map edit screen (owscreen.asm).  Nothing
+;;  The title's music plays on through the flow and party creation.  Nothing
 ;;  calls the music driver after, and the SPC700 would hold the title's last
 ;;  note through the roll: silence then, as @Begin does.  The roll screen
 ;;  ends with no track, PrepOverworld starting the overworld's, as after a
@@ -645,63 +644,20 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
-    ;  Map edits: from New Game's flow, the ones its screen ticked
-    ;  (ng_flow), once; else the row's mode as the flags it stands for, which
-    ;  are all the game reads; and Bridge to Lefein's BRIDGE where FFR puts it.
+    ;  Map edits: the ones New Game's map edit screen ticked (ng_flow), once;
+    ;  without the flow, which only the tests start a game without, none.
+    ;  And Bridge to Lefein's BRIDGE where FFR puts it.
+    LDA #0
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     LDA f:NGF_ACTIVE
-    BEQ @rowmode
+    BEQ @owdone
     LDA #0
     STA f:NGF_ACTIVE            ; this New Game's, and no other's
     LDA f:NGF_OWEDITS
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     LDA f:NGF_OWEDITS + 1
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-    JMP @owdone                 ; checked on the flow's screen already
-  @rowmode:
-    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
-    AND #OWEDITS_FIELD
-    LSR A
-    LSR A
-    LSR A                       ; the mode, in words
-    TAX
-    LDA f:RANDOFAR + lut_OwEditsMode, X
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
-    LDA f:RANDOFAR + lut_OwEditsMode + 1, X
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-    ;  ...and, the row not Off, the map edit screen to tick them on
-    ;  (owscreen.asm), from the saved game's or those; it will not end on
-    ;  edits that cannot be won.  With the row Off, the settings as they are
-    ;  checked (rando_winnable): a world that cannot be won -- a removed
-    ;  FLOATER on the unedited map -- brings the screen up all the same,
-    ;  saying why, from the row's edits.
-    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
-    AND #OWEDITS_FIELD
-    BEQ @owoff
-    LDA #0
-    JSL ows_choose + OWSFAR
-    BRA @owdone
-  @owoff:
-    ;  No edits: the unedited map, which only a removed item can leave
-    ;  unwinnable -- the SHIP's row or the AIRSHIP's at Remove.  Checked then
-    ;  alone, the title's music ticking through it as on the screen.
-    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
-    AND #3 << (2 * ITEMROW_SHIP)
-    CMP #ITEM_REMOVE << (2 * ITEMROW_SHIP)
-    BEQ :+
-    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
-    AND #3 << (2 * ITEMROW_AIRSHIP)
-    CMP #ITEM_REMOVE << (2 * ITEMROW_AIRSHIP)
-    BNE @owdone
-:   LDA #OWS_TICKMUSIC
-    STA f:OWS_TICKON
-    JSL rando_winnable + WORLDFAR
-    PHA
-    LDA #0
-    STA f:OWS_TICKON
-    PLA
-    BCC @owdone
-    ORA #OWS_FORCED
-    JSL ows_choose + OWSFAR
   @owdone:
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     AND #OWEDIT_BRIDGELEFEIN
@@ -745,15 +701,6 @@ rando_newgame:
 BRIDGEFAR  = (CHUNK0 * $10000) + bridge_x   ; and bridge_y after it
 SHIPFAR    = (CHUNK0 * $10000) + ship_x     ; and ship_y
 .assert bridge_y = bridge_x + 1, error, "bridge_y follows bridge_x"
-
-;  Each Map edits mode's flags, in RANDO_OWEDITS; the field's fourth value,
-;  which the row never sets, none.  Open is the one FFR's presets turn on;
-;  All is every edit that only adds a way through (OWEDIT_SAFE).
-.export lut_OwEditsMode         ; for newgame.asm's flow
-lut_OwEditsMode:
-  .WORD 0, OWEDIT_OPENPROG, OWEDIT_SAFE, 0
-.assert OWEDITS_FIELD >> OWEDITS_SHIFT = 3, error, "lut_OwEditsMode: a word for each value of the field"
-.assert OWEDITS_SHIFT = 4, error, "rando_newgame turns the field into a word index with three shifts"
 
 ;;  A cold cache at @Begin -- a Continue the first after power-on, the save's
 ;;  world not in WRAM -- built as New Game builds it, the roll screen up and

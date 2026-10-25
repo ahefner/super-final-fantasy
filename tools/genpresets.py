@@ -124,9 +124,6 @@ def resolve(files, rows=None):
             raise PresetError("%s: a second preset named \"%s\"" % (f, name))
         own = {}
         for label, v in t.get("settings", {}).items():
-            if label == "Map edits" and not t.get("base"):
-                raise PresetError("%s: \"Map edits\" is only the base's; a preset's map edits are its "
-                                  "[map_edits] table" % f)
             if label not in by_label:
                 near = difflib.get_close_matches(label, labels, 3)
                 raise PresetError("%s: no setting \"%s\"%s" % (f, label,
