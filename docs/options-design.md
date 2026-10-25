@@ -1728,7 +1728,8 @@ every other preset 4.
     (`pl_vendor`): FFR stocks it unreached, and the CROWN went there.  So
     every key item lands where the party can go, the useless ones too --
     the player's choice "so long as there is room for them" (user,
-    2026-10-25).  Wherever every spot is reached -- any world with the
+    2026-10-25).  The map edit screen's Incentives line shows the counts
+    (below).  Wherever every spot is reached -- any world with the
     airship, map edits that open the north -- the count is FFR's: 640
     worlds of ordinary settings, the shuffle and edits among them, and 60
     with the FLOATER removed and edits, place as before.
@@ -1877,6 +1878,28 @@ minimap, the title and description beside the zoom.
     checked only when the SHIP or the FLOATER was removed and if so forced
     the screen up, saying why (`OWS_FORCED`); removed with the row
     (2026-10-24), the flow's screen checking on its first frame instead.
+  - **The Incentives line** (user, 2026-10-25: "feed back to the user a
+    few numbers about the locations"; built, not yet played).  Under Key
+    items Standard or Wide, a fifteenth line under the edits, "Incentives",
+    with no box: the hand reaches it, up from the first line too, and on it
+    nothing flashes, no ring shows, the zoom stays as it was, and A ticks
+    nothing.  Its description is five numbers, a label and two cells each
+    (`ows_incdesc`, `lut_OwsIncLabel`): the incentive items, as placement
+    takes them (`pl_items`); the spots the settings name, 21 or 25; those
+    the party can reach at all, holding every key item to place
+    (`pl_reachspots`'s count); the items loose for want of spots, FFR's
+    rule; and those loose besides for want of spots reached -- the removals
+    and the edits.  The reached count is the check's (`rando_winnable`
+    counts it as it goes, `ES_NREACH`); without Ship in Drydock or a
+    removal, where the screen runs no check, every spot is reached, over
+    all 8,192 combinations of the other edits, both modes and the Early
+    flags (32,768, randoref).  It is drawn afresh after every check while
+    it is up.  Ship in Drydock alone, Standard, reaches 6 of the 21.  The
+    user's mockup had sentences; the table says the same without "1
+    incentive items".  `test_owsinc` holds the numbers to
+    `randoref.incentive_counts` over 62 settings, the table's text, A, the
+    flashing and the Vanilla screen without it; eleven mutations, all
+    caught.
   - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
     built, not yet played): the backdrop, which the minimap's ocean and the
     boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked

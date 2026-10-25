@@ -56,6 +56,7 @@
 .include "variables.inc"
 .include "fftext.inc"
 .include "nescol.inc"
+.include "logic.inc"            ; LOGIC_NSTANDARD and LOGIC_NWIDE, the spots
 ;  CALL0E, for the menu chirps in bank $0E.
 .include "optcall.inc"
 ;  wAPU, for the error sound's writes, as the game's own code makes them.
@@ -94,6 +95,10 @@ FRAME_PAL = 2
 INSET_CHR = 256
 OBJ_RING  = 0
 OBJ_HAND  = 2
+;  The Incentives line, under the edits (user, 2026-10-25), under Key items
+;  Standard or Wide: no box, and its description the placement's numbers.
+OWS_INC   = OWS_SETTINGS
+INC_LABELW = DESC_W - 2         ; a label, then two cells of number
 
 ;  Where things are, in BG cells, inside the 30x26 a CRT shows.  A
 ;  setting's line: the hand two cells before its box, the name straight
@@ -145,7 +150,7 @@ OWV       = OWS_VARS
 V_FLAGS   = OWV+$00             ; 2: the boxes ticked, OWEDIT_* bits
 V_ACTIVE  = OWV+$02             ; 2: the lists they apply
 V_HLMASK  = OWV+$04             ; 2: the selected view's gates
-V_SEL     = OWV+$06             ; the selected setting, 0-13
+V_SEL     = OWV+$06             ; the selected line: an edit, 0-13, or OWS_INC
 V_PREV    = OWV+$07             ; the pad last frame
 V_T       = OWV+$09             ; frames
 V_SITE    = OWV+$0A             ; which of the view's places the zoom shows
@@ -176,7 +181,7 @@ V_VADDR   = OWV+$40             ; 2
 V_K       = OWV+$42
 V_VIEW    = OWV+$43             ; what the selection shows: lut_OwsGates's, the sites'
 V_MASK    = OWV+$44             ; 2: ows_prow's characters still to pack, a bit each
-;  OWV+$46 free (a forced start's, the Map edits row's, until 2026-10-24)
+V_NROWS   = OWV+$46             ; the column's lines: the edits, and OWS_INC's under Key items Standard or Wide
 V_WON     = OWV+$47             ; nonzero: the ticked edits can be won, as last checked
 V_WHY     = OWV+$48             ; ...and if not, rando_winnable's reason
 V_CHECK   = OWV+$49             ; nonzero: a tick since, so a check is due
@@ -185,7 +190,13 @@ V_WARNED  = OWV+$4B             ; nonzero: the warning, not a description, is up
 V_ERR     = OWV+$4C             ; the error sound's frames still to strike, or 0
 V_FLOW    = OWV+$4D             ; ows_choose's A, for its OWS_CANBACK and OWS_KEEP
 V_BACK    = OWV+$4E             ; nonzero: B ended it, not START
-.assert V_BACK < OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_INCV    = OWV+$4F             ; 5: the Incentives line's numbers, lut_OwsIncLabel's order: the
+V_INCN    = V_INCV + 0          ;   incentive items...
+V_INCS    = V_INCV + 1          ;   ...the spots the settings name...
+V_INCR    = V_INCV + 2          ;   ...those reached (rando_winnable's ES_NREACH)...
+V_INCL1   = V_INCV + 3          ;   ...the items loose for want of spots...
+V_INCL2   = V_INCV + 4          ;   ...and those loose for want of spots reached
+.assert V_INCV + 5 <= OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -282,6 +293,7 @@ ows_choose:
     LDA #1
     STA f:V_WON
     STA f:V_CHECK
+    JSR ows_incinit
     JSR ows_setup
     JSR ows_loop
     REP #$20
@@ -1171,7 +1183,12 @@ ows_sprites:
     .a8
     LDA f:OWSFAR + lut_OwsSiteN, X
     STA f:V_N
-    REP #$20
+    LDA f:V_SEL
+    CMP #OWS_INC
+    BCC :+
+    LDA #0
+    STA f:V_N                   ; the Incentives line: no rings
+:   REP #$20
     .a16
     TXA
     ASL A
@@ -1235,7 +1252,12 @@ ows_input:
     BIT #PAD_A
     BEQ @start
     PHA
-    JSR ows_toggle
+    LDA f:V_SEL
+    CMP #OWS_INC
+    BCC :+
+    PLA                         ; the Incentives line: nothing to tick
+    BRA @start
+:   JSR ows_toggle
     JSR ows_sfxsel
     LDA #1
     STA f:V_CHECK               ; winnable, still? (ows_loop asks)
@@ -1352,6 +1374,9 @@ ows_check:
     STA f:V_WON
     LDA #0
     STA f:V_CHECK
+    LDA f:V_INCS                ; every spot reached, as checkplace and
+    STA f:V_INCR                ;   test_owsinc have it without these
+    JSR ows_increfresh
     JMP ows_rewarn
   @slow:
     REP #$20
@@ -1375,10 +1400,13 @@ ows_check:
     LDA #0
     STA f:OWS_TICKON
     STA f:V_CHECK
+    LDA f:ES_NREACH             ; the spots reached, as the check found them
+    STA f:V_INCR
     CLC
     XCE
     REP #$10
     .i16
+    JSR ows_increfresh
     JMP ows_rewarn
 
 ;;  ows_tick -- from rando_yield when a vblank has begun while rando_winnable
@@ -1556,13 +1584,13 @@ ows_dir:
     BEQ @down
     LDA f:V_SEL
     BNE :+
-    LDA #OWS_SETTINGS
+    LDA f:V_NROWS
 :   DEC A
     RTS
   @down:
     LDA f:V_SEL
     INC A
-    CMP #OWS_SETTINGS
+    CMP f:V_NROWS
     BCC :+
     LDA #0
 :   RTS
@@ -1603,11 +1631,15 @@ OWEDIT_BAHAMUTDOCK_BIT  = 4
 .assert OWEDIT_BAHAMUTDOCK = 1 << OWEDIT_BAHAMUTDOCK_BIT, error, "Bahamut's dock's bit"
 .assert <OWEDIT_CARDIABRIDGE = 0, error, "ows_select reads the land bridge's byte"
 
-;;  Setting A's minimap rows queued to draw.  A8 I16.
+;;  Setting A's minimap rows queued to draw; none for the Incentives line.
+;;  A8 I16.
     .a8
     .i16
 ows_queuerows:
-    REP #$20
+    CMP #OWS_INC
+    BCC :+
+    RTS
+:   REP #$20
     .a16
     AND #$00FF
     ASL A
@@ -1642,7 +1674,16 @@ ows_queuerows:
     .i16
 ows_select:
     LDA f:V_SEL
-    CMP #OWEDIT_BAHAMUTDOCK_BIT
+    CMP #OWS_INC
+    BCC :+
+    REP #$20                    ; the Incentives line: nothing flashes, the
+    .a16                        ;   zoom stays as it was, and no rings
+    LDA #0
+    STA f:V_HLMASK
+    SEP #$20
+    .a8
+    RTS
+:   CMP #OWEDIT_BAHAMUTDOCK_BIT
     BNE @own
     LDA f:V_FLAGS + 1
     AND #>OWEDIT_CARDIABRIDGE
@@ -2263,7 +2304,14 @@ ows_drawall:
     BCC @item
     LDA #0
     STA f:V_PAL
-    LDX #.LOWORD(lut_OwsTitle)
+    LDA f:V_NROWS
+    CMP #OWS_INC + 1
+    BCC :+
+    LDX #.LOWORD(lut_OwsIncName)
+    LDY #(2 + OWS_INC) * 64 + 18 * 2 ; under the edits' names
+    LDA #NAME_W
+    JSR ows_text
+:   LDX #.LOWORD(lut_OwsTitle)
     LDY #(TITLE_ROW * 32 + TITLE_COL) * 2
     LDA #9                      ; "MAP EDITS", a line
     JSR ows_text
@@ -2380,7 +2428,10 @@ ows_desc:
     STA f:V_WARNED
     STA f:V_PAL
     LDA f:V_SEL
-    STA f:V_K
+    CMP #OWS_INC
+    BCC :+
+    JMP ows_incdesc
+:   STA f:V_K
     REP #$20
     .a16
     LDA #.LOWORD(lut_OwsDesc)
@@ -2425,6 +2476,208 @@ ows_text_n:
     LDA #1
     STA f:V_NTD
     RTS
+
+;;  The Incentives line's start: whether there is one -- under Key items
+;;  Standard or Wide -- and its numbers but the one a check finds: the
+;;  incentive items as placement takes them (pl_items, randoref.place_setup)
+;;  and the spots the settings name, every one reached until a check says
+;;  otherwise (ows_check).  A8 I16.
+OTHER_ITEMS_N = 9               ; the Other items row's, pl_items' lut_OtherItems
+    .a8
+    .i16
+ows_incinit:
+    LDA #OWS_SETTINGS
+    STA f:V_NROWS
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    LDX #LOGIC_NSTANDARD
+    CMP #KEYITEMS_STANDARD
+    BEQ @spots
+    LDX #LOGIC_NWIDE
+    CMP #KEYITEMS_WIDE
+    BEQ @spots
+    RTS                         ; Key items Vanilla: no line
+  @spots:
+    REP #$20
+    .a16
+    TXA
+    SEP #$20
+    .a8
+    STA f:V_INCS
+    STA f:V_INCR
+    LDA #OWS_INC + 1
+    STA f:V_NROWS
+    LDA #0
+    STA f:V_INCN
+    LDX #$0000                  ; the row
+  @row:
+    JSR ows_rowval
+    CMP #ITEM_REMOVE
+    BNE :+
+    CPX #ITEMROW_AIRSHIP + 1
+    BCC @next                   ; the SHIP or the FLOATER removed: nowhere
+:   CMP #ITEM_MODES
+    BCS @inc                    ; a value this build does not know, as pl_items
+    CMP #ITEM_INCENTIVE
+    BNE @next
+  @inc:
+    LDA f:V_INCN
+    INC A
+    STA f:V_INCN
+  @next:
+    INX
+    CPX #ITEMROW_OTHER
+    BCC @row
+    JSR ows_rowval              ; Other items: all nine, or none
+    CMP #ITEM_LOOSE
+    BEQ :+
+    LDA f:V_INCN
+    CLC
+    ADC #OTHER_ITEMS_N
+    STA f:V_INCN
+:   REP #$20                    ; ...and the gear rows', a bit each
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_GEAR - RANDO_SAVE)
+    AND #(1 << GEARROWS) - 1
+    LDX #$0000
+  @gear:
+    LSR A
+    BCC :+
+    INX
+:   CMP #0
+    BNE @gear
+    TXA
+    SEP #$20
+    .a8
+    CLC
+    ADC f:V_INCN
+    STA f:V_INCN
+    RTS
+
+;;  Item row X's value (RANDO_ITEMS, two bits a row).  A8 I16; X kept.
+    .a8
+    .i16
+ows_rowval:
+    PHX
+    REP #$20
+    .a16
+    TXA
+    LSR A
+    LSR A
+    TAX                         ; its byte...
+    LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE), X
+    PLX
+    PHX
+    PHA
+    TXA
+    AND #$0003
+    TAX                         ; ...and its place in it
+    PLA
+  @shift:
+    DEX
+    BMI @have
+    LSR A
+    LSR A
+    BRA @shift
+  @have:
+    AND #$0003
+    PLX
+    SEP #$20
+    .a8
+    RTS
+
+;;  The Incentives line's description (user, 2026-10-25: "a few numbers
+;;  about the locations"): each line a label and a number of two cells
+;;  (lut_OwsIncLabel) -- the incentive items, the spots the settings name,
+;;  those the party can reach at all, the items loose for want of spots
+;;  (FFR's rule, the incentives past the spots) and those loose besides for
+;;  want of spots reached (pl_reachspots: map edits and removals).  A8 I16.
+    .a8
+    .i16
+ows_incdesc:
+    LDA #0
+    STA f:V_WARNED
+    STA f:V_PAL
+    LDA f:V_INCN                ; loose for want of spots: past them, or none
+    SEC
+    SBC f:V_INCS
+    BCS :+
+    LDA #0
+:   STA f:V_INCL1
+    LDA f:V_INCN                ; ...for want of spots reached, in all...
+    SEC
+    SBC f:V_INCR
+    BCS :+
+    LDA #0
+:   SEC
+    SBC f:V_INCL1               ; ...less those
+    STA f:V_INCL2
+    LDX #.LOWORD(lut_OwsIncLabel)
+    LDY #(DESC_ROW * 32 + DESC_COL) * 2
+    LDA #0
+    STA f:V_K
+  @line:
+    PHY                         ; the line's first cell
+    LDA #INC_LABELW
+    JSR ows_text                ; X past the label, Y past its cells
+    PHX
+    REP #$20
+    .a16
+    LDA f:V_K
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:V_INCV, X             ; the number...
+    TYX
+    LDY #$0000
+  @ten:
+    CMP #10
+    BCC @tens
+    SBC #10                     ; (C set)
+    INY
+    BRA @ten
+  @tens:
+    PHA                         ; ...its ones...
+    TYA
+    BEQ :+
+    ORA #$80                    ; ...its tens, a digit or a space
+    BRA :++
+:   LDA #$FF
+:   JSR ows_putch
+    PLA
+    ORA #$80
+    JSR ows_putch
+    PLX                         ; the labels again
+    REP #$20
+    .a16
+    PLA
+    CLC
+    ADC #64                     ; the next line
+    TAY
+    SEP #$20
+    .a8
+    LDA f:V_K
+    INC A
+    STA f:V_K
+    CMP #5
+    BCC @line
+    LDA #1
+    STA f:V_NTD
+    RTS
+.assert DESC_N = 5, error, "the Incentives line's five numbers fill the description"
+
+;;  After a check: the Incentives line's numbers afresh, if they are up.
+;;  A8 I16.
+    .a8
+    .i16
+ows_increfresh:
+    LDA f:V_SEL
+    CMP #OWS_INC
+    BCC :+
+    LDA f:V_WARNED
+    BNE :+
+    JMP ows_incdesc
+:   RTS
 
 ;;  Setting V_K's line: its box and its name.  A8 I16.
     .a8
@@ -2532,9 +2785,9 @@ lut_OwsBit16:
   .WORD ((r) * 32 + (c)) * 2
 .endmacro
 lut_OwsCell:
-  .repeat OWS_SETTINGS, i
+  .repeat OWS_SETTINGS + 1, i
     CELL 2 + i, 17              ; the hand over the minimap's last two columns
-  .endrep
+  .endrep                       ; (the last, OWS_INC's: its line has no box)
 
 ;  OBJ characters: the ring's four, then the hand's.
 lut_OwsObjCell:
@@ -2591,3 +2844,13 @@ lut_OwsName:
 
 lut_OwsTitle:
   FFPAD "MAP EDITS", 9
+lut_OwsIncName:
+  FFPAD "Incentives", NAME_W
+;  The Incentives line's description: each line a label and its number, in
+;  V_INCV's order.
+lut_OwsIncLabel:
+  FFPAD "Incentive items", INC_LABELW
+  FFPAD "Spots for them", INC_LABELW
+  FFPAD "Spots reachable", INC_LABELW
+  FFPAD "Loose, too many", INC_LABELW
+  FFPAD "Loose, unreached", INC_LABELW

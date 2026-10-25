@@ -1144,6 +1144,108 @@ def test_goal():
           counts, [(15, 21, 20, False), (18, 25, 20, False)])
 
 
+def owsinc_cart(job):
+    """The map edit screen up, its first check done: (lines in the column,
+    the Incentives line's items, spots, spots reached)."""
+    keyitems, items3, gear2, early, owedits = job
+    bus, cpu = machine()
+    bus.frames()
+    s = bus.sram
+    s[K["OPT_NG_KEYITEMS"] - 0x6000] = keyitems
+    s[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["OPT_NG_EARLY"] - 0x6000] = early
+    bus.io[0x4218] = bus.io[0x4219] = 0
+    mapscreen_up(bus, cpu, start=owedits, a=K["OWS_KEEP"])
+    V, UJ = rw("OWS_VARS"), SYM["UpdateJoy"]
+    for _ in range(600):
+        cpu.step()
+        while cpu.pc not in (UJ, 0xFFFE):
+            cpu.step()
+        if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
+            break
+    return (bus.wram[V + 0x46],) + tuple(bus.wram[V + 0x4F:V + 0x52])
+
+
+def test_owsinc():
+    """The map edit screen's Incentives line (user, 2026-10-25: "feed back
+    to the user a few numbers about the locations"): under Key items
+    Standard or Wide, a fifteenth line under the edits, no box, whose
+    description gives the incentive items, the spots the settings name,
+    those the party can reach at all, and the items loose for want of each
+    -- placement's own counts (pl_reachspots), as randoref.incentive_counts
+    has them, with every removal and edit that changes them.  The hand
+    reaches it from the first line up; on it nothing flashes and A ticks
+    nothing.  Under Key items Vanilla there is no such line."""
+    rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x29, 0x96, 0x15]]
+    jobs = [(ki, r, g, 0x0F, f) for ki in (1, 2) for r in rows for g in ([0x81, 0], [0xFF, 0x01])
+            for f in (0, 0x1341, 0x2000)]
+    jobs += [(0, [0x2C, 0, 0], [0x81, 0], 0x0F, 0), (2, [0x2C, 0, 0], [0, 0], 0x00, 0x0BFF)]
+    got = pmap(owsinc_cart, jobs)
+    want = [(14,) if ki == 0 else (15,) + R.incentive_counts(ki, r, g, e, f) for ki, r, g, e, f in jobs]
+    check("the Incentives line's numbers: randoref's, every setting tried",
+          [(j, c, w) for j, c, w in zip(jobs, got, want) if c[:len(w)] != w][:3], [])
+    check("...reached spots short of the settings' among them, and incentives past them",
+          (any(w[3] < w[2] for w in want if len(w) > 1), any(w[1] > w[2] for w in want if len(w) > 1)), (True, True))
+
+    #  The line itself, the hand up from the first: the FLOATER removed and
+    #  every gear row an incentive -- 27 items, 21 spots, 15 reached: 6 loose
+    #  for want of spots, 6 more for want of spots reached.
+    UJ, V = SYM["UpdateJoy"], rw("OWS_VARS")
+    def up(keyitems, items3, gear2, presses):
+        bus, cpu = machine()
+        bus.frames()
+        s = bus.sram
+        s[K["OPT_NG_KEYITEMS"] - 0x6000] = keyitems
+        s[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
+        s[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
+        s[K["OPT_NG_EARLY"] - 0x6000] = 0x0F
+        def pad(nes):
+            bus.io[0x4218] = nes & 0x80
+            bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+        pad(0)
+        mapscreen_up(bus, cpu)
+        checks = 0
+        for p_ in list(presses) + [0] * 3:
+            for _ in range(600):
+                if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
+                    break
+                pad(0)
+                cpu.step()
+                while cpu.pc not in (UJ, 0xFFFE):
+                    checks += cpu.pbr == WORLD_BANK and cpu.pc == SYM["rando_winnable"]
+                    cpu.step()
+            pad(p_)
+            cpu.step()
+            while cpu.pc not in (UJ, 0xFFFE):
+                checks += cpu.pbr == WORLD_BANK and cpu.pc == SYM["rando_winnable"]
+                cpu.step()
+        nt = rw("OWS_NT3")
+        text = lambda r, c, w: "".join(_decode(bus.wram[nt + 2 * (32 * r + c + i)]) or "?" for i in range(w))
+        text.raw = lambda r, c, w: [bus.wram[nt + 2 * (32 * r + c + i)] for i in range(w)]
+        return bus, text, checks
+    bus, text, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0x08, 0])
+    check("Key items Standard: up from the first line, the Incentives line, no box, under the edits",
+          (bus.wram[V + 6], text.raw(16, 17, 1), text(16, 18, 13)), (14, [0], "Incentives   "))
+    check("...its description the numbers, each a label and two cells",
+          [text(20 + k, 11, 20) for k in range(5)],
+          ["Incentive items   27", "Spots for them    21", "Spots reachable   15",
+           "Loose, too many    6", "Loose, unreached   6"])
+    check("...nothing flashing on the minimap", bus.wram[V + 4] | bus.wram[V + 5] << 8, 0)
+    bus, text, _ = up(1, [0x20, 0, 0], [0x81, 0x00], [0x08, 0])
+    check("...the BRIDGE free, every spot reached and room for all 21: none loose",
+          [text(20 + k, 11, 20) for k in range(5)],
+          ["Incentive items   21", "Spots for them    21", "Spots reachable   21",
+           "Loose, too many    0", "Loose, unreached   0"])
+    flags = bus.wram[V] | bus.wram[V + 1] << 8
+    bus2, text2, checks = up(1, [0x2C, 0, 0], [0x81, 0x00], [0x08, 0, 0x80, 0, 0x80, 0])
+    check("...A on it ticks nothing and asks no check (the first frame's one alone)",
+          (bus2.wram[V] | bus2.wram[V + 1] << 8, checks), (0, 1))
+    bus, text, _ = up(0, [0x00, 0, 0], [0x81, 0x00], [0x08, 0])
+    check("Key items Vanilla: no Incentives line, up from the first line Ship Drydock",
+          (bus.wram[V + 6], text.raw(16, 17, 14)), (13, [0] * 14))
+
+
 def test_rando_early():
     """FFR's Early flags.  Early King, Sarda and Sage waive what each of those
     NPCs waits for in rando_talk's table, and nothing else; Early Ordeals is a
@@ -14839,7 +14941,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,

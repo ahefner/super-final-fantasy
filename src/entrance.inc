@@ -71,7 +71,9 @@ esOWE   = .LOWORD(ES_VARS) + $60    ; RANDO_OWEDITS, the map edits the logic is 
 esGONE  = .LOWORD(ES_VARS) + $62    ; 4: rando_winnable's: the removed items' bits...
 esHAVE  = .LOWORD(ES_VARS) + $66    ; 4: ...what is held...
 esPLCD  = .LOWORD(ES_VARS) + $6A    ; ...nonzero under Key items Standard or Wide
-.assert esPLCD + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
+esNREACH = .LOWORD(ES_NREACH)       ; ...and the incentive spots reached
+.assert esNREACH = .LOWORD(ES_VARS) + $6C, error, "ES_NREACH follows esPLCD"
+.assert esNREACH + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
 
 ePMAP   = .LOWORD(ES_PMAP)
 ePFLOOR = .LOWORD(ES_PFLOOR)
@@ -2136,7 +2138,60 @@ rando_winnable:
 :   LDA a:esCHG
     BEQ :+
     JMP @sweep
-:   ;  Chaos: one of its masks held, the Goal's orbs counted (goal.inc),
+:   ;  The incentive spots reached, for the map edit screen's Incentives
+    ;  line (user, 2026-10-25): under Key items Standard or Wide, the pool
+    ;  places of the mode's spots whose masks are held -- placement's own
+    ;  count, pl_reachspots, which holds what this holds.
+    STZ a:esNREACH
+    LDA a:esPLCD
+    BEQ @counted
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    AND #$00FF
+    LDY #LOGIC_STANDARD
+    CMP #KEYITEMS_STANDARD
+    BEQ :+
+    LDY #LOGIC_WIDE
+:   STY a:esBIT                 ; the mode's spot flag
+    STZ a:esLOC
+  @spot:
+    JSL rando_yieldfar + RANDOFAR   ; the map edit screen's music, if due
+    LDX a:esLOC
+    LDA f:LOGICFAR + lut_LogicFlags, X
+    AND a:esBIT
+    AND #$00FF
+    BEQ @nextspot
+    TXA
+    ASL A
+    TAX
+    LDA a:eMOFF + 2, X
+    STA a:esLE
+    LDA a:eMOFF, X
+  @smask:
+    CMP a:esLE
+    BCS @nextspot
+    TAX
+    LDA a:esHAVE
+    EOR #$FFFF
+    AND a:eMASK, X
+    BNE @snext
+    LDA a:esHAVE + 2
+    EOR #$FFFF
+    AND a:eMASK + 2, X
+    BNE @snext
+    INC a:esNREACH
+    BRA @nextspot
+  @snext:
+    TXA
+    CLC
+    ADC #4
+    BRA @smask
+  @nextspot:
+    INC a:esLOC
+    LDA a:esLOC
+    CMP #LOGIC_POOL
+    BCC @spot
+  @counted:
+    ;  Chaos: one of its masks held, the Goal's orbs counted (goal.inc),
     ;  as placement's own test has it.
     LDA a:esHAVE + 2
     GOAL_HELD WORLDFAR

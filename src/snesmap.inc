@@ -2363,6 +2363,7 @@ ES_GENTS        = RP_BASE+$2D40   ; ES_GROUPMAX x 4: its entrances
 ES_GROUPMAX     = 64
 ES_TMPMAX       = 32
 ES_VARS         = RP_BASE+$2F80   ; the words below
+ES_NREACH       = ES_VARS+$6C     ; rando_winnable's: the incentive spots reached (owscreen's Incentives line)
 ES_WORDSEND     = RP_BASE+$3000
 RP_CHAOS        = RP_BASE+$2B70   ; Chaos's masks, RP_CHAOSMAX of them...
 RP_NCHAOS       = RP_BASE+$2B88   ; ...and how many, a word

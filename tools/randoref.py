@@ -1804,6 +1804,21 @@ def winnable(keyitems, items3, early, owedits, goal=GOAL_4ORBS):
     return False, WIN_AIRSHIP if not owned & _BIT_AIRSHIP and floater not in gone else 0
 
 
+def incentive_counts(keyitems, items3, gear2, early, owedits):
+    """The map edit screen's Incentives line (owscreen.asm's ows_incdesc):
+    the incentive items, the spots the settings name, and those the party
+    reaches holding every key item to place, on the vanilla wiring under the
+    edits (rando_winnable's ES_NREACH, placement's pl_reachspots)."""
+    free, items, inc, inclocs, _ = place_setup(keyitems, items3, gear2, early)
+    masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)[0]
+    full = free
+    for i in items:
+        if i < PLACE_KEYS:
+            full |= _BIT[_NAME[i]]
+    reach = place_accessible(masks, {}, full)[0]
+    return len(inc), len(inclocs), len(inclocs & reach)
+
+
 def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS):
     """rando_place's whole choice: (the Map shuffle mode the game keeps, the
     attempt k, the placement or None, the ship's dock).  The shuffle when it
