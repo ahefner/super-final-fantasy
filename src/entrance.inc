@@ -2136,7 +2136,10 @@ rando_winnable:
 :   LDA a:esCHG
     BEQ :+
     JMP @sweep
-:   ;  Chaos: one of its masks held.
+:   ;  Chaos: one of its masks held, the Goal's orbs counted (goal.inc),
+    ;  as placement's own test has it.
+    LDA a:esHAVE + 2
+    GOAL_HELD WORLDFAR
     LDX #$0000
     STZ a:esK
   @chaos:
@@ -2146,12 +2149,24 @@ rando_winnable:
     LDA a:esHAVE
     EOR #$FFFF
     AND a:eCHAOS, X
-    BNE :+
-    LDA a:esHAVE + 2
-    EOR #$FFFF
-    AND a:eCHAOS + 2, X
+    BNE @next
+    LDA a:eCHAOS + 2, X
+    AND #LOGIC_ORBS_HI
+    CMP #LOGIC_ORBS_HI
+    BNE @asis                   ; not through the Black Orb: as it is
+    CPY #0
+    BEQ @next                   ; through it, short of the Goal's orbs
+    LDA a:eCHAOS + 2, X
+    AND #.LOWORD(~LOGIC_ORBS_HI)
+    BRA @rest
+  @asis:
+    LDA a:eCHAOS + 2, X
+  @rest:
+    ORA a:esHAVE + 2            ; its high word less what is held
+    EOR a:esHAVE + 2
     BEQ @won
-:   INX
+  @next:
+    INX
     INX
     INX
     INX
@@ -2191,6 +2206,8 @@ rando_winnable:
     PLB
     SEC
     RTL
+
+    GOAL_TABLE                  ; GOAL_HELD's, in this chunk
 
 ;;  Row X's value (RANDO_ITEMS, two bits a row).  A8, I16; X kept.
 es_rowval:

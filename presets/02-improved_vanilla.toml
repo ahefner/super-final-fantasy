@@ -92,6 +92,7 @@ bugfixes, and double gold and XP. Nothing is randomized.
 # Key items
 "Key items" = "Vanilla"
 "Map shuffle" = "Off"
+"Goal" = "4 orbs"
 "SHIP" = "Incentive"
 "AIRSHIP" = "Incentive"
 "BRIDGE" = "Incentive"

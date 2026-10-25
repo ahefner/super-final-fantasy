@@ -20,7 +20,11 @@ built on the map the edits make (and the wiring), the BRIDGE where Bridge
 to Lefein puts it, every ship at Gaia's drydock under Ship in Drydock.  It
 needs worldgraph/, which is why it is not part of test_options.py.
 
-    pypy3 tools/checkplace.py [seeds] [shuffled seeds] [edited seeds]
+    pypy3 tools/checkplace.py [seeds] [shuffled seeds] [edited seeds] [goal seeds]
+
+Last, the Goal (RANDO_GOAL) on the unedited map: each removal under every
+goal, the Black Orb asking the Goal's orbs on the graph, beside the map edit
+screen's answer, which should say winnable exactly when a world is placed.
 """
 import os
 import sys
@@ -40,7 +44,8 @@ import placement  # noqa: E402
 import owedits as O  # noqa: E402
 import romdata as rd  # noqa: E402
 import wiring  # noqa: E402
-from model import BIT  # noqa: E402
+from model import BIT, ORBS  # noqa: E402
+from collections import deque  # noqa: E402
 
 SHIP_ITEM = [n for n, _ in R.PLACE_ITEMS].index("SHIP")
 
@@ -108,17 +113,39 @@ def loose_spheres(cfg, out):
     return [sph[c] for c, i in placed.items() if i < R.PLACE_KEYS and c not in inclocs]
 
 
-def winnable(g, adj, free):
+def winnable(g, adj, free, goal=0):
+    """Chaos reached on the graph from what the party starts with.  Under a
+    Goal (RANDO_GOAL, the orbs waived) the Black Orb and the tile beneath it
+    -- the graph's only gates of all four orbs -- open once lit + waived >=
+    4, as the game's opt_orbgoal has it."""
     owned = free
     while True:
-        seen = analysis.reach(g, owned, adj)
+        held = bin(owned & ORBS).count("1") + goal >= 4
+        seen = reach(g, owned, adj, held)
         gained = 0
         for loc in g.locations:
-            if not (loc.req & ~owned) and loc.reward in BIT and any(n in seen for n in loc.nodes):
+            if not (gate(loc.req, held) & ~owned) and loc.reward in BIT and any(n in seen for n in loc.nodes):
                 gained |= BIT[loc.reward]
         if not gained & ~owned:
             return bool(owned & BIT["CHAOS"])
         owned |= gained
+
+
+def gate(r, held):
+    return r & ~ORBS if held and r & ORBS == ORBS else r
+
+
+def reach(g, owned, adj, held):
+    """analysis.reach, the four orbs' gates open when the Goal's are held."""
+    seen = {g.start}
+    q = deque([g.start])
+    while q:
+        n = q.popleft()
+        for d, r in adj[n]:
+            if d not in seen and not (gate(r, held) & ~owned):
+                seen.add(d)
+                q.append(d)
+    return seen
 
 
 def main():
@@ -202,6 +229,7 @@ def main():
                 dict(sorted(Counter(k + 1 for k in tries.elements()).items())),
                 ", ".join("%s %d" % kv for kv in moored.most_common())))
     lost += check_edited(int(sys.argv[3]) if len(sys.argv) > 3 else max(seeds // 10, 4))
+    lost += check_goals(int(sys.argv[4]) if len(sys.argv) > 4 else max(seeds // 10, 4), get)
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
 
@@ -258,6 +286,56 @@ def check_edited(seeds):
                         lost += 1
         print("edits $%04X: %d winnable, %d lost, %d with no world" % (
             f, stats["won"], stats["lost"], stats["no world"]))
+    return lost
+
+
+#  The Goal, on the unedited map: each removal and none, every goal, every
+#  seed's placement played on the graph with the Black Orb asking the
+#  Goal's orbs -- and beside it the map edit screen's answer
+#  (randoref.winnable), which should say winnable exactly when a world is
+#  placed.
+GOAL_CONFIGS = {
+    "beginner":  (1, [0x20, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "nofloater": (1, [0x2C, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "nofloat-w": (2, [0x2C, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "noship":    (1, [0x23, 0x00, 0x00], [0x81, 0x00], 0x0F),
+    "neither":   (1, [0x2F, 0x00, 0x00], [0x81, 0x00], 0x0F),
+}
+
+
+def check_goals(seeds, get):
+    lost = 0
+    for name, cfg in GOAL_CONFIGS.items():
+        early = cfg[3]
+        free = R.place_setup(*cfg)[0]
+        for goal in range(5):
+            says = R.winnable(cfg[0], cfg[1], early, 0, goal)[0]
+            stats = Counter()
+            for seed in range(1, seeds + 1):
+                out = R.new_world(seed, *cfg, R.ENTRANCES_OFF, 0, goal)[2]
+                if out is None:
+                    stats["unplaced"] += 1
+                    continue
+                g0, idx0, _, _ = get(early, 0)
+                won = True
+                for dock in sorted(ship_docks(g0, idx0, out)):
+                    g, idx, adj, vanilla = get(early, dock)
+                    for k in idx[:248]:
+                        g.locations[k].reward = None
+                    for i, c in enumerate(out):
+                        if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
+                            g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
+                    if not winnable(g, adj, free, goal):
+                        print("  goal %d %s seed %d: Chaos out of reach" % (goal, name, seed))
+                        won = False
+                    for k, r in vanilla.items():
+                        g.locations[k].reward = r
+                stats["won" if won else "lost"] += 1
+                lost += not won
+            agree = "" if stats["unplaced"] == (0 if says else seeds) else \
+                "  <- the screen says %s" % ("winnable" if says else "unwinnable")
+            print("goal %d %-10s %d seeds: %d winnable, %d lost, %d with no placement%s" % (
+                goal, name, seeds, stats["won"], stats["lost"], stats["unplaced"], agree))
     return lost
 
 

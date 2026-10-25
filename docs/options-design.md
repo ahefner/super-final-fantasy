@@ -1563,6 +1563,7 @@ and shown by the save view with them:
 
     Key items        Vanilla / Standard / Wide
     Map shuffle      Off / Entrances / Floors     (below)
+    Goal             4 orbs / 3 / 2 / 1 / 0 orbs  (below; built 2026-10-25)
     Map edits        Off / Open / All             (below; removed 2026-10-24)
     SHIP .. ROD      Incentive / Loose / Free     the eleven Free rows; the
                      (SHIP, AIRSHIP: ... / Remove) SHIP's and AIRSHIP's go on
@@ -1679,6 +1680,81 @@ each under the floor it is reached from -- FFR's location name beside the
 map's where it says more, which of Cardia's six, which floor holds Lich --
 and which floors have a way back out.  The full dump shows it too whenever
 Map shuffle is on.  `test_es_tree` holds it to the shuffle's own roots.
+
+### Goal
+
+**Built 2026-10-25; not yet played.**  How many of the four orbs the Black
+Orb waits for (user, 2026-10-24: a Goal selector, 4 orbs by default, 0-4,
+to which FFR's Shard Hunt may later add counts of shards): FFR's Orbs
+Required in its Any mode -- any of the orbs, not chosen ones; its Specific
+mode and spoiler lines are not ported.  A row after Map shuffle, one byte at
+the end of the new-game settings (`RANDO_GOAL`, `OPT_NG_GOAL`), holding the
+orbs waived, so zero is the game's four; GOAL_ORBS is the bar, lit + waived.
+Chaos Rush takes 0 orbs, FFR's `OrbsRequiredCount` 0 (ffr-presets.md 3.5);
+every other preset 4.
+
+  - **The Black Orb** (`orbgoal.patch`): its four-way AND becomes a call to
+    `opt_orbgoal`, which counts the orbs lit, adds the Goal's waived and
+    asks for 4, byte-neutral.  Its lines are the game's: "The ORBS now
+    cover" reads well enough at 2 or 3; FFR rewords it for 1 and 0 ("The ORB
+    now covers", "You now approach") -- not done.
+  - **The tile beneath it** (`orbportal.patch`): TP_SPEC_4ORBS's entry in
+    `lut_SMMoveJmpTbl` goes to `SMMove_HaveSpecialItem`, the fanfare and on,
+    as FFR's `Remove4OrbRequirementForToFRPortal` does, unconditionally:
+    the orb stands on the one such tile in the game (Temple of Fiends,
+    (20, 17); every map searched) until it gives way.
+  - **The logic, both checks** (`goal.inc`; user, 2026-10-24: the flagset's
+    validation must follow the goal, or removing the airship without the
+    edits that reach the north "claim[s] the flagset is unwinnable ...
+    (which it is)" a bug).  Placement's last test (`pl_attempt`) and the map
+    edit screen's (`rando_winnable`) read the same Chaos masks, and both now
+    count the orbs: the orbs come into those masks all four at once, only
+    through the Black Orb and its tile (worldgraph's GATE_ROUTINE and
+    GATE_TILE), so a mask holding all four is met with its orbs aside once
+    lit + waived >= 4, and one without them -- a way round the orb a shuffle
+    may make -- as it is.  At 4 orbs that is the old test exactly.  Places
+    beyond the Black Orb still count all four in their own masks: a little
+    strict, never wrong.  `randoref.chaos_won` is the reference.
+  - **Placement in a smaller world.**  With the goal smaller the world
+    needed can be too: the FLOATER removed with no map edit reaches Lich
+    and Kary only, and the screen now says that world can be won at 2 orbs.
+    FFR's placement could not place it -- every incentive needs a spot the
+    party reaches, and only 15 of Standard's 21 are (18 of Wide's 25) -- so
+    no seed built (0 of 6, randoref).  Its rule sends an incentive loose
+    while there are more of them than spots; the spots counted now are
+    those the party can reach at all, holding every key item to place, the
+    screen's own assumption (`pl_reachspots`, `randoref._attempt`), and the
+    caravan is stocked with an incentive only when it is among them
+    (`pl_vendor`): FFR stocks it unreached, and the CROWN went there.  So
+    every key item lands where the party can go, the useless ones too --
+    the player's choice "so long as there is room for them" (user,
+    2026-10-25).  Wherever every spot is reached -- any world with the
+    airship, map edits that open the north -- the count is FFR's: 640
+    worlds of ordinary settings, the shuffle and edits among them, and 60
+    with the FLOATER removed and edits, place as before.
+  - **Still open: the tiniest worlds.**  The SHIP removed and 0 orbs -- the
+    world is Coneria, Pravoka and the Temple -- the screen says winnable,
+    but FFR's step-by-step placement stalls there and most seeds place
+    nothing (1-2 of 6), and New Game then leaves the key items at home,
+    which without the ship cannot be won.  A safety net (New Game saying so
+    and going back to the seed screen) was proposed, not yet decided.
+  - **The save.**  `RANDO_GOAL` is the settings' last byte, so `RANDO_ESK`,
+    `RANDO_SHIPDOCK` and `RANDO_OWEDITS` moved up one: SAVEVER 1, older
+    saves do not load (user, 2026-10-25: not a concern for a major feature,
+    only for a fix mid-playthrough).  In the option page the Goal took its
+    last spare byte, `$DF`, inside the block's sum: an older block with zero
+    there still sums and reads as 4 orbs; `OPT_FORMAT` stays.
+
+`test_goal`: the row and its readouts, the byte New Game copies; the Black
+Orb under every goal and every set of orbs lit, 80 cases, giving way, hidden,
+the treasure sound, exactly when lit + waived >= 4; the tile's table entry;
+`rando_winnable` against `randoref.winnable` under every goal over removals,
+edits and Early flags, a smaller goal never less winnable; the user's case on
+the map edit screen, red at 3 orbs and blue at 2; and New Game's placement,
+the cart's randoref's, a world at 2 orbs every seed and none at 3, every key
+item reachable and the caravan unstocked.  `tools/checkplace.py`'s new last
+part plays each goal's placements on the world graph, the Black Orb asking
+the Goal's orbs there, beside the screen's answer.
 
 ### Map edits
 

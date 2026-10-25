@@ -254,7 +254,8 @@ HARM.
   - **Unlocked ToFR** (`ChaosRush`) and zero orbs required
     (`OrbsRequiredCount`).  The locked doors in ToFR Revisited open, so with
     the Short ToFR, Chaos is there as soon as the party can survive him.
-    Both are cheap; the Short ToFR waits for map edits.
+    Zero orbs is the Goal row's (built 2026-10-25, options-design.md "Goal"),
+    which Chaos Rush now sets; the unlocked ToFR is still to come.
   - **A forced random party**: all four slots rolled, no Nones, and FFR's
     slot allow-lists.  This is a party-creation feature.
   - Red Mage hit growth (`RedMageHitBuff`), which is minor.

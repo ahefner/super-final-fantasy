@@ -755,10 +755,12 @@ def test_rando_remove():
 
 
 def winnable_cart(job):
-    """rando_winnable on a save with these settings: (winnable, reason)."""
-    keyitems, items3, early, owedits = job
+    """rando_winnable on a save with these settings: (winnable, reason).  A
+    fifth member, the Goal."""
+    keyitems, items3, early, owedits, *goal = job
     bus, cpu = machine()
     s = bus.sram
+    s[K["RANDO_GOAL"] - 0x6000] = goal[0] if goal else 0
     s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
     s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
     s[K["RANDO_EARLY"] - 0x6000] = early
@@ -999,6 +1001,147 @@ def test_winnable():
     check("...North Docks ticked: checked whole, blue, its description where the warning was",
           (text_at(bus, len(warn0)), bus.wram[V] | bus.wram[V + 1] << 8, bus.wram[V + 0x47],
            bus.cgram[0] | bus.cgram[1] << 8), (docks, 1 << 2, 1, BLUE))
+
+
+def test_goal():
+    """The Goal (user, 2026-10-24): the orbs the Black Orb waits for, 4 down
+    to 0, any of them -- FFR's Orbs Required, Any.  The row, after Map
+    shuffle, its readouts and its byte, which New Game copies into the save.
+    The Black Orb gives way, for every orb lit or not under every goal,
+    exactly when lit + waived >= 4; the tile beneath it no longer asks.  And
+    the logic, both its checks (goal.inc): rando_winnable gives
+    randoref.winnable's answer under every goal, and the user's case comes
+    out as it should -- the FLOATER removed, no map edit, so only Lich and
+    Kary reachable: the map edit screen red under 4 or 3 orbs, blue under 2,
+    and New Game placing a world, randoref's, every key item reachable."""
+    #  The row and its readouts.
+    goal = optrow("Goal")
+    check("the Goal row: after Map shuffle", goal, optrow("Map shuffle") + 1)
+    table = rom_at("lut_OptRows")
+    kind, scalar = ROMDATA[table + goal * 32], ROMDATA[table + goal * 32 + 1]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    base = (bank_of("lut_ValTabLo") & 0x1F) * 0x10000
+    at = base + (tbl("lut_ValTabLo", scalar) | tbl("lut_ValTabHi", scalar) << 8)
+    width = 1 << tbl("lut_ValShift", scalar)
+    reads = [" ".join("".join(_decode(b) or "?" for b in ROMDATA[at + i * width:][:width]).split())
+             for i in range(tbl("lut_ValCount", scalar))]
+    check("...a value row, its readouts the orbs, four first", (kind, reads),
+          (2, ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"]))
+    check("...its byte the settings' last, the Goal's, all of it",
+          (tbl("lut_ValOff", scalar), tbl("lut_ValBit", scalar), tbl("lut_ValMask", scalar)),
+          (K["OPT_NG_GOAL"] & 0xFF, 0, 0xFF))
+    check("...the last of the settings New Game copies into the save",
+          (K["OPT_NG_GOAL"] - K["OPT_NG"], K["RANDO_GOAL"] - K["RANDO_SAVE"]),
+          (K["OPT_NG_SIZE"] - 1, K["RANDO_SETTINGS_SIZE"] - 1))
+    bus, cpu = machine()
+    bus.sram[K["OPT_NG_GOAL"] - 0x6000] = K["GOAL_2ORBS"]
+    bus.sram[K["RANDO_GOAL"] - 0x6000] = 0x77
+    newgame_pressing(bus, cpu)
+    check("...which New Game copies", bus.sram[K["RANDO_GOAL"] - 0x6000], K["GOAL_2ORBS"])
+
+    #  The Black Orb, every orb lit or not under every goal.
+    ORBS = [K[n] - 0x6000 for n in ("orb_fire", "orb_water", "orb_air", "orb_earth")]
+    GF, SLOT = K["game_flags"] - 0x6000 + K["OBJID_BLACKORB"], K["mapobj_id"] - 0x6000 + 0x20
+    bad, opened = [], 0
+    for g in range(K["GOAL_MODES"]):
+        for lit in range(16):
+            bus, cpu = machine()
+            s = bus.sram
+            for i, a in enumerate(ORBS):
+                s[a] = lit >> i & 1
+            s[K["RANDO_GOAL"] - 0x6000] = g
+            s[GF], s[SLOT] = 1, K["OBJID_BLACKORB"]
+            bus.wram[0x11], bus.wram[0x12], bus.wram[0x7D] = 0x21, 0x22, 0     # tmp+1, tmp+2, dlgsfx
+            cpu.dbr = BANK_0E
+            cpu.x = 0x20
+            cpu.run(BANK_0E, SYM["Talk_BlackOrb"])
+            gives = bin(lit).count("1") + g >= 4
+            opened += gives
+            got = (cpu.a & 0xFF, s[GF] & 1, s[SLOT], bus.wram[0x7D])
+            want = (0x21, 0, 0, 2) if gives else (0x22, 1, K["OBJID_BLACKORB"], 0)
+            if got != want:
+                bad.append((g, lit, got))
+    check("the Black Orb: gives way, hidden, the treasure sound, exactly when lit + waived >= 4", bad[:4], [])
+    check("...both ways among the 80", 0 < opened < 80, True)
+    fixed = 1 + 0x0F
+    tblw = ROMDATA[fixed * 0x10000 + SYM["lut_SMMoveJmpTbl"] + 2 * 9:][:2]
+    check("the tile beneath it (TP_SPEC_4ORBS): a special item held, the fanfare and on",
+          tblw[0] | tblw[1] << 8, SYM["SMMove_HaveSpecialItem"])
+
+    #  The logic: rando_winnable as randoref.winnable, under every goal.
+    rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
+    edits = [0, 0x1341, 0x2000, 0x3FFF]
+    jobs = [(ki, r, e, f, g) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits
+            for g in range(K["GOAL_MODES"])]
+    got = pmap(winnable_cart, jobs)
+    want = [R.winnable(*j[:4], goal=j[4]) for j in jobs]
+    check("rando_winnable: randoref's under every goal",
+          [j for j, c, w in zip(jobs, got, want) if (c[0], c[1] if not c[0] else 0) != (w[0], w[1] if not w[0] else 0)][:4], [])
+    check("...a smaller goal never less winnable",
+          [j for j, w in zip(jobs, want) if j[4] and not w[0] and want[jobs.index(j[:4] + (j[4] - 1,))][0]][:4], [])
+    noflo = [w[0] for j, w in zip(jobs, want) if j[:4] == (1, [0x2C, 0, 0], 0x0F, 0)]
+    check("the FLOATER removed, no map edit: winnable under 2 orbs or fewer, Lich and Kary's",
+          noflo, [False, False, True, True, True])
+
+    #  ...the map edit screen: red under 3 orbs, blue under 2.
+    NESCOL = {int(k, 16): int(v, 16) for k, v in re.findall(
+        r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
+    BLUE, RED = NESCOL[0x02], NESCOL[0x06]
+    UJ, V = SYM["UpdateJoy"], rw("OWS_VARS")
+    def screen(g):
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+        bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes([0x2C, 0, 0])
+        bus.sram[K["OPT_NG_EARLY"] - 0x6000] = 0x0F
+        bus.sram[K["OPT_NG_GOAL"] - 0x6000] = g
+        bus.io[0x4218] = bus.io[0x4219] = 0
+        mapscreen_up(bus, cpu)
+        for _ in range(400):
+            cpu.step()
+            while cpu.pc not in (UJ, 0xFFFE):
+                cpu.step()
+            if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
+                break
+        cpu.step()
+        while cpu.pc not in (UJ, 0xFFFE):
+            cpu.step()
+        return bus.wram[V + 0x47], bus.cgram[0] | bus.cgram[1] << 8
+    check("the map edit screen, the FLOATER removed, no edit: red under 3 orbs, blue under 2",
+          [screen(K["GOAL_3ORBS"]), screen(K["GOAL_2ORBS"])], [(0, RED), (1, BLUE)])
+
+    #  ...and New Game: a world under 2 orbs, randoref's, which the reachable
+    #  spots' count makes (pl_reachspots: 15 of Standard's 21 reached, 18 of
+    #  Wide's 25, so the rest of the incentives go loose).
+    cfgs = [(1, [0x2C, 0, 0], [0x81, 0], 0x0F), (2, [0x2C, 0, 0], [0x81, 0], 0x0F)]
+    jobs = [(seed * 7919 + 3, c, R.ENTRANCES_OFF, 0, K["GOAL_2ORBS"]) for c in cfgs for seed in range(3)]
+    jobs += [(5, cfgs[0], R.ENTRANCES_OFF, 0, K["GOAL_3ORBS"])]
+    got = pmap(es_place_cart, jobs)
+    bad, placed = [], []
+    for (seed, c, mode, f, g), cart in zip(jobs, got):
+        mode_after, k, out, dock = R.new_world(seed, *c, mode, f, g)
+        if (cart[0], cart[1] if cart[0] else None) != ((1, out) if out else (0, None)):
+            bad.append((seed, c[0], g))
+        placed.append(out is not None)
+    check("New Game, the FLOATER removed, no edit: randoref's placement", bad, [])
+    check("...a world under 2 orbs, every seed; none under 3", placed, [True] * 6 + [False])
+    bad, counts = [], []
+    for c in cfgs:
+        free, items, inc, inclocs, masks = R.place_setup(*c)
+        full = free
+        for i in items:
+            if i < R.PLACE_KEYS:
+                full |= R._BIT[R._NAME[i]]
+        reach, owned = R.place_accessible(masks, {}, full)
+        counts.append((len(inclocs & reach), len(inclocs), len(inc), R.CARAVAN in reach))
+        for (seed, cj, mode, f, g), cart in zip(jobs, got):
+            if cj == c and g == K["GOAL_2ORBS"]:
+                bad += [(seed, c[0], i) for i, p in enumerate(cart[1][:R.PLACE_KEYS]) if p != 0xFF and p not in reach]
+    check("...every key item placed where the party can reach, the caravan's never stocked", bad, [])
+    check("...15 of Standard's 21 spots reached and 18 of Wide's 25, the caravan not, for 20 incentives",
+          counts, [(15, 21, 20, False), (18, 25, 20, False)])
 
 
 def test_rando_early():
@@ -1312,10 +1455,12 @@ def test_es_world():
 
 def es_place_cart(job):
     """rando_place with entrance shuffle: (placed, placement, k, dock, the
-    mode the save is left with).  A fourth member, the map edits."""
+    mode the save is left with).  A fourth member, the map edits; a fifth,
+    the Goal."""
     seed, (keyitems, items3, gear2, early), mode, *owe = job
     bus, cpu = machine()
     s = bus.sram
+    s[K["RANDO_GOAL"] - 0x6000] = owe[1] if len(owe) > 1 else 0
     s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = (owe[0] if owe else 0).to_bytes(2, "little")
     at = K["RANDO_SAVE"] - 0x6000
     s[at:at + 4] = seed.to_bytes(4, "little")
@@ -14694,7 +14839,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,

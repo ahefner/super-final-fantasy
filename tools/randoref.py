@@ -1343,6 +1343,24 @@ KEYITEMS_VANILLA, KEYITEMS_STANDARD, KEYITEMS_WIDE = 0, 1, 2
 _NAME = [n for n, _ in PLACE_ITEMS]
 _BIT = {n: 1 << _L.BITS.index(n) for n in _NAME[:PLACE_KEYS]}
 _BIT_AIRSHIP = 1 << _L.BITS.index("AIRSHIP")
+#  The Goal (RANDO_GOAL): the orbs waived, 0 the game's four (GOAL_ORBS).
+GOAL_4ORBS, GOAL_0ORBS, GOAL_ORBS = 0, 4, 4
+ORBS = sum(1 << _L.BITS.index(n) for n in ("ORB_EARTH", "ORB_FIRE", "ORB_WATER", "ORB_AIR"))
+
+
+def chaos_won(chaos, owned, goal=GOAL_4ORBS):
+    """goal.inc's test, placement's and rando_winnable's both: a mask of
+    Chaos's met.  One holding all four orbs is a way through the Black Orb,
+    met with its orbs aside once the Goal's are held, lit + waived >= 4; one
+    without them is met as it is."""
+    held = bin(owned & ORBS).count("1") + goal >= GOAL_ORBS
+    for m in chaos:
+        if m & ORBS == ORBS:
+            if held and m & ~ORBS & ~owned == 0:
+                return True
+        elif m & ~owned == 0:
+            return True
+    return False
 
 
 def item_rows(items3):
@@ -1507,9 +1525,19 @@ def _first(wc, cs):
     return keep if sum(w for w, _ in keep) else wc
 
 
-def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tune=TUNE_SAFE):
+def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tune=TUNE_SAFE,
+             goal=GOAL_4ORBS):
     incentives = set(inc0)
-    n_inc_pool = len(inclocs)
+    #  FFR's rule sends an incentive loose while there are more of them than
+    #  spots; the spots counted here are those the party can reach at all,
+    #  holding every key item to place (pl_reachspots), so a world without
+    #  the airship sends the rest loose rather than placing nothing.
+    full = free
+    for i in items:
+        if i < PLACE_KEYS:
+            full |= _BIT[_NAME[i]]
+    reach = place_accessible(masks, {}, full)[0]
+    n_inc_pool = len(inclocs & reach)
     while len(incentives) > n_inc_pool:
         s = sorted(incentives)
         incentives.discard(s[rng.below(len(s))])
@@ -1519,7 +1547,7 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
     fwd = [FWD_ONE] * 248
     assert CARAVAN in inclocs and _L.LOCS[CARAVAN][0] == 2
     shoppable = [i for i in sorted(incentives) if i in _SHOPPABLE]
-    if shoppable:
+    if shoppable and CARAVAN in reach:      # never stocked out of reach (pl_vendor)
         item = shoppable[rng.below(len(shoppable))]
         placed[CARAVAN] = item
         remaining.remove(item)
@@ -1631,13 +1659,13 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
     if remaining:
         return None
     _, owned = place_accessible(masks, placed, free)
-    if not any(m & ~owned == 0 for m in (_L.CHAOS_MASKS if chaos is None else chaos)):
+    if not chaos_won(_L.CHAOS_MASKS if chaos is None else chaos, owned, goal):
         return None
     return placed
 
 
 def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STREAM_KEYS,
-                    attempts=PLACE_ATTEMPTS, tune=None):
+                    attempts=PLACE_ATTEMPTS, tune=None, goal=GOAL_4ORBS):
     """Where each item goes: a list in PLACE_ITEMS order of cartridge location
     indices, $FF for an item not placed (free, or gear left as Treasure);
     None under Key items Vanilla, and None too if every attempt failed."""
@@ -1652,7 +1680,7 @@ def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STR
         tune = TUNE_SAFE if world is None else TUNE_LOOSE
     rng = Stream(seed, stream)
     for _ in range(attempts):
-        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune)
+        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune, goal)
         if placed is not None:
             out = [0xFF] * len(PLACE_ITEMS)
             for c, i in placed.items():
@@ -1673,7 +1701,8 @@ ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
 
 
-def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE, owedits=0):
+def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE, owedits=0,
+                goal=GOAL_4ORBS):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE) or entrances == ENTRANCES_OFF:
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
@@ -1691,7 +1720,7 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
             continue
         out = build_placement(seed, keyitems, items3, gear2, early,
                               world=(masks, chaos, groups), stream=STREAM_KEYS + k,
-                              attempts=ES_PLACE_ATTEMPTS, tune=tune_edits(tune, owedits))
+                              attempts=ES_PLACE_ATTEMPTS, tune=tune_edits(tune, owedits), goal=goal)
         if out is None:
             continue
         dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
@@ -1707,7 +1736,7 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
 #  dock as the shuffle chooses it.  (0, the wiring, placement, dock), or None
 #  -- no world, and then no placement: the logic has nothing else to fall
 #  back on.
-def build_edited(seed, keyitems, items3, gear2, early, owedits):
+def build_edited(seed, keyitems, items3, gear2, early, owedits, goal=GOAL_4ORBS):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
@@ -1721,7 +1750,7 @@ def build_edited(seed, keyitems, items3, gear2, early, owedits):
     if groups is None:
         return None
     out = build_placement(seed, keyitems, items3, gear2, early, world=(masks, chaos, groups),
-                          tune=tune_edits(TUNE_SAFE, owedits))
+                          tune=tune_edits(TUNE_SAFE, owedits), goal=goal)
     if out is None:
         return None
     dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
@@ -1740,7 +1769,7 @@ def build_edited(seed, keyitems, items3, gear2, early, owedits):
 WIN_AIRSHIP = 1
 
 
-def winnable(keyitems, items3, early, owedits):
+def winnable(keyitems, items3, early, owedits, goal=GOAL_4ORBS):
     masks, chaos, req = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)
     rows = item_rows(items3)
     gone, free = set(), 0
@@ -1769,13 +1798,13 @@ def winnable(keyitems, items3, early, owedits):
         if new == owned:
             break
         owned = new
-    if any(m & ~owned == 0 for m in chaos):
+    if chaos_won(chaos, owned, goal):
         return True, 0
     floater = _BIT["FLOATER"]
     return False, WIN_AIRSHIP if not owned & _BIT_AIRSHIP and floater not in gone else 0
 
 
-def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0):
+def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS):
     """rando_place's whole choice: (the Map shuffle mode the game keeps, the
     attempt k, the placement or None, the ship's dock).  The shuffle when it
     is on and finds a world, else the vanilla wiring: the precomputed tables
@@ -1783,13 +1812,13 @@ def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
         return ENTRANCES_OFF, 0, None, 0
     if entrances != ENTRANCES_OFF:
-        w = build_world(seed, keyitems, items3, gear2, early, entrances, owedits=owedits)
+        w = build_world(seed, keyitems, items3, gear2, early, entrances, owedits=owedits, goal=goal)
         if w is not None:
             return entrances, w[0], w[2], w[3]
     if owedits:
-        w = build_edited(seed, keyitems, items3, gear2, early, owedits)
+        w = build_edited(seed, keyitems, items3, gear2, early, owedits, goal)
         return (ENTRANCES_OFF, 0, None, 0) if w is None else (ENTRANCES_OFF, 0, w[2], w[3])
-    return ENTRANCES_OFF, 0, build_placement(seed, keyitems, items3, gear2, early), 0
+    return ENTRANCES_OFF, 0, build_placement(seed, keyitems, items3, gear2, early, goal=goal), 0
 
 
 #  A wiring as a party walks it, for reading a seed: each overworld entrance,
@@ -2004,7 +2033,8 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 0x1F       # snesmap.inc: the settings, entrance shuffle's k and dock, the map edits
+RANDO_SAVE_SIZE = 0x20       # snesmap.inc: the settings, the Goal last, entrance shuffle's k and dock,
+                             #   the map edits
 
 
 def block_from_srm(srm):
@@ -2022,7 +2052,7 @@ def srm_wiring_text(srm):
     key items, else vanilla."""
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    seed, mode, k = int.from_bytes(b[0:4], "little"), b[0x1A], b[0x1B]
+    seed, mode, k = int.from_bytes(b[0:4], "little"), b[0x1A], b[0x1C]
     placed = srm[SRAM_SAVE - 0x6000 + 0x40] == 1
     w = None
     if placed and mode in (ENTRANCES_ONLY, ENTRANCES_FLOORS):

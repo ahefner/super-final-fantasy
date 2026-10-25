@@ -464,6 +464,18 @@ ENTRANCES_OFF   = 0               ; vanilla wiring
 ENTRANCES_ONLY  = 1               ; FFR's entrance shuffle, floors kept
 ENTRANCES_FLOORS = 2              ; ...and its floor shuffle
 ENTRANCES_MODES = 3
+;  The Goal (RANDO_GOAL): how many of the four orbs the Black Orb waits for,
+;  as FFR's Orbs Required with its Any mode -- any of them, not chosen ones.
+;  The value is the orbs waived, so zero is the game's four and the test is
+;  lit + waived >= 4 (opt_orbgoal; goal.inc for the logic).  FFR's Shard Hunt
+;  would follow as more values, with a count of its own.
+GOAL_4ORBS      = 0
+GOAL_3ORBS      = 1
+GOAL_2ORBS      = 2
+GOAL_1ORB       = 3
+GOAL_0ORBS      = 4
+GOAL_MODES      = 5
+GOAL_ORBS       = 4               ; lit + waived, the Black Orb's bar
 ;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
 ;  Other items, the nine with no Free, has the first two only; the SHIP and
 ;  AIRSHIP rows a fourth, Remove (user): the SHIP, or the FLOATER, in no
@@ -1652,9 +1664,11 @@ OPTFM_CRITRATE    = $10
 ;  vanilla world.  That is why introducing it needed no SAVEVER bump.  Never
 ;  $60FD-$60FF: in the saved copy those are the checksum and the asserts.
 ;
-;  Layout v1.  It grows by appending, with a SAVEVER bump if an old save
-;  would mean something different under the new reading.  An appended byte
-;  whose zero means "off" needs no bump: every older save has a zero there.
+;  Layout v2 (SAVEVER 1): the Goal took $1B, after the settings it is one of,
+;  and moved what follows up a byte.  It grows by appending, with a SAVEVER
+;  bump if an old save would mean something different under the new reading.
+;  An appended byte whose zero means "off" needs no bump: every older save has
+;  a zero there.
 RANDO_SAVE      = $60A0
 RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
 RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
@@ -1682,19 +1696,20 @@ RANDO_ITEMS     = RANDO_SAVE+$14  ; 3 bytes, two bits per row, ITEM_* below, row
 RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in order: set, an incentive
 RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
 RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
+RANDO_GOAL      = RANDO_SAVE+$1B  ; GOAL_* below: the orbs the Black Orb waits for
 ;  What New Game made of the settings, under entrance shuffle (rando_place):
 ;  which attempt's wiring the game has, so the cache can draw it again, and
 ;  where a found ship is moored.  In the block, so the cache's tag sees them;
 ;  after the settings, so the settings screen's copy leaves them alone.  Zero
 ;  in every save made before them.
-RANDO_ESK       = RANDO_SAVE+$1B  ; the attempt k whose wiring placed
-RANDO_SHIPDOCK  = RANDO_SAVE+$1C  ; the ship's dock, 0..4 (es_dock)
+RANDO_ESK       = RANDO_SAVE+$1C  ; the attempt k whose wiring placed
+RANDO_SHIPDOCK  = RANDO_SAVE+$1D  ; the ship's dock, 0..4 (es_dock)
 ;  ...and the overworld's edits, OWEDIT_* bits, as New Game's map edit
 ;  screen ticked them.  A bit each; zero, no edit, in every save made before
 ;  them.
-RANDO_OWEDITS   = RANDO_SAVE+$1D  ; 2 bytes
-RANDO_SETTINGS_SIZE = $1B
-RANDO_SAVE_SIZE = $1F
+RANDO_OWEDITS   = RANDO_SAVE+$1E  ; 2 bytes
+RANDO_SETTINGS_SIZE = $1C
+RANDO_SAVE_SIZE = $20
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1729,8 +1744,10 @@ RANDO_GIVENFAR  = (CHUNK0 * $10000) + RANDO_GIVEN
 
 ;  The settings screen's copy: one byte per setting, in the same order as the
 ;  save block's from RANDO_TRAPS on, so starting a game is a straight copy.
-;  Above the scratch the screens use, below nothing; opt_sum covers it, which
-;  is what took OPT_FORMAT to 5.
+;  Above the scratch the screens use, below the shadows, the last of it the
+;  Goal's, the page's last spare byte; opt_sum covers it, which is what took
+;  OPT_FORMAT to 5.  An option block from before the Goal has the byte
+;  outside its sum: zero there still sums, and reads as the four orbs.
 OPT_NG          = OPTBLOCK+$C8
 RANDO_NGOFF     = RANDO_TRAPS - RANDO_SAVE  ; where the settings start in the save
 OPT_NG_SIZE     = RANDO_SETTINGS_SIZE - RANDO_NGOFF
@@ -1755,6 +1772,7 @@ OPT_NG_ITEMS    = OPT_NG + (RANDO_ITEMS - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_GEAR     = OPT_NG + (RANDO_GEAR - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_EARLY    = OPT_NG + (RANDO_EARLY - RANDO_SAVE) - RANDO_NGOFF
 OPT_NG_ENTRANCES = OPT_NG + (RANDO_ENTRANCES - RANDO_SAVE) - RANDO_NGOFF
+OPT_NG_GOAL     = OPT_NG + (RANDO_GOAL - RANDO_SAVE) - RANDO_NGOFF
 
 ;  "None", a party slot left empty (nones.asm): the class byte of slots 2-4
 ;  may be this, with the character dead from the start.  FFR's value.
@@ -1886,7 +1904,7 @@ RNG_MODES       = 2
 ;  Bump it when a change would give an existing save a different world.  0 is
 ;  the game's own scheme, and $FF would alias it; stay within 1..$FE.
 ;  randomization-notes.md section 1.5 has the derivation.
-SAVEVER         = 0
+SAVEVER         = 1               ; 1: the Goal moved RANDO_ESK and what follows
 SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 
 ;  The cache, at the top half of bank $7F: clear of CREDITSRAM at the bottom
@@ -2276,7 +2294,7 @@ RP_STATE        = RP_BASE+$0B30   ; PSTATE_* below
 RP_GEN          = RP_BASE+$0B32   ; RP_SEEN's marker for this candidate
 RP_MODE         = RP_BASE+$0B34   ; 0: placing for good; 1: asking about a candidate
 RP_SPOT         = RP_BASE+$0B36   ; LOGIC_STANDARD or LOGIC_WIDE
-RP_NINCPOOL     = RP_BASE+$0B38   ; how many incentive spots there are
+RP_NINCPOOL     = RP_BASE+$0B38   ; how many incentive spots the party can reach (pl_reachspots)
 RP_ACCESS       = RP_BASE+$0B3A   ; places reached and empty, both kinds
 RP_WN           = RP_BASE+$0B3C   ; entries in the draw
 RP_TOTAL        = RP_BASE+$0B3E   ; their weights' sum
@@ -2309,7 +2327,8 @@ RP_CLR2         = RP_BASE+$0B72
 RP_ESK          = RP_BASE+$0B74   ; entrance shuffle: the attempt being tried
 RP_TUNE         = RP_BASE+$0B76   ; 0, FFR's safe tables; TUNE_LOOSE, its unsafe
 RP_FRESH        = RP_BASE+$0B78   ; 1: RP_NI and RP_NN are this cycle's already
-RP_WORDSEND     = RP_BASE+$0B7A
+RP_VENDOROK     = RP_BASE+$0B7A   ; 1: the caravan reachable at all (pl_reachspots)
+RP_WORDSEND     = RP_BASE+$0B7C
 RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)

@@ -1,0 +1,9 @@
+--- OLD
+  .WORD SMMove_Cube,     SMMove_4Orbs,   SMMove_UseRod,   SMMove_UseLute
+--- NEW
+.export lut_SMMoveJmpTbl, SMMove_HaveSpecialItem   ; for the harness (test_goal)
+  ; TP_SPEC_4ORBS as a special item held, the fanfare and on: the Black Orb
+  ; stands on the one such tile until the Goal's orbs are lit (opt_orbgoal),
+  ; and FFR's Orbs Required lets the tile go the same way
+  ; (Remove4OrbRequirementForToFRPortal).  SMMove_4Orbs is left unreached.
+  .WORD SMMove_Cube,     SMMove_HaveSpecialItem, SMMove_UseRod, SMMove_UseLute

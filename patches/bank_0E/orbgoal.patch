@@ -1,0 +1,21 @@
+--- OLD
+Talk_BlackOrb:
+    LDA orb_fire            ; see if all orbs have been lit
+    AND orb_water
+    AND orb_air
+    AND orb_earth
+    BEQ @NotAllLit          ; if all of them are lit...
+--- NEW
+.import opt_orbgoal
+.export Talk_BlackOrb             ; for the harness (test_goal)
+Talk_BlackOrb:
+    JSL opt_orbgoal + OPTFAR    ; the Goal's orbs lit, any of them (opt_orbgoal),
+    NOP                         ;   not all four: FFR's Orbs Required, Any
+    NOP                         ; the eight bytes the four-way test took more
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    BEQ @NotAllLit          ; if all of them are lit...

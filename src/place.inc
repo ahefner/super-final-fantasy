@@ -89,6 +89,7 @@ pESK     = .LOWORD(RP_ESK)
 pTUNE    = .LOWORD(RP_TUNE)
 pFRESH   = .LOWORD(RP_FRESH)
 pGRP     = .LOWORD(RP_GRP)
+pVENDOROK = .LOWORD(RP_VENDOROK)
 
 W1             = 1024          ; a weight of 1.0
 FWD_ONE        = 256           ; a place's forward weight, new (pl_forward)
@@ -108,6 +109,7 @@ CARAVAN_TREASURE = $FE
 SHOPPABLE      = $00087FFF
 
 .include "logic.inc"
+.include "goal.inc"
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .import lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
 .import lut_LogicGroup
@@ -144,11 +146,9 @@ rando_place:
     STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
     LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
     LDX #LOGIC_STANDARD
-    LDY #LOGIC_NSTANDARD
     CMP #KEYITEMS_STANDARD
     BEQ @go
     LDX #LOGIC_WIDE
-    LDY #LOGIC_NWIDE
     CMP #KEYITEMS_WIDE
     BEQ @go
     LDA #ENTRANCES_OFF          ; key items stay put: so do the entrances, as
@@ -158,7 +158,6 @@ rando_place:
     REP #$20
     .a16
     STX a:pSPOT
-    STY a:pNINCPOOL
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     AND #$00FF
     BEQ :+
@@ -589,6 +588,70 @@ pl_rowval:
     RTS
 
 
+;;  How many incentive spots the party can reach at all: from the start,
+;;  holding every key item there is to place and what the free rows give,
+;;  as the unwinnable check takes it (rando_winnable).  FFR's rule sends an
+;;  incentive loose while there are more of them than spots, counting every
+;;  spot the settings name; counting those reached, a world without the
+;;  airship, which reaches fewer, sends the rest loose too rather than
+;;  placing nothing -- and every key item still lands where the party can
+;;  go.  With every spot reached, as in any world with the airship, the
+;;  count is FFR's (randoref._attempt; user, 2026-10-25: useless items are
+;;  the player's choice "so long as there is room for them").  Out: A.
+;;  RP_PLACED, RP_REACH and the counts left for pl_attempt to clear, and
+;;  RP_VENDOROK set for pl_vendor.  A16.
+pl_reachspots:
+    .a16
+    LDX #$0000
+  @clear:
+    LDA #$FFFF
+    STA a:pPLACED, X
+    STZ a:pREACH, X
+    INX
+    INX
+    CPX #256
+    BCC @clear
+    STZ a:pMODE
+    STZ a:pINCSRC
+    STZ a:pNONSRC
+    STZ a:pPEND
+    STZ a:pPEND + 2
+    LDA a:pFREE
+    STA a:pOWNED
+    LDA a:pFREE + 2
+    STA a:pOWNED + 2
+    JSR pl_notown
+    STZ a:pK
+  @key:
+    LDA a:pK
+    JSR pl_bitword
+    AND a:pITEMS, Y
+    BEQ :+                      ; not to be placed: free, or removed
+    LDX a:pK
+    LDA f:RANDOFAR + lut_PlaceLBit, X
+    AND #$00FF
+    JSR pl_gain
+:   INC a:pK
+    LDA a:pK
+    CMP #PLACE_KEYS
+    BCC @key
+    STZ a:pLOC
+  @scan:
+    LDX a:pLOC
+    JSR pl_sat
+    BCC :+
+    JSR pl_mark
+:   INC a:pLOC
+    LDA a:pLOC
+    CMP #LOGIC_LOCS
+    BCC @scan
+    JSR pl_propagate
+    LDA a:pREACH + CARAVAN      ; ...and whether the caravan is among them
+    AND #$00FF
+    STA a:pVENDOROK
+    LDA a:pINCSRC
+    RTS
+
 ;;  One attempt.  Out: C set if every item was placed and the seed is won.
 ;;  The roll screen's yelp (roll.asm): something thrown away.  A16.
 pl_yelp:
@@ -600,6 +663,8 @@ pl_yelp:
 pl_attempt:
     LDA #ROLLSTAGE_PLACE        ; the roll screen's tune
     STA f:ROLL_STAGE
+    JSR pl_reachspots           ; the spots the party can reach at all
+    STA a:pNINCPOOL
     LDA a:pINC0
     STA a:pINC
     LDA a:pINC0 + 2
@@ -1059,7 +1124,10 @@ pl_attempt:
     RTS
 
   @placed:
-    LDX #$0000                  ; and the seed is won: Chaos reached
+    LDA a:pNOTOWN + 2           ; and the seed is won: Chaos reached, the
+    EOR #$FFFF                  ;   Goal's orbs counted (goal.inc)
+    GOAL_HELD RANDOFAR
+    LDX #$0000
   @chaos:
     TXA                         ; (none of Chaos's masks met, or none at all:
     LSR A                       ;   a wiring nothing reaches Chaos in)
@@ -1068,11 +1136,23 @@ pl_attempt:
     BCS @lost
     LDA a:pCHAOS, X
     AND a:pNOTOWN
-    BNE :+
+    BNE @next
     LDA a:pCHAOS + 2, X
+    AND #LOGIC_ORBS_HI
+    CMP #LOGIC_ORBS_HI
+    BNE @asis                   ; not through the Black Orb: as it is
+    CPY #0
+    BEQ @next                   ; through it, short of the Goal's orbs
+    LDA a:pCHAOS + 2, X
+    AND #.LOWORD(~LOGIC_ORBS_HI)
+    BRA @rest
+  @asis:
+    LDA a:pCHAOS + 2, X
+  @rest:
     AND a:pNOTOWN + 2
     BEQ @won
-:   INX
+  @next:
+    INX
     INX
     INX
     INX
@@ -1083,12 +1163,17 @@ pl_attempt:
   @won:
     SEC
     RTS
+    GOAL_TABLE
 
 
 ;;  FFR's SelectVendorItem: the caravan stocked before the loop, which never
 ;;  places there -- a random one of the incentives a shop can sell, or, with
-;;  none of those, ordinary treasure, which the rewards deal.
+;;  none of those, ordinary treasure, which the rewards deal.  Treasure too
+;;  where the party can never reach the caravan (pl_reachspots), so that no
+;;  key item is stocked out of reach: FFR stocks it all the same.
 pl_vendor:
+    LDA a:pVENDOROK
+    BEQ @none                   ; a caravan never reached: treasure, as for none
     LDA a:pINC
     AND #.LOWORD(SHOPPABLE)
     STA a:pSAVE
@@ -1098,6 +1183,7 @@ pl_vendor:
     LDX #pSAVE
     JSR pl_count
     BNE @stock
+  @none:
     SEP #$20
     .a8
     LDA #CARAVAN_TREASURE

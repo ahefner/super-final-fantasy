@@ -69,7 +69,7 @@
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
-.export opt_dpadnew
+.export opt_dpadnew, opt_orbgoal
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
@@ -825,6 +825,40 @@ opt_titleleave:
     STA f:MENU_TICKON
     PLA
     RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_orbgoal -- are the Goal's orbs lit?  The Black Orb's test
+;;  (orbgoal.patch), in place of its four: any of the orbs, as many as the
+;;  Goal asks (RANDO_GOAL, the orbs it waives), FFR's Orbs Required in its
+;;  Any mode.  The portal beneath it no longer asks at all (orbportal.patch),
+;;  as FFR's does not: the orb stands on the one such tile until it gives way.
+;;  DBR is the caller's, a game bank, so the orbs are plain absolute.  Out:
+;;  A = 1 if so, 0 if not; Z from it.  By JSL, emulation mode; X and Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+opt_orbgoal:
+    PHX
+    LDX #0
+    LDA orb_fire
+    BEQ :+
+    INX
+:   LDA orb_water
+    BEQ :+
+    INX
+:   LDA orb_air
+    BEQ :+
+    INX
+:   LDA orb_earth
+    BEQ :+
+    INX
+:   TXA                         ; the orbs lit...
+    CLC
+    ADC f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)   ; ...and those waived
+    PLX
+    CMP #GOAL_ORBS              ; C set: enough
+    LDA #0
+    ROL A
+    RTL
+.assert GOAL_MODES = GOAL_ORBS + 1, error, "opt_orbgoal counts orbs only: a goal past them needs its own test"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  opt_dpadnew -- the game's menu cursors' d-pad, newly pressed only

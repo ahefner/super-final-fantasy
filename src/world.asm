@@ -12,6 +12,7 @@
 .i8
 .include "snesmap.inc"
 .include "logic.inc"
+.include "goal.inc"
 .include "variables.inc"
 
 .import rando_belowfar, rando_warmfar, rando_yieldfar
