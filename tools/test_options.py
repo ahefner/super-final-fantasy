@@ -6012,7 +6012,7 @@ def test_ngflow():
              (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
              (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party",
              (RANDO_BANK, SYM["rando_build"]): "build"}
-    NGSEED, NGTYPED = K["NGF_SEED"] - 0x7E0000, K["NGF_TYPED"] - 0x7E0000
+    NGSEED = K["NGF_SEED"] - 0x7E0000
     POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
     NGF = K["NGF_OWEDITS"] - 0x7E0000
@@ -6049,7 +6049,7 @@ def test_ngflow():
         seen, answers, tick, typing, fails, touches = [], list(script), list(ticks), list(typed), list(failing), list(touch)
         edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
         edits["order"], edits["builds"], edits["bus"] = [], [], bus
-        seed = lambda: (int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little"), bus.wram[NGTYPED])
+        seed = lambda: int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little")
         pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
         for _ in range(2_000_000):
             if cpu.pc == 0xFFFE:
@@ -6079,10 +6079,12 @@ def test_ngflow():
                 edits["order"].append(here)
                 if not answers:
                     return seen, None, None
-                if here == "options" and touches:
-                    t = touches.pop(0)
-                    if t:
-                        t(bus)
+                if here == "options":
+                    bus.sram[POOL] ^= 0xA5          # the pool stirred meanwhile, as the frames do
+                    if touches:
+                        t = touches.pop(0)
+                        if t:
+                            t(bus)
                 if here == "mapedits":
                     edits["given"].append((cpu.a & 0xFF, bus.sram[OWE] | bus.sram[OWE + 1] << 8))
                     save = K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
@@ -6100,7 +6102,6 @@ def test_ngflow():
                     bus.sram[POOL] ^= 0x5A          # the pool stirred meanwhile, as the frames do
                     if typing:
                         bus.wram[NGSEED:NGSEED + 4] = typing.pop(0).to_bytes(4, "little")
-                        bus.wram[NGTYPED] = 1
                 cpu.a = answers.pop(0)
                 lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # as its RTL
                 cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
@@ -6140,35 +6141,36 @@ def test_ngflow():
     check("...B from the seed: the options, and on again",
           flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
           (["list", "rando", "mapedits", "options", "seed", "options", "seed", "party"], FWD))
-    check("...the seed screen given a seed latched from the pool each time it comes on, not typed",
-          [(sd, p) for (sd, p) in edits["seed"]], [((p, 0), p) for (_, p) in edits["seed"]])
+    check("...the seed screen given a seed latched from the pool each time it comes on",
+          [sd for (sd, p) in edits["seed"]], [p for (_, p) in edits["seed"]])
     check("...New Game's the one it left", edits["endseed"][0], edits["seed"][-1][0])
     flow([2, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
-    check("...or the one typed on it, marked typed", edits["endseed"][0], (0xDEADBEEF, 1))
+    check("...or the one typed on it", edits["endseed"][0], 0xDEADBEEF)
     flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
-    check("...typed, then back to the options and on: a seed latched afresh, not typed",
-          edits["seed"][1], ((edits["seed"][1][1], 0), edits["seed"][1][1]))
+    check("...typed, then back to the options and on: a seed latched afresh",
+          edits["seed"][1], (edits["seed"][1][1], edits["seed"][1][1]))
     flow([0, FWD])
     check("Vanilla: no seed screen; New Game's seed latched from the pool all the same, as ever",
-          edits["endseed"][0], (edits["endseed"][1], 0))
+          edits["endseed"][0], edits["endseed"][1])
     check("Custom Game on the options as they come, nothing randomized: no seed screen",
           flow([CUSTOM, FWD, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options", "party"])
 
     #  Party creation's B on its first character: back a screen -- the seed,
     #  the options, or the list, whichever came before it -- and the seed
-    #  then the one chosen, not latched again; the flow not marked as run
-    #  until party creation goes on.
+    #  screen with a fresh seed latched, whatever was chosen there (user,
+    #  2026-10-27); the flow not marked as run until party creation goes on.
     check("party creation, B: back to the list for Vanilla",
           flow([0, BACK, 0, FWD])[:2], (["list", "party", "list", "party"], FWD))
     check("...to the options for Custom Game on the defaults",
           flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
           (["list", "rando", "mapedits", "options", "party", "options", "party"], FWD))
-    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0xDEADBEEF])
-    check("...to the seed for Beginner, showing the seed typed there, still typed",
-          (seen[-4:], ans, edits["seed"][1][0]), (["seed", "party", "seed", "party"], FWD, (0xDEADBEEF, 1)))
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF])
+    check("...to the seed for Beginner, a seed typed there: a fresh one latched in its place",
+          (seen[-4:], ans, edits["seed"][1]), (["seed", "party", "seed", "party"], FWD,
+                                               (edits["seed"][1][1], edits["seed"][1][1])))
     flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
-    check("...or the seed latched, the same one, not latched again though the pool stirred",
-          (edits["seed"][1][0], edits["seed"][1][0] != (edits["seed"][1][1], 0)), (edits["seed"][0][0], True))
+    check("...or one latched there: another, from the pool as it is now",
+          (edits["seed"][1][0] == edits["seed"][1][1], edits["seed"][1][0] != edits["seed"][0][0]), (True, True))
     flow([0, BACK, NBACK])
     check("...and backed out to the title from there: the flow not marked as run", edits["ngf"][1], 0)
     check("B, screen by screen, back to the list and on again",
@@ -6299,34 +6301,38 @@ def test_ngflow():
     #  randomized -- and before party creation (user, 2026-10-27:
     #  "Everything random should be locked down prior to party select"),
     #  from the seed and the map edits chosen.  A seed that builds no world:
-    #  the seed screen again.  Back from party creation with the seed, the
-    #  settings and the edits as they were, the world kept, no roll screen;
-    #  any of them changed, built again.
+    #  the seed screen again, with a fresh seed.  Back from party creation
+    #  with the seed, the settings and the edits as they were -- the seed
+    #  typed again, the screen latching a fresh one each time -- the world
+    #  kept, no roll screen; any of them changed, built again.
     order = lambda n: edits["order"][-n:]
     nbuilds = lambda: len(edits["builds"])
     flow([2, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
     check("Beginner: the world built after the seed screen, before party creation, from the seed and edits chosen",
-          (order(3), edits["builds"]), (["seed", "build", "party"], [((0xDEADBEEF, 1), 0x0041)]))
+          (order(3), edits["builds"]), (["seed", "build", "party"], [(0xDEADBEEF, 0x0041)]))
     flow([0, FWD])
     check("Vanilla: built before party creation", edits["order"], ["list", "build", "party"])
     flow([CUSTOM, FWD, FWD, FWD, FWD])
     check("Custom Game, nothing randomized: built after the options", order(3), ["options", "build", "party"])
     flow([2, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
-    check("a seed that builds no world: the seed screen again, and on", (order(5), nbuilds()),
-          (["seed", "build", "seed", "build", "party"], 2))
+    check("a seed that builds no world: the seed screen again with a fresh seed, built from it, and on",
+          (order(5), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]], edits["seed"][0] != edits["seed"][1]),
+          (["seed", "build", "seed", "build", "party"], True, True))
     flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], failing=[True])
     check("...nothing randomized, were a build to fail (none can: nothing to place): the options again",
           order(5), ["options", "build", "options", "build", "party"])
     flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
-    check("party creation, B, and on through the seed screen, the seed latched kept: the world kept",
-          (order(5), nbuilds()), (["seed", "build", "party", "seed", "party"], 1))
+    check("party creation, B, and on through the seed screen: built again, from the fresh seed",
+          (order(6), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]]),
+          (["seed", "build", "party", "seed", "build", "party"], True))
     flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0xDEADBEEF])
-    check("...the same seed typed again: kept", nbuilds(), 1)
+    check("...the same seed typed again: kept", (order(5), nbuilds()), (["seed", "build", "party", "seed", "party"], 1))
     flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0x12345678])
-    check("...another typed: built again, from it", (order(6), [b[0][0] for b in edits["builds"]]),
+    check("...another typed: built again, from it", (order(6), [b[0] for b in edits["builds"]]),
           (["seed", "build", "party", "seed", "build", "party"], [0xDEADBEEF, 0x12345678]))
-    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD], failing=[True])
-    check("...a seed that built no world, then one that did, then back and on: kept",
+    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0x12345678],
+         failing=[True])
+    check("...a seed that built no world, then one that did, then back and it typed again: kept",
           (order(7), nbuilds()), (["seed", "build", "seed", "build", "party", "seed", "party"], 2))
     flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
          failing=[False, True])
@@ -6339,11 +6345,15 @@ def test_ngflow():
     flow(back_to_edits, ticks=[0x0041, 0x0043], typed=[0xDEADBEEF] * 3)
     check("...another edit ticked: built again, with it", [b[1] for b in edits["builds"]], [0x0041, 0x0043])
     goal = K["OPT_NG_GOAL"] - 0x6000
-    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])
-    check("Custom Game, nothing randomized, back through the options unchanged: kept",
-          (order(5), nbuilds()), (["options", "build", "party", "options", "party"], 1))
-    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD, FWD], touch=[None, lambda bus: bus.sram.__setitem__(goal, 2)])
+    back_to_options = [2, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD]
+    flow(back_to_options, typed=[0xDEADBEEF] * 3)
+    check("...back to the options, nothing changed, the same seed: kept", nbuilds(), 1)
+    flow(back_to_options, typed=[0xDEADBEEF] * 3, touch=[None, lambda bus: bus.sram.__setitem__(goal, 2)])
     check("...an option changed there: built again", nbuilds(), 2)
+    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])
+    check("Custom Game, nothing randomized, back through the options: built again, a fresh seed latched unseen",
+          (order(6), len({b[0] for b in edits["builds"]})),
+          (["options", "build", "party", "options", "build", "party"], 2))
     flow([0, BACK, 0, FWD])
     check("a preset picked again from the list: built afresh", (edits["order"], nbuilds()),
           (["list", "build", "party", "list", "build", "party"], 2))
@@ -6524,7 +6534,7 @@ def test_seedscreen():
     UJ = SYM["UpdateJoy"]
     A_, B_, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x10, 0x08, 0x04, 0x02, 0x01
     W = lambda name: K[name] - 0x7E0000
-    SEED, TYPED, NT, OAM = W("NGF_SEED"), W("NGF_TYPED"), W("NESNT"), K["oam"]
+    SEED, NT, OAM = W("NGF_SEED"), W("NESNT"), K["oam"]
     FWD, BACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"]
     MOVE, SELSFX, MUSIC = SYM["opt_sfx_move"], SYM["opt_sfx_sel"], SYM["CallMusicPlay"]
     W4007, PADRESET = SYM["nesio_w4007"], SYM["opt_padreset"]
@@ -6580,11 +6590,11 @@ def test_seedscreen():
     def press(bus, cpu, nes):
         return frame(bus, cpu, nes) and frame(bus, cpu, 0)
 
-    def up(seed=0x1A2B3C4D, typed=0):
+    def up(seed=0x1A2B3C4D, junk=0):
         bus, cpu = machine()
         call(cpu, "opt_init")
         bus.wram[SEED:SEED + 4] = seed.to_bytes(4, "little")
-        bus.wram[TYPED] = typed
+        bus.wram[SEED + 4] = junk               # NGF_TYPED's, once
         in_vblank(bus)
         pad(bus, 0)
         cpu.run(OPTMENU_BANK, SYM["seed_choose"], stop=UJ, limit=20_000_000)
@@ -6592,12 +6602,12 @@ def test_seedscreen():
         return bus, cpu
 
     def leave(bus, cpu, nes):
-        """Press and let go until the screen returns: its answer, the seed and
-        the typed mark; None if it stays."""
+        """Press and let go until the screen returns: its answer and the seed;
+        None if it stays."""
         more = frame(bus, cpu, nes)
         for _ in range(8):
             if not more:
-                return (cpu.a & 0xFF, int.from_bytes(bytes(bus.wram[SEED:SEED + 4]), "little"), bus.wram[TYPED])
+                return (cpu.a & 0xFF, int.from_bytes(bytes(bus.wram[SEED:SEED + 4]), "little"))
             more = frame(bus, cpu, 0)
         return None
 
@@ -6726,9 +6736,9 @@ def test_seedscreen():
     frame(bus, cpu, RIGHT)
     check("...with the move's chirp", counts["move"], 1)
     frame(bus, cpu, 0)
-    check("START on the seed given: on, the seed as it was, not typed",
-          leave(*up(), START), (FWD, 0x1A2B3C4D, 0))
-    check("B on the seed given: back", leave(*up(), B_), (BACK, 0x1A2B3C4D, 0))
+    check("START on the seed given: on, the seed as it was",
+          leave(*up(), START), (FWD, 0x1A2B3C4D))
+    check("B on the seed given: back", leave(*up(), B_), (BACK, 0x1A2B3C4D))
 
     #  Typing.
     bus, cpu = up()
@@ -6768,23 +6778,22 @@ def test_seedscreen():
     check("all eight typed: the seed, the hand hidden", (shown(bus), hand(bus)), ("DEADBEEF", None))
     press(bus, cpu, RIGHT)
     check("...the d-pad moves nothing hidden", bus.wram[W("MENURAM") + 0x20], 0xF)
-    check("...A: on, with the seed typed, marked typed", leave(bus, cpu, A_), (FWD, 0xDEADBEEF, 1))
+    check("...A: on, with the seed typed", leave(bus, cpu, A_), (FWD, 0xDEADBEEF))
     bus, cpu = up()
     type_(bus, cpu, [0, 1, 2, 3, 4, 5, 6, 7])
     press(bus, cpu, B_)
     check("...or B: the last taken back, the hand again where it was", (shown(bus), hand(bus)),
           ("0123456-", at(7)))
     press(bus, cpu, A_)
-    check("...typed again, START: on with it", leave(bus, cpu, START), (FWD, 0x01234567, 1))
+    check("...typed again, START: on with it", leave(bus, cpu, START), (FWD, 0x01234567))
 
-    #  Back from party creation: the seed chosen.  Typed, it comes back
-    #  whole with the hand hidden, B taking a digit back; latched, as given.
-    bus, cpu = up(0x89ABCDEF, typed=1)
-    check("back to a typed seed: shown, the hand hidden", (shown(bus), hand(bus)), ("89ABCDEF", None))
-    press(bus, cpu, B_)
-    check("...B: a digit back, the hand shown", (shown(bus), hand(bus) is not None), ("89ABCDE-", True))
-    check("...START now refused", leave(bus, cpu, START), None)
-    check("back to a latched seed: as given, START on with it", leave(*up(0x00C0FFEE), START), (FWD, 0x00C0FFEE, 0))
+    #  Every time the same: the seed given -- the flow latches a fresh one
+    #  each time (user, 2026-10-27) -- the hand shown, whatever the byte
+    #  that marked a typed seed, when the screen showed one again, holds.
+    bus, cpu = up(0x89ABCDEF, junk=1)
+    check("the seed given, the hand shown, whatever was typed before", (shown(bus), hand(bus) is not None),
+          ("89ABCDEF", True))
+    check("...START on with it", leave(bus, cpu, START), (FWD, 0x89ABCDEF))
 
     #  Every digit through the grid, and every byte through the packing: a
     #  seed typed reads back as typed, high nibble first.
@@ -6793,8 +6802,8 @@ def test_seedscreen():
         bus, cpu = up(0x12345678)
         type_(bus, cpu, [(seed >> (28 - 4 * i)) & 0xF for i in range(8)])
         got = leave(bus, cpu, START)
-        if got != (FWD, seed, 1):
-            check("a typed seed reads back as typed: %08X" % seed, got, (FWD, seed, 1))
+        if got != (FWD, seed):
+            check("a typed seed reads back as typed: %08X" % seed, got, (FWD, seed))
             break
     else:
         check("a typed seed reads back as typed, five of them", True, True)

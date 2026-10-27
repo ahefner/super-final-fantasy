@@ -14,7 +14,8 @@
 ;  digits to type another, as the game's name input has its letters (user):
 ;
 ;    - It shows the seed it is given, NGF_SEED -- latched from the pool by
-;      the flow on the way in, or, back from party creation, the one chosen.
+;      the flow each time it comes up, forward, or back from a roll that
+;      built no world or from party creation (user, 2026-10-27).
 ;    - A on a digit types it.  The first blanks the seed shown, the digits
 ;      not yet typed showing as blank pieces; the eighth hides the hand.
 ;    - B takes the last digit typed back, the hand showing again.  B on the
@@ -75,10 +76,9 @@ SEED_DIGITS = 8
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  seed_choose -- the screen.  In: NGF_SEED the seed to show; NGF_TYPED
-;;  nonzero if it was typed here before, when it comes back with all eight
-;;  in and the hand hidden.  Out: A = NGNAV_FORWARD, NGF_SEED the seed chosen
-;;  and NGF_TYPED set if it was typed; or NGNAV_BACK, NGF_SEED as it was.  The
+;;  seed_choose -- the screen.  In: NGF_SEED the seed to show.  Out: A =
+;;  NGNAV_FORWARD, NGF_SEED the seed chosen, shown or typed; or NGNAV_BACK,
+;;  NGF_SEED as it was.  The
 ;;  screen off, as the settings screen leaves it.  From the New Game flow, by
 ;;  JSL, emulation mode; X and Y not kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -88,12 +88,8 @@ seed_choose:
     PHK
     PLB
     JSR seed_unpack             ; the seed given, as digits
-    LDA f:NGF_TYPED
-    BEQ :+
-    LDA #SEED_DIGITS            ; typed before: all eight in, the hand hidden
-    BRA :++
-:   LDA #SEED_SHOWN
-:   STA f:SEED_N
+    LDA #SEED_SHOWN
+    STA f:SEED_N
     LDA #0
     STA f:SEED_SEL
     STA f:SEED_ERR
@@ -193,8 +189,6 @@ seed_choose:
     CMP #SEED_DIGITS
     BNE :+
     JSR seed_pack               ; typed: the eight digits are the seed
-    LDA #1
-    STA f:NGF_TYPED
 :   LDA #NGNAV_FORWARD
     BRA @leave
   @back:

@@ -2187,7 +2187,9 @@ Settled in review 1:
         the last digit and shows the cursor again: while editing, B is
         always backspace.  From the options screen, Start goes to party
         creation when nothing needs a seed.  Back from party creation, the
-        seed shown is the one chosen, typed or latched (user, 2026-10-21).
+        seed shown was the one chosen, typed or latched (user, 2026-10-21);
+        since 2026-10-27 the seed screen latches a fresh one every time it
+        comes up, forward or back (user).
       - A preset is written to the global options when it is chosen, as the
         settings screen writes today: backing out leaves it applied, and
         Custom Game starts from whatever the options hold.

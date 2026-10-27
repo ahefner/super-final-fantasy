@@ -154,11 +154,12 @@ lut_NgpBit:
 ;;      chosen); winnable, or START is refused
 ;;    the options -- the rest of the settings
 ;;    the seed (seedscreen.asm) -- when anything on the randomization
-;;      screen is set (opt_needseed); latched from the pool on the way in
+;;      screen is set (opt_needseed); a fresh one latched from the pool
+;;      each time the screen comes up, forward or back (user, 2026-10-27)
 ;;    the world built (ng_build, rando_build), the roll screen up -- every
 ;;      random thing locked down before party creation (user, 2026-10-27);
 ;;      a seed whose placement gives up is said so there, and the seed
-;;      screen comes back
+;;      screen comes back, with a fresh seed
 ;;    party creation (bank $0E's) -- after the seed, so that a seeded
 ;;      feature could show there what the party is choosing between (user)
 ;;
@@ -243,17 +244,19 @@ ng_flow:
     JSL opt_settings + OPTMENUFAR
     CMP #NGNAV_BACK
     BEQ @mapedits
-    JSR ng_latch                ; a seed, shown to keep or type over --
     JSL opt_needseed + OPTMENUFAR
-    BCC @party                  ;   or, nothing randomized, kept unseen
+    BCS @seed
+    JSR ng_latch                ; nothing randomized: a seed all the same,
+    BRA @party                  ;   unseen
   @seed:
-    JSL seed_choose + OPTMENUFAR
+    JSR ng_latch                ; a fresh one, whichever way the screen is
+    JSL seed_choose + OPTMENUFAR    ;   come to (user, 2026-10-27)
     CMP #NGNAV_BACK
     BEQ @options
     JSR ng_build
     BCS @seed                   ; no world: the seed screen again
     JSR ng_party
-    BCS @seed                   ; back: the seed as chosen, typed or not
+    BCS @seed                   ; back: the seed screen again
     BRA @go
   @party:
     JSR ng_build                ; (nothing randomized places nothing)
@@ -268,11 +271,12 @@ ng_flow:
 
 ;;  The world, before party creation (rando_build), the roll screen up --
 ;;  or kept, with no roll screen, when this pass of the flow built it from
-;;  the seed, the settings and the map edits it has now: back from party
-;;  creation through the seed screen, the seed unchanged (user,
-;;  2026-10-27).  The cache's tag is what the world was built from.  The
-;;  menus' music off through the build, the roll's tune its own.  Out: C
-;;  clear, the world built; C set, none, the roll screen having said so.
+;;  the seed, the settings and the map edits it has now (user, 2026-10-27:
+;;  an unchanged seed keeps the world).  The seed screen latching a fresh
+;;  seed each time, that is a seed typed again.  The cache's tag is what
+;;  the world was built from.  The menus' music off through the build, the
+;;  roll's tune its own.  Out: C clear, the world built; C set, none, the
+;;  roll screen having said so.
 ng_build:
     LDA f:NGF_BUILT
     BEQ @build
@@ -320,7 +324,7 @@ ng_party:
     RTS
 
 ;;  New Game's seed, NGF_SEED, from the pool -- or, in a build with FFSEED
-;;  set, that seed -- not typed.
+;;  set, that seed.
 ng_latch:
 .ifdef FORCE_SEED
     LDA #<(FORCE_SEED)
@@ -339,8 +343,6 @@ ng_latch:
     DEX
     BPL @seed
 .endif
-    LDA #0
-    STA f:NGF_TYPED
     RTS
 
 ;;  The options' new-game rows into the save's settings, as the build

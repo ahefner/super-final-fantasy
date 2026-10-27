@@ -416,11 +416,11 @@ pieces until typed -- and the eighth hides the hand; B takes the last digit back
 hand showing again; B on the seed as given, or with nothing typed, goes
 back to the options.  START goes on with the seed as given, or with the one
 typed once all eight are in, and before then plays the game's error sound;
-with all eight in, A goes on as well.  A typed seed is kept as typed
-(`NGF_TYPED`) for the way back from party creation, which shows it whole,
-the hand hidden, B taking a digit back; a latched one comes back as given.
-Without the screen the flow latches all the same, so New Game's seed is
-always `NGF_SEED`, which the build takes as it takes the edits.
+with all eight in, A goes on as well.  A typed seed was kept as typed
+(`NGF_TYPED`) for the way back from party creation, which showed it whole,
+the hand hidden, B taking a digit back, until 2026-10-27; since then the
+screen gets a fresh seed every time it comes up (below).  Without the
+screen the flow latches all the same, so New Game's seed is always `NGF_SEED`, which the build takes as it takes the edits.
 
 **Its art is the 15-puzzle minigame's** (user, 2026-10-22: "a more
 artistic take ... base it on the artwork from the 15-puzzle game"; built,
@@ -517,9 +517,9 @@ screens as they were, which the flow calls through `OptCallFar`
 the Treasures rows' gifts, and then the world, the roll screen up
 meanwhile, until the world moved ahead of party creation -- and back.  B on the first character, which went round to it again, now
 leaves with C set (`ngparty_back.patch`, a branch to the RTS between the
-two), and the flow goes back a screen: the seed, showing the seed chosen
-as it was left (latched, or typed with the hand hidden); the options, when
-nothing needed a seed; or the list, for Vanilla.  A
+two), and the flow goes back a screen: the seed screen, with a fresh
+seed since 2026-10-27 (below); the options, when nothing needed a seed;
+or the list, for Vanilla.  A
 party made leaves with C clear, which the last `@RecordClassAndName`
 gives (X = $30, its two ASLs shifting out zeros).  The flow is marked as
 run (`NGF_ACTIVE`) only once party creation goes on.  Coming back to
@@ -575,12 +575,20 @@ creation, now only clears `NGF_ACTIVE`; without the flow, which only the
 tests start a game without, it builds as before.  The menus' music ticks
 are off through the build (`MENU_TICKON`); the roll screen plays its own.
 
+  - **A fresh seed every time** (user, 2026-10-27: "Seed select screen
+    should choose a new seed on entry, whether you are progressing forward
+    into it or backward from a failed roll or party select").  The flow
+    latches a seed from the pool (`ng_latch`) each time it brings the seed
+    screen up, so the screen always opens on the seed given, the hand
+    shown, and `NGF_TYPED` is gone (its byte, `MENURAM+$19`, free).
+    Nothing randomized, it latches one unseen on each pass from the options.
   - **Kept on the way back** (user: an unchanged seed keeps the world).
     `NGF_BUILT` marks that this pass of the flow built the world.
     `ng_build` keeps it, with no roll screen, when the cache's tag
     (`RW_TAGBLK`, a copy of the save block it was built from) holds the
     seed, the options' new-game rows and the map edits the flow has now;
-    if any of them changed, it builds again.  The list clears the mark, so
+    if any of them changed, it builds again.  With a fresh seed every
+    time, only a seed typed again keeps it.  The list clears the mark, so
     a preset picked again builds afresh, and so does a failed build, which
     has refilled the save's first page.
   - **No world** (user: "display the message but make it say 'Failed to
@@ -599,8 +607,9 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     entries and six colour bytes, at the top of a vblank.  A, B or START
     ends it; a button held as it comes up counts only once let go.  L+X
     and L+Y reset from it, as from the menus (`roll_reset`, the map edit
-    screen's way: the PPU back to the HAL first).  It fades, the title's music starts again, and the seed screen comes back
-    showing the same seed.  Nothing randomized cannot fail (nothing to
+    screen's way: the PPU back to the HAL first).  It fades, the title's
+    music starts again, and the seed screen comes back with a fresh seed.
+    Nothing randomized cannot fail (nothing to
     place), but would go back to the options.
 
 `test_rando_build` (new): a build from a junk first page answers C clear,
@@ -618,13 +627,24 @@ reset check once, and L+X resets, the PPU given back first.  `test_ngflow` inter
 the build (answered built, its tag made as `rando_ensure` makes it, or
 failed) and checks: when the build comes on each path; the seed screen
 again after a failure (the options when nothing is randomized); the world
-kept back through the seed screen unchanged, latched or typed; built again
+kept back through the seed screen unchanged (a fresh seed since, below); built again
 for another seed, option or map edit, after a failed build, and after a
 fresh pick from the list; and once for real.  `flow_edits` now builds the
 world as the flow does, and `test_owedits` expects the BRIDGE and the ship
 where GameStart put them unless Bridge to Lefein moves the BRIDGE.
 28 mutations, all caught (the throb left on only once the button checks
 ran on a throbbing screen).
+
+The fresh seed (2026-10-27): `test_ngflow` checks a fresh seed on every
+visit to the seed screen -- after a failed roll, back from party creation,
+a typed seed replaced -- and a world kept only for a seed typed again or
+the same settings and edits; a pass with nothing randomized builds again
+from a seed latched unseen.  The harness now stirs the pool at the options
+as well as the seed screen, as the frames do: stirred only at the seed
+screen, a pass with nothing randomized had looked as if it kept its seed.
+`test_seedscreen`: the screen opens on the seed given, the hand shown,
+whatever `NGF_TYPED`'s old byte holds.  Ten mutations, all caught, the
+earlier keep-the-world ones among them.
 
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
