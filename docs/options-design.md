@@ -1762,7 +1762,9 @@ mode and spoiler lines are not ported.  A row after Map shuffle, one byte at
 the end of the new-game settings (`RANDO_GOAL`, `OPT_NG_GOAL`), holding the
 orbs waived, so zero is the game's four; GOAL_ORBS is the bar, lit + waived.
 Chaos Rush takes 0 orbs, FFR's `OrbsRequiredCount` 0 (ffr-presets.md 3.5);
-every other preset 4.
+every other preset 4.  The row's descriptions say what each goal does and
+no longer name FFR's flag (user, 2026-10-27: a reference only FFR's players
+would follow).
 
   - **The Black Orb** (`orbgoal.patch`): its four-way AND becomes a call to
     `opt_orbgoal`, which counts the orbs lit, adds the Goal's waived and
@@ -1803,12 +1805,13 @@ every other preset 4.
     airship, map edits that open the north -- the count is FFR's: 640
     worlds of ordinary settings, the shuffle and edits among them, and 60
     with the FLOATER removed and edits, place as before.
-  - **Still open: the tiniest worlds.**  The SHIP removed and 0 orbs -- the
-    world is Coneria, Pravoka and the Temple -- the screen says winnable,
-    but FFR's step-by-step placement stalls there and most seeds place
-    nothing (1-2 of 6), and New Game then leaves the key items at home,
-    which without the ship cannot be won.  A safety net (New Game saying so
-    and going back to the seed screen) was proposed, not yet decided.
+  - **The tiniest worlds.**  The SHIP removed and 0 orbs -- the world is
+    Coneria, Pravoka and the Temple -- the screen says winnable, but FFR's
+    step-by-step placement stalls there and most seeds place nothing (1-2
+    of 6).  New Game left the key items at home then, which without the
+    ship cannot be won; since 2026-10-27 it says so on the roll screen and
+    goes back to the seed screen, with no fallback placement (user; "The
+    world built before party creation", above).
   - **The save.**  `RANDO_GOAL` is the settings' last byte, so `RANDO_ESK`,
     `RANDO_SHIPDOCK` and `RANDO_OWEDITS` moved up one: SAVEVER 1, older
     saves do not load (user, 2026-10-25: not a concern for a major feature,

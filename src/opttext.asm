@@ -908,32 +908,27 @@ lut_Desc_103_0:  ; Goal: 4 orbs
   FFPAD {"always has."}, 28
 
 lut_Desc_103_1:  ; Goal: 3 orbs
-  FFLINES 4
+  FFLINES 3
   FFPAD {"The black ORB gives way once"}, 28
   FFPAD {"any three ORBS are lit, so"}, 28
   FFPAD {"one fiend may be left alone."}, 28
-  FFPAD {"FFR's Orbs Required."}, 28
 
 lut_Desc_103_2:  ; Goal: 2 orbs
-  FFLINES 4
+  FFLINES 3
   FFPAD {"The black ORB gives way once"}, 28
   FFPAD {"any two ORBS are lit, so two"}, 28
   FFPAD {"fiends may be left alone."}, 28
-  FFPAD {"FFR's Orbs Required."}, 28
 
 lut_Desc_103_3:  ; Goal: 1 orb
-  FFLINES 3
+  FFLINES 2
   FFPAD {"The black ORB gives way once"}, 28
   FFPAD {"any one ORB is lit."}, 28
-  FFPAD {"FFR's Orbs Required."}, 28
 
 lut_Desc_103_4:  ; Goal: 0 orbs
-  FFLINES 5
+  FFLINES 3
   FFPAD {"The black ORB gives way at"}, 28
   FFPAD {"once.  Chaos needs only the"}, 28
-  FFPAD {"KEY and the LUTE.  FFR's"}, 28
-  FFPAD {"Orbs Required, as its Chaos"}, 28
-  FFPAD {"Rush has it."}, 28
+  FFPAD {"KEY and the LUTE."}, 28
 
 ;  Each item row by value: the first two shared, Free the item's own.
 lut_DescItemInc:  ; an item row: Incentive
