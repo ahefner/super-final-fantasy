@@ -117,7 +117,7 @@ SHOPPABLE      = $00087FFF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_place -- place the key items for the new game in the save
 ;;
-;;  From rando_newgame, once the settings are in the save.  Under Key items
+;;  From new_world, once the settings are in the save.  Under Key items
 ;;  Standard or Wide, draws the placement and writes it to RANDO_PLACE with
 ;;  RANDO_PLACED set; under Vanilla, or if PLACE_ATTEMPTS tries all fail,
 ;;  clears RANDO_PLACED, and the key items stay where they are.

@@ -1820,12 +1820,27 @@ def screen_pressing(bus, cpu, presses, bank, addr):
     return reads
 
 
-def flow_edits(bus, flags):
+def flow_edits(bus, cpu, flags, seed=None, presses=()):
     """New Game as its flow leaves it for rando_newgame (ng_flow): the map
-    edits ticked, NGF_OWEDITS, and the mark that the flow ran."""
+    edits ticked, NGF_OWEDITS, and the seed, NGF_SEED -- the pool's, as
+    ng_latch latches it, unless given -- the world built from them before
+    party creation (rando_build, the roll screen's pad held as presses
+    says should it say no world), and the mark that the flow ran.  Out: C
+    as rando_build answers, 1 for no world."""
     ngf = K["NGF_OWEDITS"] - 0x7E0000
     bus.wram[ngf], bus.wram[ngf + 1] = flags & 0xFF, flags >> 8
+    ngs, pool = K["NGF_SEED"] - 0x7E0000, K["RANDO_POOL"] - 0x6000
+    bus.wram[ngs:ngs + 4] = bus.sram[pool:pool + 4] if seed is None else seed.to_bytes(4, "little")
+    screen_pressing(bus, cpu, presses, RANDO_BANK, SYM["rando_build"])
     bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 1
+    return cpu.p & 1
+
+
+def init_page():
+    """Page 0 of unsram as GameStart fills it (lut_InitUnsramFirstPage),
+    before it puts the party on foot."""
+    at = ((K["CHUNK0"] + K["BANK_STARTUPINFO"]) & 0x1F) * 0x10000 + K["lut_InitUnsramFirstPage"]
+    return ROMDATA[at:at + 256]
 
 
 def owedits_ffr_source():
@@ -2033,8 +2048,9 @@ def test_owedits():
     #  New Game: the edits its flow ticked, the Early flags copied as they
     #  were -- bits 4-5 of their byte too, a Map edits row's until it went
     #  (2026-10-24), which nothing reads -- the BRIDGE moved under Bridge to
-    #  Lefein only; and without the flow, which only tests start a game
-    #  without, none.
+    #  Lefein only, else where GameStart left it, the build setting the
+    #  save's first page afresh; and without the flow, which only tests
+    #  start a game without, none, and the BRIDGE left alone.
     BX, BY = K["bridge_x"] - 0x6000, K["bridge_y"] - 0x6000
     early_at = K["OPT_NG_EARLY"] - 0x6000
     LEFEIN = K["OWEDIT_BRIDGELEFEIN"]
@@ -2046,24 +2062,24 @@ def test_owedits():
             bus.sram[at:at + 2] = b"\xa5\x5a"                # decoys
             bus.sram[BX], bus.sram[BY] = 0x11, 0x22
             if flags is not None:
-                flow_edits(bus, flags)
+                flow_edits(bus, cpu, flags)
             shown = newgame_pressing(bus, cpu)
             got.append((int.from_bytes(bus.sram[at:at + 2], "little"), bus.sram[K["RANDO_EARLY"] - 0x6000],
                         (bus.sram[BX], bus.sram[BY]), shown))
-            want.append((flags or 0, early, (O.BRIDGE_LEFEIN_XY if (flags or 0) & LEFEIN else (0x11, 0x22)), 0))
+            want.append((flags or 0, early, (O.BRIDGE_LEFEIN_XY if (flags or 0) & LEFEIN else
+                                             (0x11, 0x22) if flags is None else (init_page()[BX], init_page()[BY])), 0))
     check("New Game: the flow's edits, none without it, the Early byte as set, the BRIDGE moved under "
           "Bridge to Lefein only, no screen", got, want)
     #  Bit 13, Ship in Drydock's until it went (2026-10-27): New Game takes
     #  it as the flow gives it, and nothing reads it -- the ship stays where
-    #  it is, Gaia's drydock list unapplied.
+    #  GameStart put it, Gaia's drydock list unapplied.
     SX = K["ship_x"] - 0x6000
     bus, cpu = machine()
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
-    bus.sram[SX], bus.sram[SX + 1] = 0x11, 0x22
-    flow_edits(bus, K["OWEDIT_OPENPROG"] | 0x2000)
+    flow_edits(bus, cpu, K["OWEDIT_OPENPROG"] | 0x2000)
     newgame_pressing(bus, cpu)
-    check("New Game with bit 13 set: the ship where it was (the map's rows, bit 13 unread, below)",
-          (bus.sram[SX], bus.sram[SX + 1]), (0x11, 0x22))
+    check("New Game with bit 13 set: the ship where GameStart put it (the map's rows, bit 13 unread, below)",
+          (bus.sram[SX], bus.sram[SX + 1]), (init_page()[SX], init_page()[SX + 1]))
 
     #  The option page's fields: no two overlap, read from the tables
     #  rather than from what any row should be; and none in bits 4-5 of the
@@ -5981,18 +5997,21 @@ def test_menuscratch():
 def test_ngflow():
     """ng_flow: the list, then -- Custom Game, or a preset that randomizes --
     the randomization screen, the map edits, the options and, when anything
-    is randomized, the seed; then party creation; START on, B back; Vanilla
-    alone straight to party creation (menus.txt; user, 2026-10-22).  The screens are answered
-    by this test where they begin, as a player's choices, and the order
-    they come in, the answer, and the options as the presets leave them are
-    what is checked.  Then the randomization screen itself, a frame at a
-    time: its rows, START and B."""
+    is randomized, the seed; then the world built and party creation;
+    START on, B back; Vanilla alone straight to the world and party
+    creation (menus.txt; user, 2026-10-22).  The screens are answered by
+    this test where they begin, as a player's choices, and the order they
+    come in, the answer, and the options as the presets leave them are what
+    is checked; the build (rando_build), answered as built or not, but for
+    one run that builds for real.  Then the randomization screen itself, a
+    frame at a time: its rows, START and B."""
     import genpresets as G, presetdefs as P
     NG = 0xA1 + K["CHUNK_NEWGAME"]
     OWS = 0xA1 + K["CHUNK_OWS"]
     names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
              (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
-             (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party"}
+             (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party",
+             (RANDO_BANK, SYM["rando_build"]): "build"}
     NGSEED, NGTYPED = K["NGF_SEED"] - 0x7E0000, K["NGF_TYPED"] - 0x7E0000
     POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
@@ -6000,15 +6019,22 @@ def test_ngflow():
     FWD, BACK, CUSTOM, NBACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"], K["NGPICK_CUSTOM"], K["NGPICK_BACK"]
 
     edits = {}
+    RS, RW_OWE = K["RANDO_SEED"] - K["RANDO_SAVE"], K["RANDO_OWEDITS"] - K["RANDO_SAVE"]
 
-    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None):
+    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None, failing=(), touch=(), real=False):
         """Run ng_flow, each screen answering the next of script; the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
         noting what it was given (its A, and RANDO_OWEDITS); stale, the
-        live game's RANDO_OWEDITS before.  Out: the screens in order, the
-        answer, the option page after; edits holds the map edit screen's
-        starts and New Game's edits."""
+        live game's RANDO_OWEDITS before.  The build answers built, or for
+        each true of failing in turn, no world; its cache's tag made as
+        rando_ensure makes it -- or, real, the build itself.  The options
+        screen calls the next of touch, if any, on the bus.  Out: the
+        screens in order, the answer, the option page after; edits holds
+        the map edit screen's starts, New Game's edits, the screens and
+        builds in order, and each build's seed and edits."""
         bus, cpu = machine()
+        if real:
+            bus.frames()                # the roll screen waits on vblanks
         if rom is not None:
             bus.rom = rom
         call(cpu, "opt_init")
@@ -6020,8 +6046,9 @@ def test_ngflow():
             bus.sram[OWE], bus.sram[OWE + 1] = stale & 0xFF, stale >> 8
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
-        seen, answers, tick, typing = [], list(script), list(ticks), list(typed)
+        seen, answers, tick, typing, fails, touches = [], list(script), list(ticks), list(typed), list(failing), list(touch)
         edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
+        edits["order"], edits["builds"], edits["bus"] = [], [], bus
         seed = lambda: (int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little"), bus.wram[NGTYPED])
         pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
         for _ in range(2_000_000):
@@ -6030,10 +6057,32 @@ def test_ngflow():
                 edits["endseed"] = (seed(), pool())
                 return seen, cpu.a & 0xFF, unpooled(bus)
             here = names.get((cpu.pbr, cpu.pc))
+            if here == "build":
+                edits["order"].append(here)
+                edits["builds"].append((seed(), bus.wram[NGF] | bus.wram[NGF + 1] << 8))
+                lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # its RTL, now or after it runs
+                if real:
+                    cpu.run(RANDO_BANK, SYM["rando_build"], limit=400_000_000)
+                else:
+                    failed = bool(fails and fails.pop(0))
+                    if not failed:
+                        tag, blk = K["RW_TAG"] - 0x7E0000, K["RW_TAGBLK"] - 0x7E0000
+                        bus.wram[tag] = K["RW_TAG_VAL"]
+                        bus.wram[blk + RS:blk + RS + 4] = bus.wram[NGSEED:NGSEED + 4]
+                        bus.wram[blk + K["RANDO_NGOFF"]:blk + K["RANDO_NGOFF"] + ngsize] = bus.sram[ngoff:ngoff + ngsize]
+                        bus.wram[blk + RW_OWE:blk + RW_OWE + 2] = bus.wram[NGF:NGF + 2]
+                    cpu.p = (cpu.p & ~1) | failed
+                cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
+                continue
             if here:
                 seen.append(here)
+                edits["order"].append(here)
                 if not answers:
                     return seen, None, None
+                if here == "options" and touches:
+                    t = touches.pop(0)
+                    if t:
+                        t(bus)
                 if here == "mapedits":
                     edits["given"].append((cpu.a & 0xFF, bus.sram[OWE] | bus.sram[OWE + 1] << 8))
                     save = K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
@@ -6221,16 +6270,21 @@ def test_ngflow():
                                                                  saved=0x0402), (FWD, 0x0003))
     check("...without it: the saved game's", ows(CANBACK, [0, 0, 0x10, 0], given=0x0003, saved=0x0402), (FWD, 0x0402))
 
-    #  rando_newgame after the flow: its edits, once, and no screen of its own.
+    #  rando_newgame after the flow: the world built already, before party
+    #  creation (rando_build), so the mark used up and nothing else -- no
+    #  roll screen, the save's first page and the cache as they were.
     bus, cpu = machine()
     bus.frames()
-    flow_edits(bus, 0x0041)
-    bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
+    page = bytes((5 * i + 1) & 0xFF for i in range(256))
+    bus.sram[0:256] = page
+    bus.wram[rw("RW_TAG")] = K["RW_TAG_VAL"]
+    bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 1
+    s0 = cpu.steps
     shown = newgame_pressing(bus, cpu, [])
-    RS = K["RANDO_SEED"] - 0x6000
-    check("rando_newgame after the flow: the flow's edits and seed, no screen, the mark used up",
-          (int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"), int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"),
-           shown, bus.wram[K["NGF_ACTIVE"] - 0x7E0000]), (0x0041, 0xC0FFEE11, 0, 0))
+    check("rando_newgame after the flow: the world left as built, a few instructions, no screen, the mark used up",
+          (bytes(bus.sram[0:256]) == page, bus.wram[rw("RW_TAG")], cpu.steps - s0 < 40, shown,
+           bus.wram[K["NGF_ACTIVE"] - 0x7E0000]), (True, K["RW_TAG_VAL"], True, 0, 0))
+    RS0 = K["RANDO_SEED"] - 0x6000
     bus, cpu = machine()
     bus.frames()
     bus.wram[NGSEED:NGSEED + 4] = (0xC0FFEE11).to_bytes(4, "little")
@@ -6238,8 +6292,69 @@ def test_ngflow():
     bus.sram[OWE0:OWE0 + 2] = (0x1243).to_bytes(2, "little")            # the last game's
     shown = newgame_pressing(bus, cpu, [])
     check("...and without it, the pool's, as ever; no edits, no screen",
-          (int.from_bytes(bytes(bus.sram[RS:RS + 4]), "little"), int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"),
+          (int.from_bytes(bytes(bus.sram[RS0:RS0 + 4]), "little"), int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little"),
            shown), (0x13572468, 0, 0))
+
+    #  The world built after the seed screen -- or the options, nothing
+    #  randomized -- and before party creation (user, 2026-10-27:
+    #  "Everything random should be locked down prior to party select"),
+    #  from the seed and the map edits chosen.  A seed that builds no world:
+    #  the seed screen again.  Back from party creation with the seed, the
+    #  settings and the edits as they were, the world kept, no roll screen;
+    #  any of them changed, built again.
+    order = lambda n: edits["order"][-n:]
+    nbuilds = lambda: len(edits["builds"])
+    flow([2, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
+    check("Beginner: the world built after the seed screen, before party creation, from the seed and edits chosen",
+          (order(3), edits["builds"]), (["seed", "build", "party"], [((0xDEADBEEF, 1), 0x0041)]))
+    flow([0, FWD])
+    check("Vanilla: built before party creation", edits["order"], ["list", "build", "party"])
+    flow([CUSTOM, FWD, FWD, FWD, FWD])
+    check("Custom Game, nothing randomized: built after the options", order(3), ["options", "build", "party"])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
+    check("a seed that builds no world: the seed screen again, and on", (order(5), nbuilds()),
+          (["seed", "build", "seed", "build", "party"], 2))
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], failing=[True])
+    check("...nothing randomized, were a build to fail (none can: nothing to place): the options again",
+          order(5), ["options", "build", "options", "build", "party"])
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
+    check("party creation, B, and on through the seed screen, the seed latched kept: the world kept",
+          (order(5), nbuilds()), (["seed", "build", "party", "seed", "party"], 1))
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0xDEADBEEF])
+    check("...the same seed typed again: kept", nbuilds(), 1)
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0x12345678])
+    check("...another typed: built again, from it", (order(6), [b[0][0] for b in edits["builds"]]),
+          (["seed", "build", "party", "seed", "build", "party"], [0xDEADBEEF, 0x12345678]))
+    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD], failing=[True])
+    check("...a seed that built no world, then one that did, then back and on: kept",
+          (order(7), nbuilds()), (["seed", "build", "seed", "build", "party", "seed", "party"], 2))
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
+         failing=[False, True])
+    check("...built, then back and another that built none, then the first again: built again -- the "
+          "failed build set the save's first page afresh", (order(5), nbuilds()),
+          (["seed", "build", "seed", "build", "party"], 3))
+    back_to_edits = [2, FWD, FWD, FWD, FWD, BACK, BACK, BACK, FWD, FWD, FWD, FWD]
+    flow(back_to_edits, ticks=[0x0041, 0x0041], typed=[0xDEADBEEF] * 3)
+    check("...back to the map edits, the same ticked, the same seed: kept", nbuilds(), 1)
+    flow(back_to_edits, ticks=[0x0041, 0x0043], typed=[0xDEADBEEF] * 3)
+    check("...another edit ticked: built again, with it", [b[1] for b in edits["builds"]], [0x0041, 0x0043])
+    goal = K["OPT_NG_GOAL"] - 0x6000
+    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])
+    check("Custom Game, nothing randomized, back through the options unchanged: kept",
+          (order(5), nbuilds()), (["options", "build", "party", "options", "party"], 1))
+    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD, FWD], touch=[None, lambda bus: bus.sram.__setitem__(goal, 2)])
+    check("...an option changed there: built again", nbuilds(), 2)
+    flow([0, BACK, 0, FWD])
+    check("a preset picked again from the list: built afresh", (edits["order"], nbuilds()),
+          (["list", "build", "party", "list", "build", "party"], 2))
+    #  ...and for real: the cache's tag is what the world was built from, so
+    #  that what was asked is what is compared.
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0x0BADF00D, 0x0BADF00D], real=True)
+    b = edits["bus"]
+    check("...built for real: kept back through the seed screen, the save's seed the one typed, the cache built",
+          (order(5), nbuilds(), int.from_bytes(bytes(b.sram[RS0:RS0 + 4]), "little"),
+           b.wram[rw("RW_TAG")] == K["RW_TAG_VAL"]),
+          (["seed", "build", "party", "seed", "party"], 1, 0x0BADF00D, True))
 
     #  The randomization screen: its rows TREASURES to the key items' last,
     #  opening on Starting items; START on, B back.
@@ -10411,7 +10526,7 @@ def test_treasures():
     bus, cpu = machine()
     set_free(bus, 1 << FREE_BIT["ship_vis"])
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
-    flow_edits(bus, K["OWEDIT_OPENPROG"] | 0x2000)
+    flow_edits(bus, cpu, K["OWEDIT_OPENPROG"] | 0x2000)
     newgame_pressing(bus, cpu, entry="opt_freestuff")
     check("...and with map edits too, bit 13 among them", (bus.sram[1], bus.sram[2], bus.sram[0]),
           (152, 169, 1))
@@ -11692,6 +11807,193 @@ def test_rando_newgame():
           (1, True, True, True))
     call(cpu, "rando_stale", bank=RANDO_BANK)
     check("...so @Begin will not build it again", bool(cpu.p & 1), False)
+
+
+def test_rando_build():
+    """New Game's world, built after the seed screen and before party
+    creation (rando_build; user, 2026-10-27: "Everything random should be
+    locked down prior to party select"): the save's first page as GameStart
+    leaves it, whatever a build backed out of left there; the flow's seed
+    and the options' new-game rows in the save; the world the one New Game
+    has always built from them, and its cache.  And a world placement gives
+    up on: said on the roll screen -- "Failed to roll a world for this
+    seed" on a red backdrop, to the game over music (user, 2026-10-27) --
+    until A, B or START is pressed, then no world and no cache."""
+    import re
+    NGS = K["NGF_SEED"] - 0x7E0000
+    SAVE, POOL = K["RANDO_SAVE"] - 0x6000, K["RANDO_POOL"] - 0x6000
+    VEH = K["unsram_vehicle"] - 0x6000
+    UJ = SYM["UpdateJoy"]
+    nescol = {int(m.group(1), 16): int(m.group(2), 16) for m in re.finditer(
+        r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
+
+    def settings(bus, cfg, entrances=R.ENTRANCES_OFF, goal=0):
+        keyitems, items3, gear2, early = cfg
+        for name, v in (("OPT_NG_KEYITEMS", keyitems), ("OPT_NG_EARLY", early), ("OPT_NG_ENTRANCES", entrances),
+                        ("OPT_NG_RNG", 1), ("OPT_NG_GOAL", goal)):
+            bus.sram[K[name] - 0x6000] = v
+        bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
+        bus.sram[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
+
+    def world(bus):
+        return (bytes(bus.sram[SAVE:SAVE + K["RANDO_SAVE_SIZE"]]),
+                bytes(bus.sram[K["RANDO_PLACED"] - 0x6000:K["RANDO_PLACE"] - 0x6000 + K["PLACE_ITEMS"]]),
+                bytes(bus.wram[rw("RANDOWRAM"):rw("ROLL_ON")]))
+
+    #  Built: against rando_newgame's world from the same seed, settings and
+    #  (no) map edits, on the page GameStart leaves -- the world New Game
+    #  built before the build moved ahead of party creation.
+    seed, cfg = 0x0BADF00D, PLACE_CONFIGS["beginner"]
+    bus, cpu = machine()
+    bus.frames()
+    settings(bus, cfg, R.ENTRANCES_FLOORS)
+    bus.sram[0:256] = bytes((7 * i + 3) & 0xFF for i in range(256))     # a build backed out of, and worse
+    bus.wram[NGS:NGS + 4] = seed.to_bytes(4, "little")
+    reads = screen_pressing(bus, cpu, [], RANDO_BANK, SYM["rando_build"])
+    built, page = world(bus), bytes(bus.sram[0:256])
+    rbus, rcpu = machine()
+    rbus.frames()
+    settings(rbus, cfg, R.ENTRANCES_FLOORS)
+    rbus.sram[POOL:POOL + 4] = seed.to_bytes(4, "little")
+    rbus.sram[0:256] = init_page()
+    rbus.sram[VEH] = 1
+    rcpu.run(RANDO_BANK, SYM["rando_newgame"], limit=100_000_000)
+    check("rando_build: built, C clear; the world rando_newgame builds from the same, its cache too; no pad read",
+          (cpu.p & 1, built == world(rbus), bus.sram[K["RANDO_PLACED"] - 0x6000], reads), (0, True, 1, 0))
+    check("...the fanfare, the PPU the HAL's again, dark, the title's music for party creation",
+          (bus.wram[rw("ROLL_ON")], bus.io.get(K["INIDISP"]), bus.wram[K["h_paldirty"]], bus.wram[K["music_track"]]),
+          (0, 0x80, 1, K["TRACK_TITLE"]))
+    ours = (set(range(K["RANDO_PLACED"] - 0x6000, K["RANDO_PLACE"] - 0x6000 + K["PLACE_ITEMS"]))
+            | set(range(SAVE, SAVE + K["RANDO_SAVE_SIZE"]))
+            | {K["RANDO_TALK"] - 0x6000, K["RANDO_GIVEN"] - 0x6000, K["RANDO_GIVEN"] - 0x6000 + 1})
+    want = bytearray(init_page())
+    want[VEH] = 1
+    check("...the save's first page as GameStart leaves it, on foot, but for the world's own bytes",
+          ["$%02X" % i for i in range(256) if i not in ours and page[i] != want[i]], [])
+
+    #  No world: the SHIP removed, 0 orbs -- a world so small that seed 3
+    #  throws all of placement's attempts away, by the reference too.
+    tiny = (K["KEYITEMS_STANDARD"], [0x23, 0, 0], [0x81, 0], 0x0F)
+    check("the tiny world, seed 3: no placement, by the reference",
+          R.new_world(3, *tiny, R.ENTRANCES_OFF, 0, R.GOAL_0ORBS)[2], None)
+    bus, cpu = machine()
+    bus.ppu()
+    bus.vram[:] = bytes((7 * i + 1) & 0xFF for i in range(0x10000))    # the screens' before it
+    bus.frames()
+    settings(bus, tiny, goal=K["GOAL_0ORBS"])
+    bus.wram[NGS:NGS + 4] = (3).to_bytes(4, "little")
+    log, write = [], bus.write
+
+    def w(bank, addr, val):
+        if addr in (K["music_track"], K["INIDISP"]) and (bank & 0xFF) not in (0x7E, 0x7F):
+            log.append((addr, val & 0xFF))
+        write(bank, addr, val)
+    bus.write = w
+    up = cpu.run(RANDO_BANK, SYM["rando_build"], stop=UJ, limit=400_000_000)
+    io = lambda name: bus.io.get(K[name])
+    cg = lambda e: bus.cgram[2 * e] | bus.cgram[2 * e + 1] << 8
+    red, white = nescol[0x06], nescol[0x30]
+    #  A track asked for has bit 6 set; the driver, starting it, clears that
+    #  and then the rest (Music_NewSong).
+    asked = [v for a, v in log if a == K["music_track"] and v & 0x40]
+    check("no world: the roll screen waits on the pad, the game over music begun, the backdrop red",
+          (up, asked[-1:], bus.wram[K["music_track"]] in (K["TRACK_GAMEOVER"] & 0x3F, 0), cg(0)),
+          (True, [K["TRACK_GAMEOVER"]], True, red))
+    check("...BG3 on beside BG1, its words white on the same red, whole, no colour added",
+          (io("TM"), io("BG3SC"), io("BG34NBA"), cg(2), cg(3), io("INIDISP"), io("CGADSUB")),
+          (0x05, 0x18, 0x02, red, white, 0x0F, 0))
+    vmap = lambda r, c: bus.vram[0x3000 + 2 * (32 * r + c)] | bus.vram[0x3000 + 2 * (32 * r + c) + 1] << 8
+    row = lambda r: "".join(" " if vmap(r, c) == 0 else (_decode(vmap(r, c) + 0x7F) or "?") for c in range(32))
+    lines = {r: row(r) for r in range(32) if row(r).strip()}
+    centred = lambda t: len(t) - len(t.lstrip()) in ((32 - len(t.strip())) // 2, (33 - len(t.strip())) // 2)
+    check("...under the sprite, centred: Failed to roll a world / for this seed; the map else blank",
+          ({r: t.strip() for r, t in lines.items()}, all(centred(t) for t in lines.values()),
+           all(vmap(r, c) >> 8 == 0 for r in range(32) for c in range(32))),
+          ({23: "Failed to roll a world", 24: "for this seed"}, True, True))
+    font = ((K["CHUNK0"] + K["BANK_MENUCHR"]) & 0x1F) * 0x10000 + 0x8800
+    want = bytes(16) + b"".join(bytes(ROMDATA[font + 16 * g + p * 8 + r] for r in range(8) for p in (0, 1))
+                                for g in range(128))
+    check("...its characters: a blank, then the menu font's 128, NES 2bpp made SNES",
+          bytes(bus.vram[0x4000:0x4000 + len(want)]) == want, True)
+
+    def pad(nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def frames(presses):
+        """The presses, one a frame; out: how many it took to end it, or None."""
+        for n, p in enumerate(presses):
+            pad(p)
+            cpu.step()
+            for _ in range(2_000_000):
+                if cpu.pc in (UJ, 0xFFFE):
+                    break
+                cpu.step()
+            if cpu.pc == 0xFFFE:
+                return n + 1
+        return None
+    t0, log[:] = bus.wram[rw("ROLL_T")], []
+    held = frames([0x80, 0x80, 0x20, 0x08, 0x04, 0x02, 0x01, 0])
+    check("...A held as it came up, Select and the pad: still up, the sprite walking on",
+          (held, (bus.wram[rw("ROLL_T")] - t0) & 0xFF), (None, 8))
+    check("...A pressed: over, C set -- no world", (frames([0x80]), cpu.p & 1), (1, 1))
+    fade = [v for a, v in log if a == K["INIDISP"]]
+    check("...faded, the PPU the HAL's again, the title's music back for the seed screen, no cache",
+          (fade[:16], fade[-1], bus.wram[K["h_paldirty"]], bus.wram[K["music_track"]],
+           bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"]),
+          (list(range(14, -1, -1)) + [0x80], 0x80, 1, K["TRACK_TITLE"], False))
+    #  B and START end it too; roll_fail alone, on a roll screen whose
+    #  backdrop throbs -- the fixed colour added, which the red must not
+    #  have (the sleeping Elf Prince's, the first such pick).
+    roll = (ROLL_BANK & 0x1F) * 0x10000
+    n = (SYM["lut_RollPal"] - SYM["lut_RollChr"]) // 128
+    k = next(i for i in range(n) if ROMDATA[roll + SYM["lut_RollFx"] + i] & 2)     # ROLLFX_THROB
+    ends, throbs = [], []
+    for button in (0x40, 0x10, 0x20):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.frames()
+        bus.sram[SAVE:SAVE + 4] = ((k * 65536 + n - 1) // n).to_bytes(4, "little")    # its seed (test_roll)
+        cpu.run(ROLL_BANK, SYM["roll_begin"])
+        throbs.append(bus.io.get(K["CGADSUB"]))
+        cpu.run(ROLL_BANK, SYM["roll_fail"], stop=UJ, limit=2_000_000)
+        throbs.append(bus.io.get(K["CGADSUB"]))
+        ends.append(frames([0, button, 0, 0]))
+    check("...on a throbbing roll screen, its colour math off", throbs, [0x20, 0] * 3)
+    check("...B over, START over, Select not", ends, [2, 2, None])
+    #  L+X and L+Y reset from it, as from the menus: each frame the reset
+    #  check (opt_padreset); a combo let go of, the PPU the HAL's, dark, and
+    #  then the reset.
+    bus, cpu = machine()
+    bus.ppu()
+    bus.frames()
+    cpu.run(ROLL_BANK, SYM["roll_begin"])
+    cpu.run(ROLL_BANK, SYM["roll_fail"], stop=UJ, limit=2_000_000)
+    looks = []
+    for _ in range(3):
+        pad(0)
+        cpu.step()
+        n = 0
+        for _ in range(2_000_000):
+            if cpu.pc == UJ:
+                break
+            n += (cpu.pbr, cpu.pc) == (CHUNK_OPT_BANK, SYM["opt_padreset"])
+            cpu.step()
+        looks.append(n)
+    bus.wram[K["h_padreset"]] = K["PADRESET_SOFT"]
+    bus.wram[K["h_paldirty"]] = 0
+    pad(0)
+    where = None
+    for _ in range(2_000_000):
+        cpu.step()
+        if (cpu.pbr, cpu.pc) == (0xA1, SYM["OnReset"]):
+            where = "reset"
+            break
+        if cpu.pc in (UJ, 0xFFFE):
+            where = "frame" if cpu.pc == UJ else "returned"
+            break
+    check("...L+X: each frame the reset check, once; let go of, the PPU the HAL's, dark, and the reset",
+          (looks, where, bus.io.get(K["INIDISP"]), bus.wram[K["h_paldirty"]]), ([1, 1, 1], "reset", 0x80, 1))
 
 
 def test_roll():
@@ -14986,7 +15288,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,

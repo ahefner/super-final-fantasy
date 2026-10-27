@@ -22,7 +22,7 @@
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
 .import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose
-.import opt_needseed, seed_choose
+.import opt_needseed, seed_choose, rando_build
 .import OptCallFar, NewGamePartyUI
 .export ngp_apply, ng_flow
 .export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
@@ -155,20 +155,24 @@ lut_NgpBit:
 ;;    the options -- the rest of the settings
 ;;    the seed (seedscreen.asm) -- when anything on the randomization
 ;;      screen is set (opt_needseed); latched from the pool on the way in
+;;    the world built (ng_build, rando_build), the roll screen up -- every
+;;      random thing locked down before party creation (user, 2026-10-27);
+;;      a seed whose placement gives up is said so there, and the seed
+;;      screen comes back
 ;;    party creation (bank $0E's) -- after the seed, so that a seeded
 ;;      feature could show there what the party is choosing between (user)
 ;;
 ;;  START goes on to the next, B back to the one before -- party creation's
 ;;  B on its first character -- and B on the list back to the title.  Still
 ;;  to come: overworld select.  New Game's seed is NGF_SEED, which
-;;  rando_newgame takes as it takes the edits: latched from the pool, as New
-;;  Game always took it, whether or not the seed screen came up.  The world
-;;  is built after all of this, from GameStart (NewGamePartyGeneration).  Each screen takes the PPU and leaves it
-;;  off, and the title or party creation builds its own after.
+;;  rando_build takes as it takes the edits: latched from the pool, as New
+;;  Game always took it, whether or not the seed screen came up.  Each
+;;  screen takes the PPU and leaves it off, and the title or party creation
+;;  builds its own after.
 ;;
-;;  The map edits ticked are kept in NGF_OWEDITS, which rando_newgame takes
-;;  for New Game's (NGF_ACTIVE): the save's first page, where RANDO_OWEDITS
-;;  is, is set afresh by New Game before then.  The screen starts from the
+;;  The map edits ticked are kept in NGF_OWEDITS, which rando_build takes
+;;  for New Game's: the save's first page, where RANDO_OWEDITS is, it sets
+;;  afresh before.  The screen starts from the
 ;;  edits last ticked in this pass; first, after a preset, from its file's
 ;;  [map_edits] (ng_presetedits); after Custom Game from the saved game's,
 ;;  if Continue would load one with any, else none.
@@ -182,6 +186,7 @@ ng_flow:
     LDA #0
     STA f:NGF_HAVE              ; a choice here starts the map edits afresh
     STA f:NGF_ACTIVE
+    STA f:NGF_BUILT             ; ...and the world
     JSL opt_newgamelist + OPTMENUFAR
     STA f:NGF_PICK
     CMP #NGPICK_BACK
@@ -199,6 +204,7 @@ ng_flow:
     JSR ng_presetedits          ; no screens: its map edits (none, for
     JSR ng_keepedits            ;   Vanilla), and
     JSR ng_latch                ;   on to party creation, with the pool's seed
+    JSR ng_build                ;   (nothing to place: always built)
     JSR ng_party
     BCS @list                   ; B on the first character: the list again
     BRA @go
@@ -244,17 +250,67 @@ ng_flow:
     JSL seed_choose + OPTMENUFAR
     CMP #NGNAV_BACK
     BEQ @options
+    JSR ng_build
+    BCS @seed                   ; no world: the seed screen again
     JSR ng_party
     BCS @seed                   ; back: the seed as chosen, typed or not
     BRA @go
   @party:
+    JSR ng_build                ; (nothing randomized places nothing)
+    BCS @options
     JSR ng_party
     BCS @options
   @go:
     LDA #1
-    STA f:NGF_ACTIVE            ; rando_newgame's to take
+    STA f:NGF_ACTIVE            ; rando_newgame's: the world is built
     LDA #NGNAV_FORWARD
     RTL
+
+;;  The world, before party creation (rando_build), the roll screen up --
+;;  or kept, with no roll screen, when this pass of the flow built it from
+;;  the seed, the settings and the map edits it has now: back from party
+;;  creation through the seed screen, the seed unchanged (user,
+;;  2026-10-27).  The cache's tag is what the world was built from.  The
+;;  menus' music off through the build, the roll's tune its own.  Out: C
+;;  clear, the world built; C set, none, the roll screen having said so.
+ng_build:
+    LDA f:NGF_BUILT
+    BEQ @build
+    LDA f:RW_TAG
+    CMP #RW_TAG_VAL
+    BNE @build
+    LDX #$03
+  @seed:
+    LDA f:NGF_SEED, X
+    CMP f:RW_TAGBLK + (RANDO_SEED - RANDO_SAVE), X
+    BNE @build
+    DEX
+    BPL @seed
+    LDX #OPT_NG_SIZE - 1
+  @ng:
+    LDA f:OPT_NGFAR, X
+    CMP f:RW_TAGBLK + RANDO_NGOFF, X
+    BNE @build
+    DEX
+    BPL @ng
+    LDA f:NGF_OWEDITS
+    CMP f:RW_TAGBLK + (RANDO_OWEDITS - RANDO_SAVE)
+    BNE @build
+    LDA f:NGF_OWEDITS + 1
+    CMP f:RW_TAGBLK + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    BNE @build
+    CLC                         ; the world as it was built
+    RTS
+  @build:
+    LDA #0
+    STA f:NGF_BUILT
+    STA f:MENU_TICKON
+    JSL rando_build + RANDOFAR
+    LDA #1                      ; (C kept)
+    STA f:MENU_TICKON
+    BCS :+
+    STA f:NGF_BUILT
+:   RTS
 
 ;;  Party creation: the game's own screens (NewGamePartyUI), their CHR and
 ;;  palettes their own, the title's music played on by their frames.  Out:
@@ -287,9 +343,10 @@ ng_latch:
     STA f:NGF_TYPED
     RTS
 
-;;  The options' new-game rows into the save's settings, as rando_newgame
-;;  copies them: rando_winnable, the map edit screen's check, reads them
-;;  there.  New Game copies them again after setting the save's first page.
+;;  The options' new-game rows into the save's settings, as the build
+;;  copies them (new_world): rando_winnable, the map edit screen's check,
+;;  reads them there.  The build copies them again after setting the save's
+;;  first page.
 ng_settings:
     LDX #OPT_NG_SIZE - 1
   @ng:

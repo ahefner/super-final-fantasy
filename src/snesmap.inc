@@ -96,9 +96,9 @@ OWSRAM_END      = OWSRAM+$3500
 ;  in turn.  Reset zeroes it.
 MENURAM         = $7F0800
 MENURAM_END     = $7F0900
-;  ...and New Game's flow's (newgame.asm), which party creation and the
-;  world's building come after: what it decided, kept out of the save's
-;  first page, which New Game sets afresh before rando_newgame reads it.
+;  ...and New Game's flow's (newgame.asm), whose last screens are the
+;  world's building and party creation: what it decided, kept out of the
+;  save's first page, which the build sets afresh (rando_build).
 NGF_OWEDITS     = MENURAM+$10   ; 2 bytes: the map edits the flow's screen ticked
 NGF_HAVE        = MENURAM+$12   ; nonzero once that screen has run, this pass
 NGF_PICK        = MENURAM+$13   ; the list's answer: a preset, or NGPICK_CUSTOM
@@ -109,6 +109,11 @@ NGF_TYPED       = MENURAM+$19   ; nonzero: typed on the seed screen, not latched
 ;  the title as it opens a screen, cleared as it leaves for a game.
 MENU_TICKON     = MENURAM+$1A   ; nonzero: the HAL's bulk calls play a frame of music
 MENU_KEEPMUSIC  = MENURAM+$1B   ; nonzero: the title's rebuild leaves its music playing
+NGF_BUILT       = MENURAM+$1C   ; nonzero: this pass of the flow built the world (ng_build)
+;  The game's tracks the menus start: the title's (the crystal theme), and
+;  the game over's, which the roll screen plays when no world is rolled.
+TRACK_TITLE     = $41
+TRACK_GAMEOVER  = $52
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 
@@ -1647,8 +1652,8 @@ OPTFM_CRITRATE    = $10
 ;;  the seed and the new-game settings it was started with -- live in the save
 ;;  itself, in page 0 of unsram, so SaveGame, Continue and VerifyChecksum carry
 ;;  them with no code of their own.  The settings screen only describes the
-;;  *next* new game: rando_newgame copies them into the save when that game
-;;  starts, and nothing reads them from the option block after that.
+;;  *next* new game: New Game's build copies them into the save as that game
+;;  starts (rando_build), and nothing reads them from the option block after that.
 ;;
 ;;  Everything generated from those inputs is a cache in WRAM bank $7F, rebuilt
 ;;  whenever its tag does not match the save.  See src/rando.asm.
@@ -1713,7 +1718,7 @@ RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 ;  The reward NPCs (rando_talk).  Kept apart from RANDO_SAVE, so the cache's
 ;  tag never sees them: the given bits change as the game is played.  Zero in
 ;  every save made before them, which keeps that save on the vanilla talk
-;  routines: rando_newgame sets RANDO_TALK, so only a game begun since runs its
+;  routines: New Game's build sets RANDO_TALK, so only a game begun since runs its
 ;  reward NPCs from the table.  Each NPC's own record of having given, whatever
 ;  it gives, is its bit in RANDO_GIVEN, not the vanilla "does the party hold
 ;  the item": once rewards move, the Princess may be holding the SHIP.
@@ -2008,7 +2013,7 @@ RW_EXITX        = RANDOWRAM+$3360 ; 16: each exit's overworld x and y
 RW_EXITY        = RANDOWRAM+$3370
 .assert RW_EXITY + 16 <= RP_BASE, error, "the teleport tables run into placement's memory"
 
-;  New Game's roll screen (roll.asm): up while rando_newgame works, ticked from
+;  New Game's roll screen (roll.asm): up while the world builds, ticked from
 ;  the randomizer's yields (rando_yield).  Beside the cache, which never
 ;  writes here, so ROLL_ON is zero but while the screen is up: power-on
 ;  zeroes it and roll_end clears it.  Two bytes a variable, so a store from
@@ -2044,7 +2049,8 @@ ROLL_YI         = RANDOWRAM+$33D6 ; its note being played, 0-3
 ROLL_YDIR       = RANDOWRAM+$33D8 ; its way through the scale: 1 up, 0 down
 ROLL_YSTEP      = RANDOWRAM+$33DA ; scratch: a reach, a step, a note's length
 ROLL_YNOTES     = RANDOWRAM+$33DC ; 4 bytes: its notes, as steps of lut_RollPitch
-ROLL_END        = RANDOWRAM+$33E0
+ROLL_PAD        = RANDOWRAM+$33E0 ; roll_fail's: the pad last frame, for a new press
+ROLL_END        = RANDOWRAM+$33E2
 .assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
 .assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
 ;  The map edit screen's twin of ROLL_ON (owscreen.asm): nonzero while the

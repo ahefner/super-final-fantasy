@@ -360,9 +360,9 @@ blank battery, then, Custom Game is Improved Vanilla byte for byte (the
 option block `opt_init` writes) with no edit ticked -- and for a preset
 from its `[map_edits]` (`OWS_KEEP`, `RANDO_OWEDITS` as given); come back to from the options, from what was
 ticked last, B having kept it.  What it leaves goes to `NGF_OWEDITS`
-(`MENURAM`, which party creation's clearing of the save block's page
-leaves alone), and at the flow's end `NGF_ACTIVE` tells `rando_newgame` to
-take those edits as they are, the mark cleared as it is used.  Vanilla
+(`MENURAM`, which the build's refill of the save block's page leaves
+alone), and the build takes those edits as they are (`rando_build`, since
+2026-10-27 before party creation: below).  Vanilla
 takes its own, none, without a screen.  Before the screen comes up,
 `ng_settings` copies the options' new-game bytes into the save block,
 where its check reads the settings.
@@ -420,7 +420,7 @@ with all eight in, A goes on as well.  A typed seed is kept as typed
 (`NGF_TYPED`) for the way back from party creation, which shows it whole,
 the hand hidden, B taking a digit back; a latched one comes back as given.
 Without the screen the flow latches all the same, so New Game's seed is
-always `NGF_SEED`, which `rando_newgame` takes as it takes the edits.
+always `NGF_SEED`, which the build takes as it takes the edits.
 
 **Its art is the 15-puzzle minigame's** (user, 2026-10-22: "a more
 artistic take ... base it on the artwork from the 15-puzzle game"; built,
@@ -509,13 +509,13 @@ row check will then hold.
 **Party creation in the flow** (built 2026-10-21, not yet played).  The
 game's party creation is the flow's last screen, after the seed -- so
 that a seeded feature, such as class blursings, could show there what the
-party is choosing between (user) -- and the world is built after it, as
-menus.txt has it.  Bank $0E's `NewGamePartyGeneration` is split
+party is choosing between (user) -- and the world was built after it, as
+menus.txt has it, until 2026-10-27 (built before it since: below).  Bank $0E's `NewGamePartyGeneration` is split
 (`patches/bank_0E/optfreestuff.patch`): `NewGamePartyUI`, the game's
 screens as they were, which the flow calls through `OptCallFar`
 (`ng_party`); and what GameStart still calls, now only `opt_freestuff` --
-the world, the roll screen up meanwhile, and the Treasures rows' gifts --
-and back.  B on the first character, which went round to it again, now
+the Treasures rows' gifts, and then the world, the roll screen up
+meanwhile, until the world moved ahead of party creation -- and back.  B on the first character, which went round to it again, now
 leaves with C set (`ngparty_back.patch`, a branch to the RTS between the
 two), and the flow goes back a screen: the seed, showing the seed chosen
 as it was left (latched, or typed with the hand hidden); the options, when
@@ -528,9 +528,10 @@ bank $0E one byte, of the two it had at its end.
 
   - The title's music plays on from the title through every screen to the
     end of party creation, whose frames drive it as they always did; the
-    roll screen comes after, and ends with no track (`roll_end` given 0,
+    roll screen came after, and ended with no track (`roll_end` given 0,
     not the title's $41 again), `PrepOverworld` starting the overworld's,
-    as after a cold build.
+    as after a cold build.  Since the world is built before party creation
+    the roll screen ends with the title's track again (below).
   - Party creation loads its own CHR and palettes; the flow's screens it
     goes back to need none of what differs.  Its background tiles and
     palettes are the title's own (`LoadMenuBGCHRAndPalettes`), its sprite
@@ -555,6 +556,75 @@ after the fanfare.  Nine mutations, eight caught; the one missed is
 equivalent -- the flow marked as run before party creation rather than
 after -- since every way back to the title passes the list, which clears
 the mark.
+
+**The world built before party creation** (user, 2026-10-27: "Everything
+random should be locked down prior to party select"; built, not yet
+played).  The flow builds the world (`ng_build`, `rando_build`) right
+after the seed screen -- after the options when nothing is randomized,
+after the list for Vanilla -- and party creation follows.  `rando_build`
+refills the save's first page as GameStart leaves it
+(`lut_InitUnsramFirstPage`, then the party on foot: the table's vehicle
+byte is 0), so nothing of a build backed out of stays, such as a BRIDGE
+at Lefein or a placement.  Then it writes the flow's seed (`NGF_SEED`) and
+map edits (`NGF_OWEDITS`) into the save and runs `new_world`, which
+`rando_newgame` shares: the options' new-game rows into the save, the
+BRIDGE, the reward NPCs' state, the roll screen and placement.  Then the
+cache and the fanfare, `roll_end` starting the title's music again for
+party creation.  `rando_newgame`, from `opt_freestuff` after party
+creation, now only clears `NGF_ACTIVE`; without the flow, which only the
+tests start a game without, it builds as before.  The menus' music ticks
+are off through the build (`MENU_TICKON`); the roll screen plays its own.
+
+  - **Kept on the way back** (user: an unchanged seed keeps the world).
+    `NGF_BUILT` marks that this pass of the flow built the world.
+    `ng_build` keeps it, with no roll screen, when the cache's tag
+    (`RW_TAGBLK`, a copy of the save block it was built from) holds the
+    seed, the options' new-game rows and the map edits the flow has now;
+    if any of them changed, it builds again.  The list clears the mark, so
+    a preset picked again builds afresh, and so does a failed build, which
+    has refilled the save's first page.
+  - **No world** (user: "display the message but make it say 'Failed to
+    roll a world for this seed' ..., turn the background to red, and play
+    the game over music").  Placement keeps its 32 attempts
+    (`PLACE_ATTEMPTS`) and gets no fallback (user: "I don't think we need a
+    fallback placement").  When Key items Standard or Wide places nothing,
+    `rando_build` calls `roll_fail` instead of the cache and the fanfare.
+    The roll stops; the backdrop turns the map edit screen's red
+    (`NESCOL_06`) and the game over track ($52) starts.  Under the sprite,
+    which keeps walking, "Failed to roll a world" / "for this seed" appear
+    in white, in the menu font, on BG3 (rows 23-24, centred).  `roll_begin`
+    loads BG3's characters in forced blank (`roll_textload`: a blank, then
+    the menu font's 128 glyphs, NES 2bpp rearranged as SNES 2bpp) and
+    clears its tilemap, so the failure itself writes only 35 tilemap
+    entries and six colour bytes, at the top of a vblank.  A, B or START
+    ends it; a button held as it comes up counts only once let go.  L+X
+    and L+Y reset from it, as from the menus (`roll_reset`, the map edit
+    screen's way: the PPU back to the HAL first).  It fades, the title's music starts again, and the seed screen comes back
+    showing the same seed.  Nothing randomized cannot fail (nothing to
+    place), but would go back to the options.
+
+`test_rando_build` (new): a build from a junk first page answers C clear,
+with the same world and cache that `rando_newgame` builds from the same
+seed and settings, the page as GameStart leaves it but for the world's own
+bytes, and the title's music after the fanfare.  Then a world with the SHIP
+removed and 0 orbs, whose seed 3 places nothing (the reference agrees): the
+screen waits on the pad, the game over track asked for, the backdrop red,
+BG3 on beside BG1, the two lines centred on rows 23-24 and nothing else on
+the map (VRAM junked first), and the font as converted.  A held as it comes
+up, Select and the d-pad don't end it; A pressed does, with C set, the fade,
+the title's track and no cache.  B and START end it, Select doesn't, and a
+throbbing roll screen's colour math is turned off.  Each frame runs the
+reset check once, and L+X resets, the PPU given back first.  `test_ngflow` intercepts
+the build (answered built, its tag made as `rando_ensure` makes it, or
+failed) and checks: when the build comes on each path; the seed screen
+again after a failure (the options when nothing is randomized); the world
+kept back through the seed screen unchanged, latched or typed; built again
+for another seed, option or map edit, after a failed build, and after a
+fresh pick from the list; and once for real.  `flow_edits` now builds the
+world as the flow does, and `test_owedits` expects the BRIDGE and the ship
+where GameStart put them unless Bridge to Lefein moves the BRIDGE.
+28 mutations, all caught (the throb left on only once the button checks
+ran on a throbbing screen).
 
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
@@ -1544,8 +1614,9 @@ to see 2F through the deal.
 
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
-`rando_newgame` copies them into the save, beside a seed, when the game
-starts, and nothing reads the settings screen's copy after that.  Changing a
+New Game's build copies them into the save, beside a seed, as the game
+starts (`rando_build`), and nothing reads the settings screen's copy after
+that.  Changing a
 row with a game in progress changes nothing in that game.  See §7 and
 `randomization-notes.md`.
 
@@ -1572,7 +1643,7 @@ and shown by the save view with them:
     Early King, Sarda, Sage, Ordeals   Off / On
 
 All of it works now (built 2026-10-14; played once): Free, which
-`opt_freestuff` reads from the save `rando_newgame` has just written
+`opt_freestuff` reads from the save New Game's build wrote
 (`opt_isfree`) rather than from flag bits; the Early flags; and under Key
 items Standard or Wide, placement and the rewards it deals
 (`randomization-notes.md` sections 4.7 and 4.8).  Under Key items Vanilla
@@ -2335,8 +2406,8 @@ is not worth attempting.  The description text should say so.
 
 ### Fixed at New Game, kept in the save
 
-The **NEW GAME** rows.  `rando_newgame`, called from `opt_freestuff`, copies
-them into the save block at `$60A0` with the seed.  From then on the save's
+The **NEW GAME** rows.  New Game's build (`rando_build`, before party
+creation) copies them into the save block at `$60A0` with the seed.  From then on the save's
 copy is the only one read.  A Continue gets the world it was started with,
 whatever the menu says now.  That is the point: a menu row must not quietly
 change the world under a game in progress.
@@ -2661,11 +2732,12 @@ covered part of it.  Nothing built is waiting on a playtest.
         overworld track `PrepOverworld` starts next turns the channels back
         on.  A match costs 116 instructions and leaves the music alone.  L+X
         and L+Y keep WRAM, so the soft resets do not rebuild.  Since
-        2026-10-14 New Game builds the cache itself, at the end of
-        `rando_newgame`, after placement and before party creation (user:
-        one pause, and all the randomization done before the party-select
-        screen, which a future class flag will need); it silences the music
-        first, and party creation turns it back on.  `@Begin` then only
+        2026-10-14 New Game builds the cache itself, after placement and
+        before party creation (user: one pause, and all the randomization
+        done before the party-select screen, which a future class flag will
+        need) -- in `rando_newgame`, and since 2026-10-27 in `rando_build`,
+        party creation having come before it in between; it silences the
+        music first, and the roll screen's end starts the title's again.  `@Begin` then only
         compares the tag, and builds for a cold Continue.  Consumers still
         `ensure`, as a safety net,
         except that `rando_nameptr` ensures only for gear ($1C-$6B).  It is

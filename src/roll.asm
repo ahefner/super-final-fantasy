@@ -1,14 +1,16 @@
 ; ---------------------------------------------------------------------------
 ;  roll.asm -- New Game's roll screen.
 ;
-;  While rando_newgame rolls the world -- placement, the entrance shuffle, the
-;  cache -- the screen shows one of the game's map sprites scaled up eight
+;  While New Game rolls the world (rando_build, after the seed screen) --
+;  placement, the entrance shuffle, the cache -- the screen shows one of the game's map sprites scaled up eight
 ;  times, every pixel a character cell, walking in place, and the triangle
 ;  plays a little tune the roll itself writes: each stage its own scale, each
 ;  note a step of a walk the seed's draws choose, and the first pulse answers
 ;  it, two notes in its key, whenever a placement or a wiring is thrown away.  When the roll is
 ;  done the sprite goes on walking through the key item fanfare, fades, and
-;  party creation follows (user, 2026-10-14).  The seed picks the sprite, from
+;  party creation follows (user, 2026-10-14).  A roll that ends with no
+;  world -- placement giving up -- says so on a red backdrop to the game
+;  over music, and the seed screen comes back (roll_fail; user, 2026-10-27).  The seed picks the sprite, from
 ;  every creature a map stands up and the twelve classes (tools/genroll.py).
 ;  Each drawn as the game draws it facing down -- a bat facing left, whose
 ;  frames flap.  One whose frames are the same hops instead; Garland and the
@@ -45,14 +47,16 @@
 .include "Constants.inc"
 .include "variables.inc"
 .include "nescol.inc"
+.include "fftext.inc"
 
-.export roll_begin, roll_tick, roll_end
+.export roll_begin, roll_tick, roll_end, roll_fail
 ;  For tools/test_options.py.
 .export lut_RollChr, lut_RollPal, lut_RollPitch, lut_RollFx, roll_pick, lut_RollReach, lut_RollVoice
 .export lut_RollEnv, lut_PhraseLen, lut_PhraseEnv
 
-.import CallMusicPlay
-.import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b
+.import CallMusicPlay, UpdateJoy
+.import hal_vblaudio, hal_audioframe, hal_ppureclaim, hal_w400b, hal_auxdetect
+.import opt_padreset
 
 .segment "BANK_ROLL"
 
@@ -87,9 +91,19 @@ ROLLFX_THROB    = 2             ; ...or the backdrop throbs: COLDATA's channels
 ROLLFX_SLOW     = 1             ;   in bits 7-5, and this for slow and dim
 ROLLFX_BLACK    = $10           ; any of them on black
 ROLL_HOPVOFS    = $003          ; BG1VOFS half a cell up from $3FF
+;  The failure's words (roll_fail), on BG3, hidden until then: its tilemap,
+;  and its characters, a blank and then the menu font's $80-$FF, loaded as
+;  the screen comes up so that the failure has only the words to write.
+ROLL_TEXTMAP    = $1800         ; 32x32, past BG1's at $1000-$17FF
+ROLL_TEXTCHR    = $2000
+ROLL_TEXTBASE   = $7F           ; a glyph's character: the glyph less this
+MENUCHRFAR      = (CHUNK0 + BANK_MENUCHR) * $10000 + $8800   ; LoadMenuCHR's
+ROLL_FAILROW    = 23            ; under the sprite (ROLL_TOP + 16), in the 26
+ROLL_FAILRED    = NESCOL_06     ; the map edit screen's red for "cannot be won"
+ROLL_FAILINK    = NESCOL_30
 
-;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the seed
-;;  in the save.  Out: the screen up, dark, fading in as it ticks; the music
+;;  In emulation mode, by JSL from new_world (rando_build's, rando_newgame's)
+;;  or rando_coldbuild, the seed in the save.  Out: the screen up, dark, fading in as it ticks; the music
 ;;  the title left already silenced (DisableAPU).
 roll_begin:
     PHP
@@ -118,6 +132,7 @@ roll_begin:
     LDA lut_RollFx, X
     STA f:ROLL_FX
     JSR roll_build
+    JSR roll_textload
     SEC
     XCE
     LDA #$01
@@ -153,6 +168,61 @@ roll_begin:
     PLP
     RTL
 
+
+;;  BG3 for the failure's words (roll_fail): character 0 blank, the menu
+;;  font's 128 glyphs after it, NES 2bpp made SNES 2bpp -- a row's two
+;;  planes one word -- and the tilemap blank.  Native, A8, in forced blank.
+roll_textload:
+    .a8
+    REP #$10
+    .i16
+    LDA #$80
+    STA a:VMAIN                 ; a word: $2118, then $2119 and the step
+    REP #$20
+    .a16
+    LDA #ROLL_TEXTCHR
+    STA a:VMADDL
+    LDX #8
+  @blank:
+    STZ a:VMDATAL
+    DEX
+    BNE @blank
+    SEP #$20
+    .a8
+    LDX #$0000
+  @tile:
+    LDY #8
+  @row:
+    LDA f:MENUCHRFAR, X         ; plane 0...
+    STA a:VMDATAL
+    LDA f:MENUCHRFAR + 8, X     ; ...and plane 1
+    STA a:VMDATAH
+    INX
+    DEY
+    BNE @row
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #8                      ; past this glyph's plane 1
+    TAX
+    SEP #$20
+    .a8
+    CPX #128 * 16
+    BCC @tile
+    REP #$20
+    .a16
+    LDA #ROLL_TEXTMAP
+    STA a:VMADDL
+    LDX #32 * 32
+  @map:
+    STZ a:VMDATAL
+    DEX
+    BNE @map
+    SEP #$30
+    .a8
+    .i8
+    RTS
 
 ;;  The seed's picture: its halves XORed, a sixteen-bit v, scaled to the
 ;;  choices -- (v * ROLL_SPRITES) >> 16, from two 8x8 products, the high
@@ -854,8 +924,8 @@ ENV_HOLD = * - lut_RollEnv
   .assert * - lut_RollEnv - ENV_HOLD = 3 * ROLL_NOTETICKS, error, "the run's last held three beats"
 
 
-;;  In emulation mode, by JSL from rando_newgame or rando_coldbuild, the
-;;  world rolled; A = the track to start after, or 0 for none.  The sprite
+;;  In emulation mode, by JSL from rando_build, rando_newgame or
+;;  rando_coldbuild, the world rolled; A = the track to start after, or 0 for none.  The sprite
 ;;  walks on through the key item fanfare -- also the screen's least time up,
 ;;  however quick the roll -- then fades; the track starts, and the PPU goes
 ;;  back to the HAL, dark.
@@ -897,9 +967,165 @@ roll_end:
     PLP
     RTL
 
+;;  In emulation mode, by JSL from rando_build: no world -- placement threw
+;;  every attempt away.  The roll stops (user, 2026-10-27): the backdrop
+;;  red, the game over music, and under the sprite, which walks on, "Failed
+;;  to roll a world for this seed", until A, B or START is pressed; then the
+;;  fade, the title's music again for the seed screen, and the PPU back to
+;;  the HAL, dark.  L+X and L+Y reset from it, as from the menus.
+roll_fail:
+    PHP
+    PHB
+    PHK
+    PLB
+    SEP #$30
+    .a8
+    .i8
+    LDA #0
+    STA f:ROLL_ON               ; no more ticks: the frames are this loop's
+    LDA #TRACK_GAMEOVER
+    STA music_track
+    JSL hal_vblaudio + HALFAR   ; the top of a vblank, for the writes
+    CLC
+    XCE
+    REP #$10
+    .i16
+    LDA #$80
+    STA a:VMAIN
+    LDY #.LOWORD(lut_RollFail1)
+    REP #$20
+    .a16
+    LDA #ROLL_TEXTMAP + ROLL_FAILROW * 32 + (32 - ROLL_FAIL1N) / 2
+    JSR roll_words
+    LDY #.LOWORD(lut_RollFail2)
+    REP #$20
+    .a16
+    LDA #ROLL_TEXTMAP + (ROLL_FAILROW + 1) * 32 + (32 - ROLL_FAIL2N) / 2
+    JSR roll_words
+    .a8
+    ;  The backdrop red, and BG3's palette 0 white on the same red -- the
+    ;  font's blank pixels are its colour 2, its ink 3.
+    STZ a:CGADD
+    LDA #<ROLL_FAILRED
+    STA a:CGDATA
+    LDA #>ROLL_FAILRED
+    STA a:CGDATA
+    LDA #2
+    STA a:CGADD
+    LDA #<ROLL_FAILRED
+    STA a:CGDATA
+    LDA #>ROLL_FAILRED
+    STA a:CGDATA
+    LDA #<ROLL_FAILINK
+    STA a:CGDATA
+    LDA #>ROLL_FAILINK
+    STA a:CGDATA
+    STZ a:CGADSUB               ; no throb's colour added
+    LDA #$E0
+    STA a:COLDATA
+    LDA #(ROLL_TEXTMAP >> 8) & $FC
+    STA a:BG3SC
+    LDA #ROLL_TEXTCHR >> 12
+    STA a:BG34NBA
+    STZ a:BG3HOFS
+    STZ a:BG3HOFS
+    LDA #$FF                    ; -1, as BG1's
+    STA a:BG3VOFS
+    LDA #$03
+    STA a:BG3VOFS
+    LDA #$05
+    STA a:TM                    ; BG1 and BG3
+    LDA #$0F
+    STA f:ROLL_BRIGHT
+    STA a:INIDISP               ; whole, however far the fade in had come
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    LDA #$FF                    ; nothing counts as pressed until let go
+    STA f:ROLL_PAD
+  @wait:
+    JSR roll_wait
+    JSR roll_frame
+    JSR UpdateJoy
+    JSR roll_reset              ; no return, if it resets
+    LDA f:ROLL_PAD
+    EOR #$FF
+    AND joy                     ; pressed since the last frame
+    PHA
+    LDA joy
+    STA f:ROLL_PAD
+    PLA
+    AND #$D0                    ; A, B, START
+    BEQ @wait
+  @fade:
+    JSR roll_wait
+    LDA f:ROLL_BRIGHT
+    BEQ @dark
+    DEC A
+    STA f:ROLL_BRIGHT
+    STA a:INIDISP
+    BRA @fade
+  @dark:
+    LDA #$80
+    STA a:INIDISP
+    LDA #TRACK_TITLE
+    STA music_track
+    JSL hal_ppureclaim + HALFAR
+    PLB
+    PLP
+    RTL
+
+;;  Controller Reset, as the map edit screen takes it (ows_reset): the HAL's
+;;  look at L, X and Y, which hal_vblaudio leaves out, then opt_padreset to
+;;  act on it, which stirs the seed's pool too, as every frame of the menus
+;;  does.  When it is going to reset, the PPU goes back to the HAL first,
+;;  dark, as leaving the screen gives it back.  Emulation mode.
+roll_reset:
+    JSL hal_auxdetect + HALFAR
+    LDA a:h_padreset
+    BEQ :+
+    LDA #$80
+    STA a:INIDISP
+    JSL hal_ppureclaim + HALFAR
+:   JSL opt_padreset + OPTFAR
+    RTS
+
+;;  The bytes of the words at Y into BG3's tilemap at A16, as characters of
+;;  ROLL_TEXTCHR, palette 0.  Native, I16; out A8.
+roll_words:
+    .a16
+    .i16
+    STA a:VMADDL
+    SEP #$20
+    .a8
+    TYX
+  @c:
+    LDA a:0, X
+    BEQ @done
+    SEC
+    SBC #ROLL_TEXTBASE
+    STA a:VMDATAL
+    STZ a:VMDATAH
+    INX
+    BRA @c
+  @done:
+    RTS
+
+lut_RollFail1:
+  FFTEXT "Failed to roll a world"
+  .BYTE 0
+ROLL_FAIL1N = * - lut_RollFail1 - 1
+lut_RollFail2:
+  FFTEXT "for this seed"
+  .BYTE 0
+ROLL_FAIL2N = * - lut_RollFail2 - 1
+
 ;;  A frame of the game's music driver, then the top of the next vblank.
 ;;  cur_bank is where CallMusicPlay swaps back to.  Emulation mode.
 roll_wait:
+    .a8
+    .i8
     LDA #CHUNK_ROLL
     STA cur_bank
     JSR CallMusicPlay

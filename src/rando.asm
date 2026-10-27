@@ -5,13 +5,15 @@
 ;  Chunk CHUNK_RANDO.  The design is in randomization-notes.md; in brief:
 ;
 ;    - A world is a seed and the new-game settings, both stored in the save at
-;      RANDO_SAVE.  rando_newgame writes them when a game starts.  Nothing else
+;      RANDO_SAVE.  rando_build writes them as New Game starts one, before
+;      party creation, and builds the cache from them.  Nothing else
 ;      writes them, and nothing reads the settings screen's copy afterwards.
 ;
 ;    - Everything generated from them is a cache in WRAM bank $7F, rebuilt
 ;      whenever its tag disagrees with the save.  GameStart's @Begin, where
-;      New Game and Continue meet, builds it before any game code runs, so
-;      the build's pause falls in the transition into the game.  Every
+;      New Game and Continue meet, builds it -- a Continue's; New Game's is
+;      built already -- before any game code runs, so the build's pause
+;      falls in the transition into the game.  Every
 ;      consumer still calls ensure first, as a safety net: a Continue of a
 ;      different file or power-on would come out right even without @Begin,
 ;      because the tag cannot match a world it was not built from.  L+X and
@@ -41,7 +43,7 @@
 .include "variables.inc"
 .include "fftext.inc"
 
-.export rando_newgame, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
+.export rando_newgame, rando_build, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
 .export rando_chest
 .export rando_spell, rando_slot, rando_ibspell, rando_obspell, rando_oobspell
 .export rando_menuspell, rando_shopspell, rando_shopmagic
@@ -57,8 +59,8 @@
 .export rando_coldbuild
 .export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar
-;  New Game's roll screen (roll.asm), up while rando_newgame works.
-.import roll_begin, roll_tick, roll_end
+;  New Game's roll screen (roll.asm), up while rando_build works.
+.import roll_begin, roll_tick, roll_end, roll_fail
 .import ows_tick
 .import hal_framedue
 
@@ -416,7 +418,7 @@ rando_below:
 ;;
 ;;  One number below A from the game's own stream, so a seed always starts
 ;;  with the same item, and no other feature's draws move with it.  Called by
-;;  New Game after rando_newgame has written the seed, and only then.
+;;  New Game after rando_build has written the seed, and only then.
 ;;
 ;;  In: A = the pool's size, 1..255.  Out: A = 0..A-1; X and Y kept.
 ;;  Emulation mode in and out.
@@ -583,40 +585,88 @@ rando_stir:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_build -- New Game's world, before party creation
+;;
+;;  From New Game's flow (ng_build), after the seed screen -- or the options,
+;;  nothing randomized -- and before party creation (user, 2026-10-27:
+;;  "Everything random should be locked down prior to party select").  The
+;;  first page of unsram as GameStart leaves it (lut_InitUnsramFirstPage,
+;;  then on foot), so that nothing of a build backed out of stays -- a
+;;  BRIDGE at Lefein, a placement; then the flow's seed (NGF_SEED), the settings screen's
+;;  new-game rows and the map edits its screen ticked (NGF_OWEDITS); and
+;;  the roll screen up for the work (new_world).  Placement giving up --
+;;  every attempt of Key items Standard's or Wide's thrown away -- is said
+;;  on the roll screen (roll_fail); else the cache, and the fanfare, the
+;;  title's music starting again for party creation.
+;;
+;;  In emulation mode, by JSL.  Out: C clear, built; C set, no world.  X and
+;;  P but C as they were.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.import DisableAPU
+INITPAGE = (CHUNK0 + BANK_STARTUPINFO) * $10000 + lut_InitUnsramFirstPage
+rando_build:
+    PHP
+    PHX
+    LDX #$00
+  @page:
+    LDA f:INITPAGE, X
+    STA f:CHUNK0 * $10000 + unsram, X
+    INX
+    BNE @page
+    LDA #$01                    ; on foot, as GameStart sets it after the
+    STA f:CHUNK0 * $10000 + unsram_vehicle  ;   same fill: the table's is 0
+    LDX #$03                    ; the flow's, latched or typed (ng_flow)
+  @seed:
+    LDA f:NGF_SEED, X
+    STA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE), X
+    DEX
+    BPL @seed
+    LDA f:NGF_OWEDITS
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:NGF_OWEDITS + 1
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    JSR new_world
+    BCS @failed
+    JSL rando_ensure + RANDOFAR
+    LDA #TRACK_TITLE            ; the fanfare, the fade, the PPU back to the
+    JSL roll_end + ROLLFAR      ;   HAL; the title's music for party creation
+    PLX
+    PLP
+    CLC
+    RTL
+  @failed:
+    JSL roll_fail + ROLLFAR     ; said, and a press waited for
+    PLX
+    PLP
+    SEC
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_newgame -- give the game being started its world
 ;;
 ;;  Called from opt_freestuff, from NewGamePartyGeneration, after page 0 of
-;;  unsram has been filled from lut_InitUnsramFirstPage and New Game's flow
-;;  has made the party (ng_flow; since 2026-10-21 the world is built after
-;;  it, as menus.txt has it).  Takes the flow's seed (NGF_SEED) -- or,
-;;  without the flow, the pool's (or FFSEED's, in a debug build) -- and
-;;  copies the settings screen's new-game rows in beside it, places the key
-;;  items, and builds the cache: all of New Game's work in one pause.  The
-;;  starting stats come after, and touch neither page 0 nor the cache, so
-;;  GameStart's @Begin finds the cache whole and only compares the tag.
-;;
-;;  The title's music plays on through the flow and party creation.  Nothing
-;;  calls the music driver after, and the SPC700 would hold the title's last
-;;  note through the roll: silence then, as @Begin does.  The roll screen
-;;  ends with no track, PrepOverworld starting the overworld's, as after a
-;;  cold build.
+;;  unsram has been filled from lut_InitUnsramFirstPage and the party made.
+;;  After New Game's flow (NGF_ACTIVE) the world is built already, before
+;;  party creation (rando_build): the mark is used up and nothing else done.
+;;  Without the flow, which only the tests start a game without, all of it
+;;  here as before: the pool's seed (or FFSEED's, in a debug build), the
+;;  settings, no map edits, the roll screen, placement and the cache, the
+;;  roll ending with no track, PrepOverworld starting the overworld's.
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-.import DisableAPU
 rando_newgame:
     PHP
     PHX
     LDA f:NGF_ACTIVE
     BEQ @pool
-    LDX #$03                    ; the flow's, latched or typed (ng_flow)
-  @flowseed:
-    LDA f:NGF_SEED, X
-    STA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE), X
-    DEX
-    BPL @flowseed
-    BRA @seeded
+    LDA #0
+    STA f:NGF_ACTIVE            ; this New Game's, and no other's
+    PLX
+    PLP
+    RTL
   @pool:
 .ifdef FORCE_SEED
     ;  FFSEED=xxxxxxxx ./build.sh: every new game gets this seed, so a world
@@ -637,28 +687,31 @@ rando_newgame:
     DEX
     BPL @seed
 .endif
-  @seeded:
+    LDA #0
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    JSR new_world               ; (no world: the key items stay at home)
+    JSL rando_ensure + RANDOFAR
+    LDA #0
+    JSL roll_end + ROLLFAR
+    PLX
+    PLP
+    RTL
+
+;;  The world from the save's seed and map edits, written already: the
+;;  settings screen's new-game rows beside them, Bridge to Lefein's BRIDGE
+;;  where FFR puts it, the reward NPCs' state afresh, the title's music
+;;  silenced -- nothing drives it through the roll, and the SPC700 would
+;;  hold its last note -- the roll screen up, and the key items placed.
+;;  Out: C set if Key items Standard or Wide placed nothing (every attempt
+;;  thrown away).  Emulation mode; X clobbered.
+new_world:
     LDX #OPT_NG_SIZE - 1
   @ng:
     LDA f:OPT_NGFAR, X
     STA f:RANDO_SAVEFAR + RANDO_NGOFF, X
     DEX
     BPL @ng
-    ;  Map edits: the ones New Game's map edit screen ticked (ng_flow), once;
-    ;  without the flow, which only the tests start a game without, none.
-    ;  And Bridge to Lefein's BRIDGE where FFR puts it.
-    LDA #0
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-    LDA f:NGF_ACTIVE
-    BEQ @owdone
-    LDA #0
-    STA f:NGF_ACTIVE            ; this New Game's, and no other's
-    LDA f:NGF_OWEDITS
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
-    LDA f:NGF_OWEDITS + 1
-    STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-  @owdone:
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     AND #OWEDIT_BRIDGELEFEIN
     BEQ :+
@@ -677,18 +730,21 @@ rando_newgame:
     JSL roll_begin + ROLLFAR
     ;  ...and where its key items are, under Key items Standard or Wide.
     JSL rando_place + RANDOFAR
-    ;  ...and the world itself, now rather than at @Begin.
-    JSL rando_ensure + RANDOFAR
-    ;  The fanfare, the fade, and the PPU back to the HAL; no track, the
-    ;  overworld starting its own.
-    LDA #0
-    JSL roll_end + ROLLFAR
-    PLX
-    PLP
-    RTL
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    CMP #KEYITEMS_STANDARD
+    BEQ :+
+    CMP #KEYITEMS_WIDE
+    BNE @placed                 ; Vanilla: nothing to place
+:   LDA f:RANDO_PLACEDFAR
+    CMP #1
+    BEQ @placed
+    SEC
+    RTS
+  @placed:
+    CLC
+    RTS
 
 BRIDGEFAR  = (CHUNK0 * $10000) + bridge_x   ; and bridge_y after it
-SHIPFAR    = (CHUNK0 * $10000) + ship_x     ; and ship_y
 .assert bridge_y = bridge_x + 1, error, "bridge_y follows bridge_x"
 
 ;;  A cold cache at @Begin -- a Continue the first after power-on, the save's

@@ -511,7 +511,7 @@ and gold is not a reward yet (its `LoadPrice` swaps banks and writes `tmp`).
 The game flags and items it touches are its own work, a few instructions
 each, except `ShowMapObject` through `CALL0E`.
 
-  - **Engaged by a marker, not a version.**  `rando_newgame` sets
+  - **Engaged by a marker, not a version.**  New Game's build (`new_world`) sets
     `RANDO_TALK` (`$60F0`) and clears `RANDO_GIVEN` (`$60F1-$60F2`, a bit per
     entry).  Every save made before reads zero there (§1.1), so it keeps the
     vanilla handlers and no NPC state is read two ways; no SAVEVER bump.
@@ -1945,9 +1945,14 @@ Where it departs from the plan below or from §1:
     classes (user) -- and `@Begin` after party creation only compares the
     tag.  Party creation touches neither page 0 nor the cache, and turns
     the channels back on itself as it starts.  `@Begin` still builds for a
-    Continue whose cache is cold.
+    Continue whose cache is cold.  New Game's flow then put party creation
+    first (2026-10-21), and the user moved the build back ahead of it
+    (2026-10-27: "Everything random should be locked down prior to party
+    select"): `rando_build`, right after the seed screen, and the world
+    kept if the player comes back through that screen with nothing changed
+    (`options-design.md`, "The world built before party creation").
   - **The roll screen (user, 2026-10-14; built and played
-    2026-10-15, its pictures and sounds tuned by ear over the day).**  The pause made entertaining.  While `rando_newgame` works,
+    2026-10-15, its pictures and sounds tuned by ear over the day).**  The pause made entertaining.  While the world builds,
     the screen shows one of the game's map sprites scaled up eight times --
     every pixel a character cell, 128 pixels square on the window blue --
     walking in place, the seed choosing which -- its halves XORed and
@@ -2002,7 +2007,11 @@ Where it departs from the plan below or from §1:
     reload of six counted down to zero inclusive.  When the roll is done the sprite walks on
     through the key item fanfare (track $54) -- the screen's least time up,
     however quick the roll (user) -- fades, the title's music starts again
-    for party creation, and the PPU goes back to the HAL dark.
+    for party creation, and the PPU goes back to the HAL dark.  A roll that
+    places nothing in its 32 attempts says so instead: "Failed to roll a
+    world for this seed" on a red backdrop, to the game over music, until
+    A, B or START; then the seed screen again (user, 2026-10-27;
+    `roll_fail`).
     **How it ticks without interrupts** (`roll.asm`): the randomizer yields
     -- every draw, every ask the logic makes, every placement cycle, the
     outer loops of entrance shuffle's logic and the reward deal -- and a
@@ -2157,10 +2166,10 @@ Settled in review 1:
         2026-10-21; `options-design.md`, "New Game's screens"), and the
         Map edits row it stood in for is gone (2026-10-24).
       - Then **options** (the existing screen, less the sections that
-        moved) -> **seed**, when anything needs one -> **party creation**,
-        after which the world is built and placed, the roll screen up
-        meanwhile, and the game begins.  Party creation comes after the
-        seed on purpose: a seeded feature such as class blursings could
+        moved) -> **seed**, when anything needs one -> the world built
+        and placed, the roll screen up meanwhile (before party creation
+        since 2026-10-27; after it until then) -> **party creation**, and
+        the game begins.  Party creation comes after the seed on purpose: a seeded feature such as class blursings could
         then show at party creation what the party is choosing between
         (user, 2026-10-21).
       - **B returns to the previous screen, throughout** -- whichever led
@@ -2187,7 +2196,8 @@ Settled in review 1:
         or A once all eight digits are in, goes on, and Start before then
         plays the error sound.  Built 2026-10-21 (`options-design.md`, "New
         Game's screens"), and party creation after it, its B on the first
-        character back a screen, the world built after it.
+        character back a screen; the world built between them since
+        2026-10-27.
       - The prologue's music plays on, uninterrupted, through every screen
         to party creation, whose own vanilla music is the same track; and
         L + X / L + Y reset from all of them.

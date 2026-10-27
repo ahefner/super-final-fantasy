@@ -911,7 +911,7 @@ opt_dpadnew:
 ;;  IntroTitlePrepare, by JSL, in place of its LDA #$41 / STA music_track.
 ;;  A not kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-TITLEMUSIC = $41
+TITLEMUSIC = TRACK_TITLE
 opt_titlemusic:
     LDA f:MENU_KEEPMUSIC
     BNE @keep
@@ -4021,8 +4021,10 @@ opt_housemp:
 
 
 opt_freestuff:
-    ;  The world: the seed and the new-game rows, into the save -- where the
-    ;  Free items are then read, as this game's rather than the settings'.
+    ;  The world, built before party creation (rando_build): the seed and
+    ;  the new-game rows in the save -- where the Free items are then read,
+    ;  as this game's rather than the settings'.  rando_newgame builds it
+    ;  here only for a game begun without New Game's flow, as the tests do.
     JSL rando_newgame + RANDOFAR
     LDA #ITEMROW_SHIP
     JSR opt_isfree
@@ -4261,7 +4263,7 @@ CASTER_STATUSES = * - lut_CasterStatuses
 
 
 ;;  In: A = an ITEMROW_*.  Out: Z set if this game gives it at the start,
-;;  ITEM_FREE in the save rando_newgame has just written.  X and Y clobbered.
+;;  ITEM_FREE in the save New Game's build wrote.  X and Y clobbered.
 opt_isfree:
     TAY
     LSR A                       ; four rows to a byte

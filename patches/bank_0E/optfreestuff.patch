@@ -7,12 +7,12 @@ NewGamePartyGeneration:
 .export NewGamePartyUI
 
 NewGamePartyGeneration:
-    ;  New Game's world, after its party.  The party is made already: New
-    ;  Game's flow (newgame.asm's ng_flow) runs party creation, below, as its
-    ;  last screen, so the prologue's music plays on through it and its B on
-    ;  the first character goes back a screen (menus.txt).  Then this, from
-    ;  GameStart: the world, the roll screen up meanwhile, and whatever the
-    ;  Treasures flags say a new game starts with.  Here rather than beside
+    ;  The party and the world are made already: New Game's flow
+    ;  (newgame.asm's ng_flow) builds the world (rando_build) and then runs
+    ;  party creation, below, as its last screen, so the prologue's music
+    ;  plays on through it and its B on the first character goes back a
+    ;  screen (menus.txt).  Then this, from GameStart: whatever the Treasures
+    ;  flags say a new game starts with.  Here rather than beside
     ;  the call in the fixed bank, which has three bytes left -- and it makes
     ;  no difference, because nothing between this and the map touches the
     ;  first page of unsram.
