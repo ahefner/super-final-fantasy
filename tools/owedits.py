@@ -30,12 +30,15 @@ SETTINGS = [
     "MapSardasForest",             # 10 Sarda's Forest
     "MapAirshipHike",              # 11 Hiking Trail to Airship
     "MapCardiaLandBridge",         # 12 Cardia Land Bridge
-    "ShipDrydock",                 # 13 Ship in Drydock (FFR's treasure tab)
 ]
 BRIDGE_LEFEIN = 6
 SARDAS_FOREST = 10
 CARDIA_BRIDGE = 12
-SHIP_DRYDOCK = 13
+#  FFR's lists this port does not offer, and the flag FFR applies each
+#  under: Ship in Drydock, removed (user, 2026-10-27: "It isn't very useful
+#  without the Airboat flag ... otherwise equivalent to removing the SHIP").
+#  Transcribed all the same, as FFR has it; gated LIST_NONE, never applied.
+DROPPED = {"GaiaDrydock": "ShipDrydock"}
 
 #  Each list's gate: its bit in the active-list mask (active_lists; the
 #  cart's ow_lists).  A setting's own bit, but for FFR's two Cardia rules:
@@ -62,17 +65,15 @@ ORDER = [  # FFR's application order, and each list's gate
     ("AirshipHike", 11),
     ("CardiaLandBridge", CARDIA_BRIDGE),
     ("CardiaLandBridgeBahamutDock", LIST_BAHAMUT_BRIDGE),
-    ("GaiaDrydock", SHIP_DRYDOCK),
+    ("GaiaDrydock", LIST_NONE),     # Ship in Drydock's, not offered (DROPPED)
     ("CanalSoftLockMountain", LIST_NONE),
 ]
 
 #  FFR's other effects of the settings, the ones this port carries: Bridge
 #  to Lefein moves the BRIDGE there (Overworld.cs) and, since its edits
 #  delete Matoya's dock, moors a ship that would have berthed there at
-#  Coneria's instead (ShipLocations.UpdateDocks); Ship in Drydock moors
-#  every ship at Gaia's drydock (Dock.GaiaDrydock, the same routine).
+#  Coneria's instead (ShipLocations.UpdateDocks).
 BRIDGE_LEFEIN_XY = (230, 123)
-DRYDOCK_XY = (211, 31)
 
 
 def list_cubes(gate):
@@ -97,12 +98,10 @@ def graph_edits():
 
 def graph_positions(vanilla):
     """worldgraph's positions (romdata.VANILLA_POS) as the settings move
-    them, each a list of (cube, (x, y)): the BRIDGE under Bridge to Lefein,
-    the ship under Ship in Drydock."""
+    them, each a list of (cube, (x, y)): the BRIDGE under Bridge to Lefein."""
     pos = {k: [((0, 0), xy)] for k, xy in vanilla.items()}
-    bl, dd = 1 << BRIDGE_LEFEIN, 1 << SHIP_DRYDOCK
+    bl = 1 << BRIDGE_LEFEIN
     pos["bridge"] = [((0, bl), vanilla["bridge"]), ((bl, 0), BRIDGE_LEFEIN_XY)]
-    pos["ship"] = [((0, dd), vanilla["ship"]), ((dd, 0), DRYDOCK_XY)]
     return pos
 
 

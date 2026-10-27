@@ -1,9 +1,9 @@
 ; ---------------------------------------------------------------------------
 ;  owscreen.asm -- New Game's map edit screen (CHUNK_OWS).
 ;
-;  Each of FFR's fourteen overworld edits a checkbox, and the world's minimap
-;  as the boxes ticked would make it (user, 2026-10-18), with a zoom of the
-;  selected edit: the minimap at the left, the fourteen in a column beside
+;  A checkbox for each of the thirteen FFR overworld edits, and the world's
+;  minimap as the boxes ticked would make it (user, 2026-10-18), with a zoom of the
+;  selected edit: the minimap at the left, the thirteen in a column beside
 ;  it, the zoom below it.
 ;
 ;  From New Game's flow (ng_flow), after the randomization screen, B going
@@ -148,7 +148,7 @@ OWV       = OWS_VARS
 V_FLAGS   = OWV+$00             ; 2: the boxes ticked, OWEDIT_* bits
 V_ACTIVE  = OWV+$02             ; 2: the lists they apply
 V_HLMASK  = OWV+$04             ; 2: the selected view's gates
-V_SEL     = OWV+$06             ; the selected setting, 0-13
+V_SEL     = OWV+$06             ; the selected setting, 0 to OWS_SETTINGS - 1
 V_PREV    = OWV+$07             ; the pad last frame
 V_T       = OWV+$09             ; frames
 V_SITE    = OWV+$0A             ; which of the view's places the zoom shows
@@ -1355,17 +1355,14 @@ ows_moves:
 ;;  each vblank rando_yield calls ows_tick, which with OWS_TICKFRAME runs
 ;;  this screen's frame.
 ;;
-;;  But only for Ship in Drydock or a removed SHIP or FLOATER: with neither,
-;;  every combination of the edits can be won, under every Key items mode
-;;  and Early flag -- tools/checkwin.py proves it over all 8,192, and Free
-;;  items and Early flags only open the world further -- so a tick costs
-;;  nothing (user: running down the column ticking every box).  A8 I16.
+;;  But only for a removed SHIP or FLOATER: without, every combination of
+;;  the edits can be won, under every Key items mode and Early flag --
+;;  tools/checkwin.py proves it over all 8,192, and Free items and Early
+;;  flags only open the world further -- so a tick costs nothing (user:
+;;  running down the column ticking every box).  A8 I16.
     .a8
     .i16
 ows_check:
-    LDA f:V_FLAGS + 1
-    AND #>OWEDIT_DRYDOCK
-    BNE @slow
     LDA f:RANDO_SAVEFAR + (RANDO_ITEMS - RANDO_SAVE)
     AND #3 << (2 * ITEMROW_SHIP)
     CMP #ITEM_REMOVE << (2 * ITEMROW_SHIP)
@@ -1378,8 +1375,8 @@ ows_check:
     STA f:V_WON
     LDA #0
     STA f:V_CHECK
-    LDA f:V_INCS                ; every location reachable without these:
-    STA f:V_INCR                ;   all 32,768 combinations (test_owsinc)
+    LDA f:V_INCS                ; every location reachable without a removal:
+    STA f:V_INCR                ;   all 32,768 combinations (randoref)
     JSR ows_increfresh
     JMP ows_rewarn
   @slow:
@@ -2858,7 +2855,6 @@ lut_OwsName:
   FFPAD "Sarda Forest", NAME_W
   FFPAD "Airship Trail", NAME_W
   FFPAD "Cardia Bridge", NAME_W
-  FFPAD "Ship Drydock", NAME_W
 
 
 lut_OwsTitle:

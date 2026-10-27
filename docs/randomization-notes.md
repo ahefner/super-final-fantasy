@@ -1503,7 +1503,8 @@ Placement's logic is now the edited map's, for every edit, as FFR's is:
     masks, spread groups and dock, Off's safe tables and tries; the
     precomputed tables stay the unedited map's.  A shuffle with no world
     falls back to that.  `randoref.new_world` is New Game's whole choice.
-  - **The ship.**  Under Ship in Drydock every ship -- placed, Bikke's under
+  - **The ship** (Ship in Drydock removed 2026-10-27, options-design.md;
+    what follows is its history).  Under Ship in Drydock every ship -- placed, Bikke's under
     Key items Vanilla, a free one -- is moored at Gaia's drydock, which is
     landlocked: FFR's reading of the ship, sailing from wherever it is
     found, gives way to boarding only there (`edited.vehicle_edges`), so the

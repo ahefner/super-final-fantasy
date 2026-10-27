@@ -328,7 +328,7 @@ pl_edited:
     STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
     LDA f:RANDO_PLACEFAR + PI_SHIP
     CMP #$FF
-    BEQ :+                      ; a free ship: Coneria's (or the drydock)
+    BEQ :+                      ; a free ship: Coneria's
     REP #$20
     .a16
     AND #$00FF

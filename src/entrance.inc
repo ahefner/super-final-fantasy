@@ -2702,11 +2702,7 @@ es_dock:
     STA a:esLOC
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     STA a:esOWE
-    AND #OWEDIT_DRYDOCK
-    BEQ :+
-    LDA #DOCK_DRYDOCK           ; Ship in Drydock: every ship is moored there
-    RTS
-:   JSR es_locents              ; esRM: its entrances
+    JSR es_locents              ; esRM: its entrances
     LDA #$FFFF                  ; the best so far: kind (0 walk, 1 fly), its
     STA a:esOWN                 ;   distance, the dock
     STA a:esOWN + 2

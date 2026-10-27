@@ -38,7 +38,7 @@ equal, location for location, over every combination of the settings that
 matter.
 
 Positions move too (owedits.graph_positions): the BRIDGE under Bridge to
-Lefein, the ship's start under Ship in Drydock.  Neither the start, the
+Lefein.  Neither the start, the
 airship, the canal, the floater, the caravan nor any special tile is written
 by an edit, which is asserted.
 """
@@ -461,10 +461,7 @@ class EditedOverworld:
 def vehicle_edges(g, ow):
     """placement.vehicle_edges for the edited overworld: the airship flies
     from anywhere once raised; the ship, as FFR reads it, sails from
-    wherever it is found -- but under Ship in Drydock every ship is moored
-    at Gaia's drydock (owedits.DRYDOCK_XY), so it is boarded only there,
-    by ow's own 'board ship where it starts' edges, as FFR's sanity
-    checker boards it only from the dock's land (SanityCheckerV2)."""
+    wherever it is found."""
     out = [(g.start, ow.sky, BIT["AIRSHIP"], "FFR: the airship flies from anywhere", [ALWAYS])]
     sc, si = ow.ships[0]
     out.append((g.start, ow.S(si), BIT["SHIP"], "FFR: the ship appears where it is found", [sc]))

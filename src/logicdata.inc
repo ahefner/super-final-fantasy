@@ -291,10 +291,10 @@ lut_LogicChaos:
 
 ;  The docks a found ship is moored at (FFR's), as the sea tile it sits on.
 lut_DockX:
-  .BYTE $98, $D2, $8D, $79, $9E, $D3
+  .BYTE $98, $D2, $8D, $79, $9E
 
 lut_DockY:
-  .BYTE $A9, $99, $D3, $8B, $8E, $1F
+  .BYTE $A9, $99, $D3, $8B, $8E
 
 ;  Each pool place's spread group (pl_forward): the chests of one dungeon
 ;  behind one set of requirements; LOGIC_NOGROUP for an NPC or the caravan.

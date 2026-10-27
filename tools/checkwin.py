@@ -5,9 +5,9 @@ checkwin.py -- the map edit screen's fast path, proved.
     pypy3 tools/checkwin.py
 
 owscreen.asm's ows_check skips the unwinnable check (rando_winnable) on a
-tick unless Ship in Drydock is ticked or the SHIP or the FLOATER is removed:
-with neither, every combination of the map edits can be won.  This checks
-that over all 8,192 combinations of the other thirteen, under Key items
+tick unless the SHIP or the FLOATER is removed: without, every combination
+of the map edits can be won.  This checks that over all 8,192 combinations
+of the thirteen, under Key items
 Vanilla (the items at home, swept) and Standard (every key item held, as
 Wide's check is too), with no Early flag and nothing free -- the hardest
 case, since the Early flags only waive requirements and Free items are only
@@ -23,13 +23,13 @@ import randoref as R  # noqa: E402
 
 
 def main():
-    dry = 1 << O.SHIP_DRYDOCK
-    bad = [(ki, f) for f in range(1 << len(O.SETTINGS)) if not f & dry
+    n = 1 << len(O.SETTINGS)
+    bad = [(ki, f) for f in range(n)
            for ki in (R.KEYITEMS_VANILLA, R.KEYITEMS_STANDARD)
            if not R.winnable(ki, [0, 0, 0], 0, f)[0]]
     for ki, f in bad[:10]:
         print("  Key items %d, edits $%04X: cannot be won" % (ki, f))
-    print("%d of %d combinations without Ship in Drydock cannot be won" % (len(bad), 2 * (1 << 13)))
+    print("%d of %d combinations cannot be won" % (len(bad), 2 * n))
     return 1 if bad else 0
 
 

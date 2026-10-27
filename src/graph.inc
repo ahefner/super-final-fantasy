@@ -2,8 +2,8 @@
 ;  The world graph without its wiring, and FFR's entrance shuffle data;
 ;  see gengraph.py.  Regions number from 0, the start.
 
-GR_NODES         = 201
-GR_MASKS         = 50
+GR_NODES         = 199
+GR_MASKS         = 48
 GR_LANDINGS      = 95
 GR_EXITXY        = 37
 GR_LOCS          = 257

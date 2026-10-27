@@ -1817,11 +1817,32 @@ those blocks have their tiles back and the logo's moved into twins' --
 
 **Built 2026-10-18; the menu judged good by the user and merged, the
 batch after it built, not yet played.**  A checkbox for each of FFR's
-fourteen overworld edits, the world's minimap as they would make it, and a
+overworld edits -- thirteen since Ship in Drydock went (below) -- the
+world's minimap as they would make it, and a
 zoom of the selected edit in the game's dialog box frame (user: per-edit
 toggles on a screen of their own during New Game, the Map edits row only
 standing in).  `owscreen.asm`, a native screen in a chunk of its own
-(`CHUNK_OWS`).  The user saw four layouts -- the minimap above a two-column
+(`CHUNK_OWS`).
+
+**Ship in Drydock removed** (user, 2026-10-27: "It isn't very useful
+without the Airboat flag. It still has the tiniest impact of allowing a
+useless SHIP as a key item, but that's just silly and otherwise equivalent
+to removing the SHIP").  Gone: its line on the screen, its description, its
+mooring of every ship at Gaia's drydock (`rando_newgame`, `give_vehicle`,
+`opt_freestuff`, `es_dock`'s sixth dock), its share of the screen's slow
+path -- a tick now checks only under a removed SHIP or FLOATER -- and its
+regions in the world graph (two, regenerated: `gengraph.py`,
+`genlogic.py`).  Its bit 13 of `RANDO_OWEDITS` is unread, `OWEDIT_FLAGS`
+`$1FFF`; SAVEVER 2.  FFR's `GaiaDrydock` list stays transcribed in
+`owedits.py`, gated never (`DROPPED`), so the check against FFR's source
+still holds every list.  `checkwin.py`: all 8,192 combinations of the
+thirteen winnable without a removal, both modes; `checkplace.py` loses no
+seed.  `test_winnable`'s screen sequence, which used Ship in Drydock as its
+red-and-back tick, now runs on the FLOATER removed, North Docks the edit
+that wins it, the SHIP removed for the other reason, and no removal for
+no check at all.  Built, not yet played.
+
+The user saw four layouts -- the minimap above a two-column
 grid or beside a single column, each with the zoom or without -- and chose
 the side one with the zoom (2026-10-18); the others' code went once it
 was chosen.  All inside the 30x26 cells a CRT shows: the column is rows
@@ -1834,9 +1855,9 @@ minimap, the title and description beside the zoom.
     save and it has any (no option block bytes), else none; for a preset,
     from its `[map_edits]`.  Before the flow it came up from
     `rando_newgame` when the Map edits row was not Off.  START keeps
-    what is ticked, all fourteen (Sarda's Forest, the Cardia Land Bridge and
-    Ship in Drydock were grey and dropped until the logic knew them,
-    2026-10-18).  The title's music plays on through it (`rando_newgame`
+    what is ticked (Sarda's Forest, the Cardia Land Bridge and Ship in
+    Drydock were grey and dropped until the logic knew them, 2026-10-18;
+    Ship in Drydock is gone since, above).  The title's music plays on through it (`rando_newgame`
     silences it after, for the roll screen).
   - As the other menus: the settings screen's own checkbox tiles (from
     `optmenu.asm`'s `lut_CheckboxCHR`) and the game's hand, two cells before
@@ -1871,8 +1892,7 @@ minimap, the title and description beside the zoom.
     a world exactly then, over every setting `checkplace.py` tries.  Under
     Key items Vanilla the items stay home, so it sweeps from the free ones,
     each place reached giving its vanilla item (`lut_LogicVanBit`) but a
-    removed one; Ship in Drydock with Early Open is winnable placed and not
-    at home, where the CANOE waits on the Earth Orb.  130,000 to 265,000
+    removed one.  130,000 to 265,000
     instructions.  Before the flow, with the Map edits row Off New Game
     checked only when the SHIP or the FLOATER was removed and if so forced
     the screen up, saying why (`OWS_FORCED`); removed with the row
@@ -1892,11 +1912,9 @@ minimap, the title and description beside the zoom.
     the wiring is the seed's, chosen later, and placement may try several
     (user: "Hide always").  Under Key items Vanilla Select does nothing.
     Reachable is the check's (`rando_winnable` counts it as it goes,
-    `ES_NREACH`); without Ship in Drydock or a removal, where the screen
-    runs no check, every location is reachable, over all 8,192
-    combinations of the other edits, both modes and the Early flags
-    (32,768, randoref).  Ship in Drydock alone, Standard, reaches 6 of the
-    21.  A first version put an "Incentives" line under the edits, the
+    `ES_NREACH`); without a removal, where the screen runs no check, every
+    location is reachable, over all 8,192 combinations of the edits, both
+    modes and the Early flags (32,768, randoref).  A first version put an "Incentives" line under the edits, the
     numbers its description (8772629): the user found it ugly and bad UX,
     and its last two numbers wrong under Map shuffle.  `test_owsinc` holds
     the numbers to `randoref.incentive_counts` over 62 settings, the text,
@@ -1910,9 +1928,9 @@ minimap, the title and description beside the zoom.
     calls `ows_tick`, which with `OWS_TICKFRAME` runs the screen's frame --
     the transfers, the music, the pad, the reset -- the hand moving, A and
     START kept for after (`V_PEND`); a reset taken in a check's frame turns
-    the ticks off.  But a tick checks only with Ship in Drydock ticked or the
-    SHIP or the FLOATER removed (user: "running down the column checking
-    every box"): without them every combination of the edits can be won,
+    the ticks off.  But a tick checks only with the SHIP or the FLOATER
+    removed (user: "running down the column checking every box"): without
+    them every combination of the edits can be won,
     under every Key items mode and Early flag, which `tools/checkwin.py`
     proves over all 8,192 -- Free items and Early flags only open the
     world further -- so the usual tick costs nothing.  A table of answers
@@ -1923,9 +1941,10 @@ minimap, the title and description beside the zoom.
     a move and a held A in a check's frames, START refused and taken, L + X
     in a check, and the forced screen red from the start; and the warning
     kept by an A that leaves the edits unwinnable, gone with no move for
-    one that makes them winnable, by the fast path (Ship in Drydock
-    unticked) and by a whole check (North Docks ticked on the forced
-    screen, the FLOATER removed).  Four mutations, all caught.  The error
+    one that makes them winnable by a whole check (North Docks ticked, the
+    FLOATER removed).  Since 2026-10-27 the sequence runs on the FLOATER
+    removed (it ran on Ship in Drydock under Key items Vanilla), with a
+    second for no removal, no check at all.  Four mutations, all caught.  The error
     sound: the opening writes, sixteen frames without music striking
     square 2 as `PlaySFX_Error`'s `@Frame` does, the last silencing it,
     then the music; six mutations, all caught.
@@ -1940,8 +1959,8 @@ minimap, the title and description beside the zoom.
     while its flag (`V_NTD`) was cleared, and only a move's description
     sent it again.  The check's instructions are the same for the same
     edits, from the same point in the frame, so a box missed the same way
-    every time -- Ship in Drydock ticked or a ship removed, there being no
-    check otherwise.  The worst `ows_vblank`, the tilemap and the zoom, is
+    every time -- Ship in Drydock ticked (since removed) or a ship removed,
+    there being no check otherwise.  The worst `ows_vblank`, the tilemap and the zoom, is
     3,360 bytes and 267 instructions, some 26 of vblank's 37 lines.  A
     later tick reads the V counter as `hal_waitvbl` does and leaves the
     transfers, flags and all, for the next tick on time or the loop's next

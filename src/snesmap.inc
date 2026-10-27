@@ -527,11 +527,12 @@ EARLY_MODES     = 2               ; each a row, Off / On
 ;  Early flags tests its own bit.
 ;  RANDO_OWEDITS: a bit per FFR flag, as its overworld tab names them
 ;  (tools/owedits.py's SETTINGS).  Each edits the map as the game unpacks a
-;  row of it (world.asm's ow_edit).  The three marked "not yet" have no mode
-;  that sets them: Sarda's Forest takes paths away and the land bridge moves
-;  Cardia's doors, which the logic would have to know, and in drydock the ship
-;  needs the airship.  Every other edit only adds ways through, wherever the
-;  doors lead, so a world placed on the vanilla map stays winnable with it.
+;  row of it (world.asm's ow_edit).  Sarda's Forest takes paths away and the
+;  land bridge moves Cardia's doors; every other edit only adds ways through,
+;  wherever the doors lead.  Bit 13 was FFR's Ship in Drydock, every ship
+;  moored useless at Gaia's -- removed (user, 2026-10-27: "It isn't very
+;  useful without the Airboat flag ... otherwise equivalent to removing the
+;  SHIP"); FFR's GaiaDrydock list stays transcribed, never applied.
 OWEDIT_OPENPROG      = $0001      ; Early Open Progression: VolcanoIceRiver, ConeriaToDwarves
 OWEDIT_EXTENDED      = $0002      ; Extended Open Progression: DwarvesNorthwestGrass
 OWEDIT_DOCKS         = $0004      ; Northern Docks: OnracDock, MirageDock
@@ -545,9 +546,8 @@ OWEDIT_RIVERMELMOND  = $0200      ; River to Melmond
 OWEDIT_SARDAS        = $0400      ; Sarda's Forest: a way taken away
 OWEDIT_HIKE          = $0800      ; Hiking Trail to Airship
 OWEDIT_CARDIABRIDGE  = $1000      ; Cardia Land Bridge: six of Cardia's doors moved
-OWEDIT_DRYDOCK       = $2000      ; Ship in Drydock: every ship moored at Gaia's, landlocked
-OWEDIT_FLAGS         = $3FFF
-OWEDIT_SAFE          = OWEDIT_FLAGS & ~(OWEDIT_SARDAS | OWEDIT_CARDIABRIDGE | OWEDIT_DRYDOCK)
+OWEDIT_FLAGS         = $1FFF
+OWEDIT_SAFE          = OWEDIT_FLAGS & ~(OWEDIT_SARDAS | OWEDIT_CARDIABRIDGE)
 ;  The active-list mask's one bit that is no flag's (ow_lists): FFR applies
 ;  CardiaLandBridgeBahamutDock with both of its flags, and BahamutCardiaDock
 ;  only without the land bridge.
@@ -559,9 +559,6 @@ BRIDGE_LEFEIN_X = 230
 BRIDGE_LEFEIN_Y = 123
 DOCK_CONERIA    = 0
 DOCK_MATOYA     = 4
-DOCK_DRYDOCK    = 5             ; Ship in Drydock's, every ship's (lut_DockX's sixth)
-DRYDOCK_X       = 211           ; ...which is Gaia's (FFR's Dock.GaiaDrydock)
-DRYDOCK_Y       = 31
 ;  Early Ordeals' two tiles: the thrones, in the Castle tileset.
 TS_CASTLE       = 1
 THRONE_TILE1    = $61
@@ -1904,7 +1901,8 @@ RNG_MODES       = 2
 ;  Bump it when a change would give an existing save a different world.  0 is
 ;  the game's own scheme, and $FF would alias it; stay within 1..$FE.
 ;  randomization-notes.md section 1.5 has the derivation.
-SAVEVER         = 1               ; 1: the Goal moved RANDO_ESK and what follows
+SAVEVER         = 2               ; 1: the Goal moved RANDO_ESK and what follows;
+                                  ;   2: Ship in Drydock's bit retired
 SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 
 ;  The cache, at the top half of bank $7F: clear of CREDITSRAM at the bottom

@@ -17,7 +17,7 @@ under entrance shuffle, both modes: randoref.build_world's wiring, placement
 and dock, on a graph built on that wiring.  Then with map edits, with the
 shuffle off and on: randoref.new_world's placement and dock, on a graph
 built on the map the edits make (and the wiring), the BRIDGE where Bridge
-to Lefein puts it, every ship at Gaia's drydock under Ship in Drydock.  It
+to Lefein puts it.  It
 needs worldgraph/, which is why it is not part of test_options.py.
 
     pypy3 tools/checkplace.py [seeds] [shuffled seeds] [edited seeds] [goal seeds]
@@ -235,14 +235,14 @@ def main():
 
 
 #  The map edit combinations played: the row's All and every edit, the
-#  three the logic first held back with and without Bahamut's dock and the
-#  edits that make Ship in Drydock winnable, and a fixed sample.
+#  two the logic first held back with and without Bahamut's dock, and a
+#  fixed sample.
 def edit_combos():
     import random
     safe = 0x0BFF
-    out = [safe, 0x3FFF, 0x0400, 0x1000, 0x1010, 0x1410, 0x2001, 0x2801, 0x3401, 0x0041, 0x1341, 0x0BEF]
+    out = [safe, 0x1FFF, 0x0400, 0x1000, 0x1010, 0x1410, 0x0041, 0x1341, 0x0BEF]
     rng = random.Random(1018)
-    out += [rng.getrandbits(14) for _ in range(6)]
+    out += [rng.getrandbits(13) for _ in range(6)]
     return out
 
 
@@ -268,8 +268,7 @@ def check_edited(seeds):
                     w = wiring.Wiring({e: entrance[e] for e in range(32)}, {t: normal[t] for t in range(64)},
                                       {x: exits[x] for x in range(16)})
                     pos = O.positions(rd.VANILLA_POS, f)
-                    if not f >> O.SHIP_DRYDOCK & 1:
-                        pos["ship"] = LD.DOCKS[dock][1]
+                    pos["ship"] = LD.DOCKS[dock][1]
                     g, ow, _, _ = build.build(ow_tiles=tiles, pos=pos, wiring=w, early=names)
                     idx, _ = G.order(g)
                     adj = analysis.adjacency(g, [e for e in placement.vehicle_edges(g, ow) if e[2] != BIT["SHIP"]])

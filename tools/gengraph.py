@@ -301,7 +301,6 @@ def main():
     #  entrance's distance to it, overworld steps on foot and by canoe from
     #  its tiles, or None, and as the airship flies (genlogic.ship_docks's),
     #  on the vanilla map: a choice of the nearest, which the masks check.
-    #  Under Ship in Drydock there is one dock, Gaia's, and no choice.
     from collections import deque as _dq
     import overworld
     gv, owv, _, _ = build.build()
@@ -384,34 +383,33 @@ def masks_for(D, entrance, normal, exits, early, flags=0):
 def truth(flags, early=()):
     """Each location's masks, in the cartridge's order, Chaos last, on the
     map the edits `flags` make, as worldgraph builds that map on its own --
-    overworld.py's regions, not edited.py's.  The vehicles as FFR reads them,
-    but for Ship in Drydock: the ship is boarded only at the drydock."""
+    overworld.py's regions, not edited.py's.  The vehicles as FFR reads them."""
     tiles = O.apply(rd.vanilla_overworld(), flags)
     pos = O.positions(rd.VANILLA_POS, flags)
     g, ow, _, _ = build.build(ow_tiles=tiles, pos=pos, early=early)
     extra = [(g.start, ow.sky, BIT["AIRSHIP"], "air")]
-    if not flags >> O.SHIP_DRYDOCK & 1:
-        i = pos["ship"][0] | pos["ship"][1] << 8
-        extra.append((g.start, ow.snode[ow.slabel[i]], BIT["SHIP"], "ship"))
+    i = pos["ship"][0] | pos["ship"][1] << 8
+    extra.append((g.start, ow.snode[ow.slabel[i]], BIT["SHIP"], "ship"))
     req = analysis.requirements(g, extra)
     idx, chaos = G.order(g)
     return [sorted(analysis.location_requirements(g.locations[k], req)) for k in idx + [chaos]]
 
 
-#  The settings check_edits tries: none, each alone, every pair, the three
+#  The settings check_edits tries: none, each alone, every pair, the two
 #  the logic first held back in every combination with Bahamut's dock, all,
 #  and a fixed sample of the rest.
 def edit_combos():
     import random
-    out = {0, (1 << 14) - 1}
-    for a in range(14):
-        for b in range(a, 14):
+    n = len(O.SETTINGS)
+    out = {0, (1 << n) - 1}
+    for a in range(n):
+        for b in range(a, n):
             out.add(1 << a | 1 << b)
-    held = [O.SARDAS_FOREST, O.CARDIA_BRIDGE, O.SHIP_DRYDOCK, O.BAHAMUT_DOCK]
-    for k in range(16):
+    held = [O.SARDAS_FOREST, O.CARDIA_BRIDGE, O.BAHAMUT_DOCK]
+    for k in range(1 << len(held)):
         out.add(sum(1 << b for j, b in enumerate(held) if k >> j & 1))
     rng = random.Random(14)
-    out |= {rng.getrandbits(14) for _ in range(40)}
+    out |= {rng.getrandbits(n) for _ in range(40)}
     return sorted(out)
 
 

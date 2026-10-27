@@ -666,18 +666,7 @@ rando_newgame:
     STA f:BRIDGEFAR
     LDA #BRIDGE_LEFEIN_Y
     STA f:BRIDGEFAR + 1
-:   ;  ...and Ship in Drydock's ship, moored at Gaia's before anyone has it:
-    ;  Bikke's, under Key items Vanilla, only makes it visible where it is.
-    ;  (give_vehicle and a free ship moor it there too.)
-    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
-    AND #>OWEDIT_DRYDOCK
-    BEQ :+
-    LDA #DRYDOCK_X
-    STA f:SHIPFAR
-    LDA #DRYDOCK_Y
-    STA f:SHIPFAR + 1
-:
-    JSR DisableAPU              ; the fixed bank's, stamped into this chunk
+:   JSR DisableAPU              ; the fixed bank's, stamped into this chunk
     ;  This game's reward NPCs run from rando_talk's table, and none has given.
     LDA #1
     STA f:RANDO_TALKFAR
@@ -2175,10 +2164,6 @@ give_vehicle:
   @ship:
     INC ship_vis
     PHX
-    LDX #DOCK_DRYDOCK           ; Ship in Drydock: every ship is moored at
-    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1   ;   Gaia's, placed
-    AND #>OWEDIT_DRYDOCK        ;   or not (FFR's UpdateDocks)
-    BNE @moor
     LDA f:RANDO_PLACEDFAR
     CMP #1
     BNE @kept

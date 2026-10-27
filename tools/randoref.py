@@ -1223,13 +1223,7 @@ def es_groups(roots, masks):
 #  regions' -- the nearest to the entrances c hangs from: overworld steps on
 #  foot and by canoe if any can be walked to, else as the airship flies.
 #  Coneria's is boarded from the start's region, so it always qualifies.
-DOCK_DRYDOCK = 5                # snesmap.inc's: lut_DockX's sixth, Gaia's
-OWEDIT_DRYDOCK = 1 << 13        # Ship in Drydock (owedits.SHIP_DRYDOCK)
-
-
 def es_dock(c, masks, req, roots, owedits=0):
-    if owedits & OWEDIT_DRYDOCK:
-        return DOCK_DRYDOCK         # every ship is moored there
     ship = _BIT["SHIP"]
     ents = 0
     for n in _GD.LOC_NODES[c]:

@@ -52,7 +52,6 @@ DESCRIPTIONS = [
     "A forest hides Sarda, reached only through Titan's Tunnel.",
     "Walk across the swamp to the AIRSHIP, no CANOE.",
     "Land from Ordeals through Cardia to the Waterfall river.",
-    "The SHIP sits useless in a drydock at the Gaia Fjord.",
 ]
 #  The unwinnable warning's, by rando_winnable's reason: 0 anything, 1
 #  (WIN_AIRSHIP) the airship never raised though the FLOATER is there.
@@ -78,9 +77,9 @@ def minimap_tiles():
     return vals[:128]
 
 
-#  The view past the fourteen settings' own.
-OWS_VIEW_BAHAMUTBRIDGE = 14     # Bahamut's dock, the land bridge ticked
-OWS_VIEWS = 15
+#  The view past the settings' own.
+OWS_VIEW_BAHAMUTBRIDGE = len(O.SETTINGS)    # Bahamut's dock, the land bridge ticked
+OWS_VIEWS = OWS_VIEW_BAHAMUTBRIDGE + 1
 
 
 def view_gates(v):

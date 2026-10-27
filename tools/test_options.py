@@ -779,7 +779,7 @@ def test_winnable():
     finds the settings as they are unwinnable with no edit ticked, a removed
     FLOATER, refusing START with the game's error sound."""
     rows = [[0x00, 0, 0], [0x20, 0, 0], [0x23, 0, 0], [0x2C, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
-    edits = [0, K["OWEDIT_SAFE"], 0x2000, 0x2001, 0x1341, 0x3FFF, 0x0402, 0x1000]
+    edits = [0, K["OWEDIT_SAFE"], 0x0004, 0x0005, 0x1341, 0x1FFF, 0x0402, 0x1000]
     jobs = [(ki, r, e, f) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits]
     got = pmap(winnable_cart, jobs)
     want = [R.winnable(ki, r, e, f) for ki, r, e, f in jobs]
@@ -801,102 +801,116 @@ def test_winnable():
     warn1 = textwrap.wrap(GO.WARNINGS[1], width)
     warn0 = textwrap.wrap(GO.WARNINGS[0], width)
 
-    #  The fast path: without Ship in Drydock or a removed item every
-    #  combination of the edits can be won (tools/checkwin.py proves all
-    #  8,192; a sample here), so the screen does not check them.
+    #  The fast path: without a removed item every combination of the edits
+    #  can be won (tools/checkwin.py proves all 8,192; a sample here), so the
+    #  screen does not check them.
     import random
     rng = random.Random(1018)
     sample = [rng.getrandbits(13) for _ in range(48)]
-    check("without Ship in Drydock or a removal, every combination winnable (a sample of checkwin.py's)",
+    check("without a removal, every combination winnable (a sample of checkwin.py's)",
           [hex(f) for f in sample for ki in (0, 1) if not R.winnable(ki, [0, 0, 0], 0, f)[0]], [])
 
-    #  The screen, Key items Vanilla, Early Open.  Tick Ship in Drydock (up
-    #  from the first line): checked, red; while that check runs the hand
-    #  moves down to Early Open and an A is kept for after it -- unticking
-    #  Early Open, checked again, red.  START refused, the airship never
-    #  rising.  Tick Early Open again, still red under Vanilla, the warning
-    #  kept; up to Ship in Drydock, START refused again; untick it: blue,
-    #  with no check, the warning gone for Drydock's own description, the
+    #  The screen, Key items Standard, the FLOATER removed, nothing ticked:
+    #  checked at once, red, START refused saying why.  A ticks Early Open:
+    #  checked, still red; while that check runs the hand moves down to
+    #  Extended Open and an A is kept for after it -- ticking Extended Open,
+    #  checked again, red.  Down to North Docks, START refused again; tick
+    #  it: checked, blue, the warning gone for North Docks' description, the
     #  hand not having moved (user, 2026-10-20), and START taken.  Scripted
     #  presses fall on the screen's own frames, the busy ones on a check's
     #  (OWS_TICKON).
     NESCOL = {int(k, 16): int(v, 16) for k, v in re.findall(
         r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
     BLUE, RED = NESCOL[0x02], NESCOL[0x06]
-    bus, cpu = machine()
-    bus.frames()
-    bus.ppu()
-    bus.dma = True
     UJ = SYM["UpdateJoy"]
-    def pad(nes):
-        bus.io[0x4218] = nes & 0x80
-        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
-    pad(0)
-    mapscreen_up(bus, cpu, start=K["OWEDIT_OPENPROG"])
     WIN, TICK = SYM["rando_winnable"], SYM["ows_tick"]
     OWS = 0xA1 + K["CHUNK_OWS"]
     V, TICKON = rw("OWS_VARS"), rw("OWS_TICKON")
-    OPEN, D = K["OWEDIT_OPENPROG"], K["OWEDIT_DRYDOCK"]
-    script = [0, 0, 0x08, 0, 0x80, 0, 0, 0, 0x10, 0, 0x80, 0, 0, 0x08, 0, 0x10, 0, 0x80, 0, 0x10, 0]
-    busy_press = {4: [0x04, 0, 0x80, 0]}
-    idle, busy_sel, checks, plays, ended, frame, busy_n = {}, set(), 0, 0, False, 0, 0
-    for _ in range(3000):
-        busy = bus.wram[TICKON]
-        if busy:
-            presses = busy_press.get(frame - 1, [])
-            pad(presses[busy_n] if busy_n < len(presses) else 0)
-            busy_n += 1
-        else:
-            if frame >= len(script):
-                break
-            pad(script[frame])
-            frame += 1
-            busy_n = 0
-        cpu.step()
-        for _ in range(20_000_000):
-            if cpu.pc == UJ or cpu.pc == 0xFFFE:
-                break
-            if cpu.pbr == WORLD_BANK and cpu.pc == WIN:
-                checks += 1
-            if cpu.pbr == OWS and cpu.pc == TICK:       # only rando_yield calls it
-                plays += 1
-            cpu.step()
-        if cpu.pc != UJ:
-            ended = True
-            break
-        state = (bus.wram[V + 0x47], bus.wram[V] | bus.wram[V + 1] << 8, bus.cgram[0] | bus.cgram[1] << 8)
-        if bus.wram[TICKON]:
-            busy_sel.add((frame - 1, bus.wram[V + 6]))
-        else:
-            idle[frame - 1] = state + (text_at(bus, len(warn1)),)
-    ow = int.from_bytes(bus.sram[K["RANDO_OWEDITS"] - 0x6000:][:2], "little")
-    #  The won, the flags after frame f; the backdrop as the next frame's
-    #  vblank sends it.
-    st = lambda f: idle.get(f, (None,) * 4)[:2] + idle.get(f + 1, (None,) * 4)[2:3]
-    check("the screen: Ship in Drydock ticked under Vanilla, checked, the blue red",
-          st(4), (0, OPEN | D, RED))
-    check("...the hand moving while the check ran, its frames reading the pad", (4, 0) in busy_sel, True)
-    check("...an A pressed in it kept for after: Early Open unticked, checked, red", st(5), (0, D, RED))
-    check("...START refused, why where the description goes", idle.get(8, (None,) * 4)[3], warn1)
-    check("...Early Open ticked again: still red under Vanilla", st(10), (0, OPEN | D, RED))
-    check("...and the warning kept", idle.get(10, (None,) * 4)[3], warn1)
-    check("...up to Ship in Drydock, START refused again", idle.get(15, (None,) * 4)[3], warn1)
     import owedits as O
-    desc = (textwrap.wrap(GO.DESCRIPTIONS[O.SHIP_DRYDOCK], width) + [""] * 5)[:len(warn1)]
-    check("...Ship in Drydock unticked: the warning gone for its description, the hand still",
-          (idle.get(17, (None,) * 4)[3], bus.wram[V + 6]), (desc, O.SHIP_DRYDOCK))
-    check("...blue, and START taken, Early Open alone",
-          (st(17), ended, ow), ((1, OPEN, BLUE), True, OPEN))
-    check("...checked only with Ship in Drydock ticked, three times, the music on through each",
-          (checks, plays > 0), (3, True))
+    desc = lambda k: (textwrap.wrap(GO.DESCRIPTIONS[k], width) + [""] * 5)[:len(warn0)]
+    def screen(items3, script, busy_press={}):
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+        bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
+        def pad(nes):
+            bus.io[0x4218] = nes & 0x80
+            bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+        pad(0)
+        mapscreen_up(bus, cpu)
+        idle, busy_sel, checks, plays, ended, frame, busy_n = {}, set(), 0, 0, False, 0, 0
+        for _ in range(3000):
+            busy = bus.wram[TICKON]
+            if busy:
+                presses = busy_press.get(frame - 1, [])
+                pad(presses[busy_n] if busy_n < len(presses) else 0)
+                busy_n += 1
+            else:
+                if frame >= len(script):
+                    break
+                pad(script[frame])
+                frame += 1
+                busy_n = 0
+            cpu.step()
+            for _ in range(20_000_000):
+                if cpu.pc == UJ or cpu.pc == 0xFFFE:
+                    break
+                if cpu.pbr == WORLD_BANK and cpu.pc == WIN:
+                    checks += 1
+                if cpu.pbr == OWS and cpu.pc == TICK:       # only rando_yield calls it
+                    plays += 1
+                cpu.step()
+            if cpu.pc != UJ:
+                ended = True
+                break
+            state = (bus.wram[V + 0x47], bus.wram[V] | bus.wram[V + 1] << 8, bus.cgram[0] | bus.cgram[1] << 8)
+            if bus.wram[TICKON]:
+                busy_sel.add((frame - 1, bus.wram[V + 6]))
+            else:
+                idle[frame - 1] = state + (text_at(bus, len(warn0)), bus.wram[V + 6])
+        ow = int.from_bytes(bus.sram[K["RANDO_OWEDITS"] - 0x6000:][:2], "little")
+        #  The won, the flags after frame f; the backdrop as the next frame's
+        #  vblank sends it.
+        st = lambda f: idle.get(f, (None,) * 5)[:2] + idle.get(f + 1, (None,) * 5)[2:3]
+        return idle, st, busy_sel, checks, plays, ended, ow
+    OPEN, EXT, DOCKS = K["OWEDIT_OPENPROG"], K["OWEDIT_EXTENDED"], K["OWEDIT_DOCKS"]
+    idle, st, busy_sel, checks, plays, ended, ow = screen(
+        [0x2C, 0, 0], [0, 0, 0x10, 0, 0x80, 0, 0, 0x04, 0, 0x10, 0, 0x80, 0, 0x10, 0],
+        {4: [0x04, 0, 0x80, 0]})
+    check("the screen: the FLOATER removed, nothing ticked: checked, red, START refused saying why",
+          st(2) + (idle.get(2, (None,) * 5)[3],), (0, 0, RED, warn0))
+    check("...Early Open ticked: checked, still red", st(4), (0, OPEN, RED))
+    check("...the hand moving while the check ran, its frames reading the pad", (4, 1) in busy_sel, True)
+    check("...an A pressed in it kept for after: Extended Open ticked, checked, red, its description up",
+          st(5) + (idle.get(5, (None,) * 5)[3],), (0, OPEN | EXT, RED, desc(1)))
+    check("...down to North Docks, START refused again", idle.get(9, (None,) * 5)[3], warn0)
+    check("...North Docks ticked: checked, blue, the warning gone for its description, the hand still",
+          st(11) + idle.get(11, (None,) * 5)[3:5], (1, OPEN | EXT | DOCKS, BLUE, desc(2), 2))
+    check("...and START taken", (ended, ow), (True, OPEN | EXT | DOCKS))
+    check("...every tick checked under a removal, four with the first frame's, the music on through each",
+          (checks, plays > 0), (4, True))
+    #  No removal: no check at all, whatever is ticked.
+    _, st, _, checks, _, ended, ow = screen([0x00, 0, 0], [0, 0, 0x80, 0, 0x04, 0, 0x80, 0, 0x10, 0])
+    check("no removal: ticks never checked, blue throughout, START taken",
+          (checks, st(6), ended, ow), (0, (1, OPEN | EXT, BLUE), True, OPEN | EXT))
+    #  The SHIP removed: the other reason.
+    idle, st, _, _, _, _, _ = screen([0x23, 0, 0], [0, 0, 0x10, 0])
+    check("the SHIP removed: START refused, the airship never rising", idle.get(2, (None,) * 5)[3], warn1)
 
     #  L + X while a check runs: the reset taken from the check's frame, the
     #  ticks off, so nothing after -- placement, the cache -- calls ows_tick.
     bus, cpu = machine()
     bus.frames()
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+    bus.sram[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes([0x2C, 0, 0])
+    def pad(nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
     pad(0)
-    mapscreen_up(bus, cpu, start=K["OWEDIT_OPENPROG"])
-    script, frame, reset, busy_n = [0, 0, 0x08, 0, 0x80], 0, None, 0
+    mapscreen_up(bus, cpu)
+    script, frame, reset, busy_n = [0, 0, 0x80], 0, None, 0
     for _ in range(400):
         if bus.wram[TICKON]:
             pad(0)
@@ -1070,7 +1084,7 @@ def test_goal():
 
     #  The logic: rando_winnable as randoref.winnable, under every goal.
     rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
-    edits = [0, 0x1341, 0x2000, 0x3FFF]
+    edits = [0, 0x1341, 0x0004, 0x1FFF]
     jobs = [(ki, r, e, f, g) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits
             for g in range(K["GOAL_MODES"])]
     got = pmap(winnable_cart, jobs)
@@ -1176,11 +1190,11 @@ def test_owsinc():
     changes them -- until the hand moves, redrawn after each check.  A
     Select pressed while a check runs is kept for after it.  Under Map
     shuffle the reachable and the unreachable loose are not shown; under
-    Key items Vanilla, Select shows nothing.  The column is the fourteen
-    edits alone."""
+    Key items Vanilla, Select shows nothing.  The column is the edits
+    alone."""
     rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x29, 0x96, 0x15]]
     jobs = [(ki, r, g, 0x0F, f) for ki in (1, 2) for r in rows for g in ([0x81, 0], [0xFF, 0x01])
-            for f in (0, 0x1341, 0x2000)]
+            for f in (0, 0x1341, 0x0004)]
     jobs += [(0, [0x2C, 0, 0], [0x81, 0], 0x0F, 0), (2, [0x2C, 0, 0], [0, 0], 0x00, 0x0BFF)]
     got = pmap(owsinc_cart, jobs)
     want = [(0,) if ki == 0 else (1,) + R.incentive_counts(ki, r, g, e, f) for ki, r, g, e, f in jobs]
@@ -1238,7 +1252,7 @@ def test_owsinc():
     check("Select: the numbers where the description goes, each a label and two cells",
           lines, ["Incentive Items   27", "Locations         21", "Reachable         15",
                   "Excess Loose       6", "Unreachable Loose  6"])
-    check("...the hand where it was, the column the fourteen edits",
+    check("...the hand where it was, nothing added to the column",
           (bus.wram[V + 6], bus.wram[V + 0x4F]), (0, 1))
     bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0, 0x04, 0])
     check("...until the hand moves: the description back -- the move made while the first check ran, the "
@@ -1267,8 +1281,8 @@ def test_owsinc():
     check("Key items Vanilla: Select shows nothing, the description stays",
           (lines, bus.wram[V + 0x4F]), (desc(0), 0))
     bus, lines, _ = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x08, 0])
-    check("the column the fourteen edits under Key items Standard: up from the first, Ship Drydock",
-          bus.wram[V + 6], 13)
+    check("the column the edits alone under Key items Standard: up from the first, the last edit",
+          bus.wram[V + 6], len(__import__("owedits").SETTINGS) - 1)
 
 
 def test_rando_early():
@@ -1481,11 +1495,11 @@ def test_es_masks():
     #  about one in a hundred has one (found by searching the reference).
     jobs += [(9, R.ENTRANCES_ONLY, 0, 0x0F), (55, R.ENTRANCES_ONLY, 0, 0x0F),
              (342, R.ENTRANCES_FLOORS, 0, 0x0F), (452, R.ENTRANCES_FLOORS, 0, 0x0F)]
-    #  Map edits: the three the logic once held back in every combination
+    #  Map edits: the two the logic once held back in every combination
     #  with Bahamut's dock, the row's All, every edit, on the vanilla wiring;
     #  and on shuffled wirings, the land bridge's moved doors among them.
-    held = [K["OWEDIT_SARDAS"], K["OWEDIT_CARDIABRIDGE"], K["OWEDIT_DRYDOCK"], K["OWEDIT_BAHAMUTDOCK"]]
-    combos = sorted({sum(b for j, b in enumerate(held) if n >> j & 1) for n in range(16)} |
+    held = [K["OWEDIT_SARDAS"], K["OWEDIT_CARDIABRIDGE"], K["OWEDIT_BAHAMUTDOCK"]]
+    combos = sorted({sum(b for j, b in enumerate(held) if n >> j & 1) for n in range(8)} |
                     {K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x0001, 0x0041})
     jobs += [(1, R.ENTRANCES_OFF, 0, e, f) for f in combos for e in (0, 0x0F)]
     jobs += [(seed, mode, 0, 0x0F, f) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
@@ -1546,13 +1560,13 @@ def test_es_world():
     """es_roots, es_groups and es_dock give randoref's: each region's
     entrances, the spread groups (logicdata's on the vanilla wiring), and for
     a ship at each pool location, its dock -- and with map edits, no dock
-    Bridge to Lefein deletes, and only Gaia's under Ship in Drydock."""
+    Bridge to Lefein deletes."""
     import graphdata as GD
     jobs = [(1, R.ENTRANCES_OFF, 0, 0)]
     jobs += [(seed, mode, 0, e) for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
              for seed in (1, 2, 0xD1625106) for e in (0, 0x0F)]
-    BL, DRY = K["OWEDIT_BRIDGELEFEIN"], K["OWEDIT_DRYDOCK"]
-    jobs += [(1, R.ENTRANCES_OFF, 0, 0, f) for f in (BL, K["OWEDIT_SAFE"], 0x1410, DRY)]
+    BL = K["OWEDIT_BRIDGELEFEIN"]
+    jobs += [(1, R.ENTRANCES_OFF, 0, 0, f) for f in (BL, K["OWEDIT_SAFE"], 0x1410)]
     jobs += [(seed, R.ENTRANCES_ONLY, 0, 0x0F, f) for seed in (1, 2) for f in (BL, K["OWEDIT_FLAGS"])]
     got = pmap(es_cart_world, jobs)
     bad = []
@@ -1575,7 +1589,7 @@ def test_es_world():
         docks = [R.es_dock(c, masks, req, roots, f) for c in range(248)]
         if cart[3] != docks:
             bad.append((seed, mode, early, "docks", [c for c in range(248) if cart[3][c] != docks[c]][:3]))
-        if f & BL and 4 in docks or f & DRY and set(docks) != {5}:
+        if f & BL and 4 in docks:
             bad.append((seed, mode, early, "edits $%04X: docks %s" % (f, sorted(set(docks)))))
     check("es_roots, es_groups and es_dock on the cart", bad[:4], [])
     check("the vanilla wiring's groups are logicdata's", got[0][2] == R._L.SPREAD, True)
@@ -1615,12 +1629,12 @@ def test_es_place():
     jobs = [(seed * 7919 + 13, cfg, mode) for cfg in cfgs for mode in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
             for seed in range(3)]
     jobs += [(0xD1625106, PLACE_CONFIGS["wide-loose"], R.ENTRANCES_FLOORS)]
-    edits = [K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x1410, K["OWEDIT_SARDAS"], 0x2041]
+    edits = [K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"], 0x1410, K["OWEDIT_SARDAS"], 0x0041]
     jobs += [(seed * 104729 + 7, cfg, mode, f) for cfg in cfgs[:2] for f in edits
              for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
     #  Bridge to Lefein: the BRIDGE at FFR's 0.75, not the vanilla map's 2.0 --
     #  only a config that places the BRIDGE can tell.
-    jobs += [(seed * 104729 + 7, cfgs[2], mode, f) for f in (0x2041, K["OWEDIT_SAFE"], 0x0001)
+    jobs += [(seed * 104729 + 7, cfgs[2], mode, f) for f in (0x0041, K["OWEDIT_SAFE"], 0x0001)
              for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
     got = pmap(es_place_cart, jobs)
     bad = []
@@ -1874,11 +1888,13 @@ def test_owedits():
                 adds.append((m.group(2), set(re.findall(r"(?<!!)\(bool\)flags\.(\w+)", conds)),
                              set(re.findall(r"!\(bool\)flags\.(\w+)", conds))))
                 pending = None
-        check("...the lists in the order FFR applies them",
-              [n for n, _, _ in adds], [n for n, g in O.ORDER if g != O.LIST_NONE])
+        check("...the lists in the order FFR applies them, those not offered among them",
+              [n for n, _, _ in adds], [n for n, g in O.ORDER if g != O.LIST_NONE or n in O.DROPPED])
         want = []
         for n, g in O.ORDER:
-            if g == O.BAHAMUT_DOCK:
+            if n in O.DROPPED:
+                want.append((n, {O.DROPPED[n]}, set()))
+            elif g == O.BAHAMUT_DOCK:
                 want.append((n, {"MapBahamutCardiaDock"}, {"MapCardiaLandBridge"}))
             elif g == O.LIST_BAHAMUT_BRIDGE:
                 want.append((n, {"MapCardiaLandBridge", "MapBahamutCardiaDock"}, set()))
@@ -1888,13 +1904,15 @@ def test_owedits():
     check("the cart's flag bits are owedits.py's",
           [K["OWEDIT_" + n] for n in ("OPENPROG", "EXTENDED", "DOCKS", "AIRSHIPDOCK", "BAHAMUTDOCK",
                                       "LEFEINRIVER", "BRIDGELEFEIN", "GAIAPASS", "HIGHWAY",
-                                      "RIVERMELMOND", "SARDAS", "HIKE", "CARDIABRIDGE", "DRYDOCK")],
+                                      "RIVERMELMOND", "SARDAS", "HIKE", "CARDIABRIDGE")],
           [1 << i for i in range(len(O.SETTINGS))])
+    check("...all of them OWEDIT_FLAGS, Ship in Drydock's bit 13 no longer among them",
+          K["OWEDIT_FLAGS"], (1 << len(O.SETTINGS)) - 1)
     check("...and the Cardia rule's bit", K["OWE_BAHAMUTBRIDGE"], 1 << O.LIST_BAHAMUT_BRIDGE)
     SAFE = K["OWEDIT_SAFE"]
-    check("All: every flag but Sarda's Forest, the Cardia land bridge and drydock",
+    check("All: every flag but Sarda's Forest and the Cardia land bridge",
           [O.SETTINGS[i] for i in range(len(O.SETTINGS)) if not SAFE >> i & 1],
-          ["MapSardasForest", "MapCardiaLandBridge", "ShipDrydock"])
+          ["MapSardasForest", "MapCardiaLandBridge"])
 
     #  The shipped map, decoded here from bank $01's pointers.
     b1 = R.nesbank(ROMDATA, 1)
@@ -1908,7 +1926,7 @@ def test_owedits():
         check("flag %s edits the map" % O.SETTINGS[i], O.apply(van, 1 << i) != van, True)
     check("Cardia's two rules: the dock without the land bridge, its variant with it",
           (O.active_lists(0x1010), O.active_lists(0x0010), O.active_lists(0x1000), O.active_lists(0xFFFF)),
-          (0x5000, 0x0010, 0x1000, 0x7FEF))
+          (0x5000, 0x0010, 0x1000, 0x5FEF))
 
     #  The minimap draws each 8x8 block of the map into the pattern tile of its
     #  number, and shows a block only where vanilla has land, lending the
@@ -1951,7 +1969,7 @@ def test_owedits():
                       | tl[t[(y + 1) * 256 + x + 1]]) & 3
                      for y in range(y0, y0 + 16, 2) for x in range(x0, x0 + 16, 2))
     maps = [van] + [O.apply(van, 1 << i) for i in range(len(O.SETTINGS))] + \
-        [O.apply(van, 0x3FFF), O.apply(van, 1 << O.CARDIA_BRIDGE | 1 << O.BAHAMUT_DOCK)]
+        [O.apply(van, 0x1FFF), O.apply(van, 1 << O.CARDIA_BRIDGE | 1 << O.BAHAMUT_DOCK)]
     lent = set(title) | set(decor)
     bad = []
     for b in range(256):
@@ -2035,17 +2053,17 @@ def test_owedits():
             want.append((flags or 0, early, (O.BRIDGE_LEFEIN_XY if (flags or 0) & LEFEIN else (0x11, 0x22)), 0))
     check("New Game: the flow's edits, none without it, the Early byte as set, the BRIDGE moved under "
           "Bridge to Lefein only, no screen", got, want)
-    #  Ship in Drydock: the ship moored at Gaia's drydock before anyone has
-    #  it -- Bikke's, under Key items Vanilla, only shows it where it is.
+    #  Bit 13, Ship in Drydock's until it went (2026-10-27): New Game takes
+    #  it as the flow gives it, and nothing reads it -- the ship stays where
+    #  it is, Gaia's drydock list unapplied.
     SX = K["ship_x"] - 0x6000
     bus, cpu = machine()
     bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
     bus.sram[SX], bus.sram[SX + 1] = 0x11, 0x22
-    flow_edits(bus, K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"])
+    flow_edits(bus, K["OWEDIT_OPENPROG"] | 0x2000)
     newgame_pressing(bus, cpu)
-    check("New Game, Ship in Drydock: the ship at Gaia's drydock",
-          (int.from_bytes(bus.sram[at:at + 2], "little"), (bus.sram[SX], bus.sram[SX + 1])),
-          (K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"], O.DRYDOCK_XY))
+    check("New Game with bit 13 set: the ship where it was (the map's rows, bit 13 unread, below)",
+          (bus.sram[SX], bus.sram[SX + 1]), (0x11, 0x22))
 
     #  The option page's fields: no two overlap, read from the tables
     #  rather than from what any row should be; and none in bits 4-5 of the
@@ -2159,7 +2177,7 @@ def test_owscreen():
     SAFE = K["OWEDIT_SAFE"]
     bus, cpu = machine()
     bad = []
-    for flags, sel in ((0, 0), (SAFE, 6), (0x3FFF, O.CARDIA_BRIDGE), (0x1010, O.BAHAMUT_DOCK),
+    for flags, sel in ((0, 0), (SAFE, 6), (0x1FFF, O.CARDIA_BRIDGE), (0x1010, O.BAHAMUT_DOCK),
                        (0x0010, O.BAHAMUT_DOCK), (0x0010, O.CARDIA_BRIDGE)):
         setup(bus, flags, sel)
         for p in range(128):
@@ -2187,7 +2205,7 @@ def test_owscreen():
         return pack(rows, 56)
 
     bad = []
-    for flags, sel, site in ((SAFE, 6, 0), (SAFE, 6, 2), (0x3FFF, O.CARDIA_BRIDGE, 0), (0, 2, 1),
+    for flags, sel, site in ((SAFE, 6, 0), (SAFE, 6, 2), (0x1FFF, O.CARDIA_BRIDGE, 0), (0, 2, 1),
                              (0x1010, O.BAHAMUT_DOCK, 0)):
         setup(bus, flags, sel, site)
         call(cpu, "ows_testinset", bank=OWS)
@@ -2215,7 +2233,7 @@ def test_owscreen():
     #  frame of the music for each vblank the drawing takes.
     CMP = SYM["CallMusicPlay"]
     bad, music = [], []
-    for flags in (0, SAFE, 0x3FFF):
+    for flags in (0, SAFE, 0x1FFF):
         bus, cpu = machine()
         bus.frames()
         bus.ppu()
@@ -2808,8 +2826,8 @@ def test_rando_shipdock():
     With map edits, whose logic is the seed's (pl_edited), the dock New Game
     chose, whatever the map, as under entrance shuffle -- and a dock 4 under
     Bridge to Lefein, whose edits delete Matoya's, Coneria's, as FFR's
-    UpdateDocks has it.  Under Ship in Drydock, Gaia's drydock, on every map,
-    placed or not."""
+    UpdateDocks has it.  Bit 13, Ship in Drydock's until it went
+    (2026-10-27), changes nothing."""
     SHIP_VIS, SHIP_X, SHIP_Y = 0x6000, 0x6001, 0x6002
     CONERIA, PRAVOKA, ELFLAND = (152, 169), (210, 153), (141, 211)
     DWARF, MATOYA = (121, 139), (158, 142)
@@ -2861,8 +2879,8 @@ def test_rando_shipdock():
     check("entrance shuffle: the save's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
           [(order[d], 0x5A) for d in range(5)])
     #  Map edits: the save's dock.  Bridge to Lefein: Matoya's is gone.
-    BRIDGE, DRY = K["OWEDIT_BRIDGELEFEIN"], K["OWEDIT_DRYDOCK"]
-    others = 0xFFFF & ~BRIDGE & ~DRY
+    BRIDGE = K["OWEDIT_BRIDGELEFEIN"]
+    others = 0xFFFF & ~BRIDGE
     matoya = [m for m in got if got[m][0] == MATOYA]
     check("Matoya's dock: Matoya's Cave's alone", matoya, [20])
     check("map edits: the save's dock, whatever the map",
@@ -2875,10 +2893,9 @@ def test_rando_shipdock():
           [(order[d] if d != 4 else CONERIA, 0x5A) for d in range(5)])
     check("entrance shuffle, every other edit: Matoya's still",
           shuffled(8, 4, edits=others), (MATOYA, 0x5A))
-    DRYDOCK = (211, 31)
-    check("Ship in Drydock: Gaia's, on every map, placed or not, shuffled or not",
-          {give(m, edits=DRY, dock=2)[0] for m in range(61)} | {give(15, placed=0, edits=DRY)[0]} |
-          {shuffled(8, 2, edits=DRY)[0]} | {give(20, edits=0xFFFF)[0]}, {DRYDOCK})
+    check("bit 13, Ship in Drydock's once: the dock as without it, placed or not, shuffled or not",
+          (give(20, edits=0x2000, dock=2)[0], give(15, placed=0, edits=0x2000)[0],
+           shuffled(8, 2, edits=0x2000)[0]), (ELFLAND, (0x11, 0x22), ELFLAND))
 
 
 def ff_decode(body):
@@ -6164,9 +6181,12 @@ def test_ngflow():
     #  from the edits given, not the saved game's.
     UJ0 = SYM["UpdateJoy"]
     OWE0 = K["RANDO_OWEDITS"] - 0x6000
-    def ows(a, presses, given=0, saved=None):
+    def ows(a, presses, given=0, saved=None, floaterless=False):
         bus, cpu = machine()
         bus.frames()
+        if floaterless:                 # Key items Standard, the FLOATER removed: no edit wins
+            bus.sram[K["RANDO_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+            bus.sram[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes([0x2C, 0, 0])
         if saved is not None:
             bus.sram[OWE0:OWE0 + 2] = saved.to_bytes(2, "little")
             cpu.dbr = BANK_0E
@@ -6192,12 +6212,11 @@ def test_ngflow():
             if cpu.pc == 0xFFFE:
                 return cpu.a & 0xFF, int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little")
         return "still up", int.from_bytes(bytes(bus.sram[OWE0:OWE0 + 2]), "little")
-    D = K["OWEDIT_DRYDOCK"]
     check("the map edit screen, B allowed: back", ows(CANBACK, [0, 0, 0x40, 0]), (BACK, 0))
     check("...as rando_newgame calls it: B nothing, START on",
           ows(0, [0, 0, 0x40, 0, 0x10, 0])[0], FWD)
-    check("...B on edits that cannot be won (Ship in Drydock, Key items Vanilla): back all the same",
-          ows(CANBACK, [0, 0, 0x10, 0, 0x40, 0], given=D), (BACK, D))
+    check("...B on edits that cannot be won (the FLOATER removed, none ticked): back all the same",
+          ows(CANBACK, [0, 0, 0x10, 0, 0x40, 0], floaterless=True), (BACK, 0))
     check("...OWS_KEEP: the edits given, not the saved game's", ows(KEEP | CANBACK, [0, 0, 0x10, 0], given=0x0003,
                                                                  saved=0x0402), (FWD, 0x0003))
     check("...without it: the saved game's", ows(CANBACK, [0, 0, 0x10, 0], given=0x0003, saved=0x0402), (FWD, 0x0402))
@@ -7544,10 +7563,11 @@ def test_ngpresets():
     #  against its file's [map_edits] resolved here, not by genpresets -- so
     #  the file and the cart cannot drift apart unseen.
     OWSB = (0xA1 + K["CHUNK_OWS"] & 0x1F) * 0x10000
-    nameb = ROMDATA[OWSB + SYM["lut_OwsName"]:][:14 * 13]
-    screen = [" ".join("".join(_decode(b) or "?" for b in nameb[13 * i:13 * i + 13]).split()) for i in range(14)]
+    NE = len(E)                         # the screen's edits, thirteen
+    nameb = ROMDATA[OWSB + SYM["lut_OwsName"]:][:NE * 13]
+    screen = [" ".join("".join(_decode(b) or "?" for b in nameb[13 * i:13 * i + 13]).split()) for i in range(NE)]
     bits16 = [ROMDATA[OWSB + SYM["lut_OwsBit16"] + 2 * i] | ROMDATA[OWSB + SYM["lut_OwsBit16"] + 2 * i + 1] << 8
-              for i in range(14)]
+              for i in range(NE)]
     files = dict((t["name"], t) for _, t in G.load())
     def wanted(name):
         t = files[name]
@@ -7556,11 +7576,11 @@ def test_ngpresets():
     names = [p[0] for p in presets]
     lo = (NEWGAME_BANK & 0x1F) * 0x10000
     word = lambda i: ROMDATA[lo + SYM["lut_NgpEdits"] + 2 * i] | ROMDATA[lo + SYM["lut_NgpEdits"] + 2 * i + 1] << 8
-    cart = {n: sorted(screen[k] for k in range(14) if word(i) & bits16[k]) for i, n in enumerate(names)}
+    cart = {n: sorted(screen[k] for k in range(NE) if word(i) & bits16[k]) for i, n in enumerate(names)}
     file = {n: sorted(l for l, v in wanted(n).items() if v) for n in names}
     check("each preset's map edits in the cart, by the cart's own labels, its file's", cart, file)
-    check("...the cart's labels the screen's fourteen, a bit each", (screen, bits16),
-          (E, [1 << k for k in range(14)]))
+    check("...the cart's labels the screen's, a bit each", (screen, bits16),
+          (E, [1 << k for k in range(NE)]))
     check("...Floaterless's FFR's seven, Beginner's Early Open, Improved Vanilla's none",
           (cart["Floaterless"], cart["Beginner"], cart["Improved Vanilla"]),
           (sorted(["Early Open", "Extended Open", "North Docks", "Ryukahn Dock", "Bahamut Dock",
@@ -10386,15 +10406,15 @@ def test_treasures():
           coords(0), (0xD2, 0x99, 0xDD, 0xED))
     check("a free ship moves to Coneria's dock",
           coords(1 << FREE_BIT["ship_vis"])[:2], (152, 169))
-    #  ...but under Ship in Drydock, ticked on the map edit screen, to Gaia's
-    #  drydock: FFR's UpdateDocks moves the free ship's place with the rest.
+    #  ...whatever the map edits, bit 13 among them, Ship in Drydock's until
+    #  it went (2026-10-27).
     bus, cpu = machine()
     set_free(bus, 1 << FREE_BIT["ship_vis"])
-    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]   # winnable: Vanilla is not
-    flow_edits(bus, K["OWEDIT_OPENPROG"] | K["OWEDIT_DRYDOCK"])
+    bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000] = K["KEYITEMS_STANDARD"]
+    flow_edits(bus, K["OWEDIT_OPENPROG"] | 0x2000)
     newgame_pressing(bus, cpu, entry="opt_freestuff")
-    check("...and under Ship in Drydock to Gaia's drydock", (bus.sram[1], bus.sram[2], bus.sram[0]),
-          (211, 31, 1))
+    check("...and with map edits too, bit 13 among them", (bus.sram[1], bus.sram[2], bus.sram[0]),
+          (152, 169, 1))
     check("a free ship leaves the airship where it was",
           coords(1 << FREE_BIT["ship_vis"])[2:], (0xDD, 0xED))
     check("a free airship parks where the party starts",
