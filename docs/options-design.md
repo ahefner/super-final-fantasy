@@ -1661,7 +1661,11 @@ Max gear blessing (0 to +5) and Min gear curse (0 to -5), two value rows:
 FFR's blursings.  Every weapon and armour rolls a bonus from -curse to
 +blessing.  The user's design narrows FFR's range sliders (-9 to 9 each, for
 weapons and armour separately): one range for all gear, always containing
-zero, so plain gear is always possible.
+zero, so plain gear is always possible.  Left takes the curse further
+down, to -5, and right back up to 0 -- the d-pad swapped on this row and the
+Goal's, whose numbers fall as their steps rise (user, 2026-10-27: a player
+"will expect it to default to 0 but press left rather than right to reduce
+it"; `opt_valdir`, built, not yet played).
 
 Formation rarity (Off, Shuffle, Tiered) and Formation zones (Off, Shaken,
 Stirred, Random -- Light and Shuffle until the user renamed them, 2026-10-17,
@@ -1891,7 +1895,11 @@ orbs waived, so zero is the game's four; GOAL_ORBS is the bar, lit + waived.
 Chaos Rush takes 0 orbs, FFR's `OrbsRequiredCount` 0 (ffr-presets.md 3.5);
 every other preset 4.  The row's descriptions say what each goal does and
 no longer name FFR's flag (user, 2026-10-27: a reference only FFR's players
-would follow).
+would follow).  Left lowers the orbs and right raises them, as left lowers
+every other row's number (user, 2026-10-27: left raising them was
+counterintuitive): `opt_value_adjust` swaps the d-pad on this row and Min
+gear curse (`opt_valdir`, which knows them by their readout tables), the
+steps and what the save means by them unchanged.  Built, not yet played.
 
   - **The Black Orb** (`orbgoal.patch`): its four-way AND becomes a call to
     `opt_orbgoal`, which counts the orbs lit, adds the Goal's waived and

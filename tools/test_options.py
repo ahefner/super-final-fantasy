@@ -12841,7 +12841,14 @@ def test_rando_options():
             (optrow("Thief and Ninja hit%"), OPTBLOCK + OPT_THIEFHIT, 3, [2, 2, 2, 1, 0, 0]),
             #  ...and the starting items, from None to Duckling Boon and back.
             (optrow("Starting items"), OPTBLOCK + OPT_STARTITEMS, 9,
-             [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0])):
+             [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0]),
+            #  The blessing's numbers rise with its steps; the curse's and the
+            #  Goal's fall, so left steps them on and right back (user,
+            #  2026-10-27): right held at 0 and at 4 orbs, left down to -5 and
+            #  to 0 orbs.
+            (optrow("Max gear blessing"), K["OPT_NG_BLESS"], 6, [1, 2, 3, 4, 5, 5, 4, 3, 2, 1, 0, 0]),
+            (optrow("Min gear curse"), K["OPT_NG_CURSE"], 6, [0] * 6 + [1, 2, 3, 4, 5, 5]),
+            (optrow("Goal"), K["OPT_NG_GOAL"], 5, [0] * 5 + [1, 2, 3, 4, 4])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19

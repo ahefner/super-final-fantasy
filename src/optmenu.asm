@@ -1551,6 +1551,8 @@ opt_shoulders:
 ;;
 ;;  Clamped rather than wrapped: these are magnitudes, and running off 500%
 ;;  back to 0% is the kind of thing you do by accident and do not notice.
+;;  Right is more, left is less, on every row -- on the two whose numbers
+;;  fall as their steps rise too (opt_valdir).
 opt_value_adjust:
     PHA
     JSR opt_menu_rowptr
@@ -1568,6 +1570,7 @@ opt_value_adjust:
     JSR opt_field_get
     TAY                         ; Y = the step it is at
     PLA
+    JSR opt_valdir
     CMP #RIGHT
     BNE @left
 
@@ -1598,6 +1601,39 @@ opt_value_adjust:
     JMP opt_menu_desc
   @same:
     RTS
+
+
+;;  Left and right swapped on the rows whose numbers fall as their steps rise
+;;  -- Min gear curse's 0, -1 ... -5, the Goal's 4 orbs down to 0 -- so that
+;;  left lowers the number there as it does everywhere else (user,
+;;  2026-10-27: a player "will expect it to default to 0 but press left
+;;  rather than right to reduce it").  Known by their readouts, not their
+;;  scalar numbers, which the generated rows hold.  The steps, and what the
+;;  save and the presets mean by them, are as they were.  In: A = RIGHT or
+;;  LEFT, X = the scalar.  Out: A.  X and Y kept.
+opt_valdir:
+    PHA
+    LDA lut_ValTabHi, X
+    CMP #>lut_ValCurse
+    BNE @goal
+    LDA lut_ValTabLo, X
+    CMP #<lut_ValCurse
+    BEQ @swap
+  @goal:
+    LDA lut_ValTabHi, X
+    CMP #>lut_ValGoal
+    BNE @keep
+    LDA lut_ValTabLo, X
+    CMP #<lut_ValGoal
+    BEQ @swap
+  @keep:
+    PLA
+    RTS
+  @swap:
+    PLA
+    EOR #RIGHT | LEFT
+    RTS
+.assert RIGHT | LEFT = 3 && (RIGHT & LEFT) = 0, error, "opt_valdir swaps RIGHT and LEFT by EOR"
 
 
 ;;  Wipe an on-screen row that has no list entry behind it.
