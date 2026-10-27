@@ -1728,8 +1728,7 @@ every other preset 4.
     (`pl_vendor`): FFR stocks it unreached, and the CROWN went there.  So
     every key item lands where the party can go, the useless ones too --
     the player's choice "so long as there is room for them" (user,
-    2026-10-25).  The map edit screen's Incentives line shows the counts
-    (below).  Wherever every spot is reached -- any world with the
+    2026-10-25).  The map edit screen shows the counts on Select (below).  Wherever every spot is reached -- any world with the
     airship, map edits that open the north -- the count is FFR's: 640
     worlds of ordinary settings, the shuffle and edits among them, and 60
     with the FLOATER removed and edits, place as before.
@@ -1878,28 +1877,31 @@ minimap, the title and description beside the zoom.
     checked only when the SHIP or the FLOATER was removed and if so forced
     the screen up, saying why (`OWS_FORCED`); removed with the row
     (2026-10-24), the flow's screen checking on its first frame instead.
-  - **The Incentives line** (user, 2026-10-25: "feed back to the user a
-    few numbers about the locations"; built, not yet played).  Under Key
-    items Standard or Wide, a fifteenth line under the edits, "Incentives",
-    with no box: the hand reaches it, up from the first line too, and on it
-    nothing flashes, no ring shows, the zoom stays as it was, and A ticks
-    nothing.  Its description is five numbers, a label and two cells each
-    (`ows_incdesc`, `lut_OwsIncLabel`): the incentive items, as placement
-    takes them (`pl_items`); the spots the settings name, 21 or 25; those
-    the party can reach at all, holding every key item to place
-    (`pl_reachspots`'s count); the items loose for want of spots, FFR's
-    rule; and those loose besides for want of spots reached -- the removals
-    and the edits.  The reached count is the check's (`rando_winnable`
-    counts it as it goes, `ES_NREACH`); without Ship in Drydock or a
-    removal, where the screen runs no check, every spot is reached, over
-    all 8,192 combinations of the other edits, both modes and the Early
-    flags (32,768, randoref).  It is drawn afresh after every check while
-    it is up.  Ship in Drydock alone, Standard, reaches 6 of the 21.  The
-    user's mockup had sentences; the table says the same without "1
-    incentive items".  `test_owsinc` holds the numbers to
-    `randoref.incentive_counts` over 62 settings, the table's text, A, the
-    flashing and the Vanilla screen without it; eleven mutations, all
-    caught.
+  - **The numbers, on Select** (user, 2026-10-25/26; built, not yet
+    played).  Under Key items Standard or Wide, Select shows five numbers
+    where the description goes, each a label and two cells (`ows_incdesc`,
+    `lut_OwsIncLabel`, the user's labels): Incentive Items, as placement
+    takes them (`pl_items`); Locations, the settings' 21 or 25; Reachable,
+    holding every key item to place (`pl_reachspots`'s count); Excess Loose,
+    FFR's rule, the incentives past the locations; and Unreachable Loose,
+    those loose besides for want of reachable locations -- the removals and
+    the edits.  They stay until the hand moves, and are drawn again after
+    every check while they are up.  A Select pressed while a check runs is
+    kept for after it, as A and START are, but a move made after it undoes
+    it.  Under Map shuffle Reachable and Unreachable Loose are not shown:
+    the wiring is the seed's, chosen later, and placement may try several
+    (user: "Hide always").  Under Key items Vanilla Select does nothing.
+    Reachable is the check's (`rando_winnable` counts it as it goes,
+    `ES_NREACH`); without Ship in Drydock or a removal, where the screen
+    runs no check, every location is reachable, over all 8,192
+    combinations of the other edits, both modes and the Early flags
+    (32,768, randoref).  Ship in Drydock alone, Standard, reaches 6 of the
+    21.  A first version put an "Incentives" line under the edits, the
+    numbers its description (8772629): the user found it ugly and bad UX,
+    and its last two numbers wrong under Map shuffle.  `test_owsinc` holds
+    the numbers to `randoref.incentive_counts` over 62 settings, the text,
+    a tick redrawing them, Select during a check, a move undoing it, Map
+    shuffle's three lines, and the Vanilla screen without them.
   - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
     built, not yet played): the backdrop, which the minimap's ocean and the
     boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked

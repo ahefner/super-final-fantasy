@@ -1145,8 +1145,8 @@ def test_goal():
 
 
 def owsinc_cart(job):
-    """The map edit screen up, its first check done: (lines in the column,
-    the Incentives line's items, spots, spots reached)."""
+    """The map edit screen up, its first check done: (Select shows the
+    numbers, the incentive items, the locations, those reachable)."""
     keyitems, items3, gear2, early, owedits = job
     bus, cpu = machine()
     bus.frames()
@@ -1164,35 +1164,37 @@ def owsinc_cart(job):
             cpu.step()
         if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
             break
-    return (bus.wram[V + 0x46],) + tuple(bus.wram[V + 0x4F:V + 0x52])
+    return (bus.wram[V + 0x46],) + tuple(bus.wram[V + 0x50:V + 0x53])
 
 
 def test_owsinc():
-    """The map edit screen's Incentives line (user, 2026-10-25: "feed back
-    to the user a few numbers about the locations"): under Key items
-    Standard or Wide, a fifteenth line under the edits, no box, whose
-    description gives the incentive items, the spots the settings name,
-    those the party can reach at all, and the items loose for want of each
-    -- placement's own counts (pl_reachspots), as randoref.incentive_counts
-    has them, with every removal and edit that changes them.  The hand
-    reaches it from the first line up; on it nothing flashes and A ticks
-    nothing.  Under Key items Vanilla there is no such line."""
+    """The map edit screen's numbers (user, 2026-10-25/26): under Key items
+    Standard or Wide, Select shows where the description goes the incentive
+    items, the locations the settings name, those reachable at all, and the
+    excess and unreachable loose -- placement's own counts (pl_reachspots),
+    as randoref.incentive_counts has them, with every removal and edit that
+    changes them -- until the hand moves, redrawn after each check.  A
+    Select pressed while a check runs is kept for after it.  Under Map
+    shuffle the reachable and the unreachable loose are not shown; under
+    Key items Vanilla, Select shows nothing.  The column is the fourteen
+    edits alone."""
     rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x29, 0x96, 0x15]]
     jobs = [(ki, r, g, 0x0F, f) for ki in (1, 2) for r in rows for g in ([0x81, 0], [0xFF, 0x01])
             for f in (0, 0x1341, 0x2000)]
     jobs += [(0, [0x2C, 0, 0], [0x81, 0], 0x0F, 0), (2, [0x2C, 0, 0], [0, 0], 0x00, 0x0BFF)]
     got = pmap(owsinc_cart, jobs)
-    want = [(14,) if ki == 0 else (15,) + R.incentive_counts(ki, r, g, e, f) for ki, r, g, e, f in jobs]
-    check("the Incentives line's numbers: randoref's, every setting tried",
+    want = [(0,) if ki == 0 else (1,) + R.incentive_counts(ki, r, g, e, f) for ki, r, g, e, f in jobs]
+    check("the numbers: randoref's, every setting tried",
           [(j, c, w) for j, c, w in zip(jobs, got, want) if c[:len(w)] != w][:3], [])
-    check("...reached spots short of the settings' among them, and incentives past them",
+    check("...reachable short of the locations among them, and incentives past them",
           (any(w[3] < w[2] for w in want if len(w) > 1), any(w[1] > w[2] for w in want if len(w) > 1)), (True, True))
 
-    #  The line itself, the hand up from the first: the FLOATER removed and
-    #  every gear row an incentive -- 27 items, 21 spots, 15 reached: 6 loose
-    #  for want of spots, 6 more for want of spots reached.
     UJ, V = SYM["UpdateJoy"], rw("OWS_VARS")
-    def up(keyitems, items3, gear2, presses):
+    def up(keyitems, items3, gear2, presses, entrances=0):
+        """The screen up, the presses one a frame -- a frame of a check
+        taking the next press too, as a player's might fall in it.  The
+        first two count nothing: setup's read, and the loop's first, as
+        nothing counts until the pad has been let go."""
         bus, cpu = machine()
         bus.frames()
         s = bus.sram
@@ -1200,50 +1202,73 @@ def test_owsinc():
         s[K["OPT_NG_ITEMS"] - 0x6000:K["OPT_NG_ITEMS"] - 0x6000 + 3] = bytes(items3)
         s[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
         s[K["OPT_NG_EARLY"] - 0x6000] = 0x0F
+        s[K["OPT_NG_ENTRANCES"] - 0x6000] = entrances
         def pad(nes):
             bus.io[0x4218] = nes & 0x80
             bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
         pad(0)
         mapscreen_up(bus, cpu)
-        checks = 0
-        for p_ in list(presses) + [0] * 3:
-            for _ in range(600):
-                if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
-                    break
-                pad(0)
-                cpu.step()
-                while cpu.pc not in (UJ, 0xFFFE):
-                    checks += cpu.pbr == WORLD_BANK and cpu.pc == SYM["rando_winnable"]
-                    cpu.step()
+        busy = []
+        for p_ in list(presses) + [0] * 2:
             pad(p_)
             cpu.step()
             while cpu.pc not in (UJ, 0xFFFE):
-                checks += cpu.pbr == WORLD_BANK and cpu.pc == SYM["rando_winnable"]
                 cpu.step()
+            busy.append(bus.wram[rw("OWS_TICKON")])
+        quiet = 0
+        for _ in range(2000):           # until three frames pass with nothing in hand
+            pad(0)
+            cpu.step()
+            while cpu.pc not in (UJ, 0xFFFE):
+                cpu.step()
+            idle = not (bus.wram[rw("OWS_TICKON")] or bus.wram[V + 0x49] or bus.wram[V + 0x4A])
+            quiet = quiet + 1 if idle else 0
+            if quiet == 3:
+                break
         nt = rw("OWS_NT3")
-        text = lambda r, c, w: "".join(_decode(bus.wram[nt + 2 * (32 * r + c + i)]) or "?" for i in range(w))
-        text.raw = lambda r, c, w: [bus.wram[nt + 2 * (32 * r + c + i)] for i in range(w)]
-        return bus, text, checks
-    bus, text, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0x08, 0])
-    check("Key items Standard: up from the first line, the Incentives line, no box, under the edits",
-          (bus.wram[V + 6], text.raw(16, 17, 1), text(16, 18, 13)), (14, [0], "Incentives   "))
-    check("...its description the numbers, each a label and two cells",
-          [text(20 + k, 11, 20) for k in range(5)],
-          ["Incentive items   27", "Spots for them    21", "Spots reachable   15",
-           "Loose, too many    6", "Loose, unreached   6"])
-    check("...nothing flashing on the minimap", bus.wram[V + 4] | bus.wram[V + 5] << 8, 0)
-    bus, text, _ = up(1, [0x20, 0, 0], [0x81, 0x00], [0x08, 0])
-    check("...the BRIDGE free, every spot reached and room for all 21: none loose",
-          [text(20 + k, 11, 20) for k in range(5)],
-          ["Incentive items   21", "Spots for them    21", "Spots reachable   21",
-           "Loose, too many    0", "Loose, unreached   0"])
-    flags = bus.wram[V] | bus.wram[V + 1] << 8
-    bus2, text2, checks = up(1, [0x2C, 0, 0], [0x81, 0x00], [0x08, 0, 0x80, 0, 0x80, 0])
-    check("...A on it ticks nothing and asks no check (the first frame's one alone)",
-          (bus2.wram[V] | bus2.wram[V + 1] << 8, checks), (0, 1))
-    bus, text, _ = up(0, [0x00, 0, 0], [0x81, 0x00], [0x08, 0])
-    check("Key items Vanilla: no Incentives line, up from the first line Ship Drydock",
-          (bus.wram[V + 6], text.raw(16, 17, 14)), (13, [0] * 14))
+        lines = ["".join(_decode(bus.wram[nt + 2 * (32 * (20 + k) + 11 + i)]) or "?" for i in range(20)).rstrip()
+                 for k in range(5)]
+        return bus, lines, busy
+    import genows as GO, textwrap
+    def desc(k):
+        return (textwrap.wrap(GO.DESCRIPTIONS[k], 20) + [""] * 5)[:5]
+    #  The FLOATER removed, every gear row an incentive: 27 items, 21
+    #  locations, 15 reachable -- 6 excess, 6 more unreachable.
+    bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0])
+    check("Select: the numbers where the description goes, each a label and two cells",
+          lines, ["Incentive Items   27", "Locations         21", "Reachable         15",
+                  "Excess Loose       6", "Unreachable Loose  6"])
+    check("...the hand where it was, the column the fourteen edits",
+          (bus.wram[V + 6], bus.wram[V + 0x4F]), (0, 1))
+    bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0, 0x04, 0])
+    check("...until the hand moves: the description back -- the move made while the first check ran, the "
+          "Select before it undone", (lines, bus.wram[V + 0x4F]), (desc(1), 0))
+    bus, lines, _ = up(1, [0x20, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0, 0x04, 0, 0x80, 0])
+    check("...shown, then the hand moved, then a tick: the description stays, not the numbers again",
+          (lines, bus.wram[V + 0x4F]), (desc(1), 0))
+    bus, lines, _ = up(1, [0x20, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0])
+    check("...the BRIDGE free, every location reachable and room for all 21: none loose",
+          lines, ["Incentive Items   21", "Locations         21", "Reachable         21",
+                  "Excess Loose       0", "Unreachable Loose  0"])
+    #  North Docks ticked with the numbers up: checked, and the numbers
+    #  again -- 19 reachable, one unreachable loose.
+    bus, lines, _ = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x04, 0, 0x04, 0, 0x20, 0, 0x80, 0])
+    check("...a tick while they are up: checked, and drawn again (North Docks: 19 reachable)",
+          lines, ["Incentive Items   20", "Locations         21", "Reachable         19",
+                  "Excess Loose       0", "Unreachable Loose  1"])
+    #  ...and Select pressed in the check a tick starts: kept for after it.
+    bus, lines, busy = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x04, 0, 0x04, 0, 0x80, 0, 0x20, 0])
+    check("...Select pressed while a check runs: the numbers after it, the check's",
+          (any(busy[-4:-1]), lines[2]), (True, "Reachable         19"))
+    bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0], entrances=1)
+    check("Map shuffle: the reachable and the unreachable loose not shown",
+          lines, ["Incentive Items   27", "Locations         21", "Excess Loose       6", "", ""])
+    bus, lines, _ = up(0, [0x00, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0])
+    check("Key items Vanilla: Select shows nothing, the description stays",
+          (lines, bus.wram[V + 0x4F]), (desc(0), 0))
+    bus, lines, _ = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x08, 0])
+    check("the column the fourteen edits under Key items Standard: up from the first, Ship Drydock",
+          bus.wram[V + 6], 13)
 
 
 def test_rando_early():
