@@ -115,19 +115,27 @@ SHOPPABLE      = $00087FFF
 .import lut_LogicGroup
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  rando_place -- place the key items for the new game in the save
+;;  pl_place -- place the key items from the save's settings, into the cache
 ;;
-;;  From new_world, once the settings are in the save.  Under Key items
-;;  Standard or Wide, draws the placement and writes it to RANDO_PLACE with
-;;  RANDO_PLACED set; under Vanilla, or if PLACE_ATTEMPTS tries all fail,
-;;  clears RANDO_PLACED, and the key items stay where they are.
+;;  First in the cache build (rando.asm's build), so that a Continue builds
+;;  the placement its New Game did from the save's seed and settings, which
+;;  are all the save keeps (user, 2026-10-27).  Under Key items Standard or
+;;  Wide, draws the placement and writes it to RW_PLACE with RW_PLACED set;
+;;  under Vanilla, or if PLACE_ATTEMPTS tries all fail, clears RW_PLACED,
+;;  and the key items stay where they are.  Beside it, RW_ESK, RW_SHIPDOCK
+;;  and the Map shuffle mode the game has, RW_ENTRANCES.
 ;;
-;;  In: emulation mode, from a JSL.  Out: the same; A, X, Y clobbered.
+;;  Native, DBR = $7F, either width; out the same, widths as they fall.
+;;  rando_place is it from a JSL in emulation mode, for the tests.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_place:
     PHB
     JSR enter
+    JSR pl_place
+    JMP leave
+
+pl_place:
     REP #$30
     .a16
     .i16
@@ -141,9 +149,11 @@ rando_place:
     SEP #$20
     .a8
     LDA #$00
-    STA f:RANDO_PLACEDFAR
-    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
-    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+    STA f:RW_PLACED
+    STA f:RW_ESK
+    STA f:RW_SHIPDOCK
+    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    STA f:RW_ENTRANCES          ; the mode as set, until it is cleared below
     LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
     LDX #LOGIC_STANDARD
     CMP #KEYITEMS_STANDARD
@@ -152,13 +162,13 @@ rando_place:
     CMP #KEYITEMS_WIDE
     BEQ @go
     LDA #ENTRANCES_OFF          ; key items stay put: so do the entrances, as
-    STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)   ;   in FFR
-    JMP leave
+    STA f:RW_ENTRANCES          ;   in FFR
+    RTS
   @go:
     REP #$20
     .a16
     STX a:pSPOT
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    LDA f:RW_ENTRANCES
     AND #$00FF
     BEQ :+
     JMP pl_shuffled
@@ -184,10 +194,10 @@ rando_place:
     JSR pl_yelp
     DEC a:pATT
     BNE @try
-    JMP leave                   ; none: key items stay where they are
+    RTS                         ; none: key items stay where they are
   @won:
     JSR pl_store
-    JMP leave
+    RTS
 
 
 ;;  Under entrance shuffle (randoref.build_world): for each attempt k, the
@@ -195,7 +205,7 @@ rando_place:
 ;;  ES_PLACE_ATTEMPTS tries at placement on stream STREAM_KEYS + k -- a
 ;;  wiring that will not place often needs more than 32, and the next is
 ;;  cheaper.  The first that places is the game's: k and the ship's dock go
-;;  in the save beside it.  With none in ES_ATTEMPTS, the game is Off's.
+;;  in the cache beside it.  With none in ES_ATTEMPTS, the game is Off's.
 ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
 .import es_build, es_dockfar
@@ -239,10 +249,10 @@ pl_shuffled:
     SEP #$20
     .a8
     LDA a:pESK
-    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    STA f:RW_ESK
     LDA #0
-    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
-    LDA f:RANDO_PLACEFAR + PI_SHIP
+    STA f:RW_SHIPDOCK
+    LDA f:RW_PLACE + PI_SHIP
     CMP #$FF
     BEQ :+                      ; a free ship: Coneria's
     REP #$20
@@ -251,13 +261,13 @@ pl_shuffled:
     JSL es_dockfar + WORLDFAR
     SEP #$20
     .a8
-    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
-:   JMP leave
+    STA f:RW_SHIPDOCK
+:   RTS
   @none:
     SEP #$20
     .a8
     LDA #ENTRANCES_OFF
-    STA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    STA f:RW_ENTRANCES
     REP #$20
     .a16
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
@@ -282,9 +292,9 @@ pl_shuffled:
     JSR pl_yelp
     DEC a:pATT
     BNE @offtry
-    JMP leave
+    RTS
 :   JSR pl_store
-    JMP leave
+    RTS
 
 
 ;;  Map edits without the shuffle (randoref.build_edited): the vanilla
@@ -302,7 +312,7 @@ pl_edited:
     LDA #0
     JSL es_build + WORLDFAR
     BCC :+
-    JMP leave
+    RTS
 :   LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
     EOR #.LOWORD(STREAM_KEYS)
     STA a:wRNG
@@ -318,15 +328,15 @@ pl_edited:
     JSR pl_yelp
     DEC a:pATT
     BNE @try
-    JMP leave
+    RTS
   @won:
     JSR pl_store
     SEP #$20
     .a8
     LDA #0
-    STA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
-    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
-    LDA f:RANDO_PLACEFAR + PI_SHIP
+    STA f:RW_ESK
+    STA f:RW_SHIPDOCK
+    LDA f:RW_PLACE + PI_SHIP
     CMP #$FF
     BEQ :+                      ; a free ship: Coneria's
     REP #$20
@@ -335,8 +345,8 @@ pl_edited:
     JSL es_dockfar + WORLDFAR
     SEP #$20
     .a8
-    STA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
-:   JMP leave
+    STA f:RW_SHIPDOCK
+:   RTS
 
 
 ;;  The vanilla world's bit index, Chaos's masks and spread groups, copied
@@ -1997,14 +2007,14 @@ pl_ask:
     JMP pl_notown
 
 
-;;  The placement, into the save: each item's location, or $FF.
+;;  The placement, into the cache: each item's location, or $FF.
 pl_store:
     SEP #$20
     .a8
     LDX #PLACE_ITEMS - 1
     LDA #$FF
   @none:
-    STA f:RANDO_PLACEFAR, X
+    STA f:RW_PLACE, X
     DEX
     BPL @none
     LDX #$0000
@@ -2021,13 +2031,13 @@ pl_store:
     TYX
     SEP #$20
     .a8
-    STA f:RANDO_PLACEFAR, X
+    STA f:RW_PLACE, X
     PLX
 :   INX
     CPX #LOGIC_POOL
     BCC @loc
     LDA #1
-    STA f:RANDO_PLACEDFAR
+    STA f:RW_PLACED
     REP #$20
     .a16
     RTS

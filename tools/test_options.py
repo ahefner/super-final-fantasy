@@ -717,17 +717,15 @@ def test_rando_remove():
         sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes([0x81, 0])
         sv[K["RANDO_EARLY"] - 0x6000] = 0x0F
         sv[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = WALK.to_bytes(2, "little")
-        sv[K["RANDO_PLACED"] - 0x6000] = 1
-        p = K["RANDO_PLACE"] - 0x6000
-        sv[p:p + K["PLACE_ITEMS"]] = bytes(out)
-        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
         w = lambda name, n: bytes(bus.wram[rw(name):rw(name) + n])
         want_c, want_t, _ = R.build_rewards(ROMDATA, seed, 0, out, [0x2F, 0, 0])
-        if (w("RW_CHESTS", 256), w("RW_TALKREW", 13)) != (want_c, want_t):
+        if (placement(bus), w("RW_CHESTS", 256), w("RW_TALKREW", 13)) != ((1, out), want_c, want_t):
             bad.append(seed)
         if {R.PLACE_CODE[SHIP], R.PLACE_CODE[FLOATER]} & (set(want_c) | set(want_t)):
             bad.append((seed, "a removed item given somewhere"))
-    check("...with placement, the rewards as randoref deals them, neither item anywhere", bad, [])
+    check("...with placement, the build's own, the rewards as randoref deals them, neither item anywhere",
+          bad, [])
 
     #  Without placement: the FLOATER's chest gold, before the Chests row.
     bad = []
@@ -1354,8 +1352,14 @@ PLACE_CONFIGS = {
 }
 
 
+def placement(bus):
+    """Placement's result, in the cache: RW_PLACED, and RW_PLACE as a list."""
+    p = rw("RW_PLACE")
+    return bus.wram[rw("RW_PLACED")], list(bus.wram[p:p + K["PLACE_ITEMS"]])
+
+
 def place_cart(job):
-    """rando_place for one seed and setting: RANDO_PLACED and RANDO_PLACE."""
+    """rando_place for one seed and setting: RW_PLACED and RW_PLACE."""
     seed, (keyitems, items3, gear2, early) = job
     bus, cpu = machine()
     s = bus.sram
@@ -1365,10 +1369,9 @@ def place_cart(job):
     s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
     s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
     s[K["RANDO_EARLY"] - 0x6000] = early
-    s[K["RANDO_PLACED"] - 0x6000] = 0x77              # anything but its answer
+    bus.wram[rw("RW_PLACED")] = 0x77                 # anything but its answer
     call(cpu, "rando_place", bank=RANDO_BANK)
-    p = K["RANDO_PLACE"] - 0x6000
-    return s[K["RANDO_PLACED"] - 0x6000], list(s[p:p + K["PLACE_ITEMS"]])
+    return placement(bus)
 
 
 def test_es_reference():
@@ -1610,19 +1613,22 @@ def es_place_cart(job):
     s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
     s[K["RANDO_EARLY"] - 0x6000] = early
     s[K["RANDO_ENTRANCES"] - 0x6000] = mode
-    s[K["RANDO_ESK"] - 0x6000] = 0x55              # decoys
-    s[K["RANDO_SHIPDOCK"] - 0x6000] = 0x66
+    bus.wram[rw("RW_ESK")] = 0x55                  # decoys
+    bus.wram[rw("RW_SHIPDOCK")] = 0x66
+    bus.wram[rw("RW_ENTRANCES")] = 0x77
+    before = bytes(s)
     #  Several wirings and their placements can run past call()'s limit.
     cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
-    p = K["RANDO_PLACE"] - 0x6000
-    return (s[K["RANDO_PLACED"] - 0x6000], list(s[p:p + K["PLACE_ITEMS"]]),
-            s[K["RANDO_ESK"] - 0x6000], s[K["RANDO_SHIPDOCK"] - 0x6000], s[K["RANDO_ENTRANCES"] - 0x6000])
+    if bytes(s) != before:
+        return "the save written"
+    return placement(bus) + (bus.wram[rw("RW_ESK")], bus.wram[rw("RW_SHIPDOCK")], bus.wram[rw("RW_ENTRANCES")])
 
 
 def test_es_place():
     """New Game under entrance shuffle: rando_place takes randoref.build_world's
-    attempt, placement and dock, and keeps them in the save; with no world it
-    falls back to Off's placement and clears the mode.  With map edits, with
+    attempt, placement and dock, and keeps them in the cache, the save
+    untouched; with no world it falls back to Off's placement and clears the
+    mode the game has (RW_ENTRANCES), the setting left as set.  With map edits, with
     the shuffle or without, randoref.new_world's: the vanilla wiring's logic
     the seed's, not the unedited map's tables."""
     cfgs = [PLACE_CONFIGS[n] for n in ("beginner", "wide-loose", "bridge", "all-loose")]
@@ -1639,12 +1645,15 @@ def test_es_place():
     got = pmap(es_place_cart, jobs)
     bad = []
     for (seed, cfg, mode, *owe), cart in zip(jobs, got):
+        if isinstance(cart, str):
+            bad.append((seed, cfg[0], mode, cart))
+            continue
         mode_after, k, out, dock = R.new_world(seed, *cfg, mode, owe[0] if owe else 0)
         want = (1 if out else 0, out, k, dock, mode_after)
         if (cart[0], cart[1] if cart[0] else None, cart[2], cart[3], cart[4]) != \
                 (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
             bad.append((seed, cfg[0], mode, cart[2:], want[2:]))
-    check("rando_place under entrance shuffle: build_world's", bad[:4], [])
+    check("rando_place under entrance shuffle: build_world's, the save untouched", bad[:4], [])
     cart = es_place_cart((5, (0, [0x20, 0, 0], [0x81, 0], 0x0F), R.ENTRANCES_FLOORS))
     check("Key items Vanilla: no placement, and the entrances stay put",
           (cart[0], cart[2], cart[3], cart[4]), (0, 0, 0, R.ENTRANCES_OFF))
@@ -1669,7 +1678,7 @@ def test_es_place():
     n0 = cpu.steps
     cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
     check("...so its four attempts cost next to nothing (New Game under 3M instructions)",
-          (sv[K["RANDO_ESK"] - 0x6000], cpu.steps - n0 < 3_000_000), (1, True))
+          (bus.wram[rw("RW_ESK")], cpu.steps - n0 < 3_000_000), (1, True))
     #  And a cycle that places nothing reuses the last one's counts: Key items
     #  Standard with no Early flags, seed 158397, whose New Game gives up as
     #  stuck at cycle 15 on six wirings before the seventh places (15.4 million
@@ -1688,7 +1697,7 @@ def test_es_place():
     n0 = cpu.steps
     cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
     check("...its wasted cycles reusing their counts (New Game under 10M instructions)",
-          (sv[K["RANDO_ESK"] - 0x6000], cpu.steps - n0 < 10_000_000), (6, True))
+          (bus.wram[rw("RW_ESK")], cpu.steps - n0 < 10_000_000), (6, True))
 
     #  ...and the fallback, which no seed tried has needed: a cart whose
     #  New Game has no attempts places the vanilla world's way, on FFR's safe
@@ -1713,11 +1722,31 @@ def test_es_place():
     sv[K["RANDO_EARLY"] - 0x6000] = cfg[3]
     sv[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS
     cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
-    p = K["RANDO_PLACE"] - 0x6000
-    check("...the safe tables' placement, not the loose ones' (which differ here)",
-          (list(sv[p:p + K["PLACE_ITEMS"]]) == R.build_placement(seed, *cfg),
+    check("...the safe tables' placement, not the loose ones' (which differ here); the mode Off, the "
+          "setting as set",
+          (placement(bus)[1] == R.build_placement(seed, *cfg),
            R.build_placement(seed, *cfg) != R.build_placement(seed, *cfg, tune=R.TUNE_LOOSE),
-           sv[K["RANDO_ENTRANCES"] - 0x6000]), (True, True, R.ENTRANCES_OFF))
+           bus.wram[rw("RW_ENTRANCES")], sv[K["RANDO_ENTRANCES"] - 0x6000]),
+          (True, True, R.ENTRANCES_OFF, R.ENTRANCES_FLOORS))
+    #  ...and the cache built on it has the vanilla wiring: the mode the game
+    #  has, not the setting, the one case where the two differ with the key
+    #  items placed.
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
+    b0 = (1 + 0x00) * 0x10000
+    check("...the cache's teleport tables then bank $00's: the entrances' maps",
+          (bus.wram[rw("RW_PLACED")], list(bus.wram[rw("RW_ENTRMAP"):rw("RW_ENTRMAP") + 32])),
+          (1, list(ROMDATA[b0 + 0xAC40:b0 + 0xAC60])))
+    #  With map edits the fallback is the vanilla wiring's logic worked out for
+    #  the seed (pl_edited): the wiring the mode the game has, Off, gives.
+    bus = Bus(bytes(rom))
+    cpu = CPU(bus)
+    cpu.dbr = 0xA7
+    bus.sram[:] = sv
+    owe = K["RANDO_OWEDITS"] - 0x6000
+    bus.sram[owe:owe + 2] = K["OWEDIT_SAFE"].to_bytes(2, "little")
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
+    check("...with map edits, the vanilla wiring's: randoref.build_edited's placement",
+          placement(bus), (1, R.build_edited(seed, *cfg, K["OWEDIT_SAFE"], R.GOAL_4ORBS)[2]))
 
 def land_in_room(m, x, y):
     """Whether a party set down at (x, y) on standard map m is inside a room:
@@ -2452,8 +2481,9 @@ def test_es_tree():
 
 def test_es_tables():
     """The teleport tables the game reads come from the cache: bank $00's own
-    with entrance shuffle off, the save's wiring -- attempt RANDO_ESK in its
-    mode -- with it on and the key items placed; and the three hooks read
+    with entrance shuffle off, placement's wiring -- the attempt it places
+    on, in its mode, worked out in the same build from the save's settings
+    -- with it on and the key items placed; and the three hooks read
     them: an entrance's landing, a normal teleport's (the Ordeals pillars'
     one moved teleport still moved) and an exit's."""
     import graphdata as GD
@@ -2477,34 +2507,42 @@ def test_es_tables():
     check("...each a landing of the vanilla wiring's normal teleports, none an entrance's",
           (sum(x >> 7 for x in van[0]), sum(x >> 7 for x in van[3])), (0, 9))
 
-    def tables(seed, mode, k, placed=1, ordeals=0, owedits=0):
+    cfg = PLACE_CONFIGS["beginner"]
+
+    def tables(seed, mode, keyitems=cfg[0], ordeals=0, owedits=0):
         bus, cpu = machine()
         s = bus.sram
         at = K["RANDO_SAVE"] - 0x6000
         s[at:at + 4] = seed.to_bytes(4, "little")
+        s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+        s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+        s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+        s[K["RANDO_EARLY"] - 0x6000] = cfg[3]
         s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = owedits.to_bytes(2, "little")
         s[K["RANDO_ENTRANCES"] - 0x6000] = mode
-        s[K["RANDO_ESK"] - 0x6000] = k
-        s[K["RANDO_PLACED"] - 0x6000] = placed
         s[K["RANDO_ORDEALS"] - 0x6000] = ordeals
         for name, n in (("RW_ENTRX", 32), ("RW_ENTRY", 32), ("RW_ENTRMAP", 32), ("RW_NORMX", 64),
                         ("RW_NORMY", 64), ("RW_NORMMAP", 64), ("RW_EXITX", 16), ("RW_EXITY", 16)):
             bus.wram[rw(name):rw(name) + n] = bytes([0xA5]) * n      # decoys
-        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        #  Placement's wirings and its tries on each run past call()'s limit.
+        cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=200_000_000)
         get = lambda name, n: list(bus.wram[rw(name):rw(name) + n])
         return bus, cpu, (get("RW_ENTRX", 32), get("RW_ENTRY", 32), get("RW_ENTRMAP", 32),
                           get("RW_NORMX", 64), get("RW_NORMY", 64), get("RW_NORMMAP", 64),
                           get("RW_EXITX", 16), get("RW_EXITY", 16))
 
-    check("Off: bank $00's tables", tables(1, R.ENTRANCES_OFF, 0)[2], van)
-    check("a mode without a placement: bank $00's tables", tables(1, R.ENTRANCES_FLOORS, 0, placed=0)[2], van)
-    for seed, mode, k in ((1, R.ENTRANCES_ONLY, 0), (2, R.ENTRANCES_FLOORS, 1), (0xD1625106, R.ENTRANCES_FLOORS, 0)):
+    check("Off: bank $00's tables", tables(1, R.ENTRANCES_OFF)[2], van)
+    check("a mode under Key items Vanilla, nothing placed: bank $00's tables",
+          tables(1, R.ENTRANCES_FLOORS, keyitems=K["KEYITEMS_VANILLA"])[2], van)
+    for seed, mode, k in ((1, R.ENTRANCES_ONLY, 0), (2, R.ENTRANCES_FLOORS, 0), (0xD1625106, R.ENTRANCES_FLOORS, 0),
+                          (18, R.ENTRANCES_ONLY, 1)):
+        check("mode %d seed %X: placement's attempt %d" % (mode, seed, k), R.new_world(seed, *cfg, mode)[:2], (mode, k))
         entrance, normal, exits, _ = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), mode)
         want = ([c[1] | (0x80 if tuple(c) in ROOM else 0) for c in entrance], [c[2] for c in entrance],
                 [c[0] for c in entrance],
                 [c[1] | (0x80 if tuple(c) in ROOM else 0) for c in normal], [c[2] for c in normal],
                 [c[0] for c in normal], [c[0] for c in exits], [c[1] for c in exits])
-        check("mode %d seed %X attempt %d: the save's wiring" % (mode, seed, k), tables(seed, mode, k)[2], want)
+        check("mode %d seed %X attempt %d: its wiring" % (mode, seed, k), tables(seed, mode)[2], want)
     #  The Cardia Land Bridge moves six entrances, and an exit wired to one
     #  sets the party down where it is now (FFR's OverworldMap.ApplyMapEdits):
     #  the first seed whose wiring has such an exit, with the bridge and
@@ -2513,10 +2551,10 @@ def test_es_tables():
     for seed in range(1, 400):
         a = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), R.ENTRANCES_FLOORS, CB)
         b = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR)), R.ENTRANCES_FLOORS)
-        if a and b and a[2] != b[2]:
+        if a and b and a[2] != b[2] and R.new_world(seed, *cfg, R.ENTRANCES_FLOORS, CB)[:2] == (R.ENTRANCES_FLOORS, 0):
             break
-    check("the land bridge: a seed whose exits it moves", a[2] != b[2], True)
-    got = tables(seed, R.ENTRANCES_FLOORS, 0, owedits=CB)[2]
+    check("the land bridge: a seed whose exits it moves, placed on its first wiring", a[2] != b[2], True)
+    got = tables(seed, R.ENTRANCES_FLOORS, owedits=CB)[2]
     check("...the exits where the reference has them, the moved ones the bridge's",
           (got[6], got[7]), ([c[0] for c in a[2]], [c[1] for c in a[2]]))
     check("...a moved one among them",
@@ -2524,7 +2562,7 @@ def test_es_tables():
               for x, y in zip(got[6], got[7])), True)
 
     #  The hooks, on a shuffled world: each landing's scroll and map.
-    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1)
+    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS)
     sx, sy, ox, oy = K["sm_scroll_x"], K["sm_scroll_y"], K["ow_scroll_x"], K["ow_scroll_y"]
     bad = []
     IR = K["inroom"]
@@ -2563,12 +2601,12 @@ def test_es_tables():
         bus2, cpu2 = machine()
         bus2.sram[:] = bus.sram
         cpu2.x = x
-        call(cpu2, hook, bank=RANDO_BANK)
+        cpu2.run(RANDO_BANK, SYM[hook], limit=200_000_000)
         cold.append(want(bus2, cpu2))
     check("a hook on a cold cache builds it", cold,
           [((t[0][5] - 7) & 0x3F, t[2][5]), ((t[3][9] - 7) & 0x3F, t[5][9]),
            ((t[6][3] - 7) & 0xFF, (t[7][3] - 7) & 0xFF)])
-    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, 1, ordeals=1)
+    bus, cpu, t = tables(2, R.ENTRANCES_FLOORS, ordeals=1)
     cpu.x = K["ORD_LOST_TELE"]
     call(cpu, "rando_teledest", bank=RANDO_BANK)
     bus.wram[K["inroom"]] = 0x81
@@ -2634,8 +2672,9 @@ def test_rando_place():
 
 
 def rewards_cart(job):
-    """The cache built from a save that holds randoref's placement: the chests,
-    the NPC rewards, the caravan, and every shop row."""
+    """The cache built from a save's settings: randoref's placement, and the
+    cache's own beside it; the chests, the NPC rewards, the caravan, and every
+    shop row."""
     seed, cfg, chests, shops = job
     keyitems, items3, gear2, early = cfg
     place = R.build_placement(seed, *cfg)
@@ -2649,12 +2688,11 @@ def rewards_cart(job):
     s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
     s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
     s[K["RANDO_EARLY"] - 0x6000] = early
-    s[K["RANDO_PLACED"] - 0x6000] = 1
-    p = K["RANDO_PLACE"] - 0x6000
-    s[p:p + K["PLACE_ITEMS"]] = bytes(place)
-    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
     w = lambda name, n: bytes(bus.wram[rw(name):rw(name) + n])
-    return place, w("RW_CHESTS", 256), w("RW_TALKREW", 13), w("RW_CARAVAN", 1)[0], w("RW_SHOPS", 71 * 8)
+    placed, own = placement(bus)
+    return (place, w("RW_CHESTS", 256), w("RW_TALKREW", 13), w("RW_CARAVAN", 1)[0], w("RW_SHOPS", 71 * 8),
+            own if placed == 1 else None)
 
 
 def test_rando_rewards():
@@ -2668,14 +2706,14 @@ def test_rando_rewards():
             for chests in (0, 1) for shops in (0, 1)]
     res = pmap(rewards_cart, jobs)
     bad = []
-    for (seed, cfg, chests, shops), (place, got_c, got_t, got_v, got_s) in zip(jobs, res):
+    for (seed, cfg, chests, shops), (place, got_c, got_t, got_v, got_s, got_p) in zip(jobs, res):
         want_c, want_t, want_v = R.build_rewards(ROMDATA, seed, chests, place, cfg[1])
         want_s = R.build_shops(ROMDATA, seed, shops, caravan=want_v)
-        for what, got, want in (("chests", got_c, want_c), ("NPCs", got_t, want_t),
+        for what, got, want in (("placement", got_p, place), ("chests", got_c, want_c), ("NPCs", got_t, want_t),
                                 ("caravan", got_v, want_v), ("shops", got_s, want_s)):
             if got != want:
                 bad.append((seed, cfg, chests, shops, what))
-    check("the cache's rewards are randoref's", bad[:3], [])
+    check("the cache's placement and rewards are randoref's", bad[:3], [])
 
 
 def test_rando_giving():
@@ -2709,10 +2747,10 @@ def test_rando_giving():
         s[at:at + 4] = seed.to_bytes(4, "little")
         s[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
         s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+        s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
         s[K["RANDO_EARLY"] - 0x6000] = cfg[3]
-        s[K["RANDO_PLACED"] - 0x6000] = 1
-        p = K["RANDO_PLACE"] - 0x6000
-        s[p:p + K["PLACE_ITEMS"]] = bytes(place)
+        cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)  # as @Begin builds it
+        check("...the cache's placement that one", placement(bus), (1, place))
         s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0xD2, 0x99        # Pravoka, as a new game has it
         bus.wram[K["tileprop"] + 1] = chest
         bus.wram[K["cur_map"]] = 8                                  # Coneria Castle 1F
@@ -2738,7 +2776,7 @@ def test_rando_giving():
         s[GAME_FLAGS - 0x6000 + obj] = 1
         s[GAME_FLAGS - 0x6000 + 0x12] = 1            # the Princess rescued
         s[K["RANDO_TALK"] - 0x6000] = 1
-        s[K["RANDO_PLACED"] - 0x6000] = 1
+        bus.wram[rw("RW_PLACED")] = 1
         bus.wram[rw("RW_TALKREW") + TALK_ENTRY[name]] = reward
         if setup:
             setup(s)
@@ -2776,7 +2814,7 @@ def test_rando_giving():
     bus.sram[GAME_FLAGS - 0x6000 + 0x13] = 1             # the fairy out
     call(cpu, "rando_caravan", bank=RANDO_BANK)
     shut = cpu.a & 0xFF
-    bus.sram[K["RANDO_PLACED"] - 0x6000] = 1
+    bus.wram[rw("RW_PLACED")] = 1
     call(cpu, "rando_caravan", bank=RANDO_BANK)
     check("the caravan: shut with the fairy out, open once placement stocks it",
           (shut != 0, cpu.a & 0xFF), (True, 0))
@@ -2805,9 +2843,12 @@ def test_rando_princess():
     flags = K["game_flags"] - 0x6000
     P1, P2, VIS = K["OBJID_PRINCESS_1"], K["OBJID_PRINCESS_2"], K["GMFLG_OBJVISIBLE"]
     got = {}
-    for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS):
+    #  The mode the game has, placement's (RW_ENTRANCES), not the setting:
+    #  "unplaced", the shuffle set but no wiring placing, the vanilla one.
+    for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS, "unplaced"):
         bus, cpu = machine()
-        bus.sram[K["RANDO_ENTRANCES"] - 0x6000] = mode
+        bus.sram[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS if mode == "unplaced" else mode
+        bus.wram[rw("RW_ENTRANCES")] = R.ENTRANCES_OFF if mode == "unplaced" else mode
         bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1] = 0x11, 0x22     # decoys
         bus.sram[flags + P1], bus.sram[flags + P2] = VIS, 0
         bus.wram[K["tmp"] + 1] = 0x5A                                         # her line
@@ -2822,6 +2863,8 @@ def test_rando_princess():
           got[R.ENTRANCES_OFF][0], (K["TP_TELE_NORM"], K["NORMTELE_SAVEDPRINCESS"]))
     check("entrance shuffle, either mode: no warp",
           [got[m][0] for m in (R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)], [(0x11, 0x22)] * 2)
+    check("...set but no wiring placed, the vanilla one: the warp",
+          got["unplaced"][0], (K["TP_TELE_NORM"], K["NORMTELE_SAVEDPRINCESS"]))
     check("...and every mode rescues her and prints her line",
           {got[m][1] for m in got}, {(0, VIS, 0, 0x5A)})
     #  The hook alone keeps X and Y, as TalkNormTeleport did.
@@ -2860,8 +2903,8 @@ def test_rando_shipdock():
     def give(m, placed=1, edits=0, dock=0):
         bus, cpu = machine()
         s = bus.sram
-        s[K["RANDO_PLACED"] - 0x6000] = placed
-        s[K["RANDO_SHIPDOCK"] - 0x6000] = dock
+        bus.wram[rw("RW_PLACED")] = placed              # placement's, as the cache holds it
+        bus.wram[rw("RW_SHIPDOCK")] = dock
         s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = edits.to_bytes(2, "little")
         s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000] = 0x11, 0x22      # decoys
         bus.wram[K["cur_map"]] = m
@@ -2879,21 +2922,26 @@ def test_rando_shipdock():
     check("given, named SHIP, X kept, on every map",
           {got[m][1:] for m in got}, {(1, 0x12, 0x5A)})
     check("unplaced: the ship left where it is", give(15, placed=0)[:2], ((0x11, 0x22), 1))
-    #  Under entrance shuffle, the dock New Game chose (es_dock), whatever the map.
-    def shuffled(m, dock, edits=0):
+    #  Under entrance shuffle, the dock placement chose (es_dock), whatever the
+    #  map: the mode the game has, not the setting, which a world with no
+    #  wiring that places leaves as set.
+    def shuffled(m, dock, edits=0, mode=R.ENTRANCES_ONLY, setting=R.ENTRANCES_ONLY):
         bus, cpu = machine()
         s = bus.sram
-        s[K["RANDO_PLACED"] - 0x6000] = 1
+        bus.wram[rw("RW_PLACED")] = 1
         s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = edits.to_bytes(2, "little")
-        s[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_ONLY
-        s[K["RANDO_SHIPDOCK"] - 0x6000] = dock
+        s[K["RANDO_ENTRANCES"] - 0x6000] = setting
+        bus.wram[rw("RW_ENTRANCES")] = mode
+        bus.wram[rw("RW_SHIPDOCK")] = dock
         bus.wram[K["cur_map"]] = m
         cpu.a, cpu.x = 0xF0, 0x5A
         call(cpu, "give_vehicle", bank=RANDO_BANK)
         return (s[SHIP_X - 0x6000], s[SHIP_Y - 0x6000]), cpu.x & 0xFF
     order = [CONERIA, PRAVOKA, ELFLAND, DWARF, MATOYA]
-    check("entrance shuffle: the save's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
+    check("entrance shuffle: placement's dock", [shuffled(m, d) for d, m in enumerate((15, 1, 20, 4, 8))],
           [(order[d], 0x5A) for d in range(5)])
+    check("...the shuffle set but no wiring placing, Off: the map's dock",
+          shuffled(15, 2, mode=R.ENTRANCES_OFF), (FFR[15], 0x5A))
     #  Map edits: the save's dock.  Bridge to Lefein: Matoya's is gone.
     BRIDGE = K["OWEDIT_BRIDGELEFEIN"]
     others = 0xFFFF & ~BRIDGE
@@ -3027,7 +3075,7 @@ def test_rando_dialogue():
         s[GAME_FLAGS - 0x6000 + obj] = 1
         s[GAME_FLAGS - 0x6000 + 0x12] = 1            # the Princess rescued
         s[K["RANDO_TALK"] - 0x6000] = 1
-        s[K["RANDO_PLACED"] - 0x6000] = placed
+        bus.wram[rw("RW_PLACED")] = placed
         bus.wram[rw("RW_TALKREW") + TALK_ENTRY[name]] = reward
         if setup:
             setup(s)
@@ -5837,15 +5885,20 @@ def test_shorttofr():
     def tele(on, tid, shuffle=False):
         bus, cpu = machine()
         setblk(bus, FB, FM if on else 0)
-        if shuffle:
+        if shuffle:                     # a world placed on a shuffled wiring
             s = bus.sram
             s[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = (2).to_bytes(4, "little")
+            keyitems, items3, gear2, early = PLACE_CONFIGS["beginner"]
+            s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+            s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+            s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+            s[K["RANDO_EARLY"] - 0x6000] = early
             s[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS
-            s[K["RANDO_ESK"] - 0x6000] = 1
-            s[K["RANDO_PLACED"] - 0x6000] = 1
         bus.wram[K["inroom"]] = 0
         cpu.x = tid
-        call(cpu, "rando_teledest", bank=RANDO_BANK)
+        cpu.run(RANDO_BANK, SYM["rando_teledest"], limit=200_000_000)   # the cache, placement first
+        if shuffle and (bus.wram[rw("RW_PLACED")], bus.wram[rw("RW_ENTRANCES")]) != (1, R.ENTRANCES_FLOORS):
+            return "not shuffled"
         return (bus.wram[K["sm_scroll_x"]], bus.wram[K["sm_scroll_y"]], cpu.a & 0xFF, bus.wram[K["inroom"]])
     land = ((K["TOFR_LAND_X"] - 7) & 0x3F, (K["TOFR_LAND_Y"] - 7) & 0x3F, CHAOS, 0x81)
     check("the Black Orb, Short ToFR: Chaos's floor, in its room", tele(True, K["TELE_BLACKORB"]), land)
@@ -11802,15 +11855,15 @@ def test_rando_newgame():
 
     bus, cpu = newgame()
     check("New Game silences the music before placing",
-          cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=SYM["rando_place"]), True)
+          cpu.run(RANDO_BANK, SYM["rando_newgame"], stop=SYM["pl_place"]), True)
     check("...all four channels", (bus.wram[APUSHADOW + 0x15], bytes(bus.wram[APUSHADOW:APUSHADOW + 16:4])),
           (0, bytes([0x30] * 4)))
     bus, cpu = newgame()
     cpu.run(RANDO_BANK, SYM["rando_newgame"], limit=60_000_000)
-    k = bus.sram[K["RANDO_ESK"] - 0x6000]
+    k = bus.wram[rw("RW_ESK")]
     entrance = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), R.ENTRANCES_FLOORS)[0]
-    check("...and leaves the cache built from the save it made",
-          (bus.sram[K["RANDO_PLACED"] - 0x6000], bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"],
+    check("...and leaves the cache built from the save it made, the placement in it",
+          (bus.wram[rw("RW_PLACED")], bus.wram[rw("RW_TAG")] == K["RW_TAG_VAL"],
            rng_cache(bus) == R.build_rng(seed, 1),
            list(bus.wram[rw("RW_ENTRMAP"):rw("RW_ENTRMAP") + 32]) == [c[0] for c in entrance]),
           (1, True, True, True))
@@ -11845,8 +11898,7 @@ def test_rando_build():
         bus.sram[K["OPT_NG_GEAR"] - 0x6000:K["OPT_NG_GEAR"] - 0x6000 + 2] = bytes(gear2)
 
     def world(bus):
-        return (bytes(bus.sram[SAVE:SAVE + K["RANDO_SAVE_SIZE"]]),
-                bytes(bus.sram[K["RANDO_PLACED"] - 0x6000:K["RANDO_PLACE"] - 0x6000 + K["PLACE_ITEMS"]]),
+        return (bytes(bus.sram[SAVE:SAVE + K["RANDO_SAVE_SIZE"]]), placement(bus),
                 bytes(bus.wram[rw("RANDOWRAM"):rw("ROLL_ON")]))
 
     #  Built: against rando_newgame's world from the same seed, settings and
@@ -11868,12 +11920,11 @@ def test_rando_build():
     rbus.sram[VEH] = 1
     rcpu.run(RANDO_BANK, SYM["rando_newgame"], limit=100_000_000)
     check("rando_build: built, C clear; the world rando_newgame builds from the same, its cache too; no pad read",
-          (cpu.p & 1, built == world(rbus), bus.sram[K["RANDO_PLACED"] - 0x6000], reads), (0, True, 1, 0))
+          (cpu.p & 1, built == world(rbus), bus.wram[rw("RW_PLACED")], reads), (0, True, 1, 0))
     check("...the fanfare, the PPU the HAL's again, dark, the title's music for party creation",
           (bus.wram[rw("ROLL_ON")], bus.io.get(K["INIDISP"]), bus.wram[K["h_paldirty"]], bus.wram[K["music_track"]]),
           (0, 0x80, 1, K["TRACK_TITLE"]))
-    ours = (set(range(K["RANDO_PLACED"] - 0x6000, K["RANDO_PLACE"] - 0x6000 + K["PLACE_ITEMS"]))
-            | set(range(SAVE, SAVE + K["RANDO_SAVE_SIZE"]))
+    ours = (set(range(SAVE, SAVE + K["RANDO_SAVE_SIZE"]))       # the settings: placement keeps nothing here
             | {K["RANDO_TALK"] - 0x6000, K["RANDO_GIVEN"] - 0x6000, K["RANDO_GIVEN"] - 0x6000 + 1})
     want = bytearray(init_page())
     want[VEH] = 1
@@ -12342,7 +12393,7 @@ def test_roll():
         bus.write = w
         cpu.run(RANDO_BANK, SYM["rando_newgame"], limit=100_000_000)
         save = bytes(bus.sram[K["RANDO_SAVE"] - 0x6000:][:K["RANDO_SAVE_SIZE"]])
-        place = bytes(bus.sram[K["RANDO_PLACE"] - 0x6000:][:K["PLACE_ITEMS"]])
+        place = placement(bus)
         cache = bytes(bus.wram[rw("RANDOWRAM"):rw("ROLL_ON")])
         return (save, place, cache), log, bus
 
@@ -14141,6 +14192,23 @@ def test_rando_ordeals():
           (block[0], block[K["RANDO_ORDEALS"] - K["RANDO_SAVE"] - 3]), (0x0BADF00D, 1))
     check("...whose spoiler finds the way through",
           "way through" in R.ordeals_text(R.build_ordeals(0x0BADF00D, 1)), True)
+    #  The save keeps no placement (SAVEVER 3): the wiring is worked out from
+    #  the settings, as the cache build works it out -- seed 18, Entrances,
+    #  places on its second wiring (test_es_tables), and with the Coneria
+    #  and Pravoka edits on its first, read where the build reads them.
+    srm = bytearray(0x8000)
+    keyitems, items3, gear2, early = PLACE_CONFIGS["beginner"]
+    for name, v in (("RANDO_KEYITEMS", keyitems), ("RANDO_EARLY", early), ("RANDO_ENTRANCES", R.ENTRANCES_ONLY)):
+        srm[at + K[name] - K["RANDO_SAVE"]] = v
+    srm[at:at + 4] = (18).to_bytes(4, "little")
+    it, ge = at + K["RANDO_ITEMS"] - K["RANDO_SAVE"], at + K["RANDO_GEAR"] - K["RANDO_SAVE"]
+    srm[it:it + 3], srm[ge:ge + 2] = bytes(items3), bytes(gear2)
+    head = R.srm_wiring_text(bytes(srm))[0]
+    owe = at + K["RANDO_OWEDITS"] - K["RANDO_SAVE"]
+    srm[owe:owe + 2] = (0x0041).to_bytes(2, "little")
+    check("...and a battery file's wiring from its settings: placement's attempt, the map edits read",
+          (head, R.srm_wiring_text(bytes(srm))[0], R.new_world(18, *PLACE_CONFIGS["beginner"], R.ENTRANCES_ONLY, 0x0041)[1]),
+          ("Map shuffle Entrances, seed 00000012, attempt 1", "Map shuffle Entrances, seed 00000012, attempt 0", 0))
 
     #  The wiring.
     tgt = SYM["rando_teledest"]

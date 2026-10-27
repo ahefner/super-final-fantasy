@@ -284,6 +284,9 @@ seeds are its own.
 chests stay opened, because the flags are by location.  But unopened chests,
 shops and spell levels would all change, and a learned spell is stored as a
 level slot, so a reshuffle would turn a learned FIRE into something else.
+Since 2026-10-27 that includes the key items: placement is drawn again with
+the rest of the cache rather than kept in the save (§4.7), so a change to
+placement or its logic moves them in a game in progress.
 
 **Decision (review 1): fold the version into the save checksum**, with no
 version byte in the save.  Continue already falls through to New Game when
@@ -803,7 +806,8 @@ its chests.
 
 Drawn once, at New Game, and kept in the save; nothing reads it yet -- the
 chests, the reward NPCs and the caravan still give their vanilla contents
-until the rewards change.
+until the rewards change.  Since 2026-10-27 it is not kept: the cache
+build draws it again from the save's settings, first of all (below).
 
   - **The logic** is the world graph's, distilled: `tools/genlogic.py`
     (needs `worldgraph/`) writes, for each of 256 locations -- the 234
@@ -922,12 +926,17 @@ until the rewards change.
     forgotten.  The sets are the fixpoint's, so the draws are too: a median
     470,000 instructions, about 0.7 s, and 1.4 million, about 2 s, for a seed
     that needs several attempts.
-  - **In the save**: `RANDO_PLACED` (`$6040`) and `RANDO_PLACE`, one byte per
-    item -- nineteen key items, the TAIL, nine gear rows -- giving its
-    location or `$FF`.  That page-0 range is the dead copy of the class
-    stats (§1.1), junk in older saves; `RANDO_PLACED` says whether the bytes
-    mean anything, and only a game begun with Key items Standard or Wide
-    sets it.  Working memory is `$7FC000` up, above the cache.
+  - **In the cache**: `RW_PLACED` and `RW_PLACE`, one byte per item --
+    nineteen key items, the TAIL, nine gear rows -- giving its location or
+    `$FF`; `RW_PLACED` says whether the bytes mean anything, and only Key
+    items Standard or Wide sets it.  They were in the save, at `$6040` (the
+    dead copy of the class stats, §1.1), until 2026-10-27, when the user had
+    them drawn again with the rest of the world: the save keeps only the
+    settings ("re-roll everything and store just the input flags"), and
+    `$6040-$609F` is free.  `pl_place` runs first in every cache build, at
+    New Game and on the first Continue after power-on; a soft reset keeps
+    the cache, so it still only compares the tag.  Working memory is
+    `$7FC000` up, above the cache.
 
 `test_rando_place` holds the cart to the reference, placement for placement,
 over eight settings (Beginner, the Early flags off, the BRIDGE placed,
@@ -1798,9 +1807,11 @@ reference byte for byte by `test_options.py`:
   - **Roots, groups and the dock** (`es_roots`, `es_groups`, `es_dock`;
     `test_es_world`).
   - **New Game** (`pl_shuffled`; `test_es_place`): build_world's attempt,
-    placement and dock, kept in the save (`RANDO_ESK`, `RANDO_SHIPDOCK`).
-    With no world in 16 attempts it places Off's and clears the mode, and
-    Key items Vanilla clears it too.  Its cost, over 16 seeds of three
+    placement and dock, kept in the cache (`RW_ESK`, `RW_SHIPDOCK`; in the
+    save until 2026-10-27, §4.7).  With no world in 16 attempts it places
+    Off's and the mode the game has (`RW_ENTRANCES`) is Off, and Key items
+    Vanilla makes it Off too; the setting in the save stays as set (it was
+    overwritten before).  Its cost, over 16 seeds of three
     settings: a median of 1.0 to 1.4 million instructions in either mode,
     against 0.5 to 0.6 million with it Off, and at most 4 million (a second
     wiring); no seed fell back.  Over 24 seeds of the settings that reroll
@@ -1808,7 +1819,7 @@ reference byte for byte by `test_options.py`:
     1.4 million and at most 7.5 (seven wirings), since a draw with nowhere
     to go weighs nothing (§4.7); 78 million at worst before.
   - **The game's teleports** (`es_tables`; `test_es_tables`): the cache
-    build deals the save's wiring again -- attempt `RANDO_ESK`, without
+    build deals placement's wiring again -- attempt `RW_ESK`, without
     placing -- and writes the landing tables the game reads, 32 entrances,
     64 normal teleports and 16 exits, or bank $00's own with the mode Off.
     The fixed bank asks the cache for every landing: `rando_entrdest`

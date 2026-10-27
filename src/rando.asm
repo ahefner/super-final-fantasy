@@ -56,7 +56,7 @@
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
-.export rando_coldbuild
+.export rando_coldbuild, pl_place
 .export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar
 ;  New Game's roll screen (roll.asm), up while rando_build works.
@@ -594,10 +594,11 @@ rando_stir:
 ;;  then on foot), so that nothing of a build backed out of stays -- a
 ;;  BRIDGE at Lefein, a placement; then the flow's seed (NGF_SEED), the settings screen's
 ;;  new-game rows and the map edits its screen ticked (NGF_OWEDITS); and
-;;  the roll screen up for the work (new_world).  Placement giving up --
-;;  every attempt of Key items Standard's or Wide's thrown away -- is said
-;;  on the roll screen (roll_fail); else the cache, and the fanfare, the
-;;  title's music starting again for party creation.
+;;  the roll screen up for the work (new_world): placement and the cache.
+;;  Placement giving up -- every attempt of Key items Standard's or Wide's
+;;  thrown away -- is said on the roll screen (roll_fail), the cache
+;;  untagged; else the fanfare, the title's music starting again for party
+;;  creation.
 ;;
 ;;  In emulation mode, by JSL.  Out: C clear, built; C set, no world.  X and
 ;;  P but C as they were.
@@ -628,7 +629,6 @@ rando_build:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     JSR new_world
     BCS @failed
-    JSL rando_ensure + RANDOFAR
     LDA #TRACK_TITLE            ; the fanfare, the fade, the PPU back to the
     JSL roll_end + ROLLFAR      ;   HAL; the title's music for party creation
     PLX
@@ -636,6 +636,8 @@ rando_build:
     CLC
     RTL
   @failed:
+    LDA #0
+    STA f:RW_TAG                ; no world, so no cache of it
     JSL roll_fail + ROLLFAR     ; said, and a press waited for
     PLX
     PLP
@@ -651,8 +653,8 @@ rando_build:
 ;;  party creation (rando_build): the mark is used up and nothing else done.
 ;;  Without the flow, which only the tests start a game without, all of it
 ;;  here as before: the pool's seed (or FFSEED's, in a debug build), the
-;;  settings, no map edits, the roll screen, placement and the cache, the
-;;  roll ending with no track, PrepOverworld starting the overworld's.
+;;  settings, no map edits, the roll screen, the cache with its placement,
+;;  the roll ending with no track, PrepOverworld starting the overworld's.
 ;;
 ;;  Out: X and P as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -691,7 +693,6 @@ rando_newgame:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     JSR new_world               ; (no world: the key items stay at home)
-    JSL rando_ensure + RANDOFAR
     LDA #0
     JSL roll_end + ROLLFAR
     PLX
@@ -702,9 +703,10 @@ rando_newgame:
 ;;  settings screen's new-game rows beside them, Bridge to Lefein's BRIDGE
 ;;  where FFR puts it, the reward NPCs' state afresh, the title's music
 ;;  silenced -- nothing drives it through the roll, and the SPC700 would
-;;  hold its last note -- the roll screen up, and the key items placed.
-;;  Out: C set if Key items Standard or Wide placed nothing (every attempt
-;;  thrown away).  Emulation mode; X clobbered.
+;;  hold its last note -- the roll screen up, and the cache built, the key
+;;  items placed first in it.  Out: C set if Key items Standard or Wide
+;;  placed nothing (every attempt thrown away).  Emulation mode; X
+;;  clobbered.
 new_world:
     LDX #OPT_NG_SIZE - 1
   @ng:
@@ -728,14 +730,15 @@ new_world:
     STA f:RANDO_GIVENFAR + 1
     ;  The roll screen comes up for the work, the seed choosing its picture.
     JSL roll_begin + ROLLFAR
-    ;  ...and where its key items are, under Key items Standard or Wide.
-    JSL rando_place + RANDOFAR
+    ;  ...and the world, where its key items are first, under Key items
+    ;  Standard or Wide.
+    JSL rando_ensure + RANDOFAR
     LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
     CMP #KEYITEMS_STANDARD
     BEQ :+
     CMP #KEYITEMS_WIDE
     BNE @placed                 ; Vanilla: nothing to place
-:   LDA f:RANDO_PLACEDFAR
+:   LDA f:RW_PLACED
     CMP #1
     BEQ @placed
     SEC
@@ -846,7 +849,8 @@ stale:
 
 build:
     PHP
-    REP #$30
+    JSR pl_place                ; the key items first: the deals read where
+    REP #$30                    ;   they are (place.inc)
     .a16
     .i16
     LDA #ROLLSTAGE_BUILD        ; the roll screen's tune, while New Game's
@@ -920,7 +924,7 @@ build:
 
   @chests:
     JSR copy_chests
-    LDA f:RANDO_PLACEDFAR       ; key items placed: the rewards deal it all
+    LDA f:RW_PLACED             ; key items placed: the rewards deal it all
     CMP #1
     BNE @tier1
     JSR deal_rewards
@@ -1042,7 +1046,7 @@ build:
     BCS @wiring
     JSR deal_ordeals
   @wiring:
-    ;  The teleport tables the game reads: the save's wiring under entrance
+    ;  The teleport tables the game reads: placement's wiring under entrance
     ;  shuffle, else vanilla's (entrance shuffle's chunk).
     JSL es_tables + WORLDFAR
   @done:
@@ -1512,7 +1516,7 @@ tele_scroll:
 ;;  Temple.  From Talk_Princess1 (randoprincess.patch), emulation mode, the
 ;;  game's data bank.  A clobbered; X and Y kept.
 rando_princesswarp:
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    LDA f:RW_ENTRANCES          ; the mode the game has
     BNE :+
     LDA #NORMTELE_SAVEDPRINCESS
     STA tileprop+1
@@ -1972,7 +1976,7 @@ talk_npc:
     LDA tmp+6
     AND #TALKF_HELD
     BEQ @items
-    LDA f:RANDO_PLACEDFAR       ; placed: what the party holds came from
+    LDA f:RW_PLACED             ; placed: what the party holds came from
     CMP #1                      ;   anywhere, and proves nothing
     BEQ @items
     JSR talk_reward
@@ -2011,7 +2015,7 @@ talk_npc:
     RTS
 
   @gave:
-    LDA f:RANDO_PLACEDFAR       ; placed: the giving line is replaced, naming
+    LDA f:RW_PLACED             ; placed: the giving line is replaced, naming
     CMP #1                      ;   what was given (rando_dlgtext)
     BNE :+
     TXA
@@ -2182,7 +2186,7 @@ talk_give:
 ;;  Entry X's reward: placement's (the cache's) once it is in, the table's
 ;;  when it is not.  X kept.
 talk_reward:
-    LDA f:RANDO_PLACEDFAR
+    LDA f:RW_PLACED
     CMP #1
     BNE :+
     LDA f:RW_TALKREW, X
@@ -2220,16 +2224,16 @@ give_vehicle:
   @ship:
     INC ship_vis
     PHX
-    LDA f:RANDO_PLACEDFAR
+    LDA f:RW_PLACED
     CMP #1
     BNE @kept
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    LDA f:RW_ENTRANCES
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     BEQ @bymap
-    ;  Under entrance shuffle or map edits, the dock New Game chose for the
+    ;  Under entrance shuffle or map edits, the dock placement chose for the
     ;  world (es_dock): the maps' choices are the vanilla world's.
-    LDA f:RANDO_SAVEFAR + (RANDO_SHIPDOCK - RANDO_SAVE)
+    LDA f:RW_SHIPDOCK
     BRA @dock
   @bymap:
     LDX cur_map                 ; where it was found: a chest or an NPC
@@ -2695,7 +2699,7 @@ deal_type:
     LDA a:wQ                    ; the caravan, when placement stocks it, is
     CMP #SHOP_CARAVAN           ;   not dealt: deal_rewards gives its row
     BNE :+
-    LDA f:RANDO_PLACEDFAR
+    LDA f:RW_PLACED
     CMP #1
     BEQ @gnext
 :   LDY a:wNSHOPS
@@ -2969,7 +2973,7 @@ FAIRYFLAG = CHUNK0 * $10000 + game_flags + OBJID_FAIRY
 rando_caravan:
     .a8
     .i8
-    LDA f:RANDO_PLACEDFAR       ; placement stocks it: open, or its one item
+    LDA f:RW_PLACED             ; placement stocks it: open, or its one item
     CMP #1                      ;   could be shut away with the fairy out
     BEQ @open
     LDA f:RANDO_SAVEFAR + (RANDO_SHOPS - RANDO_SAVE)

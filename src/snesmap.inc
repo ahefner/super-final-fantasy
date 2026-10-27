@@ -464,7 +464,8 @@ KEYITEMS_STANDARD = 1
 KEYITEMS_WIDE     = 2
 KEYITEMS_MODES    = 3
 ;  Map shuffle (RANDO_ENTRANCES), under Key items Standard or Wide only, as in
-;  FFR: rando_place clears it under Vanilla, or when no wiring places.
+;  FFR: the mode the game has (RW_ENTRANCES) is Off under Vanilla, or when no
+;  wiring places.
 ENTRANCES_OFF   = 0               ; vanilla wiring
 ENTRANCES_ONLY  = 1               ; FFR's entrance shuffle, floors kept
 ENTRANCES_FLOORS = 2              ; ...and its floor shuffle
@@ -1666,11 +1667,13 @@ OPTFM_CRITRATE    = $10
 ;  vanilla world.  That is why introducing it needed no SAVEVER bump.  Never
 ;  $60FD-$60FF: in the saved copy those are the checksum and the asserts.
 ;
-;  Layout v2 (SAVEVER 1): the Goal took $1B, after the settings it is one of,
-;  and moved what follows up a byte.  It grows by appending, with a SAVEVER
-;  bump if an old save would mean something different under the new reading.
-;  An appended byte whose zero means "off" needs no bump: every older save has
-;  a zero there.
+;  Layout v3 (SAVEVER 3): the settings and the map edits, what the world is
+;  built from, and nothing built from them (user, 2026-10-27: re-roll
+;  everything, keep only the input flags in the save) -- placement's
+;  results, which v2 kept here and at $6040, are the cache's (RW_PLACE).
+;  It grows by appending, with a SAVEVER bump if an old save would mean
+;  something different under the new reading.  An appended byte whose zero
+;  means "off" needs no bump: every older save has a zero there.
 RANDO_SAVE      = $60A0
 RANDO_SEED      = RANDO_SAVE+$00  ; 4 bytes, little-endian
 RANDO_TRAPS     = RANDO_SAVE+$04  ; TRAPS_* below
@@ -1699,19 +1702,11 @@ RANDO_GEAR      = RANDO_SAVE+$17  ; 2 bytes, a bit per gear row, GEARROW_* in or
 RANDO_EARLY     = RANDO_SAVE+$19  ; EARLY_* bits below: FFR's four Early flags
 RANDO_ENTRANCES = RANDO_SAVE+$1A  ; ENTRANCES_* below: entrance shuffle's mode
 RANDO_GOAL      = RANDO_SAVE+$1B  ; GOAL_* below: the orbs the Black Orb waits for
-;  What New Game made of the settings, under entrance shuffle (rando_place):
-;  which attempt's wiring the game has, so the cache can draw it again, and
-;  where a found ship is moored.  In the block, so the cache's tag sees them;
-;  after the settings, so the settings screen's copy leaves them alone.  Zero
-;  in every save made before them.
-RANDO_ESK       = RANDO_SAVE+$1C  ; the attempt k whose wiring placed
-RANDO_SHIPDOCK  = RANDO_SAVE+$1D  ; the ship's dock, 0..4 (es_dock)
 ;  ...and the overworld's edits, OWEDIT_* bits, as New Game's map edit
-;  screen ticked them.  A bit each; zero, no edit, in every save made before
-;  them.
-RANDO_OWEDITS   = RANDO_SAVE+$1E  ; 2 bytes
+;  screen ticked them.  A bit each.
+RANDO_OWEDITS   = RANDO_SAVE+$1C  ; 2 bytes
 RANDO_SETTINGS_SIZE = $1C
-RANDO_SAVE_SIZE = $20
+RANDO_SAVE_SIZE = $1E
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1722,21 +1717,14 @@ RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 ;  reward NPCs from the table.  Each NPC's own record of having given, whatever
 ;  it gives, is its bit in RANDO_GIVEN, not the vanilla "does the party hold
 ;  the item": once rewards move, the Princess may be holding the SHIP.
-;  Incentive placement's result, written at New Game (rando_place) when Key
-;  items is Standard or Wide.  $6040-$609F is a dead copy of the class starting
-;  stats that the game never reads (randomization-notes.md section 1.1), saved
-;  with page 0; junk in older saves, which is why RANDO_PLACED, not the bytes
-;  themselves, says whether there is a placement.
-RANDO_PLACED    = $6040     ; 1: RANDO_PLACE holds this game's placement
-RANDO_PLACE     = $6041     ; PLACE_ITEMS bytes: each item's location, or $FF
+;  $6040-$609F, a dead copy of the class starting stats that the game never
+;  reads (randomization-notes.md section 1.1), saved with page 0, is free:
+;  placement's result was kept at $6040-$605D until 2026-10-27 (RW_PLACE).
 PLACE_ITEMS     = 29        ; nineteen key items, the TAIL, nine gear rows
 PLACE_KEYS      = 19
 PLACE_TAIL      = 19
 PLACE_GEAR      = 20
 PLACE_ATTEMPTS  = 32
-RANDO_PLACEDFAR = (CHUNK0 * $10000) + RANDO_PLACED
-RANDO_PLACEFAR  = (CHUNK0 * $10000) + RANDO_PLACE
-.assert RANDO_PLACE + PLACE_ITEMS <= $60A0, error, "RANDO_PLACE runs into RANDO_SAVE"
 RANDO_TALK      = $60F0     ; nonzero: the reward NPCs run from rando_talk's table
 RANDO_GIVEN     = $60F1     ; 2 bytes: bit n set once table entry n has given
 RANDO_TALKFAR   = (CHUNK0 * $10000) + RANDO_TALK
@@ -1906,8 +1894,9 @@ RNG_MODES       = 2
 ;  Bump it when a change would give an existing save a different world.  0 is
 ;  the game's own scheme, and $FF would alias it; stay within 1..$FE.
 ;  randomization-notes.md section 1.5 has the derivation.
-SAVEVER         = 2               ; 1: the Goal moved RANDO_ESK and what follows;
-                                  ;   2: Ship in Drydock's bit retired
+SAVEVER         = 3               ; 1: the Goal moved RANDO_ESK and what follows;
+                                  ;   2: Ship in Drydock's bit retired;
+                                  ;   3: placement out of the save, the map edits moved
 SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 
 ;  The cache, at the top half of bank $7F: clear of CREDITSRAM at the bottom
@@ -1957,6 +1946,18 @@ RW_INV          = RANDOWRAM+$1540 ; magic: the slot each spell is in
 RW_WEAPONS      = RANDOWRAM+$1600 ; gear: 40 weapons x 8, as blursed...
 RW_ARMOR        = RANDOWRAM+$1740 ; ...then 40 armour x 4, contiguous as in ROM
 RW_BONUS        = RANDOWRAM+$17E0 ; gear: each piece's bonus, signed, 80 bytes
+;  What placement made of the settings (place.inc, run by the cache build):
+;  the key items' places, under entrance shuffle the attempt whose wiring
+;  placed, where a found ship is moored, and the Map shuffle mode the game
+;  has -- Off when the key items stay put or no wiring places, as in FFR.
+;  Worked out again whenever the cache is, never saved (user, 2026-10-27).
+RW_PLACED       = RANDOWRAM+$1840 ; 1: RW_PLACE holds this game's placement
+RW_PLACE        = RANDOWRAM+$1841 ; PLACE_ITEMS bytes: each item's location, or $FF
+RW_ESK          = RANDOWRAM+$1860 ; the attempt k whose wiring placed
+RW_SHIPDOCK     = RANDOWRAM+$1861 ; the ship's dock, 0..4 (es_dock)
+RW_ENTRANCES    = RANDOWRAM+$1862 ; ENTRANCES_*: the Map shuffle mode the game has
+.assert RW_BONUS + 80 <= RW_PLACED && RW_PLACE + PLACE_ITEMS <= RW_ESK, error, "placement's results overlap"
+.assert RW_ENTRANCES < RW_DOMAINS, error, "placement's results run into the formations"
 RW_NAMEID       = RANDOWRAM+$0060 ; a name lookup: the item id...
 RW_NAMEPTR      = RANDOWRAM+$0062 ; ...its name's ROM pointer, 2 bytes...
 RW_NAMEB        = RANDOWRAM+$0064 ; ...and its bonus
@@ -2001,7 +2002,7 @@ RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placeme
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
 ;  The teleport tables the game reads (rando_entrdest, rando_teledest,
-;  rando_exitdest), as bank $00 holds them: vanilla's, or the save's wiring
+;  rando_exitdest), as bank $00 holds them: vanilla's, or placement's wiring
 ;  under entrance shuffle (es_tables).
 RW_ENTRX        = RANDOWRAM+$3240 ; 32: each entrance's landing x...
 RW_ENTRY        = RANDOWRAM+$3260 ; ...y...
@@ -2263,9 +2264,9 @@ SLOT_CARAVAN    = 269
 SLOTS           = 270
 SHOP_CARAVAN    = 70
 
-;  Incentive placement's working memory (place.inc).  It runs once, at New
-;  Game, before the cache is built, so nothing here outlives it; the result
-;  goes to RANDO_PLACE in the save.  Above the cache, which ends below $B380.
+;  Incentive placement's working memory (place.inc).  It runs first in each
+;  cache build, so nothing here outlives the build; the result goes to
+;  RW_PLACE in the cache.  Above the cache, which ends below $B380.
 RP_BASE         = RANDOWRAM+$4000
 RP_BYBITOFF     = RP_BASE+$0000   ; 33 words: where each bit's list of locations starts
 RP_BYBIT        = RP_BASE+$0042   ; RP_BYBITMAX: the locations whose masks name each bit

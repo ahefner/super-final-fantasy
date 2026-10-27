@@ -2,10 +2,10 @@
 ;  rewards.inc -- what chests, reward NPCs and the caravan give once placement
 ;  is in
 ;
-;  Included by rando.asm.  deal_rewards runs in the cache build when the save
-;  holds a placement (RANDO_PLACED), and is tools/randoref.py's
-;  build_rewards, which test_rando_rewards holds it to: see there for the
-;  rules.  The game reads the result through rando_chest (the chests),
+;  Included by rando.asm.  deal_rewards runs in the cache build when
+;  placement, first in it, has placed the key items (RW_PLACED), and is
+;  tools/randoref.py's build_rewards, which test_rando_rewards holds it to:
+;  see there for the rules.  The game reads the result through rando_chest (the chests),
 ;  rando_talk (the NPCs) and the caravan's shop row.
 ; ---------------------------------------------------------------------------
 
@@ -78,7 +78,7 @@ deal_rewards:
     LDX #$0000
   @placed:
     JSR rando_yield             ; the roll screen's tick, if due
-    LDA f:RANDO_PLACEFAR, X
+    LDA f:RW_PLACE, X
     CMP #LOGIC_POOL
     BCS @pnext
     PHX

@@ -646,6 +646,50 @@ screen, a pass with nothing randomized had looked as if it kept its seed.
 whatever `NGF_TYPED`'s old byte holds.  Ten mutations, all caught, the
 earlier keep-the-world ones among them.
 
+**Placement out of the save** (user, 2026-10-27: "We should drop it from
+the save.  We were running short of space for flag bits, but removing this
+frees up plenty of space"; built, not yet played).  The save keeps the
+settings, the seed and the map edits, and nothing drawn from them.
+Placement's results -- the key items' places (`RW_PLACED`, `RW_PLACE`),
+under entrance shuffle the attempt whose wiring placed (`RW_ESK`), a found
+ship's dock (`RW_SHIPDOCK`), and the Map shuffle mode the game has
+(`RW_ENTRANCES`: Off under Key items Vanilla or when no wiring places,
+where the setting was overwritten before) -- are the cache's, at
+`$7F9840`, between the gear bonuses and the formations.  `pl_place` runs
+first in every cache build (`build`), so New Game's build places, and a
+Continue's first build after power-on places the same way from the same
+settings; the readers -- the chests' and NPCs' rewards, the caravan, a
+found ship's dock, the Princess's warp, the teleport tables -- read the
+cache.  A failed New Game build clears the cache's tag.
+
+  - **The save, v3** (SAVEVER 3): `RANDO_ESK` and `RANDO_SHIPDOCK` gone
+    from the block, `RANDO_OWEDITS` at `$1C`, the block `$1E` bytes; and
+    `$6040-$609F`, where `RANDO_PLACE` was, free again (the dead copy of
+    the class stats).  Older saves do not load.
+  - **The cost** is a first Continue after power-on: it now places, with
+    the roll screen up, as New Game does for the same seed -- 0.6 million
+    instructions for Beginner, 1.3 million with Floors, 8.5 million for the
+    slowest seed the tests keep (seven wirings); the rest of the cache is
+    about 0.1 million.  A soft reset keeps the cache and still only
+    compares the tag.
+  - **A change to placement's code or logic now moves the key items of a
+    game in progress**, as a change to the shops' or chests' deals always
+    did: nothing of the world is kept but its inputs.
+  - `tools/randoref.py SAVE --map` works the wiring out from the save's
+    settings too (`new_world`).
+
+The tests read placement from the cache.  Where one planted a placement in
+the save and then built the cache, it now gives the settings and holds the
+build's own placement to randoref's (`test_rando_rewards`,
+`test_rando_remove`, `test_es_tables` -- which now checks seed 18's second
+wiring, the attempt placement takes, and the hooks on a cold cache);
+`test_es_place` checks the save untouched by placement, and in the forced
+fallback the mode the game has Off while the setting stays, the teleport
+tables then vanilla, and with map edits the vanilla wiring's placement;
+`test_rando_shipdock` and `test_rando_princess` the mode the game has, not
+the setting; `test_rando_build` the save's first page as GameStart leaves
+it but for the settings.  Eleven mutations, all caught.
+
 It is the settings screen's engine, held to a **window** of the row table:
 `OPTMENU_BEGIN` and `OPTMENU_END` (`MENURAM`), the first row a screen shows
 and one past its last, where every bound was `OPTROW_COUNT` or 0 -- moving,
@@ -1833,7 +1877,8 @@ would follow).
     goes back to the seed screen, with no fallback placement (user; "The
     world built before party creation", above).
   - **The save.**  `RANDO_GOAL` is the settings' last byte, so `RANDO_ESK`,
-    `RANDO_SHIPDOCK` and `RANDO_OWEDITS` moved up one: SAVEVER 1, older
+    `RANDO_SHIPDOCK` and `RANDO_OWEDITS` moved up one (the first two since
+    gone, "Placement out of the save" above): SAVEVER 1, older
     saves do not load (user, 2026-10-25: not a concern for a major feature,
     only for a fix mid-playthrough).  In the option page the Goal took its
     last spare byte, `$DF`, inside the block's sum: an older block with zero
@@ -2430,8 +2475,11 @@ is not worth attempting.  The description text should say so.
 ### Fixed at New Game, kept in the save
 
 The **NEW GAME** rows.  New Game's build (`rando_build`, before party
-creation) copies them into the save block at `$60A0` with the seed.  From then on the save's
-copy is the only one read.  A Continue gets the world it was started with,
+creation) copies them into the save block at `$60A0` with the seed.  From
+then on the save's copy is the only one read, and the save holds nothing
+else of the randomizer's but the reward NPCs' state: everything drawn from
+the settings, placement included since 2026-10-27, is the cache's, drawn
+again whenever the cache is built.  A Continue gets the world it was started with,
 whatever the menu says now.  That is the point: a menu row must not quietly
 change the world under a game in progress.
 

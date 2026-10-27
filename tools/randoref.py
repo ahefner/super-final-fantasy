@@ -2042,8 +2042,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 0x20       # snesmap.inc: the settings, the Goal last, entrance shuffle's k and dock,
-                             #   the map edits
+RANDO_SAVE_SIZE = 0x1E       # snesmap.inc: the settings, the Goal last, then the map edits
 
 
 def block_from_srm(srm):
@@ -2056,15 +2055,17 @@ ENTRANCE_NAMES = {ENTRANCES_OFF: "Off", ENTRANCES_ONLY: "Entrances", ENTRANCES_F
 
 
 def srm_wiring_text(srm):
-    """A battery file's wiring, as es_tables builds the game's: the save's
-    attempt RANDO_ESK in its Map shuffle mode once New Game has placed the
-    key items, else vanilla."""
+    """A battery file's wiring, as the cache build makes the game's: placement
+    worked out from the save's settings (new_world), its attempt k in the
+    Map shuffle mode it leaves once it has placed the key items, else
+    vanilla.  The save keeps only the settings (SAVEVER 3)."""
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
-    seed, mode, k = int.from_bytes(b[0:4], "little"), b[0x1A], b[0x1C]
-    placed = srm[SRAM_SAVE - 0x6000 + 0x40] == 1
+    seed = int.from_bytes(b[0:4], "little")
+    mode, k, place, _ = new_world(seed, b[0x13], list(b[0x14:0x17]), list(b[0x17:0x19]), b[0x19], b[0x1A],
+                                  owedits=b[0x1C] | b[0x1D] << 8, goal=b[0x1B])
     w = None
-    if placed and mode in (ENTRANCES_ONLY, ENTRANCES_FLOORS):
+    if place is not None and mode in (ENTRANCES_ONLY, ENTRANCES_FLOORS):
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode)
     if w is None:
         head = "Map shuffle Off: the vanilla wiring"

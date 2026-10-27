@@ -2913,9 +2913,9 @@ rando_esdock:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  es_build -- attempt k's world, for placement (place.inc, pl_shuffled):
-;;  the wiring in the save's mode, its masks under the save's Early flags
-;;  and map edits, placement's index of them, the roots and the spread
-;;  groups.  With the mode Off, the vanilla wiring, for map edits without
+;;  the wiring in placement's mode (RW_ENTRANCES), its masks under the
+;;  save's Early flags and map edits, placement's index of them, the roots
+;;  and the spread groups.  With the mode Off, the vanilla wiring, for map edits without
 ;;  the shuffle (pl_edited).  In: A16 = k;
 ;;  native, DBR = $7F, from a JSL.  Out: C set if the attempt is refused.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2930,7 +2930,7 @@ es_build:
     JSR es_start
     SEP #$20
     .a8
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    LDA f:RW_ENTRANCES
     BNE @shuffle
     JSR es_vanilla              ; map edits without the shuffle: the vanilla
     CLC                         ;   wiring, its logic the seed's (pl_edited)
@@ -2965,9 +2965,9 @@ es_dockfar:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  es_tables -- the teleport tables the game reads, in the cache: the save's
-;;  wiring (attempt RANDO_ESK in its mode) when it has one -- the mode set and
-;;  the key items placed, as New Game leaves them -- else vanilla.  From the
+;;  es_tables -- the teleport tables the game reads, in the cache: the
+;;  game's wiring (attempt RW_ESK in its mode) when it has one -- a mode and
+;;  the key items placed, as placement leaves them -- else vanilla.  From the
 ;;  cache build (rando.asm), native, DBR = $7F, by JSL.  Registers clobbered.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -2977,15 +2977,15 @@ es_tables:
     .a8
     REP #$10
     .i16
-    LDA f:RANDO_PLACEDFAR
+    LDA f:RW_PLACED
     CMP #1
     BNE @vanilla
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
+    LDA f:RW_ENTRANCES
     BEQ @vanilla
     PHA
     REP #$20
     .a16
-    LDA f:RANDO_SAVEFAR + (RANDO_ESK - RANDO_SAVE)
+    LDA f:RW_ESK
     AND #$00FF
     JSR es_start
     SEP #$20
