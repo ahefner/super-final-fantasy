@@ -1860,6 +1860,7 @@ def flow_edits(bus, cpu, flags, seed=None, presses=()):
     bus.wram[ngf], bus.wram[ngf + 1] = flags & 0xFF, flags >> 8
     ngs, pool = K["NGF_SEED"] - 0x7E0000, K["RANDO_POOL"] - 0x6000
     bus.wram[ngs:ngs + 4] = bus.sram[pool:pool + 4] if seed is None else seed.to_bytes(4, "little")
+    cpu.a = 1                           # the roll screen: something randomized
     screen_pressing(bus, cpu, presses, RANDO_BANK, SYM["rando_build"])
     bus.wram[K["NGF_ACTIVE"] - 0x7E0000] = 1
     return cpu.p & 1
@@ -6101,7 +6102,7 @@ def test_ngflow():
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
         seen, answers, tick, typing, fails, touches = [], list(script), list(ticks), list(typed), list(failing), list(touch)
         edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
-        edits["order"], edits["builds"], edits["bus"] = [], [], bus
+        edits["order"], edits["builds"], edits["bus"], edits["rolls"] = [], [], bus, []
         seed = lambda: int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little")
         pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
         for _ in range(2_000_000):
@@ -6113,6 +6114,7 @@ def test_ngflow():
             if here == "build":
                 edits["order"].append(here)
                 edits["builds"].append((seed(), bus.wram[NGF] | bus.wram[NGF + 1] << 8))
+                edits["rolls"].append(cpu.a & 0xFF)
                 lo, hi, bank = cpu.pull(), cpu.pull(), cpu.pull()      # its RTL, now or after it runs
                 if real:
                     cpu.run(RANDO_BANK, SYM["rando_build"], limit=400_000_000)
@@ -6184,13 +6186,16 @@ def test_ngflow():
           "preset agree)", start == preset_block(1), True)
     check("Vanilla: straight to party creation, the preset applied",
           flow([0, FWD])[0:2] + (flow([0, FWD])[2] == preset_block(0),), (["list", "party"], FWD, True))
+    check("...its world built with no roll screen, nothing randomized (user, 2026-10-27)", edits["rolls"], [0])
     check("Improved Vanilla: the screens all the same, the baseline one might customize (user, 2026-10-22); "
           "no seed screen, nothing randomized",
           flow([1, FWD, FWD, FWD, FWD])[:2], (["list", "rando", "mapedits", "options", "party"], FWD))
+    check("...no roll screen either", edits["rolls"], [0])
     check("Beginner: the randomization screen, the map edits, the options, the seed and party creation, "
           "its settings applied",
           flow([2, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
           (["list", "rando", "mapedits", "options", "seed", "party"], FWD, True))
+    check("...its world built with the roll screen", edits["rolls"], [1])
     check("...B from the seed: the options, and on again",
           flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
           (["list", "rando", "mapedits", "options", "seed", "options", "seed", "party"], FWD))
@@ -11910,6 +11915,7 @@ def test_rando_build():
     settings(bus, cfg, R.ENTRANCES_FLOORS)
     bus.sram[0:256] = bytes((7 * i + 3) & 0xFF for i in range(256))     # a build backed out of, and worse
     bus.wram[NGS:NGS + 4] = seed.to_bytes(4, "little")
+    cpu.a = 1                                   # the roll screen
     reads = screen_pressing(bus, cpu, [], RANDO_BANK, SYM["rando_build"])
     built, page = world(bus), bytes(bus.sram[0:256])
     rbus, rcpu = machine()
@@ -11931,6 +11937,44 @@ def test_rando_build():
     check("...the save's first page as GameStart leaves it, on foot, but for the world's own bytes",
           ["$%02X" % i for i in range(256) if i not in ours and page[i] != want[i]], [])
 
+    #  Nothing randomized: no roll screen (user, 2026-10-27) -- the same
+    #  world rando_newgame builds, with the PPU, the APU and the music not
+    #  touched: the screen left dark as the options left it, the menus'
+    #  music held through the work and playing on after.
+    plain = (K["KEYITEMS_VANILLA"], [0, 0, 0], [0, 0], 0)
+    bus, cpu = machine()
+    bus.ppu()
+    bus.frames()
+    settings(bus, plain)
+    bus.sram[K["OPT_NG_RNG"] - 0x6000] = 0      # (settings' RNG tables shuffled)
+    bus.wram[NGS:NGS + 4] = seed.to_bytes(4, "little")
+    MT = K["music_track"]
+    bus.wram[MT] = 0x41                         # the menus' music, playing
+    APU = K["APUSHADOW"] & 0xFFFF               # ...in the NES APU's registers (DisableAPU's)
+    bus.wram[APU:APU + 0x18] = bytes(range(0x81, 0x99))
+    touched, write = [], bus.write
+    ROLLON = K["ROLL_ON"]
+
+    def w(bank, addr, val):
+        if ((bank & 0x7F) < 0x40 and 0x2100 <= addr < 0x2200) or (bank, addr) == (ROLLON >> 16, ROLLON & 0xFFFF):
+            touched.append("$%02X:%04X" % (bank, addr))
+        write(bank, addr, val)
+    bus.write = w
+    cpu.a = 0
+    cpu.run(RANDO_BANK, SYM["rando_build"], limit=10_000_000)
+    rbus, rcpu = machine()
+    rbus.frames()
+    settings(rbus, plain)
+    rbus.sram[K["OPT_NG_RNG"] - 0x6000] = 0
+    rbus.sram[POOL:POOL + 4] = seed.to_bytes(4, "little")
+    rbus.sram[0:256] = init_page()
+    rbus.sram[VEH] = 1
+    rcpu.run(RANDO_BANK, SYM["rando_newgame"], limit=100_000_000)
+    check("nothing randomized: built, C clear, rando_newgame's world; no roll screen -- the PPU, the APU and "
+          "the music untouched",
+          (cpu.p & 1, world(bus) == world(rbus), sorted(set(touched)), bus.wram[MT],
+           bytes(bus.wram[APU:APU + 0x18]) == bytes(range(0x81, 0x99))), (0, True, [], 0x41, True))
+
     #  No world: the SHIP removed, 0 orbs -- a world so small that seed 3
     #  throws all of placement's attempts away, by the reference too.
     tiny = (K["KEYITEMS_STANDARD"], [0x23, 0, 0], [0x81, 0], 0x0F)
@@ -11949,6 +11993,7 @@ def test_rando_build():
             log.append((addr, val & 0xFF))
         write(bank, addr, val)
     bus.write = w
+    cpu.a = 1                                   # the roll screen
     up = cpu.run(RANDO_BANK, SYM["rando_build"], stop=UJ, limit=400_000_000)
     io = lambda name: bus.io.get(K[name])
     cg = lambda e: bus.cgram[2 * e] | bus.cgram[2 * e + 1] << 8

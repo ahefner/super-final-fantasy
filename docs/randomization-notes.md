@@ -2178,7 +2178,8 @@ Settled in review 1:
         Map edits row it stood in for is gone (2026-10-24).
       - Then **options** (the existing screen, less the sections that
         moved) -> **seed**, when anything needs one -> the world built
-        and placed, the roll screen up meanwhile (before party creation
+        and placed, the roll screen up meanwhile -- none when nothing is
+        randomized (user, 2026-10-27) -- (before party creation
         since 2026-10-27; after it until then) -> **party creation**, and
         the game begins.  Party creation comes after the seed on purpose: a seeded feature such as class blursings could
         then show at party creation what the party is choosing between

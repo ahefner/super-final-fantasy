@@ -159,7 +159,8 @@ lut_NgpBit:
 ;;    the world built (ng_build, rando_build), the roll screen up -- every
 ;;      random thing locked down before party creation (user, 2026-10-27);
 ;;      a seed whose placement gives up is said so there, and the seed
-;;      screen comes back, with a fresh seed
+;;      screen comes back, with a fresh seed.  Nothing randomized, no roll
+;;      screen (user, 2026-10-27): a few dark frames, the music held
 ;;    party creation (bank $0E's) -- after the seed, so that a seeded
 ;;      feature could show there what the party is choosing between (user)
 ;;
@@ -205,7 +206,7 @@ ng_flow:
     JSR ng_presetedits          ; no screens: its map edits (none, for
     JSR ng_keepedits            ;   Vanilla), and
     JSR ng_latch                ;   on to party creation, with the pool's seed
-    JSR ng_build                ;   (nothing to place: always built)
+    JSR ng_build                ;   (no roll screen, nothing to place: built)
     JSR ng_party
     BCS @list                   ; B on the first character: the list again
     BRA @go
@@ -259,7 +260,7 @@ ng_flow:
     BCS @seed                   ; back: the seed screen again
     BRA @go
   @party:
-    JSR ng_build                ; (nothing randomized places nothing)
+    JSR ng_build                ; (no roll screen, nothing placed)
     BCS @options
     JSR ng_party
     BCS @options
@@ -269,8 +270,9 @@ ng_flow:
     LDA #NGNAV_FORWARD
     RTL
 
-;;  The world, before party creation (rando_build), the roll screen up --
-;;  or kept, with no roll screen, when this pass of the flow built it from
+;;  The world, before party creation (rando_build), the roll screen up if
+;;  anything is randomized -- or kept, with no roll screen, when this pass
+;;  of the flow built it from
 ;;  the seed, the settings and the map edits it has now (user, 2026-10-27:
 ;;  an unchanged seed keeps the world).  The seed screen latching a fresh
 ;;  seed each time, that is a seed typed again.  The cache's tag is what
@@ -309,6 +311,9 @@ ng_build:
     LDA #0
     STA f:NGF_BUILT
     STA f:MENU_TICKON
+    JSL opt_needseed + OPTMENUFAR   ; nothing randomized: no roll screen
+    LDA #0                      ;   (user, 2026-10-27), the seed screen's
+    ROL A                       ;   own test
     JSL rando_build + RANDOFAR
     LDA #1                      ; (C kept)
     STA f:MENU_TICKON

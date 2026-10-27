@@ -598,10 +598,14 @@ rando_stir:
 ;;  Placement giving up -- every attempt of Key items Standard's or Wide's
 ;;  thrown away -- is said on the roll screen (roll_fail), the cache
 ;;  untagged; else the fanfare, the title's music starting again for party
-;;  creation.
+;;  creation.  With nothing randomized, no roll screen (user, 2026-10-27):
+;;  the work, a few frames of it, with the screen left dark and the menus'
+;;  music held, then on into party creation; Key items being Vanilla then,
+;;  it never gives up.
 ;;
-;;  In emulation mode, by JSL.  Out: C clear, built; C set, no world.  X and
-;;  P but C as they were.
+;;  In emulation mode, by JSL.  In: A nonzero for the roll screen, zero for
+;;  nothing randomized.  Out: C clear, built; C set, no world.  X and P but
+;;  C as they were.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .import DisableAPU
@@ -609,6 +613,7 @@ INITPAGE = (CHUNK0 + BANK_STARTUPINFO) * $10000 + lut_InitUnsramFirstPage
 rando_build:
     PHP
     PHX
+    PHA                         ; the roll screen or not
     LDX #$00
   @page:
     LDA f:INITPAGE, X
@@ -627,15 +632,20 @@ rando_build:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     LDA f:NGF_OWEDITS + 1
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    PLA
+    PHA
     JSR new_world
     BCS @failed
+    PLA
+    BEQ :+                      ; no roll screen: the menus' music plays on
     LDA #TRACK_TITLE            ; the fanfare, the fade, the PPU back to the
     JSL roll_end + ROLLFAR      ;   HAL; the title's music for party creation
-    PLX
+:   PLX
     PLP
     CLC
     RTL
   @failed:
+    PLA
     LDA #0
     STA f:RW_TAG                ; no world, so no cache of it
     JSL roll_fail + ROLLFAR     ; said, and a press waited for
@@ -692,6 +702,7 @@ rando_newgame:
     LDA #0
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    LDA #1                      ; the roll screen, always
     JSR new_world               ; (no world: the key items stay at home)
     LDA #0
     JSL roll_end + ROLLFAR
@@ -704,10 +715,12 @@ rando_newgame:
 ;;  where FFR puts it, the reward NPCs' state afresh, the title's music
 ;;  silenced -- nothing drives it through the roll, and the SPC700 would
 ;;  hold its last note -- the roll screen up, and the cache built, the key
-;;  items placed first in it.  Out: C set if Key items Standard or Wide
-;;  placed nothing (every attempt thrown away).  Emulation mode; X
-;;  clobbered.
+;;  items placed first in it.  In: A zero for no roll screen, the music
+;;  left alone (rando_build's, nothing randomized).  Out: C set if Key
+;;  items Standard or Wide placed nothing (every attempt thrown away).
+;;  Emulation mode; X clobbered.
 new_world:
+    PHA                         ; the roll screen or not
     LDX #OPT_NG_SIZE - 1
   @ng:
     LDA f:OPT_NGFAR, X
@@ -721,15 +734,18 @@ new_world:
     STA f:BRIDGEFAR
     LDA #BRIDGE_LEFEIN_Y
     STA f:BRIDGEFAR + 1
-:   JSR DisableAPU              ; the fixed bank's, stamped into this chunk
-    ;  This game's reward NPCs run from rando_talk's table, and none has given.
+:   ;  This game's reward NPCs run from rando_talk's table, and none has given.
     LDA #1
     STA f:RANDO_TALKFAR
     LDA #0
     STA f:RANDO_GIVENFAR
     STA f:RANDO_GIVENFAR + 1
     ;  The roll screen comes up for the work, the seed choosing its picture.
+    PLA
+    BEQ @world
+    JSR DisableAPU              ; the fixed bank's, stamped into this chunk
     JSL roll_begin + ROLLFAR
+  @world:
     ;  ...and the world, where its key items are first, under Key items
     ;  Standard or Wide.
     JSL rando_ensure + RANDOFAR

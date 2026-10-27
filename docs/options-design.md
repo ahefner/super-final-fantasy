@@ -570,11 +570,25 @@ map edits (`NGF_OWEDITS`) into the save and runs `new_world`, which
 `rando_newgame` shares: the options' new-game rows into the save, the
 BRIDGE, the reward NPCs' state, the roll screen and placement.  Then the
 cache and the fanfare, `roll_end` starting the title's music again for
-party creation.  `rando_newgame`, from `opt_freestuff` after party
+party creation -- or, nothing randomized, no roll screen at all (below).  `rando_newgame`, from `opt_freestuff` after party
 creation, now only clears `NGF_ACTIVE`; without the flow, which only the
 tests start a game without, it builds as before.  The menus' music ticks
 are off through the build (`MENU_TICKON`); the roll screen plays its own.
 
+  - **No roll screen when nothing is randomized** (user, 2026-10-27:
+    "Skip the roll screen if nothing is randomized"; built, not yet
+    played).  `ng_build` asks `opt_needseed`, the same test that decides
+    whether the seed screen comes up, and passes the answer to
+    `rando_build` in A.  With nothing randomized, `new_world` skips
+    `DisableAPU` and `roll_begin`, and `rando_build` skips `roll_end`: the
+    screen stays dark as the options left it, the build takes about three
+    frames (some 33,000 instructions), the menus' music holds its note
+    through them and plays on into party creation.  The held note is
+    accepted (user: not worth more code).  Key items is Vanilla then, so
+    the build cannot fail and `roll_fail`, which needs `roll_begin`'s font,
+    is never reached.  Vanilla, Improved Vanilla and a blank Custom Game
+    take this path; tests: test_ngflow (which builds roll), test_rando_build
+    (the same world, the PPU, the APU shadow and the music untouched).
   - **A fresh seed every time** (user, 2026-10-27: "Seed select screen
     should choose a new seed on entry, whether you are progressing forward
     into it or backward from a failed roll or party select").  The flow
