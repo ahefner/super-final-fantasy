@@ -66,6 +66,7 @@
 ;  For tools/test_options.py.
 .export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
 .export lut_OwsName, lut_OwsBit16       ; for tools/test_options.py: the screen's edits as the presets name them
+.export lut_OwsIncLabel          ; the Seed Summary's labels too (sumscreen.asm)
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue

@@ -1813,6 +1813,29 @@ def incentive_counts(keyitems, items3, gear2, early, owedits):
     return len(inc), len(inclocs), len(inclocs & reach)
 
 
+def seed_summary(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS):
+    """The Seed Summary's (sumscreen.asm, from place.inc's pl_summary): the
+    incentive items, the spots the settings name, those the party reaches
+    holding every key item to place -- on the world new_world chooses, its
+    wiring's logic, or the vanilla tables' -- and the set of them.  None
+    with no placement."""
+    mode, k, out, _ = new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)
+    if out is None:
+        return None
+    free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early)
+    if mode != ENTRANCES_OFF:
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode, owedits, floater_removed(items3))
+        masks = es_masks(w[0], w[1], w[2], early, owedits)[0]
+    elif owedits:
+        masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)[0]
+    full = free
+    for i in items:
+        if i < PLACE_KEYS:
+            full |= _BIT[_NAME[i]]
+    reached = inclocs & place_accessible(masks, {}, full)[0]
+    return len(inc), len(inclocs), len(reached), reached
+
+
 def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS):
     """rando_place's whole choice: (the Map shuffle mode the game keeps, the
     attempt k, the placement or None, the ship's dock).  The shuffle when it

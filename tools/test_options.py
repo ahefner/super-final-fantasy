@@ -1616,12 +1616,19 @@ def es_place_cart(job):
     bus.wram[rw("RW_ESK")] = 0x55                  # decoys
     bus.wram[rw("RW_SHIPDOCK")] = 0x66
     bus.wram[rw("RW_ENTRANCES")] = 0x77
+    spots = rw("RW_SUMSPOTS")
+    bus.wram[rw("RW_SUMINC")] = bus.wram[rw("RW_SUMREACH")] = 0x77
+    bus.wram[spots:spots + 248] = bytes([0x77]) * 248
     before = bytes(s)
     #  Several wirings and their placements can run past call()'s limit.
     cpu.run(RANDO_BANK, SYM["rando_place"], limit=60_000_000)
     if bytes(s) != before:
         return "the save written"
-    return placement(bus) + (bus.wram[rw("RW_ESK")], bus.wram[rw("RW_SHIPDOCK")], bus.wram[rw("RW_ENTRANCES")])
+    summary = (bus.wram[rw("RW_SUMINC")], bus.wram[rw("RW_SUMREACH")],
+               {c for c in range(248) if bus.wram[spots + c] == 1},
+               {c for c in range(248) if bus.wram[spots + c] not in (0, 1)})
+    return placement(bus) + (bus.wram[rw("RW_ESK")], bus.wram[rw("RW_SHIPDOCK")], bus.wram[rw("RW_ENTRANCES")],
+                             summary)
 
 
 def test_es_place():
@@ -1642,8 +1649,15 @@ def test_es_place():
     #  only a config that places the BRIDGE can tell.
     jobs += [(seed * 104729 + 7, cfgs[2], mode, f) for f in (0x0041, K["OWEDIT_SAFE"], 0x0001)
              for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY) for seed in range(2)]
+    #  ...and the Seed Summary's numbers and places (pl_summary): Off without
+    #  edits too, and Floaterless with two of its seven edits, which leaves
+    #  Gaia and Lefein out of reach.
+    jobs += [(seed * 7919 + 13, cfg, R.ENTRANCES_OFF) for cfg in cfgs for seed in range(2)]
+    floaterless = (1, [0x2C, 0x00, 0x00], [0x91, 0x00], 0x0F)
+    jobs += [(0x0BADF00D, floaterless, R.ENTRANCES_OFF, 0x0014), (7, floaterless, R.ENTRANCES_ONLY, 0x00BF),
+             (0x0BADF00D, PLACE_CONFIGS["wide-bare"], R.ENTRANCES_OFF, 0x0004)]
     got = pmap(es_place_cart, jobs)
-    bad = []
+    bad, sums, partial = [], [], []
     for (seed, cfg, mode, *owe), cart in zip(jobs, got):
         if isinstance(cart, str):
             bad.append((seed, cfg[0], mode, cart))
@@ -1652,8 +1666,17 @@ def test_es_place():
         want = (1 if out else 0, out, k, dock, mode_after)
         if (cart[0], cart[1] if cart[0] else None, cart[2], cart[3], cart[4]) != \
                 (want[0], want[1] if want[0] else None, want[2], want[3], want[4]):
-            bad.append((seed, cfg[0], mode, cart[2:], want[2:]))
+            bad.append((seed, cfg[0], mode, cart[2:5], want[2:]))
+        if out:
+            n, sp, r, reached = R.seed_summary(seed, *cfg, mode, owe[0] if owe else 0)
+            if cart[5][:3] != (n, r, reached) or cart[5][3]:
+                sums.append((seed, cfg[0], mode, owe, cart[5][:2], (n, r)))
+            if r < sp:
+                partial.append(r)
     check("rando_place under entrance shuffle: build_world's, the save untouched", bad[:4], [])
+    check("...the Seed Summary's: randoref.seed_summary's incentive items, spots reached and which, every "
+          "pool place's byte 0 or 1 (pl_summary)", sums[:3], [])
+    check("...among them worlds whose spots are not all reached", len(partial) >= 2, True)
     cart = es_place_cart((5, (0, [0x20, 0, 0], [0x81, 0], 0x0F), R.ENTRANCES_FLOORS))
     check("Key items Vanilla: no placement, and the entrances stay put",
           (cart[0], cart[2], cart[3], cart[4]), (0, 0, 0, R.ENTRANCES_OFF))
@@ -6065,7 +6088,7 @@ def test_ngflow():
     names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
              (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
              (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party",
-             (RANDO_BANK, SYM["rando_build"]): "build"}
+             (RANDO_BANK, SYM["rando_build"]): "build", (OPTMENU_BANK, SYM["sum_show"]): "summary"}
     NGSEED = K["NGF_SEED"] - 0x7E0000
     POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
@@ -6120,6 +6143,9 @@ def test_ngflow():
                     cpu.run(RANDO_BANK, SYM["rando_build"], limit=400_000_000)
                 else:
                     failed = bool(fails and fails.pop(0))
+                    keyitems = bus.sram[K["OPT_NG_KEYITEMS"] - 0x6000]
+                    bus.wram[rw("RW_PLACED")] = int(not failed and keyitems in (K["KEYITEMS_STANDARD"],
+                                                                                K["KEYITEMS_WIDE"]))
                     if not failed:
                         tag, blk = K["RW_TAG"] - 0x7E0000, K["RW_TAGBLK"] - 0x7E0000
                         bus.wram[tag] = K["RW_TAG_VAL"]
@@ -6191,20 +6217,20 @@ def test_ngflow():
           "no seed screen, nothing randomized",
           flow([1, FWD, FWD, FWD, FWD])[:2], (["list", "rando", "mapedits", "options", "party"], FWD))
     check("...no roll screen either", edits["rolls"], [0])
-    check("Beginner: the randomization screen, the map edits, the options, the seed and party creation, "
-          "its settings applied",
-          flow([2, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
-          (["list", "rando", "mapedits", "options", "seed", "party"], FWD, True))
+    check("Beginner: the randomization screen, the map edits, the options, the seed, the Seed Summary and "
+          "party creation, its settings applied",
+          flow([2, FWD, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "mapedits", "options", "seed", "summary", "party"], FWD, True))
     check("...its world built with the roll screen", edits["rolls"], [1])
     check("...B from the seed: the options, and on again",
-          flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
-          (["list", "rando", "mapedits", "options", "seed", "options", "seed", "party"], FWD))
+          flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD])[:2],
+          (["list", "rando", "mapedits", "options", "seed", "options", "seed", "summary", "party"], FWD))
     check("...the seed screen given a seed latched from the pool each time it comes on",
           [sd for (sd, p) in edits["seed"]], [p for (_, p) in edits["seed"]])
     check("...New Game's the one it left", edits["endseed"][0], edits["seed"][-1][0])
-    flow([2, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...or the one typed on it", edits["endseed"][0], 0xDEADBEEF)
-    flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...typed, then back to the options and on: a seed latched afresh",
           edits["seed"][1], (edits["seed"][1][1], edits["seed"][1][1]))
     flow([0, FWD])
@@ -6213,20 +6239,24 @@ def test_ngflow():
     check("Custom Game on the options as they come, nothing randomized: no seed screen",
           flow([CUSTOM, FWD, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options", "party"])
 
-    #  Party creation's B on its first character: back a screen -- the seed,
-    #  the options, or the list, whichever came before it -- and the seed
-    #  screen with a fresh seed latched, whatever was chosen there (user,
-    #  2026-10-27); the flow not marked as run until party creation goes on.
+    #  Party creation's B on its first character: back a screen -- the Seed
+    #  Summary, the seed, the options, or the list, whichever came before it
+    #  -- the summary's B back to the seed screen, with a fresh seed latched,
+    #  whatever was chosen there (user, 2026-10-27); the flow not marked as
+    #  run until party creation goes on.
     check("party creation, B: back to the list for Vanilla",
           flow([0, BACK, 0, FWD])[:2], (["list", "party", "list", "party"], FWD))
     check("...to the options for Custom Game on the defaults",
           flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
           (["list", "rando", "mapedits", "options", "party", "options", "party"], FWD))
-    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF])
-    check("...to the seed for Beginner, a seed typed there: a fresh one latched in its place",
-          (seen[-4:], ans, edits["seed"][1]), (["seed", "party", "seed", "party"], FWD,
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
+    check("...to the Seed Summary for Beginner, the world kept, and on",
+          (seen[-4:], ans, len(edits["builds"])), (["summary", "party", "summary", "party"], FWD, 1))
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    check("...and B there to the seed, a seed typed there: a fresh one latched in its place",
+          (seen[-6:], ans, edits["seed"][1]), (["summary", "party", "summary", "seed", "summary", "party"], FWD,
                                                (edits["seed"][1][1], edits["seed"][1][1])))
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
+    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD])
     check("...or one latched there: another, from the pool as it is now",
           (edits["seed"][1][0] == edits["seed"][1][1], edits["seed"][1][0] != edits["seed"][0][0]), (True, True))
     flow([0, BACK, NBACK])
@@ -6248,7 +6278,7 @@ def test_ngflow():
     flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
     check("...the screen's check reads the options' settings, copied into the save first",
           edits["settings"], [True])
-    flow([2, FWD, FWD, BACK, FWD, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
+    flow([2, FWD, FWD, BACK, FWD, FWD, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
     check("Beginner: its row's edits (Open) kept; back from the options, the ticks kept; New Game's the last",
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
     flow([2, FWD, BACK, BACK, NBACK])
@@ -6261,7 +6291,7 @@ def test_ngflow():
     #  A preset's own [map_edits] over its row's (user, 2026-10-24): Floaterless
     #  is Beginner's Open and six more, the screen starting from all seven.
     fl = [p[0] for p in G.resolve(G.load(), P.rows())].index("Floaterless")
-    flow([fl, FWD, FWD, FWD, FWD, FWD], ticks=[0x00BF])
+    flow([fl, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x00BF])
     seven = sum(K["OWEDIT_" + n] for n in ("OPENPROG", "EXTENDED", "DOCKS", "AIRSHIPDOCK", "BAHAMUTDOCK",
                                            "LEFEINRIVER", "GAIAPASS"))
     check("Floaterless: the map edit screen from its row's edit and its own six; New Game's what it ticked",
@@ -6271,7 +6301,7 @@ def test_ngflow():
     ticked = bytearray(ROMDATA)
     at = (NG & 0x1F) * 0x10000 + SYM["lut_NgpEdits"] + 2 * 2
     ticked[at], ticked[at + 1] = (OPEN | K["OWEDIT_HIGHWAY"]) & 0xFF, (OPEN | K["OWEDIT_HIGHWAY"]) >> 8
-    flow([2, FWD, FWD, FWD, FWD, FWD], ticks=[0], rom=bytes(ticked))
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0], rom=bytes(ticked))
     check("...a preset's every bit, past the first eight too (Ordeals Road)",
           edits["given"], [(KEEP | CANBACK, OPEN | K["OWEDIT_HIGHWAY"])])
     seen, ans, page = flow([2, BACK, NBACK])
@@ -6365,45 +6395,54 @@ def test_ngflow():
     #  kept, no roll screen; any of them changed, built again.
     order = lambda n: edits["order"][-n:]
     nbuilds = lambda: len(edits["builds"])
-    flow([2, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
-    check("Beginner: the world built after the seed screen, before party creation, from the seed and edits chosen",
-          (order(3), edits["builds"]), (["seed", "build", "party"], [(0xDEADBEEF, 0x0041)]))
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
+    check("Beginner: the world built after the seed screen, before the Seed Summary and party creation, from "
+          "the seed and edits chosen",
+          (order(4), edits["builds"]), (["seed", "build", "summary", "party"], [(0xDEADBEEF, 0x0041)]))
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], touch=[lambda bus: bus.sram.__setitem__(
+        K["OPT_NG_KEYITEMS"] - 0x6000, K["KEYITEMS_VANILLA"])])
+    check("...randomized with Key items Vanilla: no summary, nothing placed; party creation's B back to the seed",
+          order(6), ["seed", "build", "party", "seed", "build", "party"])
     flow([0, FWD])
     check("Vanilla: built before party creation", edits["order"], ["list", "build", "party"])
     flow([CUSTOM, FWD, FWD, FWD, FWD])
     check("Custom Game, nothing randomized: built after the options", order(3), ["options", "build", "party"])
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
     check("a seed that builds no world: the seed screen again with a fresh seed, built from it, and on",
-          (order(5), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]], edits["seed"][0] != edits["seed"][1]),
-          (["seed", "build", "seed", "build", "party"], True, True))
+          (order(6), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]], edits["seed"][0] != edits["seed"][1]),
+          (["seed", "build", "seed", "build", "summary", "party"], True, True))
     flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], failing=[True])
     check("...nothing randomized, were a build to fail (none can: nothing to place): the options again",
           order(5), ["options", "build", "options", "build", "party"])
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
-    check("party creation, B, and on through the seed screen: built again, from the fresh seed",
-          (order(6), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]]),
-          (["seed", "build", "party", "seed", "build", "party"], True))
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0xDEADBEEF])
-    check("...the same seed typed again: kept", (order(5), nbuilds()), (["seed", "build", "party", "seed", "party"], 1))
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0x12345678])
-    check("...another typed: built again, from it", (order(6), [b[0] for b in edits["builds"]]),
-          (["seed", "build", "party", "seed", "build", "party"], [0xDEADBEEF, 0x12345678]))
-    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0x12345678],
+    to_seed = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD]     # party, summary, B B
+    flow(to_seed)
+    check("party creation, B, the summary, B, and on through the seed screen: built again, from the fresh seed",
+          (order(9), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]]),
+          (["seed", "build", "summary", "party", "summary", "seed", "build", "summary", "party"], True))
+    flow(to_seed, typed=[0xDEADBEEF, 0xDEADBEEF])
+    check("...the same seed typed again: kept", (order(8), nbuilds()),
+          (["seed", "build", "summary", "party", "summary", "seed", "summary", "party"], 1))
+    flow(to_seed, typed=[0xDEADBEEF, 0x12345678])
+    check("...another typed: built again, from it", (order(9), [b[0] for b in edits["builds"]]),
+          (["seed", "build", "summary", "party", "summary", "seed", "build", "summary", "party"],
+           [0xDEADBEEF, 0x12345678]))
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0x12345678],
          failing=[True])
     check("...a seed that built no world, then one that did, then back and it typed again: kept",
-          (order(7), nbuilds()), (["seed", "build", "seed", "build", "party", "seed", "party"], 2))
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
+          (order(10), nbuilds()),
+          (["seed", "build", "seed", "build", "summary", "party", "summary", "seed", "summary", "party"], 2))
+    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
          failing=[False, True])
     check("...built, then back and another that built none, then the first again: built again -- the "
-          "failed build set the save's first page afresh", (order(5), nbuilds()),
-          (["seed", "build", "seed", "build", "party"], 3))
-    back_to_edits = [2, FWD, FWD, FWD, FWD, BACK, BACK, BACK, FWD, FWD, FWD, FWD]
+          "failed build set the save's first page afresh", (order(6), nbuilds()),
+          (["seed", "build", "seed", "build", "summary", "party"], 3))
+    back_to_edits = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, BACK, FWD, FWD, FWD, FWD, FWD]
     flow(back_to_edits, ticks=[0x0041, 0x0041], typed=[0xDEADBEEF] * 3)
     check("...back to the map edits, the same ticked, the same seed: kept", nbuilds(), 1)
     flow(back_to_edits, ticks=[0x0041, 0x0043], typed=[0xDEADBEEF] * 3)
     check("...another edit ticked: built again, with it", [b[1] for b in edits["builds"]], [0x0041, 0x0043])
     goal = K["OPT_NG_GOAL"] - 0x6000
-    back_to_options = [2, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD]
+    back_to_options = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, FWD, FWD, FWD, FWD]
     flow(back_to_options, typed=[0xDEADBEEF] * 3)
     check("...back to the options, nothing changed, the same seed: kept", nbuilds(), 1)
     flow(back_to_options, typed=[0xDEADBEEF] * 3, touch=[None, lambda bus: bus.sram.__setitem__(goal, 2)])
@@ -6417,12 +6456,12 @@ def test_ngflow():
           (["list", "build", "party", "list", "build", "party"], 2))
     #  ...and for real: the cache's tag is what the world was built from, so
     #  that what was asked is what is compared.
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], typed=[0x0BADF00D, 0x0BADF00D], real=True)
+    flow(to_seed, typed=[0x0BADF00D, 0x0BADF00D], real=True)
     b = edits["bus"]
     check("...built for real: kept back through the seed screen, the save's seed the one typed, the cache built",
-          (order(5), nbuilds(), int.from_bytes(bytes(b.sram[RS0:RS0 + 4]), "little"),
+          (order(8), nbuilds(), int.from_bytes(bytes(b.sram[RS0:RS0 + 4]), "little"),
            b.wram[rw("RW_TAG")] == K["RW_TAG_VAL"]),
-          (["seed", "build", "party", "seed", "party"], 1, 0x0BADF00D, True))
+          (["seed", "build", "summary", "party", "summary", "seed", "summary", "party"], 1, 0x0BADF00D, True))
 
     #  The randomization screen: its rows TREASURES to the key items' last,
     #  opening on Starting items; START on, B back.
@@ -7556,6 +7595,241 @@ def test_dpadnew():
     check("the game's two-axis menu cursors: no test of any change left in bank $0E, seven calls of "
           "opt_dpadnew", (len(old.findall(img)), img.count(jsl)), (0, 7))
 
+
+def test_sumscreen():
+    """New Game's Seed Summary (sumscreen.asm; user, 2026-10-27): after the
+    roll screen, under Key items Standard or Wide, the world the seed built
+    -- the seed; the Goal, the Map shuffle mode the game has and the SHIP or
+    AIRSHIP removed; placement's five numbers, labelled as the map edit
+    screen's Select labels them; and the incentive places the party can
+    reach by name, the people on the left and the places on the right, those
+    out of reach left out (user).  Each line against a model of the layout
+    the user approved, over records made up to reach every readout and
+    every count; A or START on, B back; and a real build's, the roll screen
+    before it, against randoref's numbers, the menu font and colours
+    untouched by the roll."""
+    import logicdata as L, re
+    UJ = SYM["UpdateJoy"]
+    A_, B_, START, SELECT, UP, LEFT = 0x80, 0x40, 0x10, 0x20, 0x08, 0x02
+    nescol = {int(m.group(1), 16): int(m.group(2), 16) for m in re.finditer(
+        r"NESCOL_([0-9A-F]{2}) = \$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
+    FWD, BACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"]
+    NT = K["NESNT"] - 0x7E0000
+    SAVE = K["RANDO_SAVE"] - 0x6000
+    sv = lambda name: K[name] - 0x6000
+    SPOTS = rw("RW_SUMSPOTS")
+    PEOPLE = ["King", "Princess", "Bikke", "Astos", "Matoya", "Elf Prince", "Nerrick", "Smith", "Sarda",
+              "Canoe Sage", "Fairy", "Cube Robot", "Lefein"]
+    PLACES = ["Coneria Vault", "Marsh Cave", "Marsh Vault", "Earth Cave", "Volcano", "Ice Cave", "Ordeals",
+              "Sea Shrine", "Sky Palace", "Titan's Trove", "Cardia", "Caravan"]
+
+    #  The places: Wide's 25, Standard's 21 among them, by their place in
+    #  the logic -- the people its reward NPCs, the rest chests and the
+    #  caravan -- under the names the user approved.
+    at = (OPTMENU_BANK & 0x1F) * 0x10000 + SYM["lut_SumPlaces"]
+    recs = [(ROMDATA[at + 16 * e], "".join(_decode(b) or "?" for b in ROMDATA[at + 16 * e + 1:at + 16 * e + 14]).rstrip())
+            for e in range(25)]
+    locs = [c for c, _ in recs]
+    check("the places: Wide's 25 spots, each once", sorted(locs), sorted(c for c, r in enumerate(L.LOCS) if r[2] & 2))
+    check("...the people the reward NPCs, the rest chests and the caravan",
+          ([L.LOCS[c][0] for c in locs[:13]], sorted({L.LOCS[c][0] for c in locs[13:]})), ([1] * 13, [0, 2]))
+    check("...named as approved", [n for _, n in recs], PEOPLE + PLACES)
+    #  ...each the logic's label for it, the NPC's or the chest's and its map
+    within = {"King": "KingConeria", "Princess": "Princess2", "Elf Prince": "ElfPrince", "Canoe Sage": "CanoeSage",
+              "Cube Robot": "CubeBot", "Lefein": "Chime(Lefein)", "Coneria Vault": "ConeriaCastle1F",
+              "Marsh Cave": "chest1C", "Marsh Vault": "chest20", "Earth Cave": "EarthCave", "Volcano": "GurguVolcano",
+              "Ice Cave": "IceCave", "Ordeals": "CastleOrdeals", "Sea Shrine": "SeaShrine", "Sky Palace": "SkyPalace",
+              "Titan's Trove": "TitansTunnel", "Caravan": "caravan"}
+    check("...each name its place's: the NPC's, the chest's map, the caravan",
+          [(n, L.LOCS[c][5]) for c, n in recs if within.get(n, n) not in L.LOCS[c][5].replace(" ", "")], [])
+
+    def model(seed, goal, ent, items0, wide, n, r, shown):
+        """The screen as the user approved it: the rows 2-26 drawn, as text."""
+        S = 25 if wide else 21
+        line = lambda left, right="": "  " + left + " " * (28 - len(left) - len(right)) + right
+        removed = ["None", "SHIP", "AIRSHIP", "SHIP, AIRSHIP"][(items0 & 3 == 3) | (items0 >> 2 & 3 == 3) << 1]
+        l1 = max(n - S, 0)
+        nums = [n, S, r, l1, max(n - r, 0) - l1]
+        rows = {2: " " * 10 + "SEED %08X" % seed,
+                4: line("Goal", ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"][goal if goal < 5 else 0]),
+                5: line("Map shuffle", ["Off", "Entrances", "Floors"][ent if ent < 3 else 0]),
+                6: line("Removed", removed)}
+        for k, (label, v) in enumerate(zip(["Incentive Items", "Locations", "Reachable", "Excess Loose",
+                                            "Unreachable Loose"], nums)):
+            rows[8 + k] = line(label, "%d" % v)
+        left = [nm for c, nm in recs[:13] if c in shown]
+        right = [nm for c, nm in recs[13:] if c in shown]
+        for k in range(13):
+            l = left[k] if k < len(left) else ""
+            rr = right[k] if k < len(right) else ""
+            if l or rr:
+                rows[14 + k] = "  " + l.ljust(14) + rr
+        return {k: v.rstrip() for k, v in rows.items()}
+
+    def drawn(bus):
+        rows = {}
+        for k in range(30):
+            t = "".join(_decode(b) or "?" for b in bus.wram[NT + 32 * k:NT + 32 * k + 32]).rstrip()
+            if t:
+                rows[k] = t
+        return rows
+
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def made_up(seed, goal, ent, items0, wide, n, r, shown, junk=0):
+        """The screen over a record made up, no world built: what it drew."""
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.sram[SAVE:SAVE + 4] = seed.to_bytes(4, "little")
+        bus.sram[sv("RANDO_GOAL")] = goal
+        bus.sram[sv("RANDO_ITEMS")] = items0
+        bus.sram[sv("RANDO_KEYITEMS")] = K["KEYITEMS_WIDE"] if wide else K["KEYITEMS_STANDARD"]
+        bus.wram[rw("RW_ENTRANCES")] = ent
+        bus.wram[rw("RW_SUMINC")] = n
+        bus.wram[rw("RW_SUMREACH")] = r
+        for c in range(248):
+            bus.wram[SPOTS + c] = 1 if c in shown else 0 if c in locs else junk
+        pad(bus, 0)
+        cpu.run(OPTMENU_BANK, SYM["sum_show"], stop=UJ, limit=20_000_000)
+        return drawn(bus)
+
+    std = {c for c, r in enumerate(L.LOCS) if r[2] & 1}
+    wide = set(locs)
+    cases = [(0x0BADF00D, 0, 0, 0x20, False, 21, 21, std, 0),
+             (0xFEDCBA98, 1, 1, 0x23, True, 21, 25, wide, 1),
+             (0x00000001, 2, 2, 0x2C, False, 21, 19, std - {245, 246}, 0x77),
+             (0x80706050, 3, 3, 0x2F, True, 29, 22, wide - {2, 69, 134}, 0xFF),
+             (0x12345678, 4, 0xFF, 0x0B, False, 29, 15, set(locs[::3]) & std, 1),
+             (0x9ABCDEF0, 5, 0, 0x0E, True, 0, 0, set(), 1),
+             (0xFFFFFFFF, 0xFF, 1, 0xFF, False, 9, 21, {234, 246, 2, 247}, 0)]
+    bad = []
+    for case in cases:
+        got, want = made_up(*case), model(*case[:8])
+        if got != want:
+            bad.append((hex(case[0]), [(k, got.get(k), want.get(k)) for k in sorted(set(got) | set(want))
+                                       if got.get(k) != want.get(k)][:3]))
+    check("the screen over made-up records: every readout, the numbers, the places shown, each line the "
+          "model's -- a Goal or mode out of range as the first, as the settings screen reads it", bad, [])
+    check("...the user's mock-up, Wide, all reached",
+          made_up(0x0BADF00D, 0, 0, 0x20, True, 21, 25, wide), {
+              2: "          SEED 0BADF00D",
+              4: "  Goal                  4 orbs", 5: "  Map shuffle              Off", 6: "  Removed                 None",
+              8: "  Incentive Items           21", 9: "  Locations                 25", 10: "  Reachable                 25",
+              11: "  Excess Loose               0", 12: "  Unreachable Loose          0",
+              14: "  King          Coneria Vault", 15: "  Princess      Marsh Cave", 16: "  Bikke         Marsh Vault",
+              17: "  Astos         Earth Cave", 18: "  Matoya        Volcano", 19: "  Elf Prince    Ice Cave",
+              20: "  Nerrick       Ordeals", 21: "  Smith         Sea Shrine", 22: "  Sarda         Sky Palace",
+              23: "  Canoe Sage    Titan's Trove", 24: "  Fairy         Cardia", 25: "  Cube Robot    Caravan",
+              26: "  Lefein"})
+    check("...inside the cells a CRT shows: columns 1-30, rows 2-27",
+          [k for case in cases for k, t in made_up(*case).items() if not (2 <= k <= 27 and len(t) <= 31
+                                                                        and not t[:1].strip())], [])
+
+    #  The pad: A or START on, B back, with the select's chirp; nothing else
+    #  ends it, nor a START held as it comes up.  The music and the menus'
+    #  reset check every frame, as the settings screen's.
+    SELSFX, MUSIC, PADRESET = SYM["opt_sfx_sel"], SYM["CallMusicPlay"], SYM["opt_padreset"]
+    counts = {}
+
+    def frame(bus, cpu, nes):
+        pad(bus, nes)
+        counts.update(sel=0, music=0, reset=0)
+        cpu.step()
+        for _ in range(3_000_000):
+            if cpu.pc in (UJ, 0xFFFE):
+                return cpu.pc == UJ
+            counts["sel"] += cpu.pc == SELSFX and cpu.pbr == OPTMENU_BANK
+            counts["music"] += cpu.pc == MUSIC
+            counts["reset"] += cpu.pc == PADRESET
+            cpu.step()
+        raise RuntimeError("a frame ran away at $%02X:%04X" % (cpu.pbr, cpu.pc))
+
+    def run(presses, held=0):
+        """The screen up (held: the pad as it comes up), then the presses a
+        frame each, let go between: its answer and the chirps, or None."""
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.sram[sv("RANDO_KEYITEMS")] = K["KEYITEMS_STANDARD"]
+        pad(bus, held)
+        cpu.run(OPTMENU_BANK, SYM["sum_show"], stop=UJ, limit=20_000_000)
+        sel = 0
+        for nes in [held] * 3 + [0] + [x for p in presses for x in (p, 0, 0)]:
+            if not frame(bus, cpu, nes):
+                return cpu.a & 0xFF, sel + counts["sel"]
+            sel += counts["sel"]
+        return None, sel, counts["music"], counts["reset"]
+    check("A: on, with the select's chirp", run([A_])[:2], (FWD, 1))
+    check("START: on", run([START])[:2], (FWD, 1))
+    check("B: back, with the same chirp", run([B_])[:2], (BACK, 1))
+    check("...nothing else ends it, nor chirps; the music and the reset check each frame",
+          run([SELECT, UP, LEFT, 0x0F]), (None, 0, 1, 1))
+    check("...a START held as it comes up does not carry on", run([], held=START)[0], None)
+    bus, cpu = machine()
+    in_vblank(bus)
+    pad(bus, 0)
+    cpu.run(OPTMENU_BANK, SYM["sum_show"], stop=UJ, limit=20_000_000)
+    frame(bus, cpu, 0)
+    up_ = []
+    for nes in (A_, A_, A_, 0):
+        up_.append(frame(bus, cpu, nes))
+        if not up_[-1]:
+            break
+    check("...the A that ends it let go before it returns, so none carries on to party creation",
+          up_, [True, True, True, False])
+
+    #  For real: the menus as the title leaves them (the menu font, its
+    #  colours), a world built behind the roll screen, then this screen --
+    #  randoref's numbers and places, and the font and colours the menus
+    #  had: the roll's picture and words never touch the font's tiles.
+    def real(preset, seed, owedits):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.dma = True
+        bus.frames()
+        call(cpu, "opt_init")
+        cpu.a = preset
+        call(cpu, "ngp_apply", bank=0xA1 + K["CHUNK_NEWGAME"])
+        cpu.dbr = BANK_0E
+        cpu.run(BANK_0E, SYM["LoadMenuCHRPal"], limit=20_000_000)
+        cpu.dbr = 0xA7
+        call(cpu, "DrawPalette_L")              # ...the colours drawn, as the title draws them
+        for _ in range(16):                     # the font and colours flushed
+            call(cpu, "opt_menu_breathe", dbr=OPTMENU_BANK)
+        font = lambda: bytes(bus.vram[0x4000 + 32 * 0x80:0x4000 + 32 * 0x100])
+        before = font()
+        ngs, ngf = K["NGF_SEED"] - 0x7E0000, K["NGF_OWEDITS"] - 0x7E0000
+        bus.wram[ngs:ngs + 4] = seed.to_bytes(4, "little")
+        bus.wram[ngf:ngf + 2] = owedits.to_bytes(2, "little")
+        cpu.a = 1
+        cpu.run(RANDO_BANK, SYM["rando_build"], limit=400_000_000)
+        built = cpu.p & 1 == 0
+        pad(bus, 0)
+        cpu.run(OPTMENU_BANK, SYM["sum_show"], stop=UJ, limit=50_000_000)
+        frame(bus, cpu, 0)
+        g = lambda name: bus.sram[sv(name)]
+        items3 = list(bus.sram[sv("RANDO_ITEMS"):sv("RANDO_ITEMS") + 3])
+        gear2 = list(bus.sram[sv("RANDO_GEAR"):sv("RANDO_GEAR") + 2])
+        n, S, r, reached = R.seed_summary(seed, g("RANDO_KEYITEMS"), items3, gear2, g("RANDO_EARLY"),
+                                          g("RANDO_ENTRANCES"), owedits, g("RANDO_GOAL"))
+        want = model(seed, g("RANDO_GOAL"), bus.wram[rw("RW_ENTRANCES")], items3[0],
+                     g("RANDO_KEYITEMS") == K["KEYITEMS_WIDE"], n, r, reached)
+        #  The colours: the menus' palette (cur_pal) as the HAL makes it, the
+        #  roll's own gone.
+        pal = bus.wram[K["cur_pal"]:K["cur_pal"] + 16]
+        cg = lambda e: bus.cgram[2 * e] | bus.cgram[2 * e + 1] << 8
+        colours = [cg(0)] + [cg(16 * p + c) for p in range(4) for c in (1, 2, 3)]
+        menus = [nescol[pal[0]]] + [nescol[pal[4 * p + c]] for p in range(4) for c in (1, 2, 3)]
+        return built, drawn(bus) == want, before == font(), colours == menus, r < S, \
+            before[32 * 10:32 * 11] != bytes(32)
+    import genpresets as G, presetdefs as P
+    names = [p[0] for p in G.resolve(G.load(), P.rows())]
+    check("a Beginner world for real, behind the roll screen: randoref's numbers and places, the menu font "
+          "and colours as the menus had them",
+          real(names.index("Beginner"), 0x0BADF00D, 0x0001), (True, True, True, True, False, True))
+    check("...Floaterless with two of its edits: Gaia's Fairy and Lefein out of reach, left out",
+          real(names.index("Floaterless"), 0x0BADF00D, 0x0014), (True, True, True, True, True, True))
 
 def test_ngparty():
     """Party creation as New Game's last screen (menus.txt): bank $0E's
@@ -15421,7 +15695,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

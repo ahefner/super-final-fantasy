@@ -324,7 +324,8 @@ that randomizes anything, the **randomization screen** -- the TREASURES,
 RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
 **map edit screen** (below; the overworld select before it is skipped for
 now, the vanilla map taken), the **options**, the rest of the settings, and
-the **seed** (below), when anything is randomized.  START goes on, B back
+the **seed** (below), when anything is randomized, and after the roll
+screen the **Seed Summary** under Key items Standard or Wide (below).  START goes on, B back
 to the screen before; B on the list goes back to the title.  Vanilla goes
 straight on to party creation, its file saying `skip_to_party`
 (genpresets' `lut_NgpFlow`); every other preset goes through the screens,
@@ -625,6 +626,54 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     music starts again, and the seed screen comes back with a fresh seed.
     Nothing randomized cannot fail (nothing to
     place), but would go back to the options.
+  - **The Seed Summary** (user, 2026-10-27, from "a 'Seed Summary' screen
+    after the seed select which lists the incentive locations"; layout and
+    names approved from a mock-up; "Excluding unreachable places and NPCs
+    would be a nice touch"; built, not yet played).  `sumscreen.asm`, in
+    the settings engine's chunk beside the seed screen, after the roll
+    screen and before party creation, under Key items Standard or Wide
+    (the flow asks `RW_PLACED`: with Key items Vanilla there is nothing to
+    list, and party creation follows the roll screen as before).  Rows
+    2-26 of the CRT's 30 x 26, text from column 2:
+      - "SEED" and the save's seed, eight hex digits, centred on row 2;
+      - Goal (`lut_ValGoal`'s readout), Map shuffle -- the mode the game
+        has, `RW_ENTRANCES`, so Off when no wiring placed -- and Removed
+        (None, SHIP, AIRSHIP, or both), rows 4-6;
+      - the five numbers, rows 8-12, under the map edit screen's own
+        labels (`lut_OwsIncLabel`, read from its chunk) and worked as its
+        Select works them: the incentive items, the locations the setting
+        names (21 or 25), those the party reaches holding every key item,
+        the excess loose (past the locations) and the unreachable loose
+        (past those reached, less the excess).  All five here, Map shuffle
+        or not: the wiring is chosen;
+      - from row 14, the incentive places the party can reach, by name:
+        the thirteen people on the left (King, Princess, Bikke, Astos,
+        Matoya, Elf Prince, Nerrick, Smith, Sarda, Canoe Sage, Fairy, Cube
+        Robot, Lefein), the places on the right (Coneria Vault, Marsh Cave,
+        Marsh Vault, Earth Cave, Volcano, Ice Cave, Ordeals, Sea Shrine,
+        Sky Palace, Titan's Trove, Cardia, Caravan -- Standard without
+        Marsh Vault, Volcano, Titan's Trove and Cardia), each column packed
+        from the top, those out of reach left out.
+    The numbers and places come from placement (`pl_summary`, run as
+    `pl_store` ends): the incentive items as the settings have them
+    (`RP_INC0`), then `pl_reachspots` once more -- every key item held, the
+    count placement trims incentives by -- into `RW_SUMINC`, `RW_SUMREACH`
+    and `RW_SUMSPOTS`, a byte per pool place, 1 for an incentive spot
+    reached.  They are cache bytes, built with the world in every build,
+    so a kept world keeps them.  A or START goes on to party creation, B
+    back to the seed screen (a fresh seed), each with the select chirp;
+    party creation's B comes back to the summary, the world kept.  No
+    hand.  The screen loads nothing: the roll writes only characters
+    $00-$40 of the HAL's pattern table, and the menu font is $80-$FF; the
+    HAL sends the menus' palette again as the roll hands the PPU back.
+    Tests: test_sumscreen (the places against logicdata, every line
+    against a model over made-up records -- each readout, out-of-range
+    steps, every count, columns of every length -- the pad, and two real
+    builds behind the roll screen against `randoref.seed_summary`, the font
+    and colours as the menus had them), test_es_place (the cache bytes
+    against the reference over Off, Entrances and Floors, map edits, and
+    Floaterless with two edits, Gaia's Fairy and Lefein out of reach),
+    test_ngflow (where it comes and goes).
 
 `test_rando_build` (new): a build from a junk first page answers C clear,
 with the same world and cache that `rando_newgame` builds from the same
@@ -3579,7 +3628,8 @@ text region in the game references.
                              New Game, BRIDGE and Matoya's dock 68 (the
                              row's part removed 2026-10-24); Short
                              ToFR 485, 110 of it the room; New Game taking
-                             the flow's edits and seed 21 + 21
+                             the flow's edits and seed 21 + 21; the Seed
+                             Summary's numbers and places (pl_summary) 52
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -3602,13 +3652,15 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  5538 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  4274 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
                              seed screen is (3500 with its art: 1536 of
                              tiles, 1024 of nametable; measured
-                             2026-10-22); it reaches opt_commit by JSL now
+                             2026-10-22); it reaches opt_commit by JSL now;
+                             the Seed Summary 1264 (sumscreen.asm,
+                             2026-10-27)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

@@ -2180,7 +2180,11 @@ Settled in review 1:
         moved) -> **seed**, when anything needs one -> the world built
         and placed, the roll screen up meanwhile -- none when nothing is
         randomized (user, 2026-10-27) -- (before party creation
-        since 2026-10-27; after it until then) -> **party creation**, and
+        since 2026-10-27; after it until then) -> the **Seed Summary**, under
+        Key items Standard or Wide: the seed, Goal, Map shuffle, what is
+        removed, placement's numbers and the incentive places the party
+        can reach, by name (user, 2026-10-27; `options-design.md`) ->
+        **party creation**, and
         the game begins.  Party creation comes after the seed on purpose: a seeded feature such as class blursings could
         then show at party creation what the party is choosing between
         (user, 2026-10-21).

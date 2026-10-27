@@ -22,7 +22,7 @@
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
 .import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose
-.import opt_needseed, seed_choose, rando_build
+.import opt_needseed, seed_choose, rando_build, sum_show
 .import OptCallFar, NewGamePartyUI
 .export ngp_apply, ng_flow
 .export lut_NgpTitle, lut_NgpDataPtr, lut_NgpFlow   ; for tools/test_options.py
@@ -161,6 +161,9 @@ lut_NgpBit:
 ;;      a seed whose placement gives up is said so there, and the seed
 ;;      screen comes back, with a fresh seed.  Nothing randomized, no roll
 ;;      screen (user, 2026-10-27): a few dark frames, the music held
+;;    the Seed Summary (sumscreen.asm) -- under Key items Standard or Wide,
+;;      the world the seed built (user, 2026-10-27); B back to the seed
+;;      screen, and party creation's B back to it, the world kept
 ;;    party creation (bank $0E's) -- after the seed, so that a seeded
 ;;      feature could show there what the party is choosing between (user)
 ;;
@@ -209,7 +212,7 @@ ng_flow:
     JSR ng_build                ;   (no roll screen, nothing to place: built)
     JSR ng_party
     BCS @list                   ; B on the first character: the list again
-    BRA @go
+    JMP @go
   @rando:
     JSL opt_randoscreen + OPTMENUFAR
     CMP #NGNAV_BACK
@@ -256,6 +259,16 @@ ng_flow:
     BEQ @options
     JSR ng_build
     BCS @seed                   ; no world: the seed screen again
+    LDA f:RW_PLACED             ; key items placed -- Standard or Wide: the
+    BEQ @nosum                  ;   Seed Summary
+  @summary:
+    JSL sum_show + OPTMENUFAR
+    CMP #NGNAV_BACK
+    BEQ @seed                   ; B: the seed screen again, a fresh seed
+    JSR ng_party
+    BCS @summary                ; back: the summary, the world kept
+    BRA @go
+  @nosum:
     JSR ng_party
     BCS @seed                   ; back: the seed screen again
     BRA @go

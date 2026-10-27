@@ -113,6 +113,7 @@ SHOPPABLE      = $00087FFF
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .import lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
 .import lut_LogicGroup
+.assert RW_SUMSPOTS + LOGIC_POOL <= RW_DOMAINS, error, "placement's results run into the formations"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  pl_place -- place the key items from the save's settings, into the cache
@@ -2038,6 +2039,44 @@ pl_store:
     BCC @loc
     LDA #1
     STA f:RW_PLACED
+    REP #$20
+    .a16
+    ;  ...and on into the Seed Summary's.
+
+;;  The Seed Summary's (sumscreen.asm; user, 2026-10-27), from the world
+;;  just placed: the incentive items, the incentive spots the party can
+;;  reach at all -- every key item held, as pl_reachspots counts them for
+;;  placement -- and which (RW_SUMSPOTS: 1 for each), so that the screen
+;;  names only places that can be reached.  RP_PLACED and the rest are
+;;  pl_reachspots's after: nothing reads them once RW_PLACE is written.
+;;  A16 I16.
+pl_summary:
+    .a16
+    LDX #pINC0
+    JSR pl_count
+    SEP #$20
+    .a8
+    STA f:RW_SUMINC
+    REP #$20
+    .a16
+    JSR pl_reachspots
+    SEP #$20
+    .a8
+    STA f:RW_SUMREACH
+    LDX #$0000
+  @loc:
+    LDA a:pREACH, X
+    BEQ @put                    ; not reached: 0
+    REP #$20
+    .a16
+    JSR pl_isspot               ; 1 for a spot, 0 for any other place
+    SEP #$20
+    .a8
+  @put:
+    STA f:RW_SUMSPOTS, X
+    INX
+    CPX #LOGIC_POOL
+    BCC @loc
     REP #$20
     .a16
     RTS

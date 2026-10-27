@@ -1956,8 +1956,14 @@ RW_PLACE        = RANDOWRAM+$1841 ; PLACE_ITEMS bytes: each item's location, or 
 RW_ESK          = RANDOWRAM+$1860 ; the attempt k whose wiring placed
 RW_SHIPDOCK     = RANDOWRAM+$1861 ; the ship's dock, 0..4 (es_dock)
 RW_ENTRANCES    = RANDOWRAM+$1862 ; ENTRANCES_*: the Map shuffle mode the game has
+;  ...and for the Seed Summary (sumscreen.asm; user, 2026-10-27), as a
+;  placement ends (pl_summary): the incentive items, the incentive spots the
+;  party can reach at all, and a byte per pool place, 1 if it is one of them.
+RW_SUMINC       = RANDOWRAM+$1863 ; the incentive items, as the settings have them
+RW_SUMREACH     = RANDOWRAM+$1864 ; the incentive spots reached
+RW_SUMSPOTS     = RANDOWRAM+$1900 ; LOGIC_POOL bytes (place.inc checks the fit)
 .assert RW_BONUS + 80 <= RW_PLACED && RW_PLACE + PLACE_ITEMS <= RW_ESK, error, "placement's results overlap"
-.assert RW_ENTRANCES < RW_DOMAINS, error, "placement's results run into the formations"
+.assert RW_SUMREACH < RW_SUMSPOTS, error, "placement's results overlap"
 RW_NAMEID       = RANDOWRAM+$0060 ; a name lookup: the item id...
 RW_NAMEPTR      = RANDOWRAM+$0062 ; ...its name's ROM pointer, 2 bytes...
 RW_NAMEB        = RANDOWRAM+$0064 ; ...and its bonus

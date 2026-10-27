@@ -25,6 +25,7 @@
 .export opt_settings, opt_saveview, opt_newgamelist, opt_randoscreen, opt_needseed
 ;  The seed screen's (seedscreen.asm), this engine's too.
 .export opt_menu_breathe, opt_waitrelease
+.export opt_menu_fillbg, opt_menu_descppu, lut_ValGoal, lut_ValMapShuffle   ; the Seed Summary's (sumscreen.asm)
 .export menu_tick               ; the HAL's (hal.asm's menutick)
 .import hal_audioframe
 .export opt_menu_drawall        ; for tools/test_options.py
