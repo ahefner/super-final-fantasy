@@ -24,7 +24,8 @@ DLG_ITEM = $02                  ; the name of dlg_itemid
 ;;
 ;;  In: text_ptr, the string about to be drawn.  Out: text_ptr, OPTDESC if
 ;;  RW_DLGNPC was set, which it clears.  A, X clobbered; Y kept.  Emulation
-;;  mode.
+;;  mode.  RW_DLGNPC from DLG_ORB0 on is the Black Orb's (opt_orbgoal), its
+;;  line rando_dlgorb's.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_dlgtext:
@@ -32,7 +33,10 @@ rando_dlgtext:
     .i8
     LDA f:RW_DLGNPC
     BEQ @out
-    DEC A
+    CMP #DLG_ORB0
+    BCC :+
+    JMP rando_dlgorb
+:   DEC A
     TAX                         ; the NPC's entry
     LDA #$00
     STA f:RW_DLGNPC
@@ -76,6 +80,80 @@ rando_dlgtext:
     STA text_ptr+1
   @out:
     RTL
+
+;;  The Black Orb giving way with fewer than four lit (opt_orbgoal): the
+;;  game's line, dialogue $21, its first line by the orbs the party carries
+;;  (user, 2026-10-27) -- plural, singular, or none and the party's hands on
+;;  it -- and the rest as the game has it, copied from the line being drawn
+;;  (DTE: written out it would not fit OPTDESC).  The rest goes in first,
+;;  from the caller's bank, after where the first line will end; then the
+;;  first line from this chunk.  A line with no break is drawn as it is.
+;;  In: A = RW_DLGNPC, DLG_ORB0 or more.  Out as rando_dlgtext.
+rando_dlgorb:
+    SEC
+    SBC #DLG_ORB0
+    TAX                         ; 0 none lit, 1 one, 2 more
+    LDA #$00
+    STA f:RW_DLGNPC
+    PHY
+    PHX
+    LDA f:RANDOFAR + lut_DlgOrbLen, X
+    TAX                         ; where the rest goes
+    LDY #$00
+  @find:                        ; the game's first line break
+    LDA (text_ptr), Y
+    BEQ @asis
+    CMP #$1A
+    BCC @rest
+    INY
+    BNE @find
+  @asis:
+    PLX
+    PLY
+    RTL
+  @rest:                        ; from the break, terminator and all
+    LDA (text_ptr), Y
+    STA OPTDESC, X
+    BEQ @first
+    INX
+    INY
+    BNE @rest
+  @first:
+    PLX
+    PHB
+    PHK
+    PLB
+    LDA lut_DlgOrbLo, X
+    STA text_ptr
+    LDA lut_DlgOrbHi, X
+    STA text_ptr+1
+    LDA lut_DlgOrbLen, X
+    TAY
+  @copy:                        ; ...and ours before it
+    DEY
+    LDA (text_ptr), Y
+    STA OPTDESC, Y
+    TYA
+    BNE @copy
+    PLB
+    PLY
+    LDA #<OPTDESC
+    STA text_ptr
+    LDA #>OPTDESC
+    STA text_ptr+1
+    RTL
+
+lut_DlgOrb0:  FFTEXT "You lay your hands upon"     ; none lit (the user's)
+lut_DlgOrb1:  FFTEXT "The ORB now covers"          ; one
+lut_DlgOrbN:  FFTEXT "The ORBS now cover"          ; two or three
+lut_DlgOrbEnd:
+lut_DlgOrbLo:  .BYTE <lut_DlgOrb0, <lut_DlgOrb1, <lut_DlgOrbN
+lut_DlgOrbHi:  .BYTE >lut_DlgOrb0, >lut_DlgOrb1, >lut_DlgOrbN
+lut_DlgOrbLen: .BYTE lut_DlgOrb1 - lut_DlgOrb0, lut_DlgOrbN - lut_DlgOrb1, lut_DlgOrbEnd - lut_DlgOrbN
+;  The game's rest of the line is 55 bytes, terminator and all
+;  (test_goal checks it, and the whole line, against OPTDESC).
+.assert lut_DlgOrb1 - lut_DlgOrb0 + 55 <= OPTDESC_MAX, error, "the Black Orb's line overflows OPTDESC"
+.assert DLG_ORB0 = 14 && DLG_ORB0 > 13, error, "the Black Orb's entries follow the thirteen NPCs'"
 
 .macro DLGTEXT_END
   .BYTE DLG_NL, DLG_NL

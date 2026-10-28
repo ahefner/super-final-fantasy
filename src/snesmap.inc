@@ -2007,6 +2007,8 @@ RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
 RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
+DLG_ORB0        = 14              ; ...or the Black Orb's giving way, none lit (opt_orbgoal);
+                                  ;   +1 one lit, +2 two or three
 ;  The teleport tables the game reads (rando_entrdest, rando_teledest,
 ;  rando_exitdest), as bank $00 holds them: vanilla's, or placement's wiring
 ;  under entrance shuffle (es_tables).

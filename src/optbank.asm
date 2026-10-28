@@ -834,6 +834,12 @@ opt_titleleave:
 ;;  as FFR's does not: the orb stands on the one such tile until it gives way.
 ;;  DBR is the caller's, a game bank, so the orbs are plain absolute.  Out:
 ;;  A = 1 if so, 0 if not; Z from it.  By JSL, emulation mode; X and Y kept.
+;;
+;;  The orb giving way with fewer than four lit, the Goal waiving the rest,
+;;  its line says what the party carries (user, 2026-10-27: "has to be based
+;;  on the number of orbs carried"): RW_DLGNPC armed for rando_dlgtext, the
+;;  next line drawn being the one it gives way with.  All four lit, the
+;;  game's own line ("The four ORBS now cover"), so Vanilla is as it was.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 opt_orbgoal:
     PHX
@@ -853,10 +859,24 @@ opt_orbgoal:
 :   TXA                         ; the orbs lit...
     CLC
     ADC f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)   ; ...and those waived
+    CMP #GOAL_ORBS
+    BCC @short
+    CPX #4
+    BCS @enough                 ; all four: the game's line
+    TXA
+    CMP #2
+    BCC :+
+    LDA #2                      ; two or three: the plural
+:   CLC
+    ADC #DLG_ORB0
+    STA f:RW_DLGNPC
+  @enough:
     PLX
-    CMP #GOAL_ORBS              ; C set: enough
+    LDA #1
+    RTL
+  @short:
+    PLX
     LDA #0
-    ROL A
     RTL
 .assert GOAL_MODES = GOAL_ORBS + 1, error, "opt_orbgoal counts orbs only: a goal past them needs its own test"
 

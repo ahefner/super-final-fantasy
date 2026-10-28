@@ -1054,10 +1054,12 @@ def test_goal():
     #  The Black Orb, every orb lit or not under every goal.
     ORBS = [K[n] - 0x6000 for n in ("orb_fire", "orb_water", "orb_air", "orb_earth")]
     GF, SLOT = K["game_flags"] - 0x6000 + K["OBJID_BLACKORB"], K["mapobj_id"] - 0x6000 + 0x20
-    bad, opened = [], 0
+    bad, opened, armed = [], 0, []
+    DLGNPC, ORB0 = rw("RW_DLGNPC"), K["DLG_ORB0"]
     for g in range(K["GOAL_MODES"]):
         for lit in range(16):
             bus, cpu = machine()
+            bus.wram[DLGNPC] = 0
             s = bus.sram
             for i, a in enumerate(ORBS):
                 s[a] = lit >> i & 1
@@ -1073,7 +1075,43 @@ def test_goal():
             want = (0x21, 0, 0, 2) if gives else (0x22, 1, K["OBJID_BLACKORB"], 0)
             if got != want:
                 bad.append((g, lit, got))
+            n = bin(lit).count("1")
+            armed.append((g, lit, bus.wram[DLGNPC], ORB0 + min(n, 2) if gives and n < 4 else 0))
     check("the Black Orb: gives way, hidden, the treasure sound, exactly when lit + waived >= 4", bad[:4], [])
+    check("...its line armed by the orbs lit when it gives way short of four -- none, one, or more -- "
+          "and not with all four, the game's own (user, 2026-10-27)",
+          [a for a in armed if a[2] != a[3]][:4], [])
+
+    #  The line itself (rando_dlgtext): its first line by the orbs lit, the
+    #  rest the game's dialogue $21 from its first break, byte for byte,
+    #  within OPTDESC; drawn from OPTDESC, the mark spent, Y kept.
+    dlg = (0xA1 + K["BANK_DIALOGUE"]) & 0x1F
+    p21 = ROMDATA[dlg * 0x10000 + 0x8000 + 0x42] | ROMDATA[dlg * 0x10000 + 0x8001 + 0x42] << 8
+    line21 = bytes(ROMDATA[dlg * 0x10000 + p21:][:0x100])
+    line21 = line21[:line21.index(0) + 1]
+    brk = next(i for i, b in enumerate(line21) if b < 0x1A)
+    check("dialogue $21 is the game's: its first line 'The four ORBS now cover'",
+          bytes(line21[:brk]) == bytes([0x9D, 0xAB, 0x1A, 0xA9, 0x26, 0x44, 0x98, 0x9B, 0x8B, 0x9C, 0xFF,
+                                        0xB1, 0x46, 0x38, 0xB2, 0xB9, 0x25]), True)
+    OPT = K["OPTDESC"] - 0x6000
+    TEXT_PTR0 = TEXT_PTR
+    enc = lambda t: bytes(0xFF if c == " " else 0x80 + ord(c) - 48 if c.isdigit() else
+                          0x8A + ord(c) - 65 if c.isupper() else 0xA4 + ord(c) - 97 for c in t)
+    got = []
+    for k, first in enumerate(("You lay your hands upon", "The ORB now covers", "The ORBS now cover")):
+        bus, cpu = machine()
+        bus.sram[OPT:OPT + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[DLGNPC] = ORB0 + k
+        bus.wram[TEXT_PTR0], bus.wram[TEXT_PTR0 + 1] = p21 & 0xFF, p21 >> 8
+        cpu.dbr = 0xA1 + K["BANK_DIALOGUE"]
+        cpu.y = 0x5A
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        built = bytes(bus.sram[OPT:OPT + 0x50])
+        want = enc(first) + line21[brk:]
+        got.append((built[:len(want)] == want, len(want) <= 0x50, bus.wram[DLGNPC],
+                    bus.wram[TEXT_PTR0] | bus.wram[TEXT_PTR0 + 1] << 8, cpu.y & 0xFF))
+    check("...the orb's three lines: theirs first, then the game's rest, within OPTDESC; drawn from it, "
+          "the mark spent, Y kept", got, [(True, True, 0, K["OPTDESC"], 0x5A)] * 3)
     check("...both ways among the 80", 0 < opened < 80, True)
     fixed = 1 + 0x0F
     tblw = ROMDATA[fixed * 0x10000 + SYM["lut_SMMoveJmpTbl"] + 2 * 9:][:2]

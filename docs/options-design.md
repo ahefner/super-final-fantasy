@@ -1971,9 +1971,19 @@ steps and what the save means by them unchanged.  Built, not yet played.
 
   - **The Black Orb** (`orbgoal.patch`): its four-way AND becomes a call to
     `opt_orbgoal`, which counts the orbs lit, adds the Goal's waived and
-    asks for 4, byte-neutral.  Its lines are the game's: "The ORBS now
-    cover" reads well enough at 2 or 3; FFR rewords it for 1 and 0 ("The ORB
-    now covers", "You now approach") -- not done.
+    asks for 4, byte-neutral.  Its line when it gives way (dialogue $21)
+    begins "The four ORBS now cover", wrong when the Goal waives some.  FFR
+    rewords that first line by the Goal; here it goes by the orbs the party
+    carries (user, 2026-10-27: "You can't base the wording on the goal...
+    has to be based on the number of orbs carried"): two or three lit "The
+    ORBS now cover", one "The ORB now covers", none "You lay your hands upon"
+    (the user's, not FFR's "You now approach"); all four, the game's own
+    line, so Vanilla is unchanged.  `opt_orbgoal` arms `RW_DLGNPC`
+    (`DLG_ORB0` + 0, 1 or 2) as it says yes, and `rando_dlgtext`
+    (`rando_dlgorb`) builds the line in OPTDESC: the game's rest of $21 from
+    its first break, still DTE (55 bytes; written out it would not fit), then
+    the first line before it.  Built, not yet played; test_goal checks the
+    arming over every goal and lit set, and the three lines byte for byte.
   - **The tile beneath it** (`orbportal.patch`): TP_SPEC_4ORBS's entry in
     `lut_SMMoveJmpTbl` goes to `SMMove_HaveSpecialItem`, the fanfare and on,
     as FFR's `Remove4OrbRequirementForToFRPortal` does, unconditionally:
