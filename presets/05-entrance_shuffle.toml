@@ -5,8 +5,8 @@
 name = "Entrance Shuffle"
 inherit = "Beginner"
 description = """
-Beginner, with the dungeons' entrances shuffled, towns staying put,
-and the short Temple of Fiends Revisited.
+Beginner with dungeon entrances shuffled and the short Temple of Fiends
+Revisited. Towns stay put.
 """
 
 [settings]

@@ -10,8 +10,8 @@ name = "Improved Vanilla"
 title = "Improved"
 base = true
 description = """
-FFR's Improved Vanilla. The original game with quality of life, the
-bugfixes, and double gold and XP. Nothing is randomized.
+The original game with the quality of life and bugfix settings, and
+double gold and XP. Nothing is randomized.
 """
 
 [settings]

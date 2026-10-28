@@ -246,7 +246,14 @@ is removed from the game." (the user's); Other items lists the nine inline
 to the pool of key items. Treasure places it among the 234 loot chests." and
 Xcalber "Crafted from ADAMANT." before the same (the user's).  The item
 rows' shared Incentive and Loose texts stay as they were (user: there is a
-distinction between incentive and key item to think about).  
+distinction between incentive and key item to think about).  Batch 5, the
+New Game list: Custom Game "Starts from your current settings. Change them
+on the screens that follow."; the presets' descriptions (`presets/*.toml`)
+without "FFR's ..." and in full sentences -- Improved Vanilla, Beginner, the
+two shuffles, Chaos Rush (its gear incentives and short Temple dropped to
+fit), Free Enterprise (its short Temple dropped) and Oops All Loose (without
+"placed forward and spread out").  Vanilla, Classic and Floaterless as they
+were.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -357,8 +364,8 @@ levels; the generator's refusals.  Eight mutations, all caught.
 
 **Built 2026-10-21, not yet played.**  New Game on the title opens a list
 (`opt_newgamelist`): Custom Game, then the presets by name, the pane under
-it describing each -- Custom Game "the options as they stand, from the
-last game or the settings screen, to change on the screens that follow".
+it describing each -- Custom Game "Starts from your current settings.
+Change them on the screens that follow." (the text audit, 2026-10-27).
 A or START picks; B goes back to the title, which is rebuilt as after the
 settings screen.  A preset is written over the options as it is picked
 (`ngp_apply`) and stays written; Custom Game writes nothing.  The title

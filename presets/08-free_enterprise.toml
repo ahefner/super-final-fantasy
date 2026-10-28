@@ -6,8 +6,8 @@
 name = "Free Enterprise"
 inherit = "Beginner"
 description = """
-Beginner, wide. Vehicles free, more incentive spots and gear, no
-encounters, a casting item to start, the short ToFR.
+Beginner with Wide key items, incentive gear, free vehicles, no random
+battles, and a casting item to start.
 """
 
 [settings]

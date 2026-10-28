@@ -1048,11 +1048,10 @@ lut_Desc_91:  ; Early Ordeals
 .include "presetdesc.inc"       ; the presets' descriptions, and NGP_DESCLO/HI
 
 lut_DescCustom:  ; Custom Game
-  FFLINES 4
-  FFPAD {"The options as they stand,"}, 28
-  FFPAD {"from the last game or the"}, 28
-  FFPAD {"settings screen, to change"}, 28
-  FFPAD {"on the screens that follow."}, 28
+  FFLINES 3
+  FFPAD {"Starts from your current"}, 28
+  FFPAD {"settings. Change them on the"}, 28
+  FFPAD {"screens that follow."}, 28
 
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:

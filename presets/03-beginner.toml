@@ -4,8 +4,8 @@
 # dial is one rate.
 name = "Beginner"
 description = """
-FFR's Beginner. Shops, chests, magic and enemies shuffled, key items placed
-by the standard incentives, and the BRIDGE free.
+Shops, chests, magic, enemies and key items are shuffled, and the BRIDGE
+is free.
 """
 
 [settings]

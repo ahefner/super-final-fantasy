@@ -4,8 +4,8 @@
 name = "Chaos Rush"
 inherit = "Beginner"
 description = """
-No orbs needed, and Beginner made fast. Most vehicles and the LUTE free,
-gear incentives, 500% gold and XP, few fights, short ToFR.
+A fast Beginner. Chaos needs no orbs, most vehicles and the LUTE are
+free, gold and XP are 500%, and fights are few.
 """
 
 [settings]

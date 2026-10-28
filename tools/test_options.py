@@ -6563,7 +6563,7 @@ def test_ngscreen():
     check("...each name a cell in from the box's column, the hand two cells before it",
           (bus.wram[nt + 2], _decode(bus.wram[nt + 3]), bus.wram[oam + 3], bus.wram[oam] + 1),
           (0xFF, "C", 3 * 8 - 16, (1 + CUSTOM - bus.wram[TOP]) * 8))
-    check("...Custom Game described", " ".join(pane(bus)).startswith("The options as they stand"), True)
+    check("...Custom Game described", " ".join(pane(bus)).startswith("Starts from your current settings"), True)
     press(bus, cpu, UP)
     check("up from Custom Game: stays, the heading not a choice", bus.wram[SEL], CUSTOM)
     seen = []
