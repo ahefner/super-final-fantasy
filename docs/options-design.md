@@ -265,7 +265,8 @@ reward NPCs' lines (`dlgtext.inc`, FFR's): Bikke "Arrrr, you got me. / Take
 this and go."; Astos "HA, HA, HA! I am Astos! / I possess the [item] / Soon
 I'll have the CROWN!" -- both the user's, Astos's also the fix for his
 padded name before a full stop (`randomization-notes.md` §3).  The rest as
-FFR wrote them.  
+FFR wrote them.  Played 2026-10-28 in part (user: "partially verified the
+text audit"); Bikke's line seen, Astos's not yet.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -646,8 +647,8 @@ tests start a game without, it builds as before.  The menus' music ticks
 are off through the build (`MENU_TICKON`); the roll screen plays its own.
 
   - **No roll screen when nothing is randomized** (user, 2026-10-27:
-    "Skip the roll screen if nothing is randomized"; built, not yet
-    played).  `ng_build` asks `opt_needseed`, the same test that decides
+    "Skip the roll screen if nothing is randomized"; played
+    2026-10-28).  `ng_build` asks `opt_needseed`, the same test that decides
     whether the seed screen comes up, and passes the answer to
     `rando_build` in A.  With nothing randomized, `new_world` skips
     `DisableAPU` and `roll_begin`, and `rando_build` skips `roll_end`: the
@@ -697,7 +698,7 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     place), but would go back to the options.
   - **No stray note under the fanfare or the game over music** (user,
     2026-10-28: "stray notes on the pulse channels when the defeat music
-    starts"; built, not yet played).  The music driver keeps each pulse's
+    starts"; played 2026-10-28: "Seems like it's fixed").  The music driver keeps each pulse's
     next pitch until it writes it, the high bit of `ch_freq+1` clear until
     then.  While a sound effect holds pulse 2 (`sq2_sfx`) it doesn't write,
     so the title's next pulse 2 note waits.  The seed screen's A plays the
@@ -717,7 +718,7 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
   - **The Seed Summary** (user, 2026-10-27, from "a 'Seed Summary' screen
     after the seed select which lists the incentive locations"; layout and
     names approved from a mock-up; "Excluding unreachable places and NPCs
-    would be a nice touch"; built, not yet played).  `sumscreen.asm`, in
+    would be a nice touch"; played 2026-10-28).  `sumscreen.asm`, in
     the settings engine's chunk beside the seed screen, after the roll
     screen and before party creation, under Key items Standard or Wide
     (the flow asks `RW_PLACED`: with Key items Vanilla there is nothing to
@@ -1753,7 +1754,7 @@ zero, so plain gear is always possible.  Left takes the curse further
 down, to -5, and right back up to 0 -- the d-pad swapped on this row and the
 Goal's, whose numbers fall as their steps rise (user, 2026-10-27: a player
 "will expect it to default to 0 but press left rather than right to reduce
-it"; `opt_valdir`, built, not yet played).
+it"; `opt_valdir`; played 2026-10-28).
 
 Formation rarity (Off, Shuffle, Tiered) and Formation zones (Off, Shaken,
 Stirred, Random -- Light and Shuffle until the user renamed them, 2026-10-17,
