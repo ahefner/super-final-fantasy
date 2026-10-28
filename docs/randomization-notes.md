@@ -1489,7 +1489,7 @@ doors, `OverworldMap.ApplyMapEdits`), and Ship in Drydock moors every ship
 at Gaia, which the logic would have to sail from.  The row's All is still
 those eleven; the map edit screen offers all fourteen.
 
-**Built 2026-10-18, phase 2 (not yet played): the logic knows the edits.**
+**Built 2026-10-18, phase 2 (played 2026-10-28, user: "fairly confident on the map edits and validation logic"): the logic knows the edits.**
 Placement's logic is now the edited map's, for every edit, as FFR's is:
 
   - **One graph for every combination** (`worldgraph/edited.py`, from
@@ -1549,7 +1549,7 @@ land, a red patch at the top of the screen.  FFR's `QuickMiniMap` rebuilds
 the minimap's tiles and nametable from the edited map, and drops the dragons
 and the logo when there is no room.
 
-**Fixed 2026-10-18 (built, not yet played), with room, not dropping
+**Fixed 2026-10-18 (played 2026-10-28), with room, not dropping
 anything.**  None of the 88 lent tiles is a duplicate or blank, but the
 map's own blocks have twins: blocks no edit touches whose pictures are the
 same (`$1C`, `$6D` and `$B5`; `$62` and `$C3`; `$7D` and `$E9`).
@@ -1798,7 +1798,8 @@ the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
     960 shuffled worlds, eight settings in both modes, all winnable; at most
     six wirings tried for one.
 
-**On the cart (2026-10-14; built, not yet played).**  Its
+**On the cart (2026-10-14; played 2026-10-28: an Entrance and floor seed
+to near the end, winnable).**  Its
 own chunk, WORLD (`src/world.asm` including `src/entrance.inc`), with the
 graph's tables in LOGIC (`src/graphdata.inc`, from gengraph.py) and the PRNG
 lent by RANDO (`rando_belowfar`, `rando_warmfar`).  Each stage is held to the
@@ -2130,7 +2131,7 @@ no vanilla chest uses, an obvious place to draw from.
 
   5. **Preset overworld edits**, minimap fix first.  This needs the edits
      screen.
-  6. **Entrance and floor shuffle.**  *Built 2026-10-14, not yet played*
+  6. **Entrance and floor shuffle.**  *Built 2026-10-14, played 2026-10-28*
      (§9.3), ahead of 5: it needs no screen beyond its row.
 
 **Tier 4: alternate maps**, with the map-select screen.  Each map adds a

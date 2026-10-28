@@ -1413,7 +1413,7 @@ staves, and sweeps every weapon byte and all 256 names the same way: only
 the flagged staff moves.
 
 **NUKE Stick** (user, 2026-10-15; "stick" is the community's word for a
-staff, as "bonk" is for a gauntlet; built, not yet played) is the same
+staff, as "bonk" is for a gauntlet; played 2026-10-28) is the same
 idea for the Wizard Staff: used in battle it casts NUKE (spell `$3C`, byte
 `$3D`) instead of CONF, its equipment text says NUKE where it said CONF, and
 it is named "NUKE" and the staff's icon.  FFR has no flag of this name; a
@@ -1943,7 +1943,8 @@ differ in every one.
 
 ### Map shuffle
 
-**Built 2026-10-14; not yet played.**  FFR's Entrance Shuffle and Entrance
+**Built 2026-10-14; played 2026-10-28** (user: an Entrance and floor seed
+to near the end, placement held up, the seed winnable).  FFR's Entrance Shuffle and Entrance
 and Floor Shuffle as one row under Key items (user: three values, not two
 rows), saved with the game: Off; Entrances, every overworld dungeon and
 castle entrance leading into another's; Floors, the entrances and the
@@ -2086,7 +2087,7 @@ docks, Bridge to Lefein, Gaia Mountain Pass, Highway to Ordeals, River to
 Melmond and the Hiking Trail.  Not Sarda's Forest, which takes a way away,
 nor the Cardia Land Bridge, which moves Cardia's doors, nor Ship in
 Drydock, which leaves the ship useless: those three are the map edit
-screen's to tick (below).  Since 2026-10-18 (built, not yet played)
+screen's to tick (below).  Since 2026-10-18 (played 2026-10-28)
 placement's logic is the edited map's, every edit known to it, as FFR's is
 -- before, it was the vanilla map's, sound only because the eleven only
 open the map.  How it works is `randomization-notes.md` §9.1.
@@ -2118,14 +2119,14 @@ offers among them (user, 2026-10-18, for a first look before the New Game
 screen).  It edits only the map: the BRIDGE stays where the save built it.
 The minimap was wrong with it, by design of the minimap rather than the
 edits: Sarda's Forest and the Cardia Land Bridge put land in blocks whose
-tiles the logo borrowed.  Fixed 2026-10-18 (built, not yet played; user):
+tiles the logo borrowed.  Fixed 2026-10-18 (played 2026-10-28; user):
 those blocks have their tiles back and the logo's moved into twins' --
 `randomization-notes.md` §9.1.
 
 ### New Game's map edit screen
 
 **Built 2026-10-18; the menu judged good by the user and merged, the
-batch after it built, not yet played.**  A checkbox for each of FFR's
+batch after it played 2026-10-28 (user: "fairly confident on the map edits and validation logic").**  A checkbox for each of FFR's
 overworld edits -- thirteen since Ship in Drydock went (below) -- the
 world's minimap as they would make it, and a
 zoom of the selected edit in the game's dialog box frame (user: per-edit
@@ -2149,7 +2150,7 @@ thirteen winnable without a removal, both modes; `checkplace.py` loses no
 seed.  `test_winnable`'s screen sequence, which used Ship in Drydock as its
 red-and-back tick, now runs on the FLOATER removed, North Docks the edit
 that wins it, the SHIP removed for the other reason, and no removal for
-no check at all.  Built, not yet played.
+no check at all.  Played 2026-10-28.
 
 The user saw four layouts -- the minimap above a two-column
 grid or beside a single column, each with the zoom or without -- and chose
@@ -2175,14 +2176,14 @@ minimap, the title and description beside the zoom.
     long name in the left column, and in the side layout the minimap's edge
     (user: rather that than shorter names).  No control hints.  The
     settings screen's chirps: the move's on a move, the select's on a tick.
-  - **The unwinnable warning** (user, 2026-10-18; built, not yet played).
+  - **The unwinnable warning** (user, 2026-10-18; played 2026-10-28).
     START is not taken on edits that, with the rest of the settings, make a
     world that cannot be won: the description's place says why -- "This
     can't be won.  The AIRSHIP never rises." when the airship is never
     raised though the FLOATER is there, "The way to Chaos never opens."
     otherwise -- until a move puts the description back, or a check finds
     the edits winnable again (user, 2026-10-20: it stayed until the hand
-    moved; built, not yet played): `ows_rewarn`, at the end of every check,
+    moved; played 2026-10-28): `ows_rewarn`, at the end of every check,
     the fast path's included, puts the selected setting's description back
     if the warning is up (`V_WARNED`) and they can be won, and otherwise
     redraws the warning for the reason as it now is.  And a refused START
@@ -2231,7 +2232,7 @@ minimap, the title and description beside the zoom.
     a tick redrawing them, Select during a check, a move undoing it, Map
     shuffle's three lines, and the Vanilla screen without them.
   - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
-    built, not yet played): the backdrop, which the minimap's ocean and the
+    played 2026-10-28): the backdrop, which the minimap's ocean and the
     boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked
     again on every tick (`V_CHECK`, `ows_check`).  A check is a quarter of a
     second, so the screen goes on through it: each vblank `rando_yield`
