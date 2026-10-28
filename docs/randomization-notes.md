@@ -486,6 +486,13 @@ Two points to settle in the design:
     ("I have the #", dialogue `$12`).  FFR's run to ninety bytes; ours are
     cut to OPTDESC's eighty.  The King and the Canoe Sage have FFR's other
     line under Early King and Early Sage; Sarda's is one either way.
+    **2026-10-27 (user):** a name is drawn with its padding ("TNT    "),
+    and Astos's "I have the TNT    ." showed it, so every gift's name now
+    ends its line -- Astos's is "HA, HA, HA! I am Astos! / I possess the # /
+    Soon I'll have the CROWN!" (the user's choice), and test_rando_dialogue
+    checks the name ends its line and each line fits the box's 25 columns
+    (its inside is 3-28, the text from 4; FFR's keep to 24).  Bikke's is
+    "Arrrr, you got me. / Take this and go." (the user's).
 
 Two more, from the incentive rows (§12):
 

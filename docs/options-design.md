@@ -259,7 +259,12 @@ no airship required." (the user's); Lefein River "...without the AIRSHIP.";
 Lefein Bridge "...and Coneria's bridge becomes land."; Melmond River "A
 river connects Melmond to the Dwarf Cave." (the user's); Airship Trail
 "...without the CANOE."; the two warnings with one space after the full
-stop.  "Short ToFR" keeps its label (user: "FFR heads know").  
+stop.  "Short ToFR" keeps its label (user: "FFR heads know").  Batch 7, the
+reward NPCs' lines (`dlgtext.inc`, FFR's): Bikke "Arrrr, you got me. / Take
+this and go."; Astos "HA, HA, HA! I am Astos! / I possess the [item] / Soon
+I'll have the CROWN!" -- both the user's, Astos's also the fix for his
+padded name before a full stop (`randomization-notes.md` §3).  The rest as
+FFR wrote them.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the

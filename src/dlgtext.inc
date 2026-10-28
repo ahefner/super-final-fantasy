@@ -102,10 +102,10 @@ lut_Dlg1:   ; the Princess
   .BYTE DLG_NL
   FFTEXT "Please take it."
   DLGTEXT_END
-lut_Dlg2:   ; Bikke
-  FFTEXT "Okay, you got me."
+lut_Dlg2:   ; Bikke (user, 2026-10-27)
+  FFTEXT "Arrrr, you got me."
   .BYTE DLG_NL
-  FFTEXT "Take this."
+  FFTEXT "Take this and go."
   DLGTEXT_END
 lut_Dlg3:   ; the Elf Prince
   FFTEXT "Are you the LIGHT"
@@ -114,16 +114,15 @@ lut_Dlg3:   ; the Elf Prince
   .BYTE DLG_NL
   FFTEXT "says, I give you this."
   DLGTEXT_END
-lut_Dlg4:   ; Astos, who gives and then fights
+lut_Dlg4:   ; Astos, who gives and then fights (user, 2026-10-27)
+  ;  The item ends its line: a name is drawn with its padding (TNT is
+  ;  "TNT    "), and "I have the TNT    ." showed it.
   FFTEXT "HA, HA, HA! I am Astos!"
   .BYTE DLG_NL
-  FFTEXT "I have the "
+  FFTEXT "I possess the "
   .BYTE DLG_ITEM
-  FFTEXT "."
   .BYTE DLG_NL
-  FFTEXT "Now give me that"
-  .BYTE DLG_NL
-  FFTEXT "CROWN!!!"
+  FFTEXT "Soon I'll have the CROWN!"
   .BYTE $00
 lut_Dlg5:   ; Matoya
   FFTEXT "My CRYSTAL! I can see!"

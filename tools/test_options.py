@@ -3027,7 +3027,10 @@ def test_rando_dialogue():
              "SKY WARRIORS"]
     EARLY_WORDS = {0: (K["EARLY_KING"], "To aid you"),
                    9: (K["EARLY_SAGE"], "FIENDS are waking")}
-    BOX_COLS, BOX_LINES, NAME_MAX = 24, 6, 8      # FFR's own lines' limits
+    #  The box's inside runs from column 3 to 28 (DlgBoxPrep_UL/UR: the
+    #  borders at 2 and 29) and the text starts at 4, so a line holds 25 --
+    #  FFR's own lines keep to 24; Astos's last is 25 (user, 2026-10-27).
+    BOX_COLS, BOX_LINES, NAME_MAX = 25, 6, 8
 
     #  The hook: at the label, so the dialogue's two pointer lookups and Chest
     #  Information's direct entry all pass it.
@@ -3076,6 +3079,11 @@ def test_rando_dialogue():
             wide = max(len(r.replace("#", "")) + NAME_MAX * r.count("#") for r in rows)
             check(name + ": fits the box", (len(rows) <= BOX_LINES, wide <= BOX_COLS),
                   (True, True))
+            #  A name is drawn with its padding ("TNT    "), so nothing may
+            #  follow it on its line: Astos's "I have the TNT    ." did (user,
+            #  2026-10-27).
+            check(name + ": the gift's name ends its line",
+                  [r for r in rows if "#" in r and not r.endswith("#")], [])
             seen.add(text)
     #  Thirteen lines and two Early ones, all different.
     check("fifteen different lines", len(seen), 15)
