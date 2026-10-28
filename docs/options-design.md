@@ -224,7 +224,7 @@ sentences; RUSE Staff and NUKE Stick worded alike; Short ToFR without
 "it" and "both" are.  One space after a full stop throughout, every record
 re-wrapped with its words unchanged.  The row "Improve FIRE, LIT, ICE" is
 "Better FIRE, LIT, ICE" (the presets' files name it so).  Boss tactics'
-descriptions wait until the user settles the feature.  Batch 3, TREASURES
+descriptions left as they are.  Batch 3, TREASURES
 and RANDOMIZATION: Explorer Pack without "Most of FFR's presets"; Shops'
 Shuffle "...including the Caravan's BOTTLE." (the user's, "The Caravan stays
 open" dropped); Chests' Shuffle "The 234 treasure chests trade contents. Loose items may
@@ -245,8 +245,9 @@ is removed from the game." (the user's); Other items lists the nine inline
 (the font has no colon or brackets); the gear rows "Incentive adds this item
 to the pool of key items. Treasure places it among the 234 loot chests." and
 Xcalber "Crafted from ADAMANT." before the same (the user's).  The item
-rows' shared Incentive and Loose texts stay as they were (user: there is a
-distinction between incentive and key item to think about).  Batch 5, the
+rows' shared Incentive and Loose texts stay as they were.  The audit closed
+there (user, 2026-10-27: those two dropped from the list, to come back to
+if they bother the user).  Batch 5, the
 New Game list: Custom Game "Starts from your current settings. Change them
 on the screens that follow."; the presets' descriptions (`presets/*.toml`)
 without "FFR's ..." and in full sentences -- Improved Vanilla, Beginner, the
