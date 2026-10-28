@@ -211,7 +211,20 @@ land, the sea and dungeons; Elemental bonus "The original game adds 4.
 Requires Weapon Stats enabled." (the user's ending); Faster walking's
 grammar; Run becomes Wait says the character waits; Lefein SuperStore "sells
 every spell except those from nearby Gaia" (the user's).  The other rows of
-those sections were left as they were.
+those sections were left as they were.  Batch 2, BUGFIXES and VARIATIONS:
+House MP and HP fix without its "which the save then records"; Weapon stats
+"Fixes weapon critical hit rates, elements, and creature bonuses to work as
+advertised." (the user's); Thief and Ninja hit% in plain sentences; Thief
+lockpicking "...can open locked doors without the KEY." (the user's, its
+Off sentence dropped); Double weapon crit "Requires Weapon Stats enabled.";
+White Mage HARM "HARM cast by a White Mage or Wizard hurts all monster
+types, not just undead." (the user's); TRANCE status element in two
+sentences; RUSE Staff and NUKE Stick worded alike; Short ToFR without
+"ToFR" (the locked door dropped to fit); Better Thief and Ninja says what
+"it" and "both" are.  One space after a full stop throughout, every record
+re-wrapped with its words unchanged.  The row "Improve FIRE, LIT, ICE" is
+"Better FIRE, LIT, ICE" (the presets' files name it so).  Boss tactics'
+descriptions wait until the user settles the feature.
 
 ### Text rendering
 

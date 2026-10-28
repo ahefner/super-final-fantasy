@@ -1936,9 +1936,11 @@ lut_OptRows:
   ;  against a row that draws twenty-two -- so HARM has never been on screen,
   ;  and no description mentions it either.  The cut lands on the comma and
   ;  reads cleanly, so the bytes now say what they draw and HARM stays in this
-  ;  comment.  Not one tile changes.
+  ;  comment.  Not one tile changes.  "Better FIRE, LIT, ICE" since the text
+  ;  audit (user, 2026-10-27): "Improve" read as an instruction, "Improved"
+  ;  is a column too long, and "Better" matches Better Thief and Ninja.
   .BYTE $01, $17   ; Improved Fire spells -- and HARM, which will not fit
-  OPTLABEL {"Improve FIRE, LIT, ICE"}
+  OPTLABEL {"Better FIRE, LIT, ICE"}
   .BYTE $01, $18   ; Cast Life in battle
   .BYTE $8C, $A4, $B6, $B7, $FF, $95, $AC, $A9, $A8, $FF
   .BYTE $AC, $B1, $FF, $A5, $A4, $B7, $B7, $AF, $A8, $FF

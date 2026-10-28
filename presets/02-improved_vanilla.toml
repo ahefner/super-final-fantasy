@@ -55,7 +55,7 @@ bugfixes, and double gold and XP. Nothing is randomized.
 "Thief lockpicking" = "Off"
 "Double weapon crit" = false
 "Improved CURE and HEAL" = false
-"Improve FIRE, LIT, ICE" = false
+"Better FIRE, LIT, ICE" = false
 "Cast Life in battle" = false
 "SOFT in battle" = false
 "White Mage HARM" = false

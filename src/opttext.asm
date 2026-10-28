@@ -126,19 +126,17 @@ lut_Desc_17:  ; NPC guillotine
   FFPAD {"removes it from the map."}, 28
 
 lut_Desc_18:  ; House restoration
-  FFLINES 4
-  FFPAD {"HOUSEs restore all HP, not"}, 28
-  FFPAD {"120, and restore MP whether"}, 28
-  FFPAD {"or not you save -- which the"}, 28
-  FFPAD {"save then records."}, 28
+  FFLINES 3
+  FFPAD {"HOUSEs restore all HP"}, 28
+  FFPAD {"instead of 120, and restore"}, 28
+  FFPAD {"MP whether or not you save."}, 28
 
 lut_Desc_19:  ; Weapon stats
-  FFLINES 5
-  FFPAD {"Fixes critical hit rates,"}, 28
-  FFPAD {"which vanilla reads from a"}, 28
-  FFPAD {"weapon's place in the list,"}, 28
-  FFPAD {"and elemental and creature"}, 28
-  FFPAD {"bonuses that never applied."}, 28
+  FFLINES 4
+  FFPAD {"Fixes weapon critical hit"}, 28
+  FFPAD {"rates, elements, and"}, 28
+  FFPAD {"creature bonuses to work as"}, 28
+  FFPAD {"advertised."}, 28
 
 lut_Desc_20:  ; Spell fixes
   FFLINES 3
@@ -178,19 +176,18 @@ lut_Desc_25:  ; Boss stats
   FFPAD {"thirteen bosses."}, 28
 
 lut_Desc_26:  ; Better Thief and Ninja
-  FFLINES 4
+  FFLINES 5
   FFPAD {"The Thief starts with 80"}, 28
-  FFPAD {"agility, not 10, and gains"}, 28
-  FFPAD {"it every level, not one in"}, 28
-  FFPAD {"four. A Ninja keeps both."}, 28
+  FFPAD {"agility instead of 10, and"}, 28
+  FFPAD {"gains agility every level"}, 28
+  FFPAD {"instead of one in four. The"}, 28
+  FFPAD {"Ninja keeps both."}, 28
 
 lut_Desc_27:  ; Double weapon crit
-  FFLINES 5
+  FFLINES 3
   FFPAD {"Doubles every weapon's"}, 28
-  FFPAD {"critical hit rate.  Needs"}, 28
-  FFPAD {"Weapon Stats, without which"}, 28
-  FFPAD {"the game never reads that"}, 28
-  FFPAD {"number at all."}, 28
+  FFPAD {"critical hit rate. Requires"}, 28
+  FFPAD {"Weapon Stats enabled."}, 28
 
 lut_Desc_28:  ; Elemental bonus
   FFLINES 5
@@ -204,7 +201,7 @@ lut_Desc_29:  ; Improved Cure spells
   FFLINES 4
   FFPAD {"CUREs restore twice as much"}, 28
   FFPAD {"and HEALs cover a wider"}, 28
-  FFPAD {"range.  LAMP and AMUT also"}, 28
+  FFPAD {"range. LAMP and AMUT also"}, 28
   FFPAD {"cure paralysis."}, 28
 
 lut_Desc_30:  ; Improved Fire spells
@@ -222,56 +219,54 @@ lut_Desc_63:  ; SOFT in battle
   FFPAD {"potion."}, 28
 
 lut_Desc_64:  ; White Mage HARM
-  FFLINES 5
-  FFPAD {"A White Mage's or Wizard's"}, 28
-  FFPAD {"HARM spells hurt anything,"}, 28
-  FFPAD {"not only the undead, though"}, 28
-  FFPAD {"the living almost never take"}, 28
-  FFPAD {"double."}, 28
+  FFLINES 3
+  FFPAD {"HARM cast by a White Mage or"}, 28
+  FFPAD {"Wizard hurts all monster"}, 28
+  FFPAD {"types, not just undead."}, 28
 
 lut_Desc_65:  ; Run chance fix
   FFLINES 5
   FFPAD {"Running away weighs luck"}, 28
   FFPAD {"against the runner's level,"}, 28
-  FFPAD {"as the game meant to.  The"}, 28
+  FFPAD {"as the game meant to. The"}, 28
   FFPAD {"original read a stray byte"}, 28
   FFPAD {"instead."}, 28
 
 lut_Desc_66:  ; Turn order fix
   FFLINES 5
   FFPAD {"Each round's turn order is"}, 28
-  FFPAD {"shuffled fairly.  The"}, 28
+  FFPAD {"shuffled fairly. The"}, 28
   FFPAD {"original's swaps left a"}, 28
   FFPAD {"party member last in over"}, 28
   FFPAD {"half the rounds."}, 28
 
 lut_Desc_67:  ; TRANCE status element
   FFLINES 4
-  FFPAD {"TRANCE, the enemy skill that"}, 28
-  FFPAD {"paralyzes the whole party,"}, 28
-  FFPAD {"has the status element, so a"}, 28
+  FFPAD {"TRANCE paralyzes the whole"}, 28
+  FFPAD {"party. With this on, it has"}, 28
+  FFPAD {"the status element, so a"}, 28
   FFPAD {"Ribbon resists it."}, 28
 
 lut_Desc_97:  ; NUKE Stick
   FFLINES 4
   FFPAD {"The Wizard Staff becomes the"}, 28
-  FFPAD {"NUKE Stick, casting NUKE"}, 28
-  FFPAD {"when used in battle instead"}, 28
-  FFPAD {"of CONF."}, 28
+  FFPAD {"NUKE Stick. Used in battle,"}, 28
+  FFPAD {"it casts NUKE instead of"}, 28
+  FFPAD {"CONF."}, 28
 
 lut_Desc_102:  ; Short ToFR
   FFLINES 5
   FFPAD {"The Black Orb leads straight"}, 28
-  FFPAD {"to Chaos's floor, ToFR's"}, 28
-  FFPAD {"seven chests by the landing,"}, 28
-  FFPAD {"past the LUTE plate a locked"}, 28
-  FFPAD {"door and the four fiends."}, 28
+  FFPAD {"to Chaos's floor. Seven"}, 28
+  FFPAD {"chests wait by the landing,"}, 28
+  FFPAD {"and the four fiends past the"}, 28
+  FFPAD {"LUTE plate."}, 28
 
 lut_Desc_95:  ; RUSE Staff
   FFLINES 4
   FFPAD {"The Power Staff becomes the"}, 28
-  FFPAD {"Ruse Staff, casting RUSE"}, 28
-  FFPAD {"when used in battle like the"}, 28
+  FFPAD {"RUSE Staff. Used in battle,"}, 28
+  FFPAD {"it casts RUSE, like the"}, 28
   FFPAD {"Defense sword."}, 28
 
 lut_Desc_96:  ; Boss tactics, by value
@@ -336,22 +331,22 @@ lut_Desc_32:  ; LOK2 accuracy
 lut_Desc_33:  ; TREASURES
   FFLINES 3
   FFPAD {"Changes what a new game"}, 28
-  FFPAD {"starts out with.  Saved"}, 28
-  FFPAD {"games are not affected."}, 28
+  FFPAD {"starts out with. Saved games"}, 28
+  FFPAD {"are not affected."}, 28
 
 lut_Desc_100:  ; Item magic
   FFLINES 4
   FFPAD {"Each item that casts a spell"}, 28
   FFPAD {"casts another, and is named"}, 28
-  FFPAD {"for it.  Balanced leaves out"}, 28
+  FFPAD {"for it. Balanced leaves out"}, 28
   FFPAD {"the strongest and weakest."}, 28
 
 lut_Desc_99:  ; Thief lockpicking
   FFLINES 4
   FFPAD {"A Thief or Ninja at this"}, 28
-  FFPAD {"level or above opens locked"}, 28
-  FFPAD {"doors without the KEY.  Off,"}, 28
-  FFPAD {"only the KEY does."}, 28
+  FFPAD {"level or above can open"}, 28
+  FFPAD {"locked doors without the"}, 28
+  FFPAD {"KEY."}, 28
 
 lut_Desc_98:  ; Starting caster item
   FFLINES 4
@@ -390,7 +385,7 @@ lut_Desc_62_4:  ; Explorer Pack
   FFLINES 4
   FFPAD {"Explorer Pack gives 10"}, 28
   FFPAD {"TENTs, 50 HEALs, 4 PUREs and"}, 28
-  FFPAD {"2 SOFTs.  Most of FFR's"}, 28
+  FFPAD {"2 SOFTs. Most of FFR's"}, 28
   FFPAD {"presets start with this one."}, 28
 
 lut_Desc_62_5:  ; Real Estate
@@ -419,11 +414,11 @@ lut_Desc_62_8:  ; Duckling Boon
 
 lut_Desc_46:  ; Thief and Ninja hit%
   FFLINES 5
-  FFPAD {"Hit% the Thief and the Ninja"}, 28
-  FFPAD {"gain each level.  +2 is the"}, 28
-  FFPAD {"original, +3 the Fighter's,"}, 28
-  FFPAD {"+4 twice the original.  Not"}, 28
-  FFPAD {"the agility buff above."}, 28
+  FFPAD {"How much hit% the Thief and"}, 28
+  FFPAD {"Ninja gain each level. The"}, 28
+  FFPAD {"original is +2, the Fighter"}, 28
+  FFPAD {"gets +3, and +4 doubles the"}, 28
+  FFPAD {"original."}, 28
 
 lut_Desc_45:  ; SCALE
   FFLINES 3
@@ -501,9 +496,9 @@ lut_Desc_44:  ; Free ROD
 lut_Desc_47:  ; RANDOMIZATION
   FFLINES 4
   FFPAD {"Randomizes the next new"}, 28
-  FFPAD {"game.  A saved game keeps"}, 28
-  FFPAD {"the world it was started"}, 28
-  FFPAD {"with, whatever is set here."}, 28
+  FFPAD {"game. A saved game keeps the"}, 28
+  FFPAD {"world it was started with,"}, 28
+  FFPAD {"whatever is set here."}, 28
 
 ;  The RANDOMIZATION rows describe the value they are set to, one record each.
 ;  Each table is checked against its row's value count, so a value added
@@ -541,9 +536,9 @@ lut_Desc_48_4:  ; Trap tiles: A+B
   FFLINES 5
   FFPAD {"Each trap tile springs a"}, 28
   FFPAD {"fight drawn from every"}, 28
-  FFPAD {"regular formation, A-side"}, 28
-  FFPAD {"or B-side.  No two traps"}, 28
-  FFPAD {"share one."}, 28
+  FFPAD {"regular formation, A-side or"}, 28
+  FFPAD {"B-side. No two traps share"}, 28
+  FFPAD {"one."}, 28
 
 lut_Desc_49:  ; Shops, by value
   .BYTE DESC_BYVALUE
@@ -560,8 +555,8 @@ lut_Desc_49_1:  ; Shops: Shuffle
   FFPAD {"Weapons, armor and items are"}, 28
   FFPAD {"dealt out again among shops"}, 28
   FFPAD {"of their kind, the Caravan's"}, 28
-  FFPAD {"BOTTLE included.  The"}, 28
-  FFPAD {"Caravan stays open."}, 28
+  FFPAD {"BOTTLE included. The Caravan"}, 28
+  FFPAD {"stays open."}, 28
 
 lut_Desc_50:  ; Chests, by value
   .BYTE DESC_BYVALUE
@@ -572,7 +567,7 @@ lut_Desc_50_0:  ; Chests: Off
   FFLINES 5
   FFPAD {"Every chest holds what it"}, 28
   FFPAD {"always has -- unless Key"}, 28
-  FFPAD {"items moves things.  Then"}, 28
+  FFPAD {"items moves things. Then"}, 28
   FFPAD {"what they push out fills the"}, 28
   FFPAD {"places they left."}, 28
 
@@ -590,7 +585,7 @@ lut_Desc_51_1:  ; Magic levels: Shuffle
   FFLINES 5
   FFPAD {"White spells trade levels"}, 28
   FFPAD {"with white ones, and black"}, 28
-  FFPAD {"with black.  A spell costs,"}, 28
+  FFPAD {"with black. A spell costs,"}, 28
   FFPAD {"sells and is learned at the"}, 28
   FFPAD {"level it lands on."}, 28
 
@@ -599,16 +594,16 @@ lut_Desc_52:  ; Max gear blessing
   FFPAD {"Every weapon and armor rolls"}, 28
   FFPAD {"a bonus between the curse"}, 28
   FFPAD {"below and this, shown in its"}, 28
-  FFPAD {"name.  On a weapon, each +1"}, 28
+  FFPAD {"name. On a weapon, each +1"}, 28
   FFPAD {"is 3 hit, 2 damage, 3 crit."}, 28
 
 lut_Desc_53:  ; Min gear curse
   FFLINES 5
   FFPAD {"The worst a piece of gear"}, 28
-  FFPAD {"may roll.  On armor, each +1"}, 28
+  FFPAD {"may roll. On armor, each +1"}, 28
   FFPAD {"is 1 absorb and 1 less evade"}, 28
   FFPAD {"penalty, twice that on body"}, 28
-  FFPAD {"armor.  Each -1 takes away."}, 28
+  FFPAD {"armor. Each -1 takes away."}, 28
 
 lut_Desc_54:  ; Formation rarity, by value
   .BYTE DESC_BYVALUE
@@ -625,14 +620,14 @@ lut_Desc_54_1:  ; Formation rarity: Shuffle
   FFPAD {"Each zone's fights trade"}, 28
   FFPAD {"places, so a common fight"}, 28
   FFPAD {"can turn rare and a rare one"}, 28
-  FFPAD {"common.  Every zone keeps"}, 28
-  FFPAD {"the fights it had."}, 28
+  FFPAD {"common. Every zone keeps the"}, 28
+  FFPAD {"fights it had."}, 28
 
 lut_Desc_54_2:  ; Formation rarity: Tiered
   FFLINES 5
   FFPAD {"Each zone's fights trade"}, 28
   FFPAD {"places, mostly with fights"}, 28
-  FFPAD {"about as common.  A common"}, 28
+  FFPAD {"about as common. A common"}, 28
   FFPAD {"one seldom turns rare, or a"}, 28
   FFPAD {"rare one common."}, 28
 
@@ -651,7 +646,7 @@ lut_Desc_55_1:  ; Formation zones: Shaken (ZONES_LIGHT)
   FFPAD {"Four slots in each zone"}, 28
   FFPAD {"trade with other zones, so"}, 28
   FFPAD {"zones stay recognizable with"}, 28
-  FFPAD {"a few strangers.  Coneria's"}, 28
+  FFPAD {"a few strangers. Coneria's"}, 28
   FFPAD {"land and WarMECH stay put."}, 28
 
 lut_Desc_55_2:  ; Formation zones: Stirred (ZONES_SHUFFLE)
@@ -659,7 +654,7 @@ lut_Desc_55_2:  ; Formation zones: Stirred (ZONES_SHUFFLE)
   FFPAD {"Fights move between zones,"}, 28
   FFPAD {"dungeon floors and overworld"}, 28
   FFPAD {"alike, each as common as it"}, 28
-  FFPAD {"was.  Coneria's land and"}, 28
+  FFPAD {"was. Coneria's land and"}, 28
   FFPAD {"WarMECH stay where they are."}, 28
 
 lut_Desc_55_3:  ; Formation zones: Random
@@ -685,7 +680,7 @@ lut_Desc_56_1:  ; Unrunnable fights: Shuffle
   FFPAD {"As many fights as before"}, 28
   FFPAD {"cannot be run from, but"}, 28
   FFPAD {"which ones is dealt anew,"}, 28
-  FFPAD {"each side on its own.  The"}, 28
+  FFPAD {"each side on its own. The"}, 28
   FFPAD {"bosses stay as they are."}, 28
 
 lut_Desc_57:  ; Surprise rates, by value
@@ -703,7 +698,7 @@ lut_Desc_57_1:  ; Surprise rates: Shuffle
   FFPAD {"How likely each fight is to"}, 28
   FFPAD {"ambush you, and you it, is"}, 28
   FFPAD {"dealt out again among the"}, 28
-  FFPAD {"fights.  One you cannot run"}, 28
+  FFPAD {"fights. One you cannot run"}, 28
   FFPAD {"from never ambushes."}, 28
 
 lut_Desc_58:  ; Status attacks, by value
@@ -737,8 +732,8 @@ lut_Desc_59_1:  ; Enemy scripts: Enemies
   FFLINES 5
   FFPAD {"Normal enemies trade their"}, 28
   FFPAD {"spell and skill lists, so"}, 28
-  FFPAD {"one that never cast may,"}, 28
-  FFPAD {"and a caster may not.  The"}, 28
+  FFPAD {"one that never cast may, and"}, 28
+  FFPAD {"a caster may not. The"}, 28
   FFPAD {"pirates keep theirs."}, 28
 
 lut_Desc_59_2:  ; Enemy scripts: Bosses
@@ -771,23 +766,23 @@ lut_Desc_60_1:  ; Enemy skills: Enemies
   FFPAD {"The spells and skills in"}, 28
   FFPAD {"normal enemies' lists are"}, 28
   FFPAD {"dealt out again, and how"}, 28
-  FFPAD {"often each casts.  Never"}, 28
-  FFPAD {"two NUKEs in a row."}, 28
+  FFPAD {"often each casts. Never two"}, 28
+  FFPAD {"NUKEs in a row."}, 28
 
 lut_Desc_60_2:  ; Enemy skills: Bosses
   FFLINES 5
   FFPAD {"The same among the fiends'"}, 28
   FFPAD {"lists, and among WarMECH's,"}, 28
   FFPAD {"the Temple fiends' and"}, 28
-  FFPAD {"Chaos's.  Never two NUKEs"}, 28
-  FFPAD {"or NUCLEARs in a row."}, 28
+  FFPAD {"Chaos's. Never two NUKEs or"}, 28
+  FFPAD {"NUCLEARs in a row."}, 28
 
 lut_Desc_60_3:  ; Enemy skills: Both
   FFLINES 5
   FFPAD {"Spells and skills dealt out"}, 28
   FFPAD {"again among normal enemies,"}, 28
   FFPAD {"among the fiends, and among"}, 28
-  FFPAD {"the last bosses.  Never two"}, 28
+  FFPAD {"the last bosses. Never two"}, 28
   FFPAD {"NUKEs or NUCLEARs in a row."}, 28
 
 lut_Desc_71:  ; Ordeals pillars, by value
@@ -805,7 +800,7 @@ lut_Desc_71_1:  ; Ordeals pillars: Shuffle
   FFLINES 4
   FFPAD {"The teleporting pillars in"}, 28
   FFPAD {"the Castle of Ordeals go to"}, 28
-  FFPAD {"new places.  There is always"}, 28
+  FFPAD {"new places. There is always"}, 28
   FFPAD {"a way through."}, 28
 
 lut_Desc_61:  ; RNG tables, by value
@@ -823,14 +818,14 @@ lut_Desc_61_1:  ; RNG tables: Shuffle
   FFPAD {"The tables that decide when"}, 28
   FFPAD {"fights come, and which, and"}, 28
   FFPAD {"how battle rolls go, are"}, 28
-  FFPAD {"shuffled.  The odds stay the"}, 28
+  FFPAD {"shuffled. The odds stay the"}, 28
   FFPAD {"same, the order does not."}, 28
 
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 5
   FFPAD {"The 234 chests that hold no"}, 28
   FFPAD {"key item trade contents, and"}, 28
-  FFPAD {"the seven keep theirs.  If"}, 28
+  FFPAD {"the seven keep theirs. If"}, 28
   FFPAD {"Key items moves them, NPCs"}, 28
   FFPAD {"join the trade as well."}, 28
 
@@ -838,7 +833,7 @@ lut_Desc_50_1:  ; Chests: Shuffle
 lut_Desc_72:  ; KEY ITEMS
   FFLINES 4
   FFPAD {"Where the key items are, for"}, 28
-  FFPAD {"the next new game.  A saved"}, 28
+  FFPAD {"the next new game. A saved"}, 28
   FFPAD {"game keeps the placement it"}, 28
   FFPAD {"was started with."}, 28
 
@@ -850,13 +845,13 @@ lut_Desc_73:  ; Key items, by value
 lut_Desc_73_0:  ; Key items: Vanilla
   FFLINES 4
   FFPAD {"Key items stay where they"}, 28
-  FFPAD {"always are.  Of the rows"}, 28
+  FFPAD {"always are. Of the rows"}, 28
   FFPAD {"below, only Free and the"}, 28
   FFPAD {"Early ones change anything."}, 28
 
 lut_Desc_73_1:  ; Key items: Standard
   FFLINES 5
-  FFPAD {"Key items move.  Incentives"}, 28
+  FFPAD {"Key items move. Incentives"}, 28
   FFPAD {"go to the 13 NPCs who give"}, 28
   FFPAD {"one, the caravan and seven"}, 28
   FFPAD {"dungeon prize chests, as in"}, 28
@@ -885,15 +880,15 @@ lut_Desc_93_1:  ; Map shuffle: Entrances
   FFLINES 5
   FFPAD {"The overworld's dungeon and"}, 28
   FFPAD {"castle entrances lead into"}, 28
-  FFPAD {"other ones.  Towns stay put."}, 28
+  FFPAD {"other ones. Towns stay put."}, 28
   FFPAD {"Only with Key items Standard"}, 28
-  FFPAD {"or Wide.  FFR's."}, 28
+  FFPAD {"or Wide. FFR's."}, 28
 
 lut_Desc_93_2:  ; Map shuffle: Floors
   FFLINES 5
   FFPAD {"As Entrances, and the stairs"}, 28
   FFPAD {"and teleports inside lead to"}, 28
-  FFPAD {"other floors.  Only with Key"}, 28
+  FFPAD {"other floors. Only with Key"}, 28
   FFPAD {"items Standard or Wide."}, 28
   FFPAD {"FFR's."}, 28
 
@@ -928,7 +923,7 @@ lut_Desc_103_3:  ; Goal: 1 orb
 lut_Desc_103_4:  ; Goal: 0 orbs
   FFLINES 3
   FFPAD {"The black ORB gives way at"}, 28
-  FFPAD {"once.  Chaos needs only the"}, 28
+  FFPAD {"once. Chaos needs only the"}, 28
   FFPAD {"KEY and the LUTE."}, 28
 
 ;  Each item row by value: the first two shared, Free the item's own.
@@ -936,14 +931,14 @@ lut_DescItemInc:  ; an item row: Incentive
   FFLINES 4
   FFPAD {"Incentive puts it in one of"}, 28
   FFPAD {"the Key items spots, unless"}, 28
-  FFPAD {"they run out.  Under Vanilla"}, 28
+  FFPAD {"they run out. Under Vanilla"}, 28
   FFPAD {"it stays where it always is."}, 28
 
 lut_DescItemLoose:  ; an item row: Loose
   FFLINES 4
   FFPAD {"Loose puts it in any chest"}, 28
   FFPAD {"or with any NPC that gives"}, 28
-  FFPAD {"something.  Under Vanilla it"}, 28
+  FFPAD {"something. Under Vanilla it"}, 28
   FFPAD {"stays where it always is."}, 28
 
 lut_Desc_74:  ; SHIP, by value
@@ -958,14 +953,14 @@ lut_Desc_75:  ; AIRSHIP, by value
 
 lut_DescRemoveShip:  ; SHIP: Remove
   FFLINES 3
-  FFPAD {"There is no ship.  Where it"}, 28
+  FFPAD {"There is no ship. Where it"}, 28
   FFPAD {"would be found there is gold"}, 28
-  FFPAD {"instead.  Bikke keeps his."}, 28
+  FFPAD {"instead. Bikke keeps his."}, 28
 
 lut_DescRemoveFloater:  ; AIRSHIP: Remove, the FLOATER
   FFLINES 4
   FFPAD {"There is no FLOATER, so the"}, 28
-  FFPAD {"airship never rises.  Where"}, 28
+  FFPAD {"airship never rises. Where"}, 28
   FFPAD {"it would be found there is"}, 28
   FFPAD {"gold instead."}, 28
 
@@ -1033,7 +1028,7 @@ lut_Desc_86:  ; a gear row
 lut_Desc_87:  ; Xcalber
   FFLINES 5
   FFPAD {"The Smith's sword for the"}, 28
-  FFPAD {"ADAMANT.  Incentive puts it"}, 28
+  FFPAD {"ADAMANT. Incentive puts it"}, 28
   FFPAD {"in a Key items spot, and"}, 28
   FFPAD {"Treasure among the chests,"}, 28
   FFPAD {"once key items move."}, 28
