@@ -382,11 +382,10 @@ lut_Desc_62_3:  ; Just Tents
   FFPAD {"Just Tents gives 10 TENTs."}, 28
 
 lut_Desc_62_4:  ; Explorer Pack
-  FFLINES 4
+  FFLINES 3
   FFPAD {"Explorer Pack gives 10"}, 28
   FFPAD {"TENTs, 50 HEALs, 4 PUREs and"}, 28
-  FFPAD {"2 SOFTs. Most of FFR's"}, 28
-  FFPAD {"presets start with this one."}, 28
+  FFPAD {"2 SOFTs."}, 28
 
 lut_Desc_62_5:  ; Real Estate
   FFLINES 2
@@ -551,12 +550,11 @@ lut_Desc_49_0:  ; Shops: Off
   FFPAD {"always has."}, 28
 
 lut_Desc_49_1:  ; Shops: Shuffle
-  FFLINES 5
+  FFLINES 4
   FFPAD {"Weapons, armor and items are"}, 28
   FFPAD {"dealt out again among shops"}, 28
-  FFPAD {"of their kind, the Caravan's"}, 28
-  FFPAD {"BOTTLE included. The Caravan"}, 28
-  FFPAD {"stays open."}, 28
+  FFPAD {"of their kind, including the"}, 28
+  FFPAD {"Caravan's BOTTLE."}, 28
 
 lut_Desc_50:  ; Chests, by value
   .BYTE DESC_BYVALUE
@@ -591,19 +589,18 @@ lut_Desc_51_1:  ; Magic levels: Shuffle
 
 lut_Desc_52:  ; Max gear blessing
   FFLINES 5
-  FFPAD {"Every weapon and armor rolls"}, 28
-  FFPAD {"a bonus between the curse"}, 28
-  FFPAD {"below and this, shown in its"}, 28
-  FFPAD {"name. On a weapon, each +1"}, 28
-  FFPAD {"is 3 hit, 2 damage, 3 crit."}, 28
+  FFPAD {"Gear rolls a bonus between"}, 28
+  FFPAD {"the curse below and this,"}, 28
+  FFPAD {"shown in its name. Each +1"}, 28
+  FFPAD {"on a weapon adds 3 hit%, 2"}, 28
+  FFPAD {"damage and 3 crit."}, 28
 
 lut_Desc_53:  ; Min gear curse
-  FFLINES 5
-  FFPAD {"The worst a piece of gear"}, 28
-  FFPAD {"may roll. On armor, each +1"}, 28
-  FFPAD {"is 1 absorb and 1 less evade"}, 28
-  FFPAD {"penalty, twice that on body"}, 28
-  FFPAD {"armor. Each -1 takes away."}, 28
+  FFLINES 4
+  FFPAD {"The lowest penalty gear may"}, 28
+  FFPAD {"roll. Each point on armor is"}, 28
+  FFPAD {"worth 1 absorb and 1 evade,"}, 28
+  FFPAD {"or twice that on body armor."}, 28
 
 lut_Desc_54:  ; Formation rarity, by value
   .BYTE DESC_BYVALUE
@@ -661,9 +658,9 @@ lut_Desc_55_3:  ; Formation zones: Random
   FFLINES 5
   FFPAD {"Every zone's fights are"}, 28
   FFPAD {"drawn at random from all but"}, 28
-  FFPAD {"the bosses', B-sides the"}, 28
-  FFPAD {"game never uses included."}, 28
-  FFPAD {"The land by Coneria stays."}, 28
+  FFPAD {"the bosses', including"}, 28
+  FFPAD {"B-sides the game never used."}, 28
+  FFPAD {"Coneria is unmodified."}, 28
 
 lut_Desc_56:  ; Unrunnable fights, by value
   .BYTE DESC_BYVALUE
@@ -696,10 +693,10 @@ lut_Desc_57_0:  ; Surprise rates: Off
 lut_Desc_57_1:  ; Surprise rates: Shuffle
   FFLINES 5
   FFPAD {"How likely each fight is to"}, 28
-  FFPAD {"ambush you, and you it, is"}, 28
-  FFPAD {"dealt out again among the"}, 28
-  FFPAD {"fights. One you cannot run"}, 28
-  FFPAD {"from never ambushes."}, 28
+  FFPAD {"ambush you, or be ambushed,"}, 28
+  FFPAD {"is dealt out again among the"}, 28
+  FFPAD {"fights. Fights you cannot"}, 28
+  FFPAD {"run from never ambush."}, 28
 
 lut_Desc_58:  ; Status attacks, by value
   .BYTE DESC_BYVALUE
@@ -712,11 +709,10 @@ lut_Desc_58_0:  ; Status attacks: Off
   FFPAD {"it always does."}, 28
 
 lut_Desc_58_1:  ; Status attacks: Shuffle
-  FFLINES 4
-  FFPAD {"Enemies trade touches, the"}, 28
-  FFPAD {"ailment and its element"}, 28
-  FFPAD {"together, bosses included."}, 28
-  FFPAD {"The pirates keep theirs."}, 28
+  FFLINES 3
+  FFPAD {"Enemies trade touch effects,"}, 28
+  FFPAD {"bosses included. Pirates are"}, 28
+  FFPAD {"unmodified."}, 28
 
 lut_Desc_59:  ; Enemy scripts, by value
   .BYTE DESC_BYVALUE
@@ -764,18 +760,17 @@ lut_Desc_60_0:  ; Enemy skills: Off
 lut_Desc_60_1:  ; Enemy skills: Enemies
   FFLINES 5
   FFPAD {"The spells and skills in"}, 28
-  FFPAD {"normal enemies' lists are"}, 28
-  FFPAD {"dealt out again, and how"}, 28
-  FFPAD {"often each casts. Never two"}, 28
-  FFPAD {"NUKEs in a row."}, 28
+  FFPAD {"normal enemies' lists, and"}, 28
+  FFPAD {"how often each is cast, are"}, 28
+  FFPAD {"dealt out again. No list"}, 28
+  FFPAD {"gets two NUKEs in a row."}, 28
 
 lut_Desc_60_2:  ; Enemy skills: Bosses
-  FFLINES 5
-  FFPAD {"The same among the fiends'"}, 28
-  FFPAD {"lists, and among WarMECH's,"}, 28
-  FFPAD {"the Temple fiends' and"}, 28
-  FFPAD {"Chaos's. Never two NUKEs or"}, 28
-  FFPAD {"NUCLEARs in a row."}, 28
+  FFLINES 4
+  FFPAD {"Spells and skills are"}, 28
+  FFPAD {"shuffled among the fiends,"}, 28
+  FFPAD {"WarMECH, and CHAOS. No"}, 28
+  FFPAD {"consecutive NUKE or NUCLEAR."}, 28
 
 lut_Desc_60_3:  ; Enemy skills: Both
   FFLINES 5
@@ -823,11 +818,11 @@ lut_Desc_61_1:  ; RNG tables: Shuffle
 
 lut_Desc_50_1:  ; Chests: Shuffle
   FFLINES 5
-  FFPAD {"The 234 chests that hold no"}, 28
-  FFPAD {"key item trade contents, and"}, 28
-  FFPAD {"the seven keep theirs. If"}, 28
-  FFPAD {"Key items moves them, NPCs"}, 28
-  FFPAD {"join the trade as well."}, 28
+  FFPAD {"The 234 chests without a key"}, 28
+  FFPAD {"item trade contents. The"}, 28
+  FFPAD {"seven with one keep it. If"}, 28
+  FFPAD {"Key items moves key items,"}, 28
+  FFPAD {"NPC rewards join the trade."}, 28
 
 ;  The key item rows (randomization-notes.md section 12).
 lut_Desc_72:  ; KEY ITEMS

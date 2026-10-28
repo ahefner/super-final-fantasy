@@ -224,7 +224,20 @@ sentences; RUSE Staff and NUKE Stick worded alike; Short ToFR without
 "it" and "both" are.  One space after a full stop throughout, every record
 re-wrapped with its words unchanged.  The row "Improve FIRE, LIT, ICE" is
 "Better FIRE, LIT, ICE" (the presets' files name it so).  Boss tactics'
-descriptions wait until the user settles the feature.
+descriptions wait until the user settles the feature.  Batch 3, TREASURES
+and RANDOMIZATION: Explorer Pack without "Most of FFR's presets"; Shops'
+Shuffle "...including the Caravan's BOTTLE." (the user's, "The Caravan stays
+open" dropped); Chests' Shuffle says which seven and that NPC rewards join;
+Max gear blessing "adds 3 hit%, 2 damage and 3 crit"; Min gear curse "The
+lowest penalty gear may roll..." (the user's); Formation zones' Random
+"...the game never used. Coneria is unmodified." (the user's); Surprise
+rates' Shuffle without "and you it"; Status attacks' Shuffle "Enemies trade
+touch effects, bosses included. Pirates are unmodified." (the user's); Enemy
+skills' Enemies rearranged, and its Bosses "Spells and skills are shuffled
+among the fiends, WarMECH, and CHAOS. No consecutive NUKE or NUCLEAR." (the
+user's).  Chests' Off waits on the user: it keeps its treasure unless a key
+item lands in it, whose treasure goes to a place a key item left
+(deal_rewards).
 
 ### Text rendering
 
