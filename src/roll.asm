@@ -983,6 +983,18 @@ roll_fail:
     .i8
     LDA #0
     STA f:ROLL_ON               ; no more ticks: the frames are this loop's
+    ;  The roll's voices silenced first: the game over music writes only the
+    ;  channels it plays, and under it the tune's triangle, its counter held
+    ;  open, or the answer's pulse held the roll's last note (user,
+    ;  2026-10-28).  The triangle mutes at a zero counter, the pulse at
+    ;  volume 0, until the music writes them; both keyed off besides.
+    LDA #$30
+    STA a:APUSHADOW + 0         ; the answer's pulse: volume 0
+    LDA #$80
+    STA a:APUSHADOW + 8         ; the tune's triangle: its counter 0
+    LDA a:APUSHADOW + $15
+    AND #<~$05
+    STA a:APUSHADOW + $15
     LDA #TRACK_GAMEOVER
     STA music_track
     JSL hal_vblaudio + HALFAR   ; the top of a vblank, for the writes

@@ -12386,6 +12386,26 @@ def test_rando_build():
         ends.append(frames([0, button, 0, 0]))
     check("...on a throbbing roll screen, its colour math off", throbs, [0x20, 0] * 3)
     check("...B over, START over, Select not", ends, [2, 2, None])
+    #  The roll's voices silenced as the game over music is asked for: a
+    #  note held on the tune's triangle (its counter open, $FF) and the
+    #  answer's pulse rang on under it (user, 2026-10-28).
+    APU = K["APUSHADOW"]
+    bus, cpu = machine()
+    bus.ppu()
+    bus.frames()
+    cpu.run(ROLL_BANK, SYM["roll_begin"])
+    bus.wram[APU + 0], bus.wram[APU + 8], bus.wram[APU + 0x0A] = 0xBF, 0xFF, 0x80
+    bus.wram[APU + 0x15] |= 0x05
+    at_switch, write = [], bus.write
+
+    def w(bank, addr, val):
+        if addr == K["music_track"] and (bank & 0xFF) not in (0x7E, 0x7F) and val == K["TRACK_GAMEOVER"]:
+            at_switch.append((bus.wram[APU] & 0x0F, bus.wram[APU + 8] & 0x7F, bus.wram[APU + 0x15] & 0x05))
+        write(bank, addr, val)
+    bus.write = w
+    cpu.run(ROLL_BANK, SYM["roll_fail"], stop=UJ, limit=2_000_000)
+    check("...the roll's held notes silenced as the game over music is asked for: the pulse at volume 0, "
+          "the triangle's counter 0, both keyed off", at_switch, [(0, 0, 0)])
     #  L+X and L+Y reset from it, as from the menus: each frame the reset
     #  check (opt_padreset); a combo let go of, the PPU the HAL's, dark, and
     #  then the reset.

@@ -682,7 +682,11 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     fallback placement").  When Key items Standard or Wide places nothing,
     `rando_build` calls `roll_fail` instead of the cache and the fanfare.
     The roll stops; the backdrop turns the map edit screen's red
-    (`NESCOL_06`) and the game over track ($52) starts.  Under the sprite,
+    (`NESCOL_06`) and the game over track ($52) starts -- the roll's own
+    voices silenced first (2026-10-28, user: a note held into the music):
+    the answer's pulse to volume 0, the tune's triangle to a zero counter
+    ($4008 = $80; its open counter would sound on under a track that
+    leaves the triangle alone), both keyed off.  Under the sprite,
     which keeps walking, "Failed to roll a world" / "for this seed" appear
     in white, in the menu font, on BG3 (rows 23-24, centred).  `roll_begin`
     loads BG3's characters in forced blank (`roll_textload`: a blank, then
