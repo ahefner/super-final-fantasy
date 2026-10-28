@@ -13252,7 +13252,7 @@ def test_menudesc():
     cases += [(SHOPS, K["OPT_NG_SHOPS"], v, phrase) for v, phrase in enumerate((
                  "sells what it always has", "dealt out again"))]
     cases += [(CHESTS, K["OPT_NG_CHESTS"], v, phrase) for v, phrase in enumerate((
-                 "holds what it always has", "trade contents"))]
+                 "retain their vanilla treasure", "trade contents"))]
     cases += [(MAGIC, K["OPT_NG_MAGIC"], v, phrase) for v, phrase in enumerate((
                  "level it always is", "trade levels"))]
     cases += [(optrow("Starting items"), OPTBLOCK + OPT_STARTITEMS, v, phrase)
