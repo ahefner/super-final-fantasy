@@ -253,7 +253,13 @@ without "FFR's ..." and in full sentences -- Improved Vanilla, Beginner, the
 two shuffles, Chaos Rush (its gear incentives and short Temple dropped to
 fit), Free Enterprise (its short Temple dropped) and Oops All Loose (without
 "placed forward and spread out").  Vanilla, Classic and Floaterless as they
-were.  
+were.  Batch 6, the map edit screen's descriptions (`tools/genows.py`):
+Early Open "...to Crescent Lake."; Bahamut Dock "A dock on Bahamut's Island,
+no airship required." (the user's); Lefein River "...without the AIRSHIP.";
+Lefein Bridge "...and Coneria's bridge becomes land."; Melmond River "A
+river connects Melmond to the Dwarf Cave." (the user's); Airship Trail
+"...without the CANOE."; the two warnings with one space after the full
+stop.  "Short ToFR" keeps its label (user: "FFR heads know").  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the

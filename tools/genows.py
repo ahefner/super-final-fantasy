@@ -39,25 +39,25 @@ DESC_W, DESC_N = 20, 5          # the description's lines beside the zoom (owscr
 #  What each does, in the order of owedits.SETTINGS; the game's font has no
 #  colon or semicolon.
 DESCRIPTIONS = [
-    "Walk to the Dwarves, and canoe from Pravoka to Crescent.",
+    "Walk to the Dwarves, and canoe from Pravoka to Crescent Lake.",
     "Walk the Dwarf Cave's lands to Northwest Castle.",
     "Docks by Onrac and by the Mirage Tower.",
     "A dock by the Ryukahn Desert, where the AIRSHIP rises.",
-    "A dock on Bahamut's island, no AIRSHIP to his cave.",
-    "A river dock that reaches Lefein, no AIRSHIP.",
-    "The BRIDGE joins Pravoka and Lefein, Coneria's is land.",
+    "A dock on Bahamut's Island, no airship required.",
+    "A river dock that reaches Lefein without the AIRSHIP.",
+    "The BRIDGE joins Pravoka and Lefein, and Coneria's bridge becomes land.",
     "A pass through the mountains to Gaia from Lefein.",
     "Roads from Lefein to the desert, and on to Ordeals.",
-    "A river from the Dwarf Cave to Melmond, no CANAL.",
+    "A river connects Melmond to the Dwarf Cave.",
     "A forest hides Sarda, reached only through Titan's Tunnel.",
-    "Walk across the swamp to the AIRSHIP, no CANOE.",
+    "Walk across the swamp to the AIRSHIP without the CANOE.",
     "Land from Ordeals through Cardia to the Waterfall river.",
 ]
 #  The unwinnable warning's, by rando_winnable's reason: 0 anything, 1
 #  (WIN_AIRSHIP) the airship never raised though the FLOATER is there.
 WARNINGS = [
-    "This can't be won.  The way to Chaos never opens.",
-    "This can't be won.  The AIRSHIP never rises.",
+    "This can't be won. The way to Chaos never opens.",
+    "This can't be won. The AIRSHIP never rises.",
 ]
 OWS_SITES = 4
 CLUSTER = 6
