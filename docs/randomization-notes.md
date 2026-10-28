@@ -492,8 +492,8 @@ Two points to settle in the design:
     Soon I'll have the CROWN!" (the user's choice), and test_rando_dialogue
     checks the name ends its line and each line fits the box's 25 columns
     (its inside is 3-28, the text from 4; FFR's keep to 24).  Bikke's is
-    "Arrrr, you got me. / Take this and go." (the user's).  Bikke's played
-    2026-10-28; Astos's not yet.
+    "Arrrr, you got me. / Take this and go." (the user's).  Both played
+    2026-10-28.
 
 Two more, from the incentive rows (§12):
 

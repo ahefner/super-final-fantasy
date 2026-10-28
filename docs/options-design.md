@@ -266,7 +266,7 @@ this and go."; Astos "HA, HA, HA! I am Astos! / I possess the [item] / Soon
 I'll have the CROWN!" -- both the user's, Astos's also the fix for his
 padded name before a full stop (`randomization-notes.md` §3).  The rest as
 FFR wrote them.  Played 2026-10-28 in part (user: "partially verified the
-text audit"); Bikke's line seen, Astos's not yet.  
+text audit"); Bikke's and Astos's lines seen.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
