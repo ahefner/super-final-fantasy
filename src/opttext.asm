@@ -837,25 +837,24 @@ lut_Desc_73:  ; Key items, by value
 lut_Desc_73_0:  ; Key items: Vanilla
   FFLINES 4
   FFPAD {"Key items stay where they"}, 28
-  FFPAD {"always are. Of the rows"}, 28
-  FFPAD {"below, only Free and the"}, 28
-  FFPAD {"Early ones change anything."}, 28
+  FFPAD {"always are. Below, only"}, 28
+  FFPAD {"Goal, Free, Remove and the"}, 28
+  FFPAD {"Early rows still apply."}, 28
 
 lut_Desc_73_1:  ; Key items: Standard
-  FFLINES 5
+  FFLINES 4
   FFPAD {"Key items move. Incentives"}, 28
   FFPAD {"go to the 13 NPCs who give"}, 28
   FFPAD {"one, the caravan and seven"}, 28
-  FFPAD {"dungeon prize chests, as in"}, 28
-  FFPAD {"FFR's default."}, 28
+  FFPAD {"dungeon prize chests."}, 28
 
 lut_Desc_73_2:  ; Key items: Wide
   FFLINES 5
-  FFPAD {"As Standard, and four more"}, 28
-  FFPAD {"prize chests -- the Volcano,"}, 28
+  FFPAD {"As Standard, plus four more"}, 28
+  FFPAD {"prize chests in the Volcano,"}, 28
   FFPAD {"Marsh Cave's locked room,"}, 28
-  FFPAD {"Titan's Tunnel and Cardia --"}, 28
-  FFPAD {"Free Enterprise's 25 spots."}, 28
+  FFPAD {"Titan's Tunnel and Cardia."}, 28
+  FFPAD {"25 spots in all."}, 28
 
 lut_Desc_93:  ; Map shuffle, by value
   .BYTE DESC_BYVALUE
@@ -874,15 +873,14 @@ lut_Desc_93_1:  ; Map shuffle: Entrances
   FFPAD {"castle entrances lead into"}, 28
   FFPAD {"other ones. Towns stay put."}, 28
   FFPAD {"Only with Key items Standard"}, 28
-  FFPAD {"or Wide. FFR's."}, 28
+  FFPAD {"or Wide."}, 28
 
 lut_Desc_93_2:  ; Map shuffle: Floors
-  FFLINES 5
+  FFLINES 4
   FFPAD {"As Entrances, and the stairs"}, 28
   FFPAD {"and teleports inside lead to"}, 28
   FFPAD {"other floors. Only with Key"}, 28
   FFPAD {"items Standard or Wide."}, 28
-  FFPAD {"FFR's."}, 28
 
 lut_Desc_103:  ; Goal, by value
   .BYTE DESC_BYVALUE
@@ -944,10 +942,9 @@ lut_Desc_75:  ; AIRSHIP, by value
   .assert * - lut_Desc_75 = 1 + 2 * ITEMVEHICLE_MODES, error, "one AIRSHIP description per value"
 
 lut_DescRemoveShip:  ; SHIP: Remove
-  FFLINES 3
-  FFPAD {"There is no ship. Where it"}, 28
-  FFPAD {"would be found there is gold"}, 28
-  FFPAD {"instead. Bikke keeps his."}, 28
+  FFLINES 2
+  FFPAD {"The SHIP is removed from the"}, 28
+  FFPAD {"game."}, 28
 
 lut_DescRemoveFloater:  ; AIRSHIP: Remove, the FLOATER
   FFLINES 4
@@ -1003,27 +1000,26 @@ lut_Desc_84:  ; ROD, by value
 
 lut_Desc_85:  ; Other items
   FFLINES 5
-  FFPAD {"The other nine key items --"}, 28
-  FFPAD {"CRYSTAL, HERB, TNT, ADAMANT,"}, 28
-  FFPAD {"SLAB, RUBY, CUBE, BOTTLE and"}, 28
-  FFPAD {"OXYALE -- as an incentive or"}, 28
-  FFPAD {"loose, like the rows above."}, 28
+  FFPAD {"Sets CRYSTAL, HERB, TNT,"}, 28
+  FFPAD {"ADAMANT, SLAB, RUBY, CUBE,"}, 28
+  FFPAD {"BOTTLE and OXYALE to"}, 28
+  FFPAD {"Incentive or Loose, like the"}, 28
+  FFPAD {"rows above."}, 28
 
 lut_Desc_86:  ; a gear row
-  FFLINES 5
-  FFPAD {"Incentive puts this piece in"}, 28
-  FFPAD {"a Key items spot when key"}, 28
-  FFPAD {"items move, if one is left."}, 28
-  FFPAD {"Treasure leaves it to the"}, 28
-  FFPAD {"Chests row, like the rest."}, 28
+  FFLINES 4
+  FFPAD {"Incentive adds this item to"}, 28
+  FFPAD {"the pool of key items."}, 28
+  FFPAD {"Treasure places it among the"}, 28
+  FFPAD {"234 loot chests."}, 28
 
 lut_Desc_87:  ; Xcalber
   FFLINES 5
-  FFPAD {"The Smith's sword for the"}, 28
-  FFPAD {"ADAMANT. Incentive puts it"}, 28
-  FFPAD {"in a Key items spot, and"}, 28
-  FFPAD {"Treasure among the chests,"}, 28
-  FFPAD {"once key items move."}, 28
+  FFPAD {"Crafted from ADAMANT."}, 28
+  FFPAD {"Incentive adds this item to"}, 28
+  FFPAD {"the pool of key items."}, 28
+  FFPAD {"Treasure places it among the"}, 28
+  FFPAD {"234 loot chests."}, 28
 
 lut_Desc_88:  ; Early King
   FFLINES 3

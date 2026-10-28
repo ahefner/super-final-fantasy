@@ -237,7 +237,16 @@ rates' Shuffle without "and you it"; Status attacks' Shuffle "Enemies trade
 touch effects, bosses included. Pirates are unmodified." (the user's); Enemy
 skills' Enemies rearranged, and its Bosses "Spells and skills are shuffled
 among the fiends, WarMECH, and CHAOS. No consecutive NUKE or NUCLEAR." (the
-user's).  
+user's).  Batch 4, KEY ITEMS: Key items' Vanilla names what
+still applies under it (Goal, Free, Remove, the Early rows); Standard
+without "as in FFR's default", Wide without "--" and "Free Enterprise's";
+Map shuffle's Entrances and Floors without "FFR's."; SHIP's Remove "The SHIP
+is removed from the game." (the user's); Other items lists the nine inline
+(the font has no colon or brackets); the gear rows "Incentive adds this item
+to the pool of key items. Treasure places it among the 234 loot chests." and
+Xcalber "Crafted from ADAMANT." before the same (the user's).  The item
+rows' shared Incentive and Loose texts stay as they were (user: there is a
+distinction between incentive and key item to think about).  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
