@@ -682,11 +682,7 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     fallback placement").  When Key items Standard or Wide places nothing,
     `rando_build` calls `roll_fail` instead of the cache and the fanfare.
     The roll stops; the backdrop turns the map edit screen's red
-    (`NESCOL_06`) and the game over track ($52) starts -- the roll's own
-    voices silenced first (2026-10-28, user: a note held into the music):
-    the answer's pulse to volume 0, the tune's triangle to a zero counter
-    ($4008 = $80; its open counter would sound on under a track that
-    leaves the triangle alone), both keyed off.  Under the sprite,
+    (`NESCOL_06`) and the game over track ($52) starts.  Under the sprite,
     which keeps walking, "Failed to roll a world" / "for this seed" appear
     in white, in the menu font, on BG3 (rows 23-24, centred).  `roll_begin`
     loads BG3's characters in forced blank (`roll_textload`: a blank, then
@@ -699,6 +695,25 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
     music starts again, and the seed screen comes back with a fresh seed.
     Nothing randomized cannot fail (nothing to
     place), but would go back to the options.
+  - **No stray note under the fanfare or the game over music** (user,
+    2026-10-28: "stray notes on the pulse channels when the defeat music
+    starts"; built, not yet played).  The music driver keeps each pulse's
+    next pitch until it writes it, the high bit of `ch_freq+1` clear until
+    then.  While a sound effect holds pulse 2 (`sq2_sfx`) it doesn't write,
+    so the title's next pulse 2 note waits.  The seed screen's A plays the
+    select sound and the roll cuts the title off (`DisableAPU`), often with
+    a pitch waiting.  The fanfare and the game over track both open pulse 2
+    with a rest, and a rest leaves a pulse's pitch alone, so the driver
+    wrote the title's waiting pitch and it played through the rest, about
+    80 frames under the game over music.  `roll_begin` marks pulse 2's
+    pitch as written (`$80`); the new track's halt has left the channel at
+    period 0, silent, until its first note.  Pulse 1 opens on a note in
+    both tracks; the triangle's rest silences it (`$FF`).  The first fix
+    (82589ee) silenced the roll's own voices instead.  The driver's halt
+    already did that within a frame, so it was taken out.  Test:
+    test_rando_build, pulse 2 frame by frame under both tracks after the
+    title cut off that way, against a driver that never played; both
+    mutations caught.
   - **The Seed Summary** (user, 2026-10-27, from "a 'Seed Summary' screen
     after the seed select which lists the incentive locations"; layout and
     names approved from a mock-up; "Excluding unreachable places and NPCs
@@ -3732,7 +3747,7 @@ text region in the game references.
                              the overworld's edits 4375 -- every FFR list's
                              writes by row (4230, tools/genowedits.py) and
                              ow_edit
-    BANK_ROLL    9233 free  New Game's roll screen (7151): its code, and
+    BANK_ROLL    8843 free  New Game's roll screen (7541): its code, and
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their
                              reach (from tools/genroll.py)

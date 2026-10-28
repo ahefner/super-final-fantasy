@@ -12386,26 +12386,58 @@ def test_rando_build():
         ends.append(frames([0, button, 0, 0]))
     check("...on a throbbing roll screen, its colour math off", throbs, [0x20, 0] * 3)
     check("...B over, START over, Select not", ends, [2, 2, None])
-    #  The roll's voices silenced as the game over music is asked for: a
-    #  note held on the tune's triangle (its counter open, $FF) and the
-    #  answer's pulse rang on under it (user, 2026-10-28).
-    APU = K["APUSHADOW"]
-    bus, cpu = machine()
-    bus.ppu()
-    bus.frames()
-    cpu.run(ROLL_BANK, SYM["roll_begin"])
-    bus.wram[APU + 0], bus.wram[APU + 8], bus.wram[APU + 0x0A] = 0xBF, 0xFF, 0x80
-    bus.wram[APU + 0x15] |= 0x05
-    at_switch, write = [], bus.write
+    #  The fanfare and the game over music open pulse 2 with a rest, which
+    #  doesn't silence a pitch the driver has waiting; the title's music,
+    #  cut off by the roll as the select sound held pulse 2, left one, and
+    #  it sounded under them (user, 2026-10-28: "stray notes on the pulse
+    #  channels").  Pulse 2 as each frame's sound hands it to the HAL, after
+    #  a driver that never played and after the title cut off that way: the
+    #  same, through the game over music's first note there and the whole
+    #  fanfare.
+    APU, HVA, SQ2HI = K["APUSHADOW"], SYM["hal_vblaudio"], K["CHAN_SQ2"] + K["ch_freq"] + 1
+    waiting = []
 
-    def w(bank, addr, val):
-        if addr == K["music_track"] and (bank & 0xFF) not in (0x7E, 0x7F) and val == K["TRACK_GAMEOVER"]:
-            at_switch.append((bus.wram[APU] & 0x0F, bus.wram[APU + 8] & 0x7F, bus.wram[APU + 0x15] & 0x05))
-        write(bank, addr, val)
-    bus.write = w
-    cpu.run(ROLL_BANK, SYM["roll_fail"], stop=UJ, limit=2_000_000)
-    check("...the roll's held notes silenced as the game over music is asked for: the pulse at volume 0, "
-          "the triangle's counter 0, both keyed off", at_switch, [(0, 0, 0)])
+    def title(bus, cpu):
+        """The title's music, frame by frame until a pulse 2 note has just
+        begun, then the select sound: that note left waiting.  And the roll's
+        callers' DisableAPU."""
+        bus.wram[K["music_track"]] = K["TRACK_TITLE"]
+        bus.wram[K["cur_bank"]] = K["CHUNK_OPTMENU"]
+        pitch = lambda: (bus.wram[SQ2HI] < 0x80, (bus.wram[SQ2HI] & 7) << 8 | bus.wram[SQ2HI - 1] >= 8)
+        for _ in range(600):
+            call(cpu, "CallMusicPlay")
+            if bus.wram[K["music_track"]] == 0 and pitch() == (True, True):
+                break
+        call(cpu, "opt_sfx_sel")
+        waiting.append(pitch())
+        call(cpu, "DisableAPU")
+
+    def pulse2(before, name, frames):
+        bus, cpu = machine()
+        bus.frames()
+        before(bus, cpu)
+        cpu.run(ROLL_BANK, SYM["roll_begin"])
+        cpu.a, heard = 0, []
+        up = cpu.run(ROLL_BANK, SYM[name], stop=HVA, limit=2_000_000)
+        while up and len(heard) < frames:
+            a = bus.wram[APU:APU + 0x16]
+            period = a[6] | (a[7] & 7) << 8
+            heard.append(period if a[0x15] & 2 and a[4] & 0x0F and period >= 8 else None)
+            cpu.step()
+            for _ in range(2_000_000):
+                if cpu.pc in (HVA, 0xFFFE):
+                    break
+                cpu.step()
+            up = cpu.pc == HVA
+        return heard
+    fresh = lambda bus, cpu: None
+    over = (pulse2(fresh, "roll_fail", 90), pulse2(title, "roll_fail", 90))
+    fanfare = (pulse2(fresh, "roll_end", 400), pulse2(title, "roll_end", 400))
+    check("...the title cut off with a pulse 2 pitch waiting, one a pulse can sound", waiting, [(True, True)] * 2)
+    check("...pulse 2 under the game over music and the fanfare as from a driver that never played",
+          (over[1] == over[0], fanfare[1] == fanfare[0]), (True, True))
+    check("...the music's own pulse 2 heard: the game over's first note, the fanfare's",
+          (any(over[1]), any(fanfare[1]), len(fanfare[1]) < 400), (True, True, True))
     #  L+X and L+Y reset from it, as from the menus: each frame the reset
     #  check (opt_padreset); a combo let go of, the PPU the HAL's, dark, and
     #  then the reset.

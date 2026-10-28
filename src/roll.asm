@@ -111,6 +111,15 @@ roll_begin:
     PHK
     PLB                         ; this chunk's low half is the I/O map
     SEP #$30
+    ;  The title's music stops here, mid-tune, and can leave pulse 2 a
+    ;  pitch it has not played yet -- held back while the select sound that
+    ;  started the roll has the channel.  The fanfare and the game over
+    ;  music both open pulse 2 with a rest, and a rest doesn't silence the
+    ;  pitch the driver has waiting, so the title's sounded under them
+    ;  (user, 2026-10-28: "stray notes on the pulse channels").  Marked as
+    ;  played, it never sounds; the new tune's halt has the channel silent.
+    LDA #$80
+    STA CHAN_SQ2 + ch_freq + 1
     ;  The top of a vblank to go dark at, so nothing of the title tears.
     JSL hal_vblaudio + HALFAR
     LDA #$80
@@ -983,18 +992,6 @@ roll_fail:
     .i8
     LDA #0
     STA f:ROLL_ON               ; no more ticks: the frames are this loop's
-    ;  The roll's voices silenced first: the game over music writes only the
-    ;  channels it plays, and under it the tune's triangle, its counter held
-    ;  open, or the answer's pulse held the roll's last note (user,
-    ;  2026-10-28).  The triangle mutes at a zero counter, the pulse at
-    ;  volume 0, until the music writes them; both keyed off besides.
-    LDA #$30
-    STA a:APUSHADOW + 0         ; the answer's pulse: volume 0
-    LDA #$80
-    STA a:APUSHADOW + 8         ; the tune's triangle: its counter 0
-    LDA a:APUSHADOW + $15
-    AND #<~$05
-    STA a:APUSHADOW + $15
     LDA #TRACK_GAMEOVER
     STA music_track
     JSL hal_vblaudio + HALFAR   ; the top of a vblank, for the writes
