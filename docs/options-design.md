@@ -197,6 +197,22 @@ description.  So the record for such a row is `DESC_BYVALUE` and a pointer
 per value, and the pane redraws when left or right changes it.  The dials
 keep one description: their values differ only in degree.
 
+**Every description is readable text** (`FFPAD {"..."}, 28` lines in
+`opttext.asm`).  The 28 oldest records were raw character bytes until
+2026-10-27 (0b0913b), converted for the text audit with the ROM byte for
+byte the same.
+
+**The text audit** (user, 2026-10-27: batches, every change the user's to
+accept or deny; plain direct words, American spelling as the game's ARMOR
+menu has it).  Batch 1, SCALE and QUALITY OF LIFE: Boss stats says what it
+scales rather than "The same" (the pane shows one description at a time);
+Enemy stats "defense", Chest information "armor"; Encounter rate names the
+land, the sea and dungeons; Elemental bonus "The original game adds 4.
+Requires Weapon Stats enabled." (the user's ending); Faster walking's
+grammar; Run becomes Wait says the character waits; Lefein SuperStore "sells
+every spell except those from nearby Gaia" (the user's).  The other rows of
+those sections were left as they were.
+
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the

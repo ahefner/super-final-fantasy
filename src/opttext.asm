@@ -50,7 +50,7 @@ lut_Desc_3:  ; Speed hacks
 
 lut_Desc_4:  ; Faster walking
   FFLINES 3
-  FFPAD {"Walking and canoe speed is"}, 28
+  FFPAD {"Walking and canoe speeds are"}, 28
   FFPAD {"doubled. Hold B to move at"}, 28
   FFPAD {"the original pace."}, 28
 
@@ -85,7 +85,7 @@ lut_Desc_10:  ; Run becomes Wait
   FFLINES 3
   FFPAD {"When a battle cannot be"}, 28
   FFPAD {"escaped, RUN reads WAIT and"}, 28
-  FFPAD {"says so plainly."}, 28
+  FFPAD {"the character waits instead."}, 28
 
 lut_Desc_11:  ; Magic menu wraparound
   FFLINES 2
@@ -118,7 +118,7 @@ lut_Desc_15:  ; Shop information
 lut_Desc_16:  ; Chest information
   FFLINES 2
   FFPAD {"Opening a chest describes"}, 28
-  FFPAD {"the weapon or armour in it."}, 28
+  FFPAD {"the weapon or armor in it."}, 28
 
 lut_Desc_17:  ; NPC guillotine
   FFLINES 2
@@ -159,21 +159,23 @@ lut_Desc_22:  ; Gold and XP
   FFPAD {"awards."}, 28
 
 lut_Desc_23:  ; Encounter rate
-  FFLINES 3
+  FFLINES 4
   FFPAD {"How often random battles"}, 28
-  FFPAD {"happen, as a share of the"}, 28
-  FFPAD {"original overworld rate."}, 28
+  FFPAD {"happen, on land, at sea and"}, 28
+  FFPAD {"in dungeons, as a share of"}, 28
+  FFPAD {"the original game's rates."}, 28
 
 lut_Desc_24:  ; Enemy stats
   FFLINES 3
-  FFPAD {"Scales HP, damage, defence"}, 28
+  FFPAD {"Scales HP, damage, defense"}, 28
   FFPAD {"and accuracy for ordinary"}, 28
   FFPAD {"enemies."}, 28
 
 lut_Desc_25:  ; Boss stats
-  FFLINES 2
-  FFPAD {"The same, for the thirteen"}, 28
-  FFPAD {"bosses."}, 28
+  FFLINES 3
+  FFPAD {"Scales HP, damage, defense"}, 28
+  FFPAD {"and accuracy for the"}, 28
+  FFPAD {"thirteen bosses."}, 28
 
 lut_Desc_26:  ; Better Thief and Ninja
   FFLINES 4
@@ -193,10 +195,10 @@ lut_Desc_27:  ; Double weapon crit
 lut_Desc_28:  ; Elemental bonus
   FFLINES 5
   FFPAD {"Damage added when an attack"}, 28
-  FFPAD {"matches a weakness. Vanilla"}, 28
-  FFPAD {"is +4. Needs Weapon stats on"}, 28
-  FFPAD {"or only monsters get it -"}, 28
-  FFPAD {"party weapon element is 0."}, 28
+  FFPAD {"hits a weakness. The"}, 28
+  FFPAD {"original game adds 4."}, 28
+  FFPAD {"Requires Weapon Stats"}, 28
+  FFPAD {"enabled."}, 28
 
 lut_Desc_29:  ; Improved Cure spells
   FFLINES 4
@@ -313,11 +315,10 @@ lut_Desc_69:  ; Lefein Inn and Clinic
   FFPAD {"Clinic."}, 28
 
 lut_Desc_70:  ; Lefein SuperStore
-  FFLINES 4
-  FFPAD {"Lefein's magic shop grows a"}, 28
-  FFPAD {"door to every town's white"}, 28
-  FFPAD {"and black magic shops, but"}, 28
-  FFPAD {"Gaia's next door."}, 28
+  FFLINES 3
+  FFPAD {"Lefein's magic SuperStore"}, 28
+  FFPAD {"sells every spell except"}, 28
+  FFPAD {"those from nearby Gaia."}, 28
 
 lut_Desc_31:  ; Cast Life in battle
   FFLINES 3
