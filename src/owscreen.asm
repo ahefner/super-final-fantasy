@@ -2867,7 +2867,7 @@ lut_OwsIncLabel:
   FFPAD "Incentive Items", INC_LABELW
   FFPAD "Locations", INC_LABELW
   FFPAD "Reachable", INC_LABELW
-  FFPAD "Excess Loose", INC_LABELW
+  FFPAD "Loose Items", INC_LABELW     ; "Excess Loose" until 2026-10-27 (user)
   FFPAD "Unreachable Loose", INC_LABELW
 lut_OwsIncOrder:
   .BYTE 0, 1, 2, 3, 4

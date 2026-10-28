@@ -1287,7 +1287,7 @@ def test_owsinc():
     bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0])
     check("Select: the numbers where the description goes, each a label and two cells",
           lines, ["Incentive Items   27", "Locations         21", "Reachable         15",
-                  "Excess Loose       6", "Unreachable Loose  6"])
+                  "Loose Items        6", "Unreachable Loose  6"])
     check("...the hand where it was, nothing added to the column",
           (bus.wram[V + 6], bus.wram[V + 0x4F]), (0, 1))
     bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0, 0x04, 0])
@@ -1299,20 +1299,20 @@ def test_owsinc():
     bus, lines, _ = up(1, [0x20, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0])
     check("...the BRIDGE free, every location reachable and room for all 21: none loose",
           lines, ["Incentive Items   21", "Locations         21", "Reachable         21",
-                  "Excess Loose       0", "Unreachable Loose  0"])
+                  "Loose Items        0", "Unreachable Loose  0"])
     #  North Docks ticked with the numbers up: checked, and the numbers
     #  again -- 19 reachable, one unreachable loose.
     bus, lines, _ = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x04, 0, 0x04, 0, 0x20, 0, 0x80, 0])
     check("...a tick while they are up: checked, and drawn again (North Docks: 19 reachable)",
           lines, ["Incentive Items   20", "Locations         21", "Reachable         19",
-                  "Excess Loose       0", "Unreachable Loose  1"])
+                  "Loose Items        0", "Unreachable Loose  1"])
     #  ...and Select pressed in the check a tick starts: kept for after it.
     bus, lines, busy = up(1, [0x2C, 0, 0], [0x81, 0x00], [0, 0, 0x04, 0, 0x04, 0, 0x80, 0, 0x20, 0])
     check("...Select pressed while a check runs: the numbers after it, the check's",
           (any(busy[-4:-1]), lines[2]), (True, "Reachable         19"))
     bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0], entrances=1)
     check("Map shuffle: the reachable and the unreachable loose not shown",
-          lines, ["Incentive Items   27", "Locations         21", "Excess Loose       6", "", ""])
+          lines, ["Incentive Items   27", "Locations         21", "Loose Items        6", "", ""])
     bus, lines, _ = up(0, [0x00, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0])
     check("Key items Vanilla: Select shows nothing, the description stays",
           (lines, bus.wram[V + 0x4F]), (desc(0), 0))
@@ -7700,7 +7700,7 @@ def test_sumscreen():
                 4: line("Goal", ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"][goal if goal < 5 else 0]),
                 5: line("Map shuffle", ["Off", "Entrances", "Floors"][ent if ent < 3 else 0]),
                 6: line("Removed", removed)}
-        for k, (label, v) in enumerate(zip(["Incentive Items", "Locations", "Reachable", "Excess Loose",
+        for k, (label, v) in enumerate(zip(["Incentive Items", "Locations", "Reachable", "Loose Items",
                                             "Unreachable Loose"], nums)):
             rows[8 + k] = line(label, "%d" % v)
         left = [nm for c, nm in recs[:13] if c in shown]
@@ -7763,7 +7763,7 @@ def test_sumscreen():
               2: "          SEED 0BADF00D",
               4: "  Goal                  4 orbs", 5: "  Map shuffle              Off", 6: "  Removed                 None",
               8: "  Incentive Items           21", 9: "  Locations                 25", 10: "  Reachable                 25",
-              11: "  Excess Loose               0", 12: "  Unreachable Loose          0",
+              11: "  Loose Items                0", 12: "  Unreachable Loose          0",
               14: "  King          Coneria Vault", 15: "  Princess      Marsh Cave", 16: "  Bikke         Marsh Vault",
               17: "  Astos         Earth Cave", 18: "  Matoya        Volcano", 19: "  Elf Prince    Ice Cave",
               20: "  Nerrick       Ordeals", 21: "  Smith         Sea Shrine", 22: "  Sarda         Sky Palace",

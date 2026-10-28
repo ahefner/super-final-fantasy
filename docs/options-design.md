@@ -2191,8 +2191,9 @@ minimap, the title and description beside the zoom.
     where the description goes, each a label and two cells (`ows_incdesc`,
     `lut_OwsIncLabel`, the user's labels): Incentive Items, as placement
     takes them (`pl_items`); Locations, the settings' 21 or 25; Reachable,
-    holding every key item to place (`pl_reachspots`'s count); Excess Loose,
-    FFR's rule, the incentives past the locations; and Unreachable Loose,
+    holding every key item to place (`pl_reachspots`'s count); Loose Items
+    ("Excess Loose" until 2026-10-27, user), FFR's rule, the incentives past
+    the locations; and Unreachable Loose,
     those loose besides for want of reachable locations -- the removals and
     the edits.  They stay until the hand moves, and are drawn again after
     every check while they are up.  A Select pressed while a check runs is
