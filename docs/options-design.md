@@ -2129,7 +2129,8 @@ tiles the logo borrowed.  Fixed 2026-10-18 (played 2026-10-28; user):
 those blocks have their tiles back and the logo's moved into two blocks
 of open sea's, which show the blank tile.  The first layout used twins'
 tiles, which lit two pixels early as the minimap drew (user, 2026-10-29);
-fixed the same day, built, not yet played -- `randomization-notes.md` §9.1.
+fixed the same day (9d7a03d), played 2026-10-29 (user: "Checks out") --
+`randomization-notes.md` §9.1.
 
 ### New Game's map edit screen
 
