@@ -267,8 +267,11 @@ HARM.
     Tiamat; an alternate final boss.
   - Bahamut must be fought for the class change.
   - The Masamune is guaranteed, with a guardian.
-  - Better trap chests, random loot with High wealth, a random AoE-casting
-    item at the start, and boss HP scaled 80-240%.
+  - Better trap chests, random loot with High wealth, and boss HP scaled
+    80-240%.
+  - A random AoE-casting item at the start: Starting caster item's AoE
+    (built 2026-10-29), which the preset sets.  It had stood in with the
+    any-spell item until then.
   - **Its party is a problem.**  Slots 1 and 2 are forced random, and slots
     3 and 4 allow only None, because FFR fills them by recruiting classes
     from NPCs.  We're not porting recruitment (user), and taken literally

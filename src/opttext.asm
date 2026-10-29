@@ -349,11 +349,26 @@ lut_Desc_99:  ; Thief lockpicking
   FFPAD {"KEY."}, 28
 
 lut_Desc_98:  ; Starting caster item
-  FFLINES 4
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_98_0, lut_Desc_98_1, lut_Desc_98_2
+  .assert * - lut_Desc_98 = 1 + 2 * CASTER_MODES, error, "one description per caster item mode"
+
+lut_Desc_98_0:  ; Starting caster item: Off
+  FFLINES 2
+  FFPAD {"A new game starts without a"}, 28
+  FFPAD {"casting item."}, 28
+
+lut_Desc_98_1:  ; AoE (the user's words, 2026-10-29)
+  FFLINES 3
+  FFPAD {"A new game starts with one"}, 28
+  FFPAD {"random weapon or armor"}, 28
+  FFPAD {"casting offensive magic."}, 28
+
+lut_Desc_98_2:  ; Any
+  FFLINES 3
   FFPAD {"A new game starts with one"}, 28
   FFPAD {"random weapon or armor that"}, 28
-  FFPAD {"casts a spell, held by the"}, 28
-  FFPAD {"first character."}, 28
+  FFPAD {"casts a spell."}, 28
 
 lut_Desc_62:  ; Starting items
   .BYTE DESC_BYVALUE

@@ -9487,16 +9487,21 @@ def test_staffspells():
 
 
 def test_casteritem():
-    """Starting caster item: FFR's StartingEquipmentRandomCasterItem.  New
-    Game gives the first character one weapon or armour, unequipped, dealt
-    evenly from those whose spell GetCasterItemPool keeps, weapons first, by
-    the seed's own stream.  The pool is transcribed from FFR's rule and the
-    ROM's tables; the rule itself is swept over every spell byte, under the
-    flags off and every flag on, through the gear cache."""
+    """Starting caster item: Any is FFR's StartingEquipmentRandomCasterItem,
+    AoE its StartingEquipmentRandomAoe.  New Game gives the first character
+    one weapon or armour, unequipped, dealt evenly from those whose spell
+    GetCasterItemPool keeps -- or under AoE, GetRandomAoe -- weapons first,
+    by the seed's own stream.  The pools are transcribed from FFR's rules and
+    the ROM's tables; the rules themselves are swept over every spell byte,
+    under the flags off and every flag on, through the gear cache."""
     CH, WEAP, ARM = 0x100, 0x118, 0x11C          # ch_stats, ch_weapons, ch_armor
     FB, RUSE, NUKE = OPT_FLAGS + 5, K["OPTFM_RUSESTAFF"], K["OPTFM_NUKESTICK"]
-    check("the caster item is OPT_STARTITEMS's top bit, the set below it",
-          (K["STARTITEMS_CASTER"], K["STARTITEMS_SET"], K["CASTER_SHIFT"]), (0x80, 0x0F, 7))
+    check("the caster item is OPT_STARTITEMS's top two bits, the set below them",
+          (K["STARTITEMS_CASTER"], K["STARTITEMS_SET"], K["CASTER_SHIFT"], K["CASTER_MODES"]),
+          (0xC0, 0x0F, 6, 3))
+    AOE, ANY = K["CASTER_AOE"] << 6, K["CASTER_ANY"] << 6
+    check("...Off, AoE, Any; Any bit 7 alone, as On was, so a block from before reads as it did",
+          (AOE, ANY), (0x40, 0x80))
     check("...and its own stream", R.STREAM_CASTER, 0x43415354)
     MAGIC_ROM = GEAR_ROM + 40 * 8 + 40 * 4
 
@@ -9507,11 +9512,20 @@ def test_casteritem():
         return (routine in (0x01, 0x02, 0x0C, 0x0F, 0x07, 0x0E, 0x12, 0x10, 0x0D)
                 or routine == 0x03 and eff in (0x01, 0x80, 0x02))
 
+    def ffr_aoe(target, routine, eff):
+        """GetRandomAoe: FindSpells for every enemy (SpellTargeting.AllEnemies,
+        the byte whole) and Damage; or InflictStatus or PowerWord, exactly
+        Death."""
+        return target == 0x01 and (routine == 0x01 or routine in (0x03, 0x12) and eff == 0x01)
+
+    def rule(mode, rec):
+        return ffr_aoe(rec[3], rec[4], rec[1]) if mode == AOE else ffr_good(rec[4], rec[1])
+
     def rom_byte(g):
         """The spell byte of gear g, 0-39 weapons and 40-79 armour, from ROM."""
         return ROMDATA[GEAR_ROM + g * 8 + 3] if g < 40 else ROMDATA[GEAR_ROM + 320 + (g - 40) * 4 + 3]
 
-    def pool(bits):
+    def pool(bits, mode=ANY):
         out = []
         for g in range(80):
             b = rom_byte(g)
@@ -9521,7 +9535,7 @@ def test_casteritem():
                 b = 0x3D
             if 1 <= b <= 64:
                 rec = ROMDATA[MAGIC_ROM + (b - 1) * 8: MAGIC_ROM + b * 8]
-                if ffr_good(rec[4], rec[1]):
+                if rule(mode, rec):
                     out.append(g)
         return out
     VANILLA = [28, 29, 30, 31, 32, 35, 36, 40 + 14, 40 + 15, 40 + 30, 40 + 36, 40 + 37]
@@ -9529,6 +9543,11 @@ def test_casteritem():
           "Heal Helm, Zeus and Power Gauntlets", pool(0), VANILLA)
     check("...the RUSE Staff joins it; the NUKE Stick was in it as the Wizard Staff",
           (pool(RUSE), pool(NUKE)), (sorted(VANILLA + [27]), VANILLA))
+    VAOE = [30, 35, 36, 40 + 15, 40 + 36]
+    check("AoE's vanilla pool: the Mage Staff, Thor's Hammer, the Bane Sword, "
+          "the Black Shirt, the Zeus Gauntlets", pool(0, AOE), VAOE)
+    check("...the NUKE Stick joins it, the RUSE Staff does not",
+          (pool(NUKE, AOE), pool(RUSE, AOE)), (sorted(VAOE + [32]), VAOE))
 
     #  The draw: one number below n from the seed's CAST stream, X and Y kept.
     bad = []
@@ -9546,7 +9565,8 @@ def test_casteritem():
 
     #  The rule, over every spell byte, in a weapon's place and an armour's,
     #  first and last: the cache's byte poked, the spell's record as the
-    #  battle has it (opt_spellbyte) put to FFR's rule.
+    #  battle has it (opt_spellbyte) put to FFR's rule -- Any's, and AoE's,
+    #  a starting set beside the mode for a decoy.
     WC = rw("RW_WEAPONS")
     for flags in (0, 0xFF):
         bus, cpu = machine()
@@ -9556,37 +9576,75 @@ def test_casteritem():
             setblk(bus, OPT_FLAGS + i, flags)
         rec = {}
         for sp in range(64):
-            for y in (1, 4):
+            for y in (1, 3, 4):
                 cpu.x, cpu.y = sp, y
                 call(cpu, "opt_spellbyte", dbr=CHUNK_OPT_BANK)
                 rec[sp, y] = cpu.a & 0xFF
-        bad = []
-        for g, at in ((0, WC + 3), (39, WC + 39 * 8 + 3), (40, WC + 320 + 3), (79, WC + 320 + 39 * 4 + 3)):
-            keep = bus.wram[at]
-            for b in range(256):
-                if g == 27 or g == 32:
-                    continue
-                bus.wram[at] = b
-                cpu.x, cpu.y = g, 0x77
-                call(cpu, "opt_castergood")
-                got = (bool(cpu.p & 1), cpu.x & 0xFF, cpu.y & 0xFF)
-                want = (1 <= b <= 64 and ffr_good(rec[b - 1, 4], rec[b - 1, 1]), g, 0x77)
-                if got != want:
-                    bad.append("gear %d byte $%02X: %s, want %s" % (g, b, got, want))
-            bus.wram[at] = keep
-        check("opt_castergood, flags $%02X: FFR's rule over every byte" % flags, bad[:4], [])
-        check("...and the sweep met both answers",
-              len({ffr_good(rec[sp, 4], rec[sp, 1]) for sp in range(64)}), 2)
+        for mode in (ANY, AOE):
+            setblk(bus, OPT_STARTITEMS, mode | 0x04)
+            bad = []
+            for g, at in ((0, WC + 3), (39, WC + 39 * 8 + 3), (40, WC + 320 + 3), (79, WC + 320 + 39 * 4 + 3)):
+                keep = bus.wram[at]
+                for b in range(256):
+                    if g == 27 or g == 32:
+                        continue
+                    bus.wram[at] = b
+                    cpu.x, cpu.y = g, 0x77
+                    call(cpu, "opt_castergood")
+                    got = (bool(cpu.p & 1), cpu.x & 0xFF, cpu.y & 0xFF)
+                    want = (1 <= b <= 64 and rule(mode, [None, rec[b - 1, 1], None, rec[b - 1, 3], rec[b - 1, 4]]),
+                            g, 0x77)
+                    if got != want:
+                        bad.append("gear %d byte $%02X: %s, want %s" % (g, b, got, want))
+                bus.wram[at] = keep
+            check("opt_castergood, flags $%02X, mode $%02X: FFR's rule over every byte" % (flags, mode),
+                  bad[:4], [])
+            check("...and the sweep met both answers",
+                  len({rule(mode, [None, rec[sp, 1], None, rec[sp, 3], rec[sp, 4]]) for sp in range(64)}), 2)
+
+    #  ...and over records the cartridge has none of -- no PowerWord hits
+    #  every enemy, no death comes with another status -- spell 0's record in
+    #  a private ROM made each target, routine and status in turn, weapon 0
+    #  casting it.  The gear cache is built first, from the cartridge's ROM
+    #  (warm leaves a private one cold, and a cold first call would build it
+    #  over the poked byte).
+    bus, cpu = machine()
+    setsave(bus, 0x12345678, 0)
+    warm(bus)
+    cpu.x = 0
+    call(cpu, "opt_castergood")
+    rom = bytearray(ROMDATA)
+    bus.rom = rom
+    bus.wram[WC + 3] = 1
+    bad, seen = [], set()
+    for mode in (ANY, AOE):
+        setblk(bus, OPT_STARTITEMS, mode)
+        for t in (0x00, 0x01, 0x02, 0x03, 0x08, 0x81, 0xFF):
+            for r in list(range(0x14)) + [0x81, 0xF0, 0xFF]:
+                for e in (0x00, 0x01, 0x02, 0x03, 0x80, 0x81, 0xFF):
+                    rom[MAGIC_ROM + 1], rom[MAGIC_ROM + 3], rom[MAGIC_ROM + 4] = e, t, r
+                    cpu.x, cpu.y = 0, 0x77
+                    call(cpu, "opt_castergood")
+                    want = rule(mode, [None, e, None, t, r])
+                    seen.add((mode, want, r))
+                    if bool(cpu.p & 1) != want:
+                        bad.append("mode $%02X target $%02X routine $%02X status $%02X: %s"
+                                   % (mode, t, r, e, not want))
+    check("opt_castergood over made-up records: each rule", bad[:4], [])
+    check("...each rule met both answers, AoE's with Damage, InflictStatus and PowerWord",
+          {(m, w) for m, w, _ in seen} | {r for m, w, r in seen if m == AOE and w},
+          {(ANY, True), (ANY, False), (AOE, True), (AOE, False), 0x01, 0x03, 0x12})
 
     def ch_page(bus):
         return bytes(bus.sram[CH:CH + 0x100])
 
     #  The deal, from a warm cache: the stat page empty but for the one slot.
-    def deal(seed, bits=0, poke=None):
+    def deal(seed, bits=0, poke=None, mode=ANY):
         bus, cpu = machine()
         setsave(bus, seed, 0)
         warm(bus)
         setblk(bus, FB, bits)
+        setblk(bus, OPT_STARTITEMS, mode)
         if poke is not None:
             for g in range(80):
                 at = WC + g * 8 + 3 if g < 40 else WC + 320 + (g - 40) * 4 + 3
@@ -9606,10 +9664,11 @@ def test_casteritem():
     bad = []
     for seed in SEEDS + tuple(range(3, 40)):
         for bits in (0, RUSE, NUKE):
-            pl = pool(bits)
-            g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
-            if deal(seed, bits) != want_page(g):
-                bad.append("seed %08X bits $%02X: want gear %d" % (seed, bits, g))
+            for mode in (ANY, AOE):
+                pl = pool(bits, mode)
+                g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
+                if deal(seed, bits, mode=mode) != want_page(g):
+                    bad.append("seed %08X bits $%02X mode $%02X: want gear %d" % (seed, bits, mode, g))
     check("opt_casteritem: the seed's draw from the pool, in its slot", bad[:4], [])
     #  The ends of the walk and the armour's arithmetic: a pool of one, at
     #  each end of each table; and none, which gives nothing.
@@ -9628,8 +9687,9 @@ def test_casteritem():
     check("...nor does a pool of spells FFR leaves out (SLEP, SLOW, LIFE)",
           deal(7, 0, {3: 0x06, 44: 0x10, 77: 0x22}), want_page(None))
 
-    #  New Game itself: the flag on, the set beside it untouched; off, nothing;
-    #  and the slot outlives the class's starting stats.
+    #  New Game itself: AoE or Any, the set beside it untouched; Off, or a
+    #  step past Any, nothing; and the slot outlives the class's starting
+    #  stats.
     TENT = 0x36
     pool_at = K["RANDO_POOL"] - 0x6000
 
@@ -9642,9 +9702,10 @@ def test_casteritem():
         call(cpu, "opt_freestuff")
         return bus, cpu
     for seed, items, bits in ((0x12345678, 0x80, 0), (0xDEADBEEF, 0x84, RUSE), (5, 0x88, RUSE | NUKE),
-                              (6, 0x8F, 0), (9, 0xFF, NUKE)):
+                              (6, 0x8F, 0), (9, 0xBF, NUKE), (0x12345678, 0x40, 0), (7, 0x44, NUKE),
+                              (8, 0x48, RUSE | NUKE), (10, 0x7F, 0)):
         bus, cpu = newgame(seed, items, bits)
-        pl = pool(bits)
+        pl = pool(bits, items & 0xC0)
         g = pl[R.Stream(seed, R.STREAM_CASTER).below(len(pl))]
         set_ = items & 0x0F
         check("New Game, seed %08X, items $%02X: the caster item" % (seed, items), ch_page(bus), want_page(g))
@@ -9656,7 +9717,7 @@ def test_casteritem():
         call(cpu, "NewGame_LoadStartingStats")
         check("...still there after the starting stats",
               (bus.sram[WEAP], bus.sram[ARM]), (want_page(g)[WEAP - CH], want_page(g)[ARM - CH]))
-    for items in (0x00, 0x04, 0x7F):
+    for items in (0x00, 0x04, 0x3F, 0xC0, 0xC4, 0xFF):
         bus, cpu = newgame(0x12345678, items, RUSE | NUKE)
         check("New Game, items $%02X: no caster item" % items, ch_page(bus), want_page(None))
 
@@ -13102,7 +13163,7 @@ def test_rando_options():
             ("Thief lockpicking", "OPT_THIEFHIT", 4, 4, 12),
             ("Magic levels", "OPT_NG_MAGIC", 0, 2, 2),
             ("Item magic", "OPT_NG_MAGIC", 4, 2, 3),
-            ("Starting caster item", "OPT_STARTITEMS", 7, 1, 2)):
+            ("Starting caster item", "OPT_STARTITEMS", 6, 2, 3)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
         row = optrow(name)

@@ -4150,16 +4150,20 @@ opt_freestuff:
   @caster:
     LDA OPT_STARTITEMS
     AND #STARTITEMS_CASTER
-    BEQ @out
-    JSR opt_casteritem
+    BEQ @out                    ; Off
+    CMP #STARTITEMS_CASTER
+    BEQ @out                    ; a step past Any, which the checksum should
+    JSR opt_casteritem          ;   have stopped: nothing
   @out:
     RTL
 
 
-;;  The starting caster item: FFR's StartingEquipmentRandomCasterItem.  One
-;;  weapon or armour, dealt evenly from every one whose spell is good for
-;;  something -- GetCasterItemPool's rule, below -- weapons first and then
-;;  armour, as FFR concatenates them; drawn from the seed's own stream.
+;;  The starting caster item: FFR's StartingEquipmentRandomCasterItem, or
+;;  under AoE its StartingEquipmentRandomAoe.  One weapon or armour, dealt
+;;  evenly from every one whose spell is good for something, or hits every
+;;  enemy -- GetCasterItemPool's rule or GetRandomAoe's, below -- weapons
+;;  first and then armour, as FFR concatenates them; drawn from the seed's
+;;  own stream.
 ;;  FFR's Write puts its first weapon in the first character's first weapon
 ;;  slot and its first armour in the first armour slot, unequipped, and so
 ;;  does this.  GameStart zeroed the stat page before the title, and party
@@ -4212,7 +4216,9 @@ CASTER_GEAR    = 80
 ;;  In: X = 0..39 a weapon, 40..79 an armour.  Out: C set if what it casts
 ;;  is in FFR's pool: a routine of lut_CasterRoutines, or InflictStatus with
 ;;  exactly death, stone or confusion -- SpellStatus values, compared whole,
-;;  as FFR compares them.  X and Y kept.
+;;  as FFR compares them.  Under AoE, GetRandomAoe's instead: targeting every
+;;  enemy, the byte whole, and Damage, or InflictStatus or PowerWord with
+;;  exactly death.  X and Y kept.
 opt_castergood:
     PHX
     PHY
@@ -4233,6 +4239,10 @@ opt_castergood:
     BCS @no                     ; past the sixty-four spells
     DEC A
     TAX                         ; the spell
+    LDA OPT_STARTITEMS
+    AND #STARTITEMS_CASTER
+    CMP #CASTER_AOE << CASTER_SHIFT
+    BEQ @aoe
     LDY #MAGDATA_EFFECTIVITY
     JSL opt_spellbytefar + OPTFAR
     PHA
@@ -4268,6 +4278,26 @@ opt_castergood:
     PLY
     PLX
     RTS
+  @aoe:
+    LDY #MAGDATA_TARGET
+    JSL opt_spellbytefar + OPTFAR
+    CMP #SPELLTARGET_ENEMIES
+    BNE @no
+    LDY #MAGDATA_EFFECTIVITY
+    JSL opt_spellbytefar + OPTFAR
+    PHA
+    LDY #MAGDATA_EFFECT
+    JSL opt_spellbytefar + OPTFAR
+    CMP #SPELLROUTINE_DAMAGE
+    BEQ @yes
+    CMP #SPELLROUTINE_STATUS
+    BEQ :+
+    CMP #SPELLROUTINE_POWERWORD
+    BNE @drop
+:   PLA                         ; the status it inflicts
+    CMP #SPELLSTATUS_DEATH
+    BEQ @yes2
+    BRA @no
 
 ;  FFR's SpellRoutine values: Damage, DamageUndead, Heal, Fast, Sabr, Lock,
 ;  FullHeal, Ruse, PowerWord.  InflictStatus is the one with a condition.
@@ -4279,6 +4309,12 @@ SPELLROUTINE_STATUS = $03
 lut_CasterStatuses:
     .BYTE $01, $02, $80
 CASTER_STATUSES = * - lut_CasterStatuses
+;  ...and GetRandomAoe's: SpellTargeting.AllEnemies, SpellRoutine.Damage and
+;  .PowerWord, SpellStatus.Death.
+SPELLTARGET_ENEMIES     = $01
+SPELLROUTINE_DAMAGE     = $01
+SPELLROUTINE_POWERWORD  = $12
+SPELLSTATUS_DEATH       = $01
 
 
 

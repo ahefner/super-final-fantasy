@@ -1649,8 +1649,11 @@ or all of them".
 
 **Starting caster item** (user, 2026-10-15: "useful for high-difficulty
 seeds so the player has some hope of progressing"; played 2026-10-17) is
-FFR's `StartingEquipmentRandomCasterItem`, an Off/On row under Starting
-items, off in every preset.  A new game gives the first character one weapon
+FFR's `StartingEquipmentRandomCasterItem`, a row under Starting items, off
+in every preset but Free Enterprise's.  It reads Off / AoE / Any (user,
+2026-10-29: "Off / AoE / Any"; built, not yet played): Any is the item
+below, AoE FFR's `StartingEquipmentRandomAoe` (below), which Free
+Enterprise turns on.  A new game gives the first character one weapon
 or armour, unequipped, dealt evenly from `GetCasterItemPool`: every item
 whose spell's routine is Damage, DamageUndead, Heal, Fast, Sabr, Lock,
 FullHeal, Ruse or PowerWord, or InflictStatus with exactly death, stone or
@@ -1670,15 +1673,34 @@ first armour in the first armour slot, and so does `opt_casteritem`, from
 before the title, party creation writes only the class and the name, and
 the first character is never a None.  It goes to the first character
 whatever the class, as in FFR, and the equip screen's trade moves it.  The
-bit is `OPT_STARTITEMS`'s top one (scalar 50), the set in its low four
-(`STARTITEMS_SET`); no build had set it, so the format stays 9, and a block
-from before reads Off.  `test_casteritem` holds the pool to one transcribed
+mode is `OPT_STARTITEMS`'s top two bits (scalar 50: `STARTITEMS_CASTER`,
+`CASTER_SHIFT`), the set in its low four (`STARTITEMS_SET`).  Any is bit 7
+alone, as On was, so a block from before reads as it did and the format
+stays 9; a step past Any, which the checksum should stop, gives nothing.
+`test_casteritem` holds the pool to one transcribed
 from FFR's rule and the ROM's tables, sweeps the rule over all 256 spell
 bytes in the cache at both ends of both tables with every flag off and on,
 deals 44 seeds under the staff flags and pools of one and two at the ends,
 and runs New Game itself beside each starting set.  Thirty-two mutations,
 one equivalent: splitting weapons from armour at 41 rather than 40 reads
 weapon 40's byte 3, which in the cache is armour 0's.
+
+**AoE** (user, 2026-10-29: "One thing we're missing is the random AoE
+caster item ... not one which guarantees an offensive magic") deals the same
+way from `GetRandomAoe`'s pool instead: an item whose spell targets every
+enemy (`SpellTargeting.AllEnemies`, the byte whole) and is Damage, or
+InflictStatus or PowerWord with exactly death.  On this cartridge that is
+five -- the Mage Staff (FIR2), Thor's Hammer (LIT2), the Bane Sword (BANE),
+the Black Shirt (ICE2) and the Zeus Gauntlets (LIT2) -- six with the NUKE
+Stick.  FFR has the two as separate flags, both on giving two items; none
+of its presets turns on both, so here they are one row's values, one item
+(user: "one row, three options").  `opt_castergood` asks the mode itself.
+`test_casteritem` holds AoE's pool too, sweeps both rules over every spell
+byte as before and over made-up records (each target, routine and status in
+turn, in a private ROM: the cartridge has no PowerWord on every enemy, and
+no death alongside another status), deals under both, and runs New Game
+under each mode, the step past Any among them.  Ten mutations of the AoE
+code, all caught.
 
 ### New game (16)
 
@@ -2379,7 +2401,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
-| Starting caster item | Off, On | -- | 2 | Off |
+| Starting caster item | Off, AoE, Any | -- | 3 | Off |
 
 Each stores a step index in one byte.  Adjusted with left/right, consistent
 with the existing Respond Rate control.  A readout is four columns, or eight
@@ -3676,7 +3698,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    6835 free   the settings screen's engine and rows (6695)
+    BANK_OPT    6780 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -3698,7 +3720,8 @@ text region in the game references.
                              split of opt_sideways), and the NUKE Stick
                              (63: its row and the two readers' second staff),
                              and the starting caster item (194: its row and
-                             scalar, the pool's rule and walk), and Thief
+                             scalar, the pool's rule and walk; its AoE 55
+                             more, 2026-10-29), and Thief
                              lockpicking (176: its row, readouts and
                              scalar, opt_lockpick, Thief hit's mask), and
                              Item magic (59: its row, readouts and scalar;
@@ -3709,12 +3732,13 @@ text region in the game references.
                              randomizer's chunk) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  1444 free  the settings screen's descriptions (measured
+    BANK_OPTTEXT  1323 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
-                             the starting caster item's 115, Thief
+                             the starting caster item's 115 (236 with
+                             AoE's three by value, 2026-10-29), Thief
                              lockpicking's 115, Item magic's 115, Map
                              edits' three 348 (freed 2026-10-24), Short
                              ToFR's 143
@@ -3773,7 +3797,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  4274 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  4262 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the

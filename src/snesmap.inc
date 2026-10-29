@@ -756,12 +756,16 @@ THIEF_HIT_VANILLA = 2           ; what lut_LvlUpHitRateBonus holds for TH and NJ
 ;  Game.  Its presets but Improved Vanilla use the Explorer Pack.
 STARTITEMS_SETS     = 9
 STARTITEMS_SET      = $0F       ; OPT_STARTITEMS: the set, in the low bits...
-STARTITEMS_CASTER   = $80       ; ...and the caster item (FFR's
-                                ;   StartingEquipmentRandomCasterItem; user,
-                                ;   2026-10-15), scalar 50, in the top one: no
-                                ;   build had set it, so the format stays 9
-CASTER_SHIFT        = 7
-CASTER_MODES        = 2         ; Off, On
+STARTITEMS_CASTER   = $C0       ; ...and the caster item, scalar 50, in the
+                                ;   top two: Off, AoE (FFR's
+                                ;   StartingEquipmentRandomAoe; user,
+                                ;   2026-10-29) and Any (its
+                                ;   ...RandomCasterItem; 2026-10-15)
+CASTER_SHIFT        = 6
+CASTER_MODES        = 3
+CASTER_AOE          = 1
+CASTER_ANY          = 2         ; bit 7 alone, as On was: a block from before
+                                ;   reads as it did, and the format stays 9
 STARTITEMS_NONE     = 0
 STARTITEMS_EXPLORER = 4
 

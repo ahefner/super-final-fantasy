@@ -1974,7 +1974,7 @@ lut_OptRowTreasures:   ; the randomization screen's rows start here
   FFPAD "", 30
   .BYTE $02, $14   ; Starting items   (scalar 20)
   FFPAD "Starting items", 30
-  .BYTE $02, 50    ; Starting caster item   (scalar 50: OPT_STARTITEMS bit 7)
+  .BYTE $02, 50    ; Starting caster item   (scalar 50: OPT_STARTITEMS bits 6-7)
   OPTLABEL {"Starting caster item"}
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
@@ -2390,6 +2390,14 @@ lut_ValOnOff:
   FFPAD " Off", 4
   FFPAD "  On", 4
 
+;  The starting caster item: one that hits every enemy, or any (user,
+;  2026-10-29: "Off / AoE / Any").
+lut_ValCaster:
+  FFPAD " Off", 4               ; 0
+  FFPAD " AoE", 4               ; CASTER_AOE
+  FFPAD " Any", 4               ; CASTER_ANY
+.assert * - lut_ValCaster = 4 * CASTER_MODES, error, "a readout per caster item mode"
+
 ;  Per-scalar: where its readouts are, how many there are, and where its
 ;  byte is.
 lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValStat, <lut_ValElem
@@ -2410,7 +2418,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .ENDREP
               .BYTE <lut_ValMapShuffle
               .BYTE <lut_ValBossAI
-              .BYTE <lut_ValOnOff
+              .BYTE <lut_ValCaster
               .BYTE <lut_ValLockpick
               .BYTE <lut_ValItemMagic
               .BYTE <lut_ValGoal
@@ -2432,7 +2440,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .ENDREP
               .BYTE >lut_ValMapShuffle
               .BYTE >lut_ValBossAI
-              .BYTE >lut_ValOnOff
+              .BYTE >lut_ValCaster
               .BYTE >lut_ValLockpick
               .BYTE >lut_ValItemMagic
               .BYTE >lut_ValGoal
