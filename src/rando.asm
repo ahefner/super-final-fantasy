@@ -53,6 +53,8 @@
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
+.import lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi   ; world.asm's, for dlgtext.inc
+.importzp DLG_NHINT
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield

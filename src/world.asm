@@ -14,6 +14,7 @@
 .include "logic.inc"
 .include "goal.inc"
 .include "variables.inc"
+.include "fftext.inc"
 
 .import rando_belowfar, rando_warmfar, rando_yieldfar
 .import lut_LogicKind, lut_LogicFlags, lut_LogicVanBit
@@ -24,6 +25,8 @@
 .export ow_editrow, mm_editrows
 ;  ...and their tables, which New Game's map edit screen draws from.
 .export lut_OweRow, lut_OweEnt, OWE_ENTRY
+;  The hint lines, for rando_dlgtext.
+.export lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi, DLG_NHINT
 
 .segment "BANK_WORLD"
 
@@ -187,3 +190,12 @@ ow_lists:
     EOR #OWEDIT_BAHAMUTDOCK | OWE_BAHAMUTBRIDGE
 :   RTS
     .a8
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The hint lines -- the game's lines that say where a key item or a
+;;  dungeon is, and what gives way to each (dlghint.inc); the randomizer's
+;;  rando_dlgtext reads and copies them, from its own chunk.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.include "dlghint.inc"

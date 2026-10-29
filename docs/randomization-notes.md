@@ -531,26 +531,61 @@ RUBY, Unne's SLAB), which stays true; "Use that KEY.  Inside what you find
 will be quite helpful."; Underhill's "something very strange"; Kope's
 robot by the waterfall -- all vague enough to stay true.
 
+**Dungeon directions (user, 2026-10-28; built, not yet played).**  Lines
+that say where a dungeon is go wrong only once Map shuffle moves where the
+entrances lead (user: "Key item shuffle doesn't impact where locations are,
+entrance shuffle does").  FFR's Entrances moves every dungeon and castle,
+the Temple, the Dwarf Cave and Sarda's cave among them; only the towns stay
+put.  Under Map shuffle Entrances or Floors, eight more give way, and under
+Floors, which rewires the stairs inside too, two that say the way through
+one.  $3F is the user's; the user approved the rest.
+
+| #   | The game's direction | Its line |
+|-----|----------------------|----------|
+| $3F | Garland holds the Princess in a Temple to the northwest | Garland has abducted / the Princess! |
+| $45 | take the ORBS to the Temple north of here | The ORBS shine again!! / Take them to the Temple / and stand in the center. |
+| $5B | the Cave of Dwarf at the west end of the Aldi Sea | The Cave of Dwarf is / home to a master smith. |
+| $63 | an ancient castle to the Northwest | Long ago I found an / ancient castle that was / so spooky, I left / immediately. |
+| $7E | the Earth Cave southwest of Melmond | The Earth Cave is the / source of the rot. |
+| $82 | through the Titan's Tunnel, then south, to Sarda | Find Sarda, the Sage. |
+| $C9 | the castle in the west tests courage | Legends say that the / Castle of Ordeal is a / place to test courage. |
+| $E7 | the Castle of Ordeal to the northeast | We are going to the / Castle of Ordeal, to / bring back proof of our / courage. |
+| $B8 | Floors: KRAKEN on the Shrine's bottom floor | The FIEND of Water, / KRAKEN, lives in this / Shrine. |
+| $D2 | Floors: the Mirage Tower is the FLOATING CASTLE's entrance | The FLOATING CASTLE.... / Our ancestors lived / there. |
+
+$45 is shorter than the game's line less "north of here", which at 130
+bytes would not fit `OPTDESC`'s 80.  Left as it is: the Mirage Tower's
+"Everyone thinks the tower in Yahnikurm Desert is a mirage" -- the tower one
+sees, which stays put, as the Crescent Lake line's "mysterious cave" does;
+and the Temple of FIENDS "in the center of the Four Altars", lore rather
+than a way to walk.
+
 The same hook, `rando_dlgtext`: with no NPC giving, under Standard or Wide,
-it looks `text_ptr` up among the fourteen lines' pointers in the game's own
+it looks `text_ptr` up among the 24 lines' pointers in the game's own
 table (bank `$0A`'s `lut_DialoguePtrTbl`, read by number from
-`lut_DlgHintId`), since the number is gone by the hook, and copies the
-match's line into `OPTDESC` as an NPC's.  A giving NPC's line comes first.
+`lut_DlgHintId`), since the number is gone by the hook.  On a match whose
+Map shuffle is on (`lut_DlgHintMap`: the least the line needs, Off for a
+key item's, Entrances for a dungeon's, Floors for a way through one; the
+modes nest), it copies the match's line into `OPTDESC` as an NPC's.  The
+lines and their tables are `dlghint.inc`'s, in the world chunk, read by
+`WORLDFAR` and copied with DBR there -- the randomizer's chunk was down to
+626 bytes.  A giving NPC's line comes first.
 Chest Information, entering with `text_ptr` at `OPTDESC`, matches nothing.
 The lookup runs before the drawer's vblank wait.  The lines are plain
 text, not the game's pairs; "...." is two of the font's ".." tiles, as the
 game draws it.  test_rando_dialogue: all 256 of the game's lines under each
-Key items value -- exactly these fourteen swapped under Standard and Wide,
-none under Vanilla -- each line byte for byte; the box's width; a pointer
-a page off and `OPTDESC` left alone; a giving NPC first; and through the
-game's own `DrawDialogueString`.  Nine mutations, all caught.
+Key items value and each Map shuffle mode -- under Standard and Wide
+exactly the fourteen swapped with Map shuffle Off, the eight more under
+Entrances, all 24 under Floors; none under Vanilla, even with Map shuffle
+set, a save `rando_place` never writes -- each line byte for byte; the
+box's width and `OPTDESC`'s; a pointer a page off and `OPTDESC` left alone;
+a giving NPC first; and through the game's own `DrawDialogueString`, under
+Floors as well.  Nine mutations for the key items' lines and ten for Map
+shuffle's, all caught.
 
-Still open (user, 2026-10-28): lines that give directions to a dungeon are
-wrong under Map shuffle ("Earth Cave is on the peninsula southwest"), and
-town and landmark directions on an alternate map.  The first go by Map
-shuffle, not by Key items (user: "Key item shuffle doesn't impact where
-locations are, entrance shuffle does"); their wording is the user's to
-approve.  The second wait for alternate maps (user: "it can wait").
+Still open (user, 2026-10-28): town and landmark directions on an
+alternate map -- "North of Coneria lives a witch named Matoya", Pravoka
+"far east of here" -- wait for alternate maps (user: "it can wait").
 
 Two more, from the incentive rows (§12):
 

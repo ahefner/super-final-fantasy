@@ -270,7 +270,9 @@ text audit"); Bikke's and Astos's lines seen.  The game's lines that say
 where a key item is give way to neutral ones under Key items Standard or
 Wide (user, 2026-10-28; played 2026-10-28 in Improved Vanilla and under
 Entrances, "Seems to work"): fourteen, each approved by the user, listed in
-`randomization-notes.md` §3.  
+`randomization-notes.md` §3.  Under Map shuffle, eight more that say where a
+dungeon is, and under Floors two that say the way through one (2026-10-28,
+the user's wording or approved; built, not yet played).  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -3718,7 +3720,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO    662 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
+    BANK_RANDO   1415 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3743,17 +3745,19 @@ text region in the game references.
                              ToFR 485, 110 of it the room; New Game taking
                              the flow's edits and seed 21 + 21; the Seed
                              Summary's numbers and places (pl_summary) 52;
-                             the hint lines and their lookup 841
+                             the hint lines' lookup 88 (the lines are
+                             BANK_WORLD's)
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only
-    BANK_WORLD   7539 free  entrance shuffle's code (4430): the wiring, the
-                             seed's logic, roots, groups, the dock, and the
-                             landing tables; the roll screen's yields 40;
+    BANK_WORLD   5337 free  (measured 2026-10-28) entrance shuffle's code
+                             (4430): the wiring, the seed's logic, roots,
+                             groups, the dock, and the landing tables; the
+                             roll screen's yields 40;
                              the overworld's edits 4375 -- every FFR list's
                              writes by row (4230, tools/genowedits.py) and
-                             ow_edit
+                             ow_edit; the hint lines and their tables 1388
     BANK_ROLL    8843 free  New Game's roll screen (7541): its code, and
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their

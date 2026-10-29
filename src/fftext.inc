@@ -86,3 +86,8 @@
   .byte .strlen(txt)
   FFTEXT txt
 .endmacro
+
+;  In a line DrawDialogueString draws: a line break, and the font's "..",
+;  two of which are the game's "....".
+DLG_NL   = $01
+DLG_DOTS = $C3

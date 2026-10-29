@@ -3192,12 +3192,32 @@ def test_rando_dialogue():
         0xC8: "Hardy har, you are too\nlate! I BOTTLED the\nfairy.",
         0xDE: "One of us escaped. He\nfloated far to the west.",
     }
+    #  ...a dungeon's whereabouts, under Map shuffle (user: "entrance
+    #  shuffle does"), whatever its mode...
+    DUNGEONS = {
+        0x3F: "Garland has abducted\nthe Princess!",
+        0x45: "The ORBS shine again!!\nTake them to the Temple\nand stand in the center.",
+        0x5B: "The Cave of Dwarf is\nhome to a master smith.",
+        0x63: "Long ago I found an\nancient castle that was\nso spooky, I left\nimmediately.",
+        0x7E: "The Earth Cave is the\nsource of the rot.",
+        0x82: "Find Sarda, the Sage.",
+        0xC9: "Legends say that the\nCastle of Ordeal is a\nplace to test courage.",
+        0xE7: "We are going to the\nCastle of Ordeal, to\nbring back proof of our\ncourage.",
+    }
+    #  ...and the way through one, under Floors.
+    FLOORS = {
+        0xB8: "The FIEND of Water,\nKRAKEN, lives in this\nShrine.",
+        0xD2: "The FLOATING CASTLE\u2026\u2026\nOur ancestors lived\nthere.",
+    }
     KEYITEMS = K["RANDO_KEYITEMS"] - 0x6000
+    ENTRANCES = K["RANDO_ENTRANCES"] - 0x6000
+    MODES = ("ENTRANCES_OFF", "ENTRANCES_ONLY", "ENTRANCES_FLOORS")
     gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
 
-    def hint(keyitems, ptr, armed=0):
+    def hint(keyitems, ptr, armed=0, entrances=0):
         bus, cpu = machine()
         bus.sram[KEYITEMS] = keyitems
+        bus.sram[ENTRANCES] = entrances
         bus.wram[DLGNPC] = armed
         bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50] = bytes([0xEE]) * 0x50
         bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
@@ -3207,15 +3227,26 @@ def test_rando_dialogue():
         now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
         text = ff_decode(buf[:buf.find(0)]) if now == OPTDESC_A and 0 in buf else None
         return now, text, cpu.y & 0xFF, bus.wram[DLGNPC]
+    #  Map shuffle on under Key items Vanilla is a save rando_place never
+    #  writes; nothing is swapped there either.
     for name in ("KEYITEMS_VANILLA", "KEYITEMS_STANDARD", "KEYITEMS_WIDE"):
-        runs = {i: hint(K[name], gameptr(i)) for i in range(256)}
-        swapped = {i: t for i, (now, t, _, _) in runs.items() if now != gameptr(i)}
-        check("Key items %s: the hints swapped, every other line the game's" % name[9:].title(),
-              swapped, {} if name == "KEYITEMS_VANILLA" else HINTS)
-        check("...Y kept, nothing armed", {(y, flag) for _, _, y, flag in runs.values()}, {(0x5A, 0)})
-    rows = [r for t in HINTS.values() for r in t.split("\n")]
-    check("each hint fits the box", (max(len(t.split("\n")) for t in HINTS.values()) <= BOX_LINES,
+        for mode in MODES:
+            runs = {i: hint(K[name], gameptr(i), entrances=K[mode]) for i in range(256)}
+            swapped = {i: t for i, (now, t, _, _) in runs.items() if now != gameptr(i)}
+            want = {} if name == "KEYITEMS_VANILLA" else dict(HINTS)
+            if want and mode != "ENTRANCES_OFF":
+                want.update(DUNGEONS)
+            if want and mode == "ENTRANCES_FLOORS":
+                want.update(FLOORS)
+            check("Key items %s, Map shuffle %s: the hints swapped, every other line the game's"
+                  % (name[9:].title(), mode[10:].title()), swapped, want)
+            check("...Y kept, nothing armed", {(y, flag) for _, _, y, flag in runs.values()}, {(0x5A, 0)})
+    every = list(HINTS.values()) + list(DUNGEONS.values()) + list(FLOORS.values())
+    rows = [r for t in every for r in t.split("\n")]
+    check("each hint fits the box", (max(len(t.split("\n")) for t in every) <= BOX_LINES,
                                      max(len(r) for r in rows) <= BOX_COLS), (True, True))
+    #  A character a byte, a break one, and the terminator.
+    check("...and OPTDESC", max(len(t) + 1 for t in every) <= 0x50, True)
     #  Decoys: a hint's pointer a page off, and Chest Information's line,
     #  which enters with text_ptr at OPTDESC; and an NPC giving, whose line
     #  comes first whatever text_ptr says.
@@ -3234,21 +3265,27 @@ def test_rando_dialogue():
     at = [a for a in range(hook - 64, hook) if ROMDATA[fixed + a:fixed + a + len(head)] == head]
     check("...DrawDialogueString found before the hook", len(at), 1)
     drawn = {}
-    for i in (0x11, 0xDE, 0x12):
-        for name in ("KEYITEMS_VANILLA", "KEYITEMS_STANDARD"):
+    SETTINGS = {"VANILLA": ("KEYITEMS_VANILLA", "ENTRANCES_OFF"),
+                "STANDARD": ("KEYITEMS_STANDARD", "ENTRANCES_OFF"),
+                "FLOORS": ("KEYITEMS_STANDARD", "ENTRANCES_FLOORS")}
+    for i in (0x11, 0xDE, 0x12, 0x7E, 0xD2):
+        for setting, (name, mode) in SETTINGS.items():
             bus, cpu = machine()
             bus.frames()
             bus.sram[KEYITEMS] = K[name]
+            bus.sram[ENTRANCES] = K[mode]
             cpu.a = i
             cpu.run(0xA7, at[0], stop=SYM["DrawDialogueString_PtrLoaded"] + 4, limit=100_000)
             buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
             ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
-            drawn[i, name[9:]] = ff_decode(buf[:buf.find(0)]) if ptr == OPTDESC_A else ptr == gameptr(i)
-    check("...through DrawDialogueString: $11 and $DE their hints, $12 (Astos's) the game's; "
-          "under Vanilla the game's",
-          drawn, {(0x11, "VANILLA"): True, (0x11, "STANDARD"): HINTS[0x11],
-                  (0xDE, "VANILLA"): True, (0xDE, "STANDARD"): HINTS[0xDE],
-                  (0x12, "VANILLA"): True, (0x12, "STANDARD"): True})
+            drawn[i, setting] = ff_decode(buf[:buf.find(0)]) if ptr == OPTDESC_A else ptr == gameptr(i)
+    check("...through DrawDialogueString: $11 and $DE their hints, $12 (Astos's) the game's, "
+          "$7E and $D2 theirs under Floors; under Vanilla all the game's",
+          drawn, {(0x11, "VANILLA"): True, (0x11, "STANDARD"): HINTS[0x11], (0x11, "FLOORS"): HINTS[0x11],
+                  (0xDE, "VANILLA"): True, (0xDE, "STANDARD"): HINTS[0xDE], (0xDE, "FLOORS"): HINTS[0xDE],
+                  (0x12, "VANILLA"): True, (0x12, "STANDARD"): True, (0x12, "FLOORS"): True,
+                  (0x7E, "VANILLA"): True, (0x7E, "STANDARD"): True, (0x7E, "FLOORS"): DUNGEONS[0x7E],
+                  (0xD2, "VANILLA"): True, (0xD2, "STANDARD"): True, (0xD2, "FLOORS"): FLOORS[0xD2]})
 
 
 MSGROWS_TOTAL = 12
