@@ -394,11 +394,15 @@ lut_DlgHint5:   ; $60: "the cause of all problems ... the cave of Marsh"
   .BYTE DLG_NL
   FFTEXT "crawling with undead."
   .BYTE $00
-lut_DlgHint6:   ; $69: "there you will find the FLOATER"
-  FFTEXT "I can see a cave above"
+lut_DlgHint6:   ; $69: "there you will find the FLOATER" (the user's line)
+  FFTEXT "North of Crescent Lake,"
   .BYTE DLG_NL
-  FFTEXT "the crescent"
-  .BYTE DLG_DOTS, DLG_DOTS, $00
+  FFTEXT "through the winding"
+  .BYTE DLG_NL
+  FFTEXT "rivers, is a"
+  .BYTE DLG_NL
+  FFTEXT "mysterious cave."
+  .BYTE $00
 lut_DlgHint7:   ; $71: "Astos stole it from Matoya"
   FFTEXT "With the CRYSTAL, even"
   .BYTE DLG_NL

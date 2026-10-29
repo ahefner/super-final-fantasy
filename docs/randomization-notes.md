@@ -495,7 +495,8 @@ Two points to settle in the design:
     "Arrrr, you got me. / Take this and go." (the user's).  Both played
     2026-10-28.
 
-**The hint lines (user, 2026-10-28; built, not yet played).**  Some of the
+**The hint lines (user, 2026-10-28; played 2026-10-28, a few, in Improved
+Vanilla and under Entrances: "Seems to work").**  Some of the
 game's lines say where a key item is: Astos, as the King, sends the party
 "south, to the Cave of Marsh" for the CROWN; the KEY is with the Elf
 Prince; the FLOATER is north of the volcano.  Once the key items are
@@ -504,7 +505,8 @@ neutralize them instead ("This could get complicated").  Under Key items
 Standard or Wide fourteen lines give way to a line each that stays true --
 what is left of the line once the hint is cut, or where all of it was the
 hint, a new one ("Old Nerrick needs TNT / for his canal."; the Marsh Cave's
-"festering pit of decay, / crawling with undead.", the user's).  The user
+"festering pit of decay, / crawling with undead." and the Crescent Lake
+cave's "through the winding rivers", the user's).  The user
 approved every line.  Under Key items Vanilla, all are the game's own.
 
 | #   | The game's hint | Its line |
@@ -515,7 +517,7 @@ approved every line.  Under Key items Vanilla, all are the game's own.
 | $5D | a witch with HERBS | It is said there is a / blind witch named.... / Matoya! |
 | $5F | the Prince keeps the KEY | The Prince waits for / the coming of the / LIGHT WARRIORS. |
 | $60 | the cause of all problems in the Marsh Cave | The Marsh Cave is a / festering pit of decay, / crawling with undead. |
-| $69 | the FLOATER north of the volcano | I can see a cave above / the crescent.... |
+| $69 | the FLOATER north of the volcano | North of Crescent Lake, / through the winding / rivers, is a / mysterious cave. (the user's, replacing "I can see a cave above / the crescent....") |
 | $71 | Astos stole the CRYSTAL | With the CRYSTAL, even / the blind can see. |
 | $76 | TNT in Coneria's Treasury | Old Nerrick needs TNT / for his canal. |
 | $9F | the FLOATER in the Ice Cave | For ten years I searched / for the FLOATER. |
@@ -545,7 +547,10 @@ game's own `DrawDialogueString`.  Nine mutations, all caught.
 
 Still open (user, 2026-10-28): lines that give directions to a dungeon are
 wrong under Map shuffle ("Earth Cave is on the peninsula southwest"), and
-town and landmark directions on an alternate map.
+town and landmark directions on an alternate map.  The first go by Map
+shuffle, not by Key items (user: "Key item shuffle doesn't impact where
+locations are, entrance shuffle does"); their wording is the user's to
+approve.  The second wait for alternate maps (user: "it can wait").
 
 Two more, from the incentive rows (§12):
 

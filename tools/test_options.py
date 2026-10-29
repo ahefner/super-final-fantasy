@@ -3183,7 +3183,7 @@ def test_rando_dialogue():
         0x5D: "It is said there is a\nblind witch named\u2026\u2026\nMatoya!",
         0x5F: "The Prince waits for\nthe coming of the\nLIGHT WARRIORS.",
         0x60: "The Marsh Cave is a\nfestering pit of decay,\ncrawling with undead.",
-        0x69: "I can see a cave above\nthe crescent\u2026\u2026",
+        0x69: "North of Crescent Lake,\nthrough the winding\nrivers, is a\nmysterious cave.",
         0x71: "With the CRYSTAL, even\nthe blind can see.",
         0x76: "Old Nerrick needs TNT\nfor his canal.",
         0x9F: "For ten years I searched\nfor the FLOATER.",

@@ -268,8 +268,9 @@ padded name before a full stop (`randomization-notes.md` §3).  The rest as
 FFR wrote them.  Played 2026-10-28 in part (user: "partially verified the
 text audit"); Bikke's and Astos's lines seen.  The game's lines that say
 where a key item is give way to neutral ones under Key items Standard or
-Wide (user, 2026-10-28; built, not yet played): fourteen, each approved by
-the user, listed in `randomization-notes.md` §3.  
+Wide (user, 2026-10-28; played 2026-10-28 in Improved Vanilla and under
+Entrances, "Seems to work"): fourteen, each approved by the user, listed in
+`randomization-notes.md` §3.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
