@@ -2041,13 +2041,18 @@ def test_owedits():
     #  (user, 2026-10-18: the bridge's caves floating in ocean, a red patch on
     #  the logo).  genowedits.minimap_layout gives each block an edit changes
     #  its tile back and moves the logo's there into the tiles of blocks no
-    #  edit touches whose pictures twin another's.  Held from the ROM: every
-    #  block shows a tile drawn with its picture, under every map; a hidden
-    #  block is as vanilla has it; no lent tile is a shown block's; and the
-    #  logo and the crests whole, each cell showing the tile its graphic is
-    #  drawn into.  The nametable at $B000, the logo's destinations at $BB8A,
-    #  the crests' at $BCE9 -- the crests' as the source has them, which
-    #  places both tables.
+    #  edit touches that are open sea, shown with the blank tile 0 instead.
+    #  Held from the ROM: every block shows a tile drawn with its picture,
+    #  under every map; a hidden block is as vanilla has it; no lent tile is a
+    #  shown block's; and the logo and the crests whole, each cell showing the
+    #  tile its graphic is drawn into.  And as it draws, a block row at a time
+    #  into a cleared pattern table: every block shows its own tile or tile 0,
+    #  never one drawn rows away (user, 2026-10-29: $6D and $B5 showed $1C's,
+    #  their pixel lit long before the drawing got there), and tile 0 and every
+    #  lent tile are drawn blank, so the logo shows nothing until it draws.
+    #  The nametable at $B000, the logo's destinations at $BB8A, the crests'
+    #  at $BCE9 -- the crests' as the source has them, which places both
+    #  tables.
     b9 = ROMDATA[(1 + 0x09) * 0x10000 + 0x8000:][:0x4000]
     mmnt = b9[0x3000:0x3000 + 960]                                  # lut_MinimapNT, $B000
     src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
@@ -2089,6 +2094,10 @@ def test_owedits():
     check("the minimap: every block as every map draws it, none showing a lent tile", bad, [])
     check("...Sarda's Forest's block and the land bridge's shown, their own tiles",
           (mmnt[cell(0xC2)], mmnt[cell(0x26)]), (0xC2, 0x26))
+    check("...every block its own tile or the blank one, none lit before the drawing reaches it",
+          ["%02X shows %02X" % (b, mmnt[cell(b)]) for b in range(256) if mmnt[cell(b)] not in (b, 0)], [])
+    check("...tile 0 and every lent tile drawn blank, under every map",
+          sorted({"%02X" % t for t in lent | {0} for m in maps if any(pic(m, t))}), [])
     whole = [k for n, (old, new) in (("logo", (title_src, title)), ("crests", (decor_src, decor)))
              for k in range(len(old)) if {i for i in range(960) if vnt[i] == old[k]} !=
              {i for i in range(960) if mmnt[i] == new[k]}]

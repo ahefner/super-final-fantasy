@@ -124,14 +124,16 @@ def minimap_layout():
     #  (The vanilla minimap hides a little land of its own; what matters is a
     #  hidden block an edit changes.)
     need = sorted(touched - shown)
-    #  Blocks free to share: shown, never touched, a picture another such
-    #  block has; the first of each keeps its tile, the rest give theirs up.
-    by_pic = {}
-    for b in sorted(shown - touched - {0}):
-        by_pic.setdefault(block_pixels(van, ts, b), []).append(b)
-    spare = [(b, g[0]) for g in by_pic.values() for b in g[1:]]
+    #  Blocks free to give up their tiles: shown, never touched, open sea --
+    #  shown with tile 0 instead, block 0's, blank from Minimap_FillNTPal's
+    #  clear to the end.  Not a block whose picture another's twins: the map
+    #  draws a block row at a time, and a block showing a tile drawn rows
+    #  above lit up as the drawing passed there (user, 2026-10-29: $6D and
+    #  $B5, Lefein's and the Northwest Castle's sea, showed $1C's pixel).
+    blank = (0,) * 64
+    spare = [b for b in sorted(shown - touched - {0}) if block_pixels(van, ts, b) == blank]
     assert len(spare) >= len(need), (need, spare)
-    for b, (f, keep) in zip(need, spare):
+    for b, f in zip(need, spare):
         lent = title if b in title else decor if b in decor else None
         if lent is not None:
             k = lent.index(b)
@@ -139,24 +141,30 @@ def minimap_layout():
             for i in range(960):
                 if nt[i] == b:
                     nt[i] = f                 # ...wherever it is shown
-        nt[cell(f)] = keep                    # f's block shown with its twin's tile
+        nt[cell(f)] = 0                       # f's block shown blank, as it is
         nt[cell(b)] = b                       # and the edited block with its own
-    #  Every block shown shows a tile drawn with its picture, under every map;
-    #  every block hidden is as vanilla has it under every map; no lent tile is
-    #  a block's that is shown; the 88 lent tiles all different.
+    #  Every block shows its own tile or the blank one, so nothing shows before
+    #  the drawing reaches it; its tile is drawn with its picture, under every
+    #  map; every block hidden is as vanilla has it under every map; no lent
+    #  tile is a block's that is shown, and every one, as tile 0, is drawn
+    #  blank, so the logo and crests show nothing until they draw; the 88 lent
+    #  tiles all different.
     lent_all = set(title) | set(decor)
     assert len(lent_all) == 88
     for b in range(256):
         t = nt[cell(b)]
         if t in lent_all:
             assert False, "block %02X shows a lent tile" % b
+        assert t in (b, 0), "block %02X shows %02X's, lit as the drawing passes %02X" % (b, t, t)
         for m in [van] + maps:
             if t == 0 and b not in shown:
                 assert block_pixels(m, ts, b) == block_pixels(van, ts, b), "block %02X hidden, edited" % b
-            elif t != 0 or b == 0:
+            else:
                 assert block_pixels(m, ts, b) == block_pixels(m, ts, t), "block %02X shows %02X's" % (b, t)
-    for t in lent_all:
-        assert nt[cell(t)] != t, "lent tile %02X is its block's" % t
+    for t in lent_all | {0}:
+        assert t == 0 or nt[cell(t)] != t, "lent tile %02X is its block's" % t
+        for m in [van] + maps:
+            assert block_pixels(m, ts, t) == blank, "tile %02X drawn with land, shown as the logo's" % t
     open(os.path.join(ROOT, "gen", "minimap_nt.nam"), "wb").write(bytes(nt))
     for fname, label, ids in (("minimap_titledest.inc", "lut_MinimapTitleCHRDest", title),
                               ("minimap_decordest.inc", "lut_MinimapDecorCHRDest", decor)):

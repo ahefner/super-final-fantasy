@@ -531,7 +531,7 @@ RUBY, Unne's SLAB), which stays true; "Use that KEY.  Inside what you find
 will be quite helpful."; Underhill's "something very strange"; Kope's
 robot by the waterfall -- all vague enough to stay true.
 
-**Dungeon directions (user, 2026-10-28; built, not yet played).**  Lines
+**Dungeon directions (user, 2026-10-28; played 2026-10-29: "Verified").**  Lines
 that say where a dungeon is go wrong only once Map shuffle moves where the
 entrances lead (user: "Key item shuffle doesn't impact where locations are,
 entrance shuffle does").  FFR's Entrances moves every dungeon and castle,
@@ -1642,19 +1642,35 @@ the minimap's tiles and nametable from the edited map, and drops the dragons
 and the logo when there is no room.
 
 **Fixed 2026-10-18 (played 2026-10-28), with room, not dropping
-anything.**  None of the 88 lent tiles is a duplicate or blank, but the
-map's own blocks have twins: blocks no edit touches whose pictures are the
-same (`$1C`, `$6D` and `$B5`; `$62` and `$C3`; `$7D` and `$E9`).
-`genowedits.minimap_layout` gives each block an edit changes its own tile
-back, moves the logo's tile that was there into the tile of a twin, and
-shows that twin with its sibling's tile: six nametable bytes and two of the
-logo's destinations (`gen/minimap_nt.nam`, `gen/minimap_titledest.inc`,
-`patches/bank_09/minimap_*.patch`), bank $09 otherwise byte for byte.  The
-two blocks are open sea in vanilla, as the blank tile is, so the unedited
-minimap looks as it did.  The generator asserts, and `test_owedits` holds
-from the ROM, that every block shows a tile drawn with its picture under
-every edit, a hidden block stays as vanilla has it, no shown block shows a
-lent tile, and the logo and crests are whole.
+anything.**  None of the 88 lent tiles is a duplicate or blank, but two of
+the map's own blocks, `$9F` and `$FF`, are open sea that vanilla shows with
+tiles of their own.  `genowedits.minimap_layout` gives each block an edit
+changes its own tile back, moves the logo's tile that was there into one of
+those, and shows that block with the blank tile 0 instead: six nametable
+bytes and two of the logo's destinations (`gen/minimap_nt.nam`,
+`gen/minimap_titledest.inc`, `patches/bank_09/minimap_*.patch`), bank $09
+otherwise byte for byte.  The two edited blocks are open sea in vanilla, as
+the blank tile is, so the unedited minimap looks as it did.
+
+The first layout (2026-10-18) took the tiles of *twins* instead -- blocks
+whose pictures are the same, `$6D` and `$B5` showing `$1C`'s -- and that
+was wrong while the minimap draws (user, 2026-10-29: two stray green
+pixels, west of the Northwest Castle and near Lefein, early in the
+drawing).  The map draws a block row at a time, top to bottom, into a
+pattern table `Minimap_FillNTPal` has cleared, so a cell shows what its
+tile holds so far: `$1C` is in the second row, and its one pixel lit up in
+`$6D`'s and `$B5`'s places long before the drawing got there.  `$6D`'s and
+`$B5`'s own tiles, lent to the logo, also got their pixel as their rows
+drew, and showed it in the logo's place until the logo drew over it.  Open
+sea has neither problem: tile 0 is blank from the clear to the end, and so
+is a lent tile whose block draws blank.
+
+The generator asserts, and `test_owedits` holds from the ROM, that every
+block shows a tile drawn with its picture under every edit, a hidden block
+stays as vanilla has it, no shown block shows a lent tile, and the logo and
+crests are whole; and, for the drawing, that every block shows its own tile
+or tile 0, and that tile 0 and every lent tile are drawn blank under every
+map.
 
 ### 9.2 Alternate maps
 

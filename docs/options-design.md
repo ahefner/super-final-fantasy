@@ -272,7 +272,7 @@ Wide (user, 2026-10-28; played 2026-10-28 in Improved Vanilla and under
 Entrances, "Seems to work"): fourteen, each approved by the user, listed in
 `randomization-notes.md` §3.  Under Map shuffle, eight more that say where a
 dungeon is, and under Floors two that say the way through one (2026-10-28,
-the user's wording or approved; built, not yet played).  
+the user's wording or approved; played 2026-10-29, user: "Verified").
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -2126,8 +2126,10 @@ screen).  It edits only the map: the BRIDGE stays where the save built it.
 The minimap was wrong with it, by design of the minimap rather than the
 edits: Sarda's Forest and the Cardia Land Bridge put land in blocks whose
 tiles the logo borrowed.  Fixed 2026-10-18 (played 2026-10-28; user):
-those blocks have their tiles back and the logo's moved into twins' --
-`randomization-notes.md` §9.1.
+those blocks have their tiles back and the logo's moved into two blocks
+of open sea's, which show the blank tile.  The first layout used twins'
+tiles, which lit two pixels early as the minimap drew (user, 2026-10-29);
+fixed the same day, built, not yet played -- `randomization-notes.md` §9.1.
 
 ### New Game's map edit screen
 
