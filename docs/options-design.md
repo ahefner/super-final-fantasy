@@ -266,7 +266,10 @@ this and go."; Astos "HA, HA, HA! I am Astos! / I possess the [item] / Soon
 I'll have the CROWN!" -- both the user's, Astos's also the fix for his
 padded name before a full stop (`randomization-notes.md` §3).  The rest as
 FFR wrote them.  Played 2026-10-28 in part (user: "partially verified the
-text audit"); Bikke's and Astos's lines seen.  
+text audit"); Bikke's and Astos's lines seen.  The game's lines that say
+where a key item is give way to neutral ones under Key items Standard or
+Wide (user, 2026-10-28; built, not yet played): fourteen, each approved by
+the user, listed in `randomization-notes.md` §3.  
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -3714,7 +3717,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   1888 free  the randomizer (measured 2026-10-21); the Ordeals pillars took 622,
+    BANK_RANDO    662 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3738,7 +3741,8 @@ text region in the game references.
                              row's part removed 2026-10-24); Short
                              ToFR 485, 110 of it the room; New Game taking
                              the flow's edits and seed 21 + 21; the Seed
-                             Summary's numbers and places (pl_summary) 52
+                             Summary's numbers and places (pl_summary) 52;
+                             the hint lines and their lookup 841
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's

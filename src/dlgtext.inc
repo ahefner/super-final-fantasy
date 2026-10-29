@@ -1,5 +1,6 @@
 ; ---------------------------------------------------------------------------
-;  dlgtext.inc -- the reward NPCs' giving lines, once placement is in
+;  dlgtext.inc -- the reward NPCs' giving lines, once placement is in, and
+;  the game's lines that say where a key item is
 ;
 ;  Included by rando.asm.  A reward NPC's vanilla giving line names its
 ;  vanilla reward ("Take my SHIP."), which is wrong once placement moves it.
@@ -14,10 +15,18 @@
 ;  bank) and points text_ptr at it.  The flag is spent there, so nothing
 ;  after it is touched.  $02 in a line is the item's name; any other code
 ;  below $1A breaks the line.
+;
+;  With nothing armed, the same hook swaps a hint: a line of the game's that
+;  says where a key item is (lut_DlgHintId), wrong once the key items are
+;  shuffled, for one that isn't.
 ; ---------------------------------------------------------------------------
 
 DLG_NL   = $01                  ; a line break
 DLG_ITEM = $02                  ; the name of dlg_itemid
+DLG_DOTS = $C3                  ; the font's "..": the game's "...." is two
+
+;  The game's dialogue pointers, NES bank $0A's first $200 bytes.
+DLGPTRFAR = (CHUNK0 + BANK_DIALOGUE) * $10000 + lut_DialoguePtrTbl
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_dlgtext -- a reward NPC's line, if one has just given
@@ -32,7 +41,7 @@ rando_dlgtext:
     .a8
     .i8
     LDA f:RW_DLGNPC
-    BEQ @out
+    BEQ @hint
     CMP #DLG_ORB0
     BCC :+
     JMP rando_dlgorb
@@ -80,6 +89,50 @@ rando_dlgtext:
     STA text_ptr+1
   @out:
     RTL
+
+    ;  Nothing armed.  With the key items shuffled, a line that says where
+    ;  one is -- the CROWN in the Cave of Marsh, the KEY with the Elf
+    ;  Prince -- is wrong, so it gives way to one that isn't (user,
+    ;  2026-10-28: "I'd instead neutralize the dialog"); under Key items
+    ;  Vanilla the game's own.  The string is known by its pointer in the
+    ;  game's table, the dialogue number being gone by here.
+  @hint:
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    CMP #KEYITEMS_STANDARD
+    BEQ :+
+    CMP #KEYITEMS_WIDE
+    BNE @out
+:   LDX #DLG_NHINT - 1
+  @look:
+    PHX
+    LDA f:RANDOFAR + lut_DlgHintId, X
+    ASL A
+    TAX
+    BCS @high                   ; $80 on: the table's second page
+    LDA f:DLGPTRFAR, X
+    CMP text_ptr
+    BNE @next
+    LDA f:DLGPTRFAR + 1, X
+    BRA @page
+  @high:
+    LDA f:DLGPTRFAR + $100, X
+    CMP text_ptr
+    BNE @next
+    LDA f:DLGPTRFAR + $101, X
+  @page:
+    CMP text_ptr+1
+    BEQ @hit
+  @next:
+    PLX
+    DEX
+    BPL @look
+    RTL
+  @hit:
+    PLX
+    LDA f:RANDOFAR + lut_DlgHintLo, X
+    STA text_ptr
+    LDA f:RANDOFAR + lut_DlgHintHi, X
+    JMP @have
 
 ;;  The Black Orb giving way with fewer than four lit (opt_orbgoal): the
 ;;  game's line, dialogue $21, its first line by the orbs the party carries
@@ -289,3 +342,111 @@ lut_DlgEarlyLo:
   .BYTE <lut_DlgEarly0, 0, 0, 0, 0, 0, 0, 0, 0, <lut_DlgEarly9, 0, 0, 0
 lut_DlgEarlyHi:
   .BYTE >lut_DlgEarly0, 0, 0, 0, 0, 0, 0, 0, 0, >lut_DlgEarly9, 0, 0, 0
+
+;  The game's lines that say where a key item is, and each one's
+;  replacement once the key items are shuffled: what stays true of it, or
+;  where all of it was the hint, a line that is (user, 2026-10-28, every
+;  one approved).
+lut_DlgHintId:
+  .BYTE $11, $41, $54, $5D, $5F, $60, $69, $71, $76, $9F, $B0, $C6, $C8, $DE
+DLG_NHINT = * - lut_DlgHintId
+lut_DlgHint0:   ; $11, Astos as the King: "Go south, to the Cave of Marsh"
+  FFTEXT "Astos double-crossed us."
+  .BYTE DLG_NL
+  FFTEXT "Find the CROWN, and"
+  .BYTE DLG_NL
+  FFTEXT "bring it directly back"
+  .BYTE DLG_NL
+  FFTEXT "to me!"
+  .BYTE $00
+lut_DlgHint1:   ; $41: "Our ancestors gave the KEY to the Prince of ElfLand"
+  FFTEXT "400 years ago the"
+  .BYTE DLG_NL
+  FFTEXT "Treasury was locked by"
+  .BYTE DLG_NL
+  FFTEXT "the mystic KEY."
+  .BYTE $00
+lut_DlgHint2:   ; $54: "Matoya's HERB is the only thing"
+  FFTEXT "The Elves live across"
+  .BYTE DLG_NL
+  FFTEXT "the sea. Only HERB"
+  .BYTE DLG_NL
+  FFTEXT "will wake their Prince."
+  .BYTE $00
+lut_DlgHint3:   ; $5D: "a witch who has HERBS"
+  FFTEXT "It is said there is a"
+  .BYTE DLG_NL
+  FFTEXT "blind witch named"
+  .BYTE DLG_DOTS, DLG_DOTS, DLG_NL
+  FFTEXT "Matoya!"
+  .BYTE $00
+lut_DlgHint4:   ; $5F: "The Prince keeps the mystic KEY"
+  FFTEXT "The Prince waits for"
+  .BYTE DLG_NL
+  FFTEXT "the coming of the"
+  .BYTE DLG_NL
+  FFTEXT "LIGHT WARRIORS."
+  .BYTE $00
+lut_DlgHint5:   ; $60: "the cause of all problems ... the cave of Marsh"
+  FFTEXT "The Marsh Cave is a"
+  .BYTE DLG_NL
+  FFTEXT "festering pit of decay,"
+  .BYTE DLG_NL
+  FFTEXT "crawling with undead."
+  .BYTE $00
+lut_DlgHint6:   ; $69: "there you will find the FLOATER"
+  FFTEXT "I can see a cave above"
+  .BYTE DLG_NL
+  FFTEXT "the crescent"
+  .BYTE DLG_DOTS, DLG_DOTS, $00
+lut_DlgHint7:   ; $71: "Astos stole it from Matoya"
+  FFTEXT "With the CRYSTAL, even"
+  .BYTE DLG_NL
+  FFTEXT "the blind can see."
+  .BYTE $00
+lut_DlgHint8:   ; $76: "Coneria's Treasury safeguarded the use of TNT"
+  FFTEXT "Old Nerrick needs TNT"
+  .BYTE DLG_NL
+  FFTEXT "for his canal."
+  .BYTE $00
+lut_DlgHint9:   ; $9F: "CANOE north, to the Ice Cave"
+  FFTEXT "For ten years I searched"
+  .BYTE DLG_NL
+  FFTEXT "for the FLOATER."
+  .BYTE $00
+lut_DlgHint10:  ; $B0: "they tell of a cryptic stone plate"
+  FFTEXT "Fables say that when"
+  .BYTE DLG_NL
+  FFTEXT "the shrine sank, many"
+  .BYTE DLG_NL
+  FFTEXT "treasures were lost."
+  .BYTE $00
+lut_DlgHint11:  ; $C6: "Only a fairy can draw OXYALE"
+  FFTEXT "Only a fairy can draw"
+  .BYTE DLG_NL
+  FFTEXT "from the spring."
+  .BYTE $00
+lut_DlgHint12:  ; $C8: "and sold her to a caravan"
+  FFTEXT "Hardy har, you are too"
+  .BYTE DLG_NL
+  FFTEXT "late! I BOTTLED the"
+  .BYTE DLG_NL
+  FFTEXT "fairy."
+  .BYTE $00
+lut_DlgHint13:  ; $DE: "escaped with a CUBE"
+  FFTEXT "One of us escaped. He"
+  .BYTE DLG_NL
+  FFTEXT "floated far to the west."
+  .BYTE $00
+lut_DlgHintLo:
+  .BYTE <lut_DlgHint0, <lut_DlgHint1, <lut_DlgHint2, <lut_DlgHint3, <lut_DlgHint4
+  .BYTE <lut_DlgHint5, <lut_DlgHint6, <lut_DlgHint7, <lut_DlgHint8, <lut_DlgHint9
+  .BYTE <lut_DlgHint10, <lut_DlgHint11, <lut_DlgHint12, <lut_DlgHint13
+lut_DlgHintHi:
+  .BYTE >lut_DlgHint0, >lut_DlgHint1, >lut_DlgHint2, >lut_DlgHint3, >lut_DlgHint4
+  .BYTE >lut_DlgHint5, >lut_DlgHint6, >lut_DlgHint7, >lut_DlgHint8, >lut_DlgHint9
+  .BYTE >lut_DlgHint10, >lut_DlgHint11, >lut_DlgHint12, >lut_DlgHint13
+.assert * - lut_DlgHintLo = 2 * DLG_NHINT, error, "a hint without its line"
+;  The longest, Astos's, fits OPTDESC with room (test_rando_dialogue reads
+;  every one back).
+.assert lut_DlgHint1 - lut_DlgHint0 <= OPTDESC_MAX, error, "a hint's line overflows OPTDESC"

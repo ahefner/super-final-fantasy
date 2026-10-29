@@ -495,6 +495,58 @@ Two points to settle in the design:
     "Arrrr, you got me. / Take this and go." (the user's).  Both played
     2026-10-28.
 
+**The hint lines (user, 2026-10-28; built, not yet played).**  Some of the
+game's lines say where a key item is: Astos, as the King, sends the party
+"south, to the Cave of Marsh" for the CROWN; the KEY is with the Elf
+Prince; the FLOATER is north of the volcano.  Once the key items are
+shuffled they are wrong.  FFR can write new hints, but the user chose to
+neutralize them instead ("This could get complicated").  Under Key items
+Standard or Wide fourteen lines give way to a line each that stays true --
+what is left of the line once the hint is cut, or where all of it was the
+hint, a new one ("Old Nerrick needs TNT / for his canal."; the Marsh Cave's
+"festering pit of decay, / crawling with undead.", the user's).  The user
+approved every line.  Under Key items Vanilla, all are the game's own.
+
+| #   | The game's hint | Its line |
+|-----|-----------------|----------|
+| $11 | Astos as the King: the CROWN in the Cave of Marsh | Astos double-crossed us. / Find the CROWN, and / bring it directly back / to me! |
+| $41 | the KEY given to the Elf Prince | 400 years ago the / Treasury was locked by / the mystic KEY. |
+| $54 | Matoya's HERB | The Elves live across / the sea. Only HERB / will wake their Prince. |
+| $5D | a witch with HERBS | It is said there is a / blind witch named.... / Matoya! |
+| $5F | the Prince keeps the KEY | The Prince waits for / the coming of the / LIGHT WARRIORS. |
+| $60 | the cause of all problems in the Marsh Cave | The Marsh Cave is a / festering pit of decay, / crawling with undead. |
+| $69 | the FLOATER north of the volcano | I can see a cave above / the crescent.... |
+| $71 | Astos stole the CRYSTAL | With the CRYSTAL, even / the blind can see. |
+| $76 | TNT in Coneria's Treasury | Old Nerrick needs TNT / for his canal. |
+| $9F | the FLOATER in the Ice Cave | For ten years I searched / for the FLOATER. |
+| $B0 | the SLAB in the sunken shrine | Fables say that when / the shrine sank, many / treasures were lost. |
+| $C6 | the fairy's OXYALE | Only a fairy can draw / from the spring. |
+| $C8 | the BOTTLE sold to a caravan | Hardy har, you are too / late! I BOTTLED the / fairy. |
+| $DE | the CUBE carried west | One of us escaped. He / floated far to the west. |
+
+Left as they are: what an NPC asks for (Matoya's CRYSTAL, the Titan's
+RUBY, Unne's SLAB), which stays true; "Use that KEY.  Inside what you find
+will be quite helpful."; Underhill's "something very strange"; Kope's
+robot by the waterfall -- all vague enough to stay true.
+
+The same hook, `rando_dlgtext`: with no NPC giving, under Standard or Wide,
+it looks `text_ptr` up among the fourteen lines' pointers in the game's own
+table (bank `$0A`'s `lut_DialoguePtrTbl`, read by number from
+`lut_DlgHintId`), since the number is gone by the hook, and copies the
+match's line into `OPTDESC` as an NPC's.  A giving NPC's line comes first.
+Chest Information, entering with `text_ptr` at `OPTDESC`, matches nothing.
+The lookup runs before the drawer's vblank wait.  The lines are plain
+text, not the game's pairs; "...." is two of the font's ".." tiles, as the
+game draws it.  test_rando_dialogue: all 256 of the game's lines under each
+Key items value -- exactly these fourteen swapped under Standard and Wide,
+none under Vanilla -- each line byte for byte; the box's width; a pointer
+a page off and `OPTDESC` left alone; a giving NPC first; and through the
+game's own `DrawDialogueString`.  Nine mutations, all caught.
+
+Still open (user, 2026-10-28): lines that give directions to a dungeon are
+wrong under Map shuffle ("Earth Cave is on the peninsula southwest"), and
+town and landmark directions on an alternate map.
+
 Two more, from the incentive rows (§12):
 
   - **Any item, and gold.**  Once key items move, an NPC can hold an

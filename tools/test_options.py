@@ -3042,7 +3042,8 @@ def ff_decode(body):
         elif 0xA4 <= b <= 0xBD:
             out.append(chr(ord("a") + b - 0xA4))
         else:
-            out.append({0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC4: "!",
+            #  $C3 is the font's "..", one tile: the game's "...." is two.
+            out.append({0xBE: "'", 0xBF: ",", 0xC0: ".", 0xC2: "-", 0xC3: "\u2026", 0xC4: "!",
                         0xC5: "?"}.get(b, "<%02X>" % b))
     return "".join(out)
 
@@ -3169,6 +3170,85 @@ def test_rando_dialogue():
     bus, cpu = talk("CubeBot", 0x41, setup=full)
     check("CubeBot, a Katana, no room: not armed, can't carry",
           (bus.wram[DLGNPC], cpu.a & 0xFF), (0, DLGID_CANTCARRY))
+
+    #  The game's lines that say where a key item is, with the key items
+    #  shuffled: each its replacement, every one the user's to approve
+    #  (2026-10-28) -- "\u2026" is the font's ".." -- and under Key items
+    #  Vanilla the game's own.  Over every line the game has, so nothing
+    #  else is swapped.
+    HINTS = {
+        0x11: "Astos double-crossed us.\nFind the CROWN, and\nbring it directly back\nto me!",
+        0x41: "400 years ago the\nTreasury was locked by\nthe mystic KEY.",
+        0x54: "The Elves live across\nthe sea. Only HERB\nwill wake their Prince.",
+        0x5D: "It is said there is a\nblind witch named\u2026\u2026\nMatoya!",
+        0x5F: "The Prince waits for\nthe coming of the\nLIGHT WARRIORS.",
+        0x60: "The Marsh Cave is a\nfestering pit of decay,\ncrawling with undead.",
+        0x69: "I can see a cave above\nthe crescent\u2026\u2026",
+        0x71: "With the CRYSTAL, even\nthe blind can see.",
+        0x76: "Old Nerrick needs TNT\nfor his canal.",
+        0x9F: "For ten years I searched\nfor the FLOATER.",
+        0xB0: "Fables say that when\nthe shrine sank, many\ntreasures were lost.",
+        0xC6: "Only a fairy can draw\nfrom the spring.",
+        0xC8: "Hardy har, you are too\nlate! I BOTTLED the\nfairy.",
+        0xDE: "One of us escaped. He\nfloated far to the west.",
+    }
+    KEYITEMS = K["RANDO_KEYITEMS"] - 0x6000
+    gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
+
+    def hint(keyitems, ptr, armed=0):
+        bus, cpu = machine()
+        bus.sram[KEYITEMS] = keyitems
+        bus.wram[DLGNPC] = armed
+        bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
+        cpu.y = 0x5A
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+        now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        text = ff_decode(buf[:buf.find(0)]) if now == OPTDESC_A and 0 in buf else None
+        return now, text, cpu.y & 0xFF, bus.wram[DLGNPC]
+    for name in ("KEYITEMS_VANILLA", "KEYITEMS_STANDARD", "KEYITEMS_WIDE"):
+        runs = {i: hint(K[name], gameptr(i)) for i in range(256)}
+        swapped = {i: t for i, (now, t, _, _) in runs.items() if now != gameptr(i)}
+        check("Key items %s: the hints swapped, every other line the game's" % name[9:].title(),
+              swapped, {} if name == "KEYITEMS_VANILLA" else HINTS)
+        check("...Y kept, nothing armed", {(y, flag) for _, _, y, flag in runs.values()}, {(0x5A, 0)})
+    rows = [r for t in HINTS.values() for r in t.split("\n")]
+    check("each hint fits the box", (max(len(t.split("\n")) for t in HINTS.values()) <= BOX_LINES,
+                                     max(len(r) for r in rows) <= BOX_COLS), (True, True))
+    #  Decoys: a hint's pointer a page off, and Chest Information's line,
+    #  which enters with text_ptr at OPTDESC; and an NPC giving, whose line
+    #  comes first whatever text_ptr says.
+    std = K["KEYITEMS_STANDARD"]
+    check("...a hint's pointer a page off, and OPTDESC itself: left alone",
+          [hint(std, p)[0] for p in (gameptr(0x11) ^ 0x100, gameptr(0xDE) ^ 0x100, OPTDESC_A)],
+          [gameptr(0x11) ^ 0x100, gameptr(0xDE) ^ 0x100, OPTDESC_A])
+    now, text, _, flag = hint(std, gameptr(0x11), armed=TALK_ENTRY["Astos"] + 1)
+    check("...an NPC giving: his line, not the hint's", ("I am Astos" in text, flag), (True, 0))
+    #  Through the game's own lookup: DrawDialogueString, the dialogue's
+    #  number in A, to just past the hook.  It isn't exported; it begins
+    #  by keeping A in X and swapping in the dialogue bank, a few dozen
+    #  bytes before the hook.
+    head = bytes([0xAA, 0xA9, K["BANK_DIALOGUE"], 0x85, K["cur_bank"], 0x20])
+    fixed, hook = (1 + 0x0F) * 0x10000, SYM["DrawDialogueString_PtrLoaded"]
+    at = [a for a in range(hook - 64, hook) if ROMDATA[fixed + a:fixed + a + len(head)] == head]
+    check("...DrawDialogueString found before the hook", len(at), 1)
+    drawn = {}
+    for i in (0x11, 0xDE, 0x12):
+        for name in ("KEYITEMS_VANILLA", "KEYITEMS_STANDARD"):
+            bus, cpu = machine()
+            bus.frames()
+            bus.sram[KEYITEMS] = K[name]
+            cpu.a = i
+            cpu.run(0xA7, at[0], stop=SYM["DrawDialogueString_PtrLoaded"] + 4, limit=100_000)
+            buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+            ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+            drawn[i, name[9:]] = ff_decode(buf[:buf.find(0)]) if ptr == OPTDESC_A else ptr == gameptr(i)
+    check("...through DrawDialogueString: $11 and $DE their hints, $12 (Astos's) the game's; "
+          "under Vanilla the game's",
+          drawn, {(0x11, "VANILLA"): True, (0x11, "STANDARD"): HINTS[0x11],
+                  (0xDE, "VANILLA"): True, (0xDE, "STANDARD"): HINTS[0xDE],
+                  (0x12, "VANILLA"): True, (0x12, "STANDARD"): True})
 
 
 MSGROWS_TOTAL = 12
