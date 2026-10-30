@@ -249,7 +249,8 @@ ROMGEAR    = BANK0CFAR + lut_WeaponData
 ;  Item names: lut_ItemNamePtrTbl in bank $0A, a pointer per item id into the
 ;  same bank.  Gear is item ids $1C up, weapons then armour.
 .assert BANK0AFAR = (CHUNK0 + BANK_ITEMS) * $10000, error, "BANK0AFAR is not BANK_ITEMS"
-SRAMFAR    = CHUNK0 * $10000    ; SRAM, from a bank that decodes it
+SRAMFAR    = CHUNK0 * $10000    ; SRAM, and low WRAM's mirror (OPTWORK), from a
+                                ;   bank that decodes both
 
 ;  Steps discarded from a fresh stream.  xorshift diffuses a one-bit change
 ;  in the state slowly, and a seed typed in by hand -- 1, 2, 3 -- would
@@ -3781,7 +3782,8 @@ clamp:
 ;;
 ;;  UnadjustEquipStats and ReadjustEquipStats pointed (tmp) into lut_Weapons
 ;;  or lut_Armor in bank $0C and read the record through it.  These copy the
-;;  record as blursed into OPTGEARSHADOW, in SRAM, which every bank sees, and
+;;  record as blursed into OPTGEARSHADOW, in low WRAM, which every chunk bank
+;;  sees, and
 ;;  point (tmp) there instead.
 ;;
 ;;  In: A = (equipment id - 1) * 4, as the adjuster had it.  Out: tmp,
@@ -5896,8 +5898,8 @@ rando_touch:
 ;;  enemy's en_romptr at its ROM record and copied part of that into its RAM
 ;;  stats.  The battle reads the rest through the pointer as it goes -- hits,
 ;;  hit% and crit% as it attacks, max HP and magic defense as a spell lands,
-;;  Boss tactics' reckoning -- and the pointer reaches SRAM but not the
-;;  cache.  So each kind of enemy in the battle, four at most, has its record
+;;  Boss tactics' reckoning -- and the pointer reaches SRAM and low WRAM but
+;;  not the cache.  So each kind of enemy in the battle, four at most, has its record
 ;;  copied from RW_ENEMIES into OPTBTLENEMIES, each enemy is pointed at its
 ;;  kind's, and its RAM stats are copied again from that as LoadEnemyStats
 ;;  copies them.  What the world changes in a record, the battle sees.
@@ -6043,7 +6045,8 @@ times20:
 ;;  rando_enemyai -- Enemy_DoAi's script lookup, from the cache
 ;;
 ;;  The enemy's script id comes from the cache by its id in battle RAM, not
-;;  from its ROM record, and the script is copied to OPTAISHADOW in SRAM, which
+;;  from its ROM record, and the script is copied to OPTAISHADOW in low WRAM,
+;;  which
 ;;  bank $0C's reads through @aiptr see.  So every later read is the game's
 ;;  own, and the per-enemy AI positions index the shadow as they indexed ROM.
 ;;  The shadow lives only while this enemy chooses.

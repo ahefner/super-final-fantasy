@@ -205,7 +205,8 @@ opt_init:
     PLB                         ; DBR = this bank, for lut_Presets below
 
     ;  Clear the victory poses before anything can read them.  They are scratch
-    ;  at OPTBLOCK+$B0, above the settings the checksum covers, and until now
+    ;  -- at OPTBLOCK+$B0, above the settings the checksum covers, until
+    ;  2026-10-30, OPTWORK+$B0 in low WRAM since -- and until now
     ;  only the shop path ever wrote them -- so on a cartridge that had not been
     ;  through a shop they were whatever the battery held.  DrawOBSprite adds
     ;  the byte to its tile base with no range check, so $FF from a fresh

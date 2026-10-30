@@ -1146,7 +1146,7 @@ opt_showbox:
     STA text_ptr
     LDA #>OPTDESC
     STA text_ptr+1
-    LDA #CHUNK_OPT              ; the string is in SRAM, which every chunk
+    LDA #CHUNK_OPT              ; the string is in low WRAM, which every chunk
     STA cur_bank                ;   maps alike, so this only has to name a
     STA ret_bank                ;   bank we can come back to
     JSR DrawComplexString
@@ -1236,8 +1236,9 @@ lut_MagicPermis = lut_MagicPermisPtr + 24
 ;
 ;  Hence the flag test, which the hook site cannot do for us: it is an
 ;  unconditional JSL on DrawOBSprite's standing path, so this routine runs in
-;  every menu whether Shop Information is on or not.  The pose bytes live at
-;  OPTBLOCK+$B0, which is SRAM above the checksummed settings, and only the
+;  every menu whether Shop Information is on or not.  The pose bytes lived at
+;  OPTBLOCK+$B0, SRAM above the checksummed settings (OPTWORK+$B0, low WRAM,
+;  since 2026-10-30), and only the
 ;  shop path ever writes them.  On a cartridge that had not yet been through a
 ;  shop they read as whatever the battery held -- $FF on a fresh one, which
 ;  made the tile base tmp-1 and drew every party member one tile into the
@@ -2164,7 +2165,7 @@ opt_chestinfo:
     ;  a garbage pointer and drew dialogue text: a weapon or armour that casts a
     ;  spell printed "Cast " and then a fragment of somebody's conversation.
     ;
-    ;  Nothing wants the options chunk mapped meanwhile.  OPTDESC is SRAM, the
+    ;  Nothing wants the options chunk mapped meanwhile.  OPTDESC is low WRAM, the
     ;  renderer is the fixed bank, and opt_descgear has already run -- which is
     ;  also why the five lines above the Cast line were always correct.
     LDA #CHUNK_OPT              ; a line break calls CallMusicPlay, which

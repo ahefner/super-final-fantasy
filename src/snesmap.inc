@@ -162,6 +162,17 @@ THEENDBUF       = $6800         ; same 16-bit address as before, but in bank
 ;;  between builds and a stale block that still checksums is worse than one
 ;;  that is obviously absent.  A version mismatch falls back to a preset.
 OPTBLOCK        = $6E00
+;  The settings code's working bytes, and the copies game code reads through
+;  pointers -- OPTDESC, the shadows, the battle's enemy records -- kept at their
+;  page offsets but off the battery page since 2026-10-30, so that page holds
+;  only what must outlive a power-off (the block, RANDO_POOL and OPT_NG) and
+;  has room for more.  In low WRAM, which every bank the game and the settings
+;  run in -- the chunks, $A1-$BF -- mirrors at $0000-$1FFF: absolute
+;  addressing and 16-bit pointers reach it as they reached SRAM, and so do the
+;  long addresses built on a chunk's bank (SRAMFAR, CHUNK0 * $10000).  Reset
+;  zeroes it, and opt_init cooks OPTD and clears the poses every boot.
+OPTWORK         = $0E00
+.assert OPTWORK >= CHRQUEUE + CHRQ_CAP * 2 && OPTWORK + $100 <= NTSHADOW, error, "the option work bytes overlap the HAL's low WRAM"
 OPT_MAGIC0      = OPTBLOCK+$00  ; $53 'S'
 OPT_MAGIC1      = OPTBLOCK+$01  ; $46 'F'
 OPT_VERSION     = OPTBLOCK+$02  ; OPT_FORMAT below
@@ -266,7 +277,7 @@ OPTF_LOK2         = $02000000
 ;  turning that constant into a load -- but the constants live in code that is
 ;  reached far too often to test a flag at.  So the flags are cooked down once,
 ;  here, and the use site just loads a byte.
-OPTD            = OPTBLOCK+$13  ; the derived block, just above the option block
+OPTD            = OPTWORK+$13  ; the derived block, just above the option block
 OPTD_WIPEOPEN_U = OPTD+$00      ; ScreenWipe_Open's two step sizes...
 OPTD_WIPEOPEN_D = OPTD+$01
 OPTD_WIPECLOSE_D= OPTD+$02      ; ...and ScreenWipe_Close's
@@ -278,22 +289,22 @@ OPTD_LINEUP     = OPTD+$07      ; pixels per frame in the lineup menu
 OPTD_PALCYC     = OPTD+$08      ; frame mask for the palette cycle
 OPTD_MSGROWS    = OPTD+$09      ; message rows drawn per frame, opening
 OPTD_MSGROWSREV = OPTD+$0A      ; ...and closing
-OPTSCRATCH      = OPTBLOCK+$20  ; a byte the option code may use freely
+OPTSCRATCH      = OPTWORK+$20  ; a byte the option code may use freely
 
 ;  A derived byte that did not fit in the block above.  OPTD's sixteen run to
 ;  OPTBLOCK+$1F and the settings screen took the last five for its own scratch
 ;  before this was needed, so the derived block continues on the far side of
 ;  OPTSCRATCH.  Contiguity buys nothing -- every use site names the byte.
-OPTD_ELEMDMG    = OPTBLOCK+$21  ; base-damage bonus for hitting a weakness
-OPTFIXSP        = OPTBLOCK+$22  ; opt_spellfixed: the spell it was asked about
-OPTFIXFD        = OPTBLOCK+$23  ; ...and the field
+OPTD_ELEMDMG    = OPTWORK+$21  ; base-damage bonus for hitting a weakness
+OPTFIXSP        = OPTWORK+$22  ; opt_spellfixed: the spell it was asked about
+OPTFIXFD        = OPTWORK+$23  ; ...and the field
 
 ;  opt_scalereward's accumulator: the reward times up to ten, which needs a
 ;  byte past the reward's three.  It used OPTSCRATCH and the three bytes after
 ;  it, and the first of those is OPTD_ELEMDMG -- so every battle that ended
 ;  with Gold/XP off 100% left the weakness bonus at a byte of the reward until
 ;  the options were next committed (found 2026-10-09).  Its own four now.
-OPTREWARD       = OPTBLOCK+$24  ; 4 bytes, low byte first
+OPTREWARD       = OPTWORK+$24  ; 4 bytes, low byte first
 
 ;  The three spell flags.
 OPTFB_SPELLFIX  = OPT_FLAGS+2
@@ -324,13 +335,13 @@ SOFTBTL_MASK    = $02           ; AIL_STONE: the record's effectivity
 DRINK_SOFT      = 2             ; the SOFT row: 0 HEAL, 1 PURE, 3 empty
 DRINK_ROWS      = 3
 ITEM_HEAL       = $19           ; item ids: item_heal - items, and the next two
-OPTBTLSOFT      = OPTBLOCK+$1E  ; the battle's SOFT count, beside btl_potion_heal
+OPTBTLSOFT      = OPTWORK+$1E  ; the battle's SOFT count, beside btl_potion_heal
                                 ;   and _pure, which have $6BB1 (battle_bank)
                                 ;   after them; set at every battle's start
-OPTDRINKROW     = OPTBLOCK+$1F  ; which DRINK row opt_drinkrow builds next
+OPTDRINKROW     = OPTWORK+$1F  ; which DRINK row opt_drinkrow builds next
 .assert OPTD + $0B <= OPTBTLSOFT, error, "the derived block runs into the battle's SOFT count"
 .assert OPTDRINKROW < OPTSCRATCH, error, "the DRINK row counter runs into OPTSCRATCH"
-.assert OPT_SIZE <= OPTD - OPTBLOCK, error, "the option block runs into the derived block"
+.assert OPTBLOCK + OPT_SIZE <= RANDO_POOL, error, "the option block runs into the seed pool"
 
 ;  White Mage HARM, FFR's WhiteMageHarmEveryone: HARM spells cast or used by
 ;  a White Mage or White Wizard damage anything, not only the undead.  Bit 37,
@@ -811,16 +822,16 @@ OPTFM_BUYQTY    = $40    ; bit 6
 ;  Buy Quantity's working bytes, in the option block's spare page.  None of
 ;  them outlive a single purchase; they are here rather than in zero page
 ;  because the shop already uses most of it.
-OPTSHOPQTY      = OPTBLOCK+$28  ; how many the player has dialled up
-OPTSHOPPREV     = OPTBLOCK+$29  ; the d-pad last frame, for edge detection
-OPTSHOPMAX      = OPTBLOCK+$2A  ; most we can charge for without overflowing
-OPTSHOPUNIT     = OPTBLOCK+$2B  ; 2 bytes: the price of one
+OPTSHOPQTY      = OPTWORK+$28  ; how many the player has dialled up
+OPTSHOPPREV     = OPTWORK+$29  ; the d-pad last frame, for edge detection
+OPTSHOPMAX      = OPTWORK+$2A  ; most we can charge for without overflowing
+OPTSHOPUNIT     = OPTWORK+$2B  ; 2 bytes: the price of one
 ;  Where each number goes, so that changing the quantity redraws the digits
 ;  and not the boxes around them.
-OPTSHOPTX       = OPTBLOCK+$2D  ; the total, in the message box
-OPTSHOPTY       = OPTBLOCK+$2E
-OPTSHOPQX       = OPTBLOCK+$2F  ; the count, in the command box
-OPTSHOPQY       = OPTBLOCK+$30
+OPTSHOPTX       = OPTWORK+$2D  ; the total, in the message box
+OPTSHOPTY       = OPTWORK+$2E
+OPTSHOPQX       = OPTWORK+$2F  ; the count, in the command box
+OPTSHOPQY       = OPTWORK+$30
 
 ;  Enemy/boss stat scaling.  FFR's RangeScale, with one percentage rather than
 ;  a range, reduces to  value * (1 + (p-1)*adj)  -- the random exponent drops
@@ -833,15 +844,15 @@ OPTSHOPQY       = OPTBLOCK+$30
 ;
 ;  n is the step index plus one, so STAT_100 (3) gives n=4 and every fraction
 ;  is 1 -- which is FFR's "100% changes nothing" early exit, for free.
-OPTSTATV        = OPTBLOCK+$32  ; 2 bytes: the value being scaled
-OPTSTATNUM      = OPTBLOCK+$34  ; numerator
-OPTSTATSH       = OPTBLOCK+$35  ; log2 of the denominator
-OPTSTATACC      = OPTBLOCK+$36  ; 3 bytes of accumulator
-OPTSTATN        = OPTBLOCK+$39  ; n for whichever of the two settings applies
-OPTSTATSLOT     = OPTBLOCK+$3A  ; which enemy slot the scaling loop is on
-OPTSTATREM      = OPTBLOCK+$3B  ; remainder, for rounding half to even
-OPTSTATHALF     = OPTBLOCK+$3C
-OPTSTATMASK     = OPTBLOCK+$3D
+OPTSTATV        = OPTWORK+$32  ; 2 bytes: the value being scaled
+OPTSTATNUM      = OPTWORK+$34  ; numerator
+OPTSTATSH       = OPTWORK+$35  ; log2 of the denominator
+OPTSTATACC      = OPTWORK+$36  ; 3 bytes of accumulator
+OPTSTATN        = OPTWORK+$39  ; n for whichever of the two settings applies
+OPTSTATSLOT     = OPTWORK+$3A  ; which enemy slot the scaling loop is on
+OPTSTATREM      = OPTWORK+$3B  ; remainder, for rounding half to even
+OPTSTATHALF     = OPTWORK+$3C
+OPTSTATMASK     = OPTWORK+$3D
 OPTFB_OPENCHESTS = OPT_FLAGS+0
 OPTFM_OPENCHESTS = $20   ; bit 5
 
@@ -852,7 +863,7 @@ OPENCHEST_UR    = $7F
 ;  Where on screen the chest being opened is.  Not doorppuaddr: the door code
 ;  deliberately leaves that standing between frames, and a chest opened during
 ;  a room transition would tread on it.
-OPTCHESTADDR    = OPTBLOCK+$48  ; 2 bytes
+OPTCHESTADDR    = OPTWORK+$48  ; 2 bytes
 
 OPTFB_IMPCURE   = OPT_FLAGS+2
 OPTFM_IMPCURE   = $40    ; bit 22
@@ -862,18 +873,18 @@ OPTFM_IMPFIRE   = $80    ; bit 23
 ;  Eight bytes of magic data, copied out of ROM so the buffs can edit it.
 ;  Battle_PrepareMagic hands everything downstream a pointer, so repointing it
 ;  here reaches every field without touching a single reader.
-OPTMAGSHADOW    = OPTBLOCK+$40
+OPTMAGSHADOW    = OPTWORK+$40
 
 ;  opt_spellfixed's "did any of the eight fixes change the record?" -- which
 ;  record is OPTMAGSHADOW, beside it.  Moved from OPTBLOCK+$24 to make room
 ;  for OPTREWARD.
-OPTFIXANY       = OPTBLOCK+$3F
+OPTFIXANY       = OPTWORK+$3F
 
 ;  The spell the magic menu is offering, 0-based.  The selection code
 ;  keeps it here while it works out what to prompt for.
 btlmag_spellindex = $6B7D
 
-OPTSTATOVF      = OPTBLOCK+$3E  ; bits 16-23 of the product: HP can
+OPTSTATOVF      = OPTWORK+$3E  ; bits 16-23 of the product: HP can
                                 ;   exceed 16 bits before it is clamped
 
 ;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
@@ -1494,36 +1505,36 @@ SHOPCURS_LEFT   = $28
 
 ;  Working bytes, in the option block's spare page.  Nothing here outlives a
 ;  single press of Select.
-OPTDESCI        = OPTBLOCK+$4A  ; write index into OPTDESC
-OPTWORD         = OPTBLOCK+$4B  ; offset into lut_Words while emitting one
-OPTWORDN        = OPTBLOCK+$4C  ; characters of it left to go
-OPTNUMV         = OPTBLOCK+$4D  ; the value being converted to decimal
-OPTNUMP         = OPTBLOCK+$4E  ; the place value, 100 then 10
-OPTNUMSEEN      = OPTBLOCK+$4F  ; nonzero once a digit has been emitted
-OPTDESC         = OPTBLOCK+$50  ; $50 bytes: the string being built
-OPTGEARX        = OPTBLOCK+$A0  ; scratch for the record offset
-OPTGEAR         = OPTBLOCK+$AD  ; the item id being described
-OPTGEARI        = OPTBLOCK+$AE  ; its 0-based index into the weapon or
+OPTDESCI        = OPTWORK+$4A  ; write index into OPTDESC
+OPTWORD         = OPTWORK+$4B  ; offset into lut_Words while emitting one
+OPTWORDN        = OPTWORK+$4C  ; characters of it left to go
+OPTNUMV         = OPTWORK+$4D  ; the value being converted to decimal
+OPTNUMP         = OPTWORK+$4E  ; the place value, 100 then 10
+OPTNUMSEEN      = OPTWORK+$4F  ; nonzero once a digit has been emitted
+OPTDESC         = OPTWORK+$50  ; $50 bytes: the string being built
+OPTGEARX        = OPTWORK+$A0  ; scratch for the record offset
+OPTGEAR         = OPTWORK+$AD  ; the item id being described
+OPTGEARI        = OPTWORK+$AE  ; its 0-based index into the weapon or
                                 ;   armour table
-OPTPERMLO       = OPTBLOCK+$A1  ; the equip permission word
-OPTPERMHI       = OPTBLOCK+$A2
-OPTPERMN        = OPTBLOCK+$A3  ; how many class names will print
-OPTPERMFIRST    = OPTBLOCK+$A4  ; nonzero once one has
-OPTPERMSLOT     = OPTBLOCK+$A5  ; which of a pair can use the item
-OPTBITS         = OPTBLOCK+$A6  ; the element or category byte being listed
-OPTBITN         = OPTBLOCK+$A7  ; how many of its bits are set
-OPTBITLO        = OPTBLOCK+$A9  ; the lowest set bit's index, 8 for none
-OPTBITM         = OPTBLOCK+$AA  ; the mask walking across it
-OPTBITSTART     = OPTBLOCK+$AF  ; where opt_bitnext was told to start
+OPTPERMLO       = OPTWORK+$A1  ; the equip permission word
+OPTPERMHI       = OPTWORK+$A2
+OPTPERMN        = OPTWORK+$A3  ; how many class names will print
+OPTPERMFIRST    = OPTWORK+$A4  ; nonzero once one has
+OPTPERMSLOT     = OPTWORK+$A5  ; which of a pair can use the item
+OPTBITS         = OPTWORK+$A6  ; the element or category byte being listed
+OPTBITN         = OPTWORK+$A7  ; how many of its bits are set
+OPTBITLO        = OPTWORK+$A9  ; the lowest set bit's index, 8 for none
+OPTBITM         = OPTWORK+$AA  ; the mask walking across it
+OPTBITSTART     = OPTWORK+$AF  ; where opt_bitnext was told to start
 ;  The victory poses, one per character, live only for the length of a single
 ;  ShopFrame call -- the main menu and the lineup draw their sprites with the
 ;  same routine and must not inherit them.
-OPTPOSE         = OPTBLOCK+$B0  ; 4 bytes
-OPTPOSEI        = OPTBLOCK+$B4  ; which character is being judged
-OPTPOSEIT       = OPTBLOCK+$B5  ; the item the cursor is on
-OPTPOSECL       = OPTBLOCK+$B6  ; that character's class
-OPTPOSEBIT      = OPTBLOCK+$B7  ; which bit of a magic permission byte
-OPTWSIDX        = OPTBLOCK+$B8  ; Weapon Stats: the equipped weapon's 1-based id
+OPTPOSE         = OPTWORK+$B0  ; 4 bytes
+OPTPOSEI        = OPTWORK+$B4  ; which character is being judged
+OPTPOSEIT       = OPTWORK+$B5  ; the item the cursor is on
+OPTPOSECL       = OPTWORK+$B6  ; that character's class
+OPTPOSEBIT      = OPTWORK+$B7  ; which bit of a magic permission byte
+OPTWSIDX        = OPTWORK+$B8  ; Weapon Stats: the equipped weapon's 1-based id
 
 ;  The word table outgrew a byte offset, so opt_word walks it with a 24-bit
 ;  pointer, which has to live in the direct page.  tmp is the game's own
@@ -1534,13 +1545,13 @@ OPTWPTR         = $001D         ; 3 bytes -- tmp+13, but snesmap.inc is
 
 ;  Spell descriptions.  Some of the numbers -- a damage spell's weakness
 ;  figure is six times its effectivity -- do not fit in a byte.
-OPTN16          = OPTBLOCK+$B9  ; 2 bytes: the value being printed
-OPTNUMP16       = OPTBLOCK+$BB  ; 2 bytes: the place value
-OPTSPIDX        = OPTBLOCK+$BD  ; the spell being described
-OPTSPEFF        = OPTBLOCK+$BE  ; its effectivity, after any buff
-OPTSPROUT       = OPTBLOCK+$BF  ; its routine
-OPTSPRAW        = OPTBLOCK+$C0  ; a record byte before any buff is applied
-OPTCTX          = OPTBLOCK+$C1  ; which screen the description box is over
+OPTN16          = OPTWORK+$B9  ; 2 bytes: the value being printed
+OPTNUMP16       = OPTWORK+$BB  ; 2 bytes: the place value
+OPTSPIDX        = OPTWORK+$BD  ; the spell being described
+OPTSPEFF        = OPTWORK+$BE  ; its effectivity, after any buff
+OPTSPROUT       = OPTWORK+$BF  ; its routine
+OPTSPRAW        = OPTWORK+$C0  ; a record byte before any buff is applied
+OPTCTX          = OPTWORK+$C1  ; which screen the description box is over
 OPTCTX_SHOP     = 0
 OPTCTX_EQUIP    = 1
 OPTCTX_MAGIC    = 2
@@ -1554,7 +1565,7 @@ OPTCALLV        = $0113         ; 2 bytes, just above tmp_hi
 
 ;  The tile offset of the cheering pose within a character's battle sprites.
 POSE_VICTORY    = $0E
-OPTSAVEPTR      = OPTBLOCK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
+OPTSAVEPTR      = OPTWORK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
 OPTDESC_MAX     = $50
 ;  The records of the battle's enemies, a kind each, four kinds at most, which
 ;  the battle reads through en_romptr (rando_btlenemies).  OPTDESC: only the
@@ -1639,8 +1650,8 @@ OPTCHEST_DY       = 1
 ;  its own size against this, and the generator fails outright if any name in
 ;  the cartridge is a different length.
 SPELLNAME_WIDTH   = 4
-OPTLINEI          = OPTBLOCK+$C2  ; where the line being drawn starts
-OPTLINEE          = OPTBLOCK+$C3  ; and where its line break was
+OPTLINEI          = OPTWORK+$C2  ; where the line being drawn starts
+OPTLINEE          = OPTWORK+$C3  ; and where its line break was
 
 ;  The battle magic menu's scratch, named rather than left as bare addresses.
 ;  opt_magicgfx fills the first two; the third is what the menu is pointing at.
@@ -1744,9 +1755,10 @@ RANDO_GIVENFAR  = (CHUNK0 * $10000) + RANDO_GIVEN
 
 ;  The settings screen's copy: one byte per setting, in the same order as the
 ;  save block's from RANDO_TRAPS on, so starting a game is a straight copy.
-;  Above the scratch the screens use, below the shadows, the last of it the
-;  Goal's, the page's last spare byte; opt_sum covers it, which is what took
-;  OPT_FORMAT to 5.  An option block from before the Goal has the byte
+;  On the battery page with the block and RANDO_POOL, all the page keeps
+;  since its scratch and shadows went to OPTWORK (2026-10-30): $13-$C3 and
+;  $E0-$FF are free for more settings.  The last of it the Goal's; opt_sum
+;  covers it, which is what took OPT_FORMAT to 5.  An option block from before the Goal has the byte
 ;  outside its sum: zero there still sums, and reads as the four orbs.
 OPT_NG          = OPTBLOCK+$C8
 RANDO_NGOFF     = RANDO_TRAPS - RANDO_SAVE  ; where the settings start in the save
@@ -1778,12 +1790,12 @@ OPT_NG_GOAL     = OPT_NG + (RANDO_GOAL - RANDO_SAVE) - RANDO_NGOFF
 ;  may be this, with the character dead from the start.  FFR's value.
 CLS_NONE        = $FF
 
-;  Two buffers the randomizer hands to game code, in SRAM because every chunk
-;  sees it and none sees WRAM above $2000.  Written before every read.
-OPTAISHADOW     = OPTBLOCK+$E0  ; 16 bytes: the script an enemy is choosing by
-OPTGEARSHADOW   = OPTBLOCK+$F0  ; 8 bytes: a blursed weapon or armour record
-OPTNAMEBUF      = OPTBLOCK+$F8  ; 8 bytes: a blursed name and its terminator
-.assert OPT_NG + OPT_NG_SIZE <= OPTAISHADOW, error, "new-game settings run into the shadows"
+;  Buffers the randomizer hands to game code, in low WRAM (OPTWORK) because
+;  every chunk sees it and none sees WRAM above $2000.  Written before every
+;  read.
+OPTAISHADOW     = OPTWORK+$E0  ; 16 bytes: the script an enemy is choosing by
+OPTGEARSHADOW   = OPTWORK+$F0  ; 8 bytes: a blursed weapon or armour record
+OPTNAMEBUF      = OPTWORK+$F8  ; 8 bytes: a blursed name and its terminator
 .assert OPT_NG + OPT_NG_SIZE <= OPTBLOCK + $100, error, "new-game settings run off the option page"
 
 ;  Entropy for the seed.  Every frame, rando_stir folds the pad into it and

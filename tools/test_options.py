@@ -51,6 +51,7 @@ ROM = os.path.join(ROOT, "SuperFinalFantasy.sfc")
 LABELS = os.path.join(ROOT, "out", "labels.txt")
 
 OPTBLOCK = 0x6E00
+OPTWORK = 0x0E00                # the settings code's working bytes, low WRAM (snesmap.inc)
 OPT_MAGIC0, OPT_MAGIC1, OPT_VERSION, OPT_PRESET = 0, 1, 2, 3
 #  The flag word is five bytes; everything after it moved when the
 #  Treasures section and the free key items took bits 26-33.
@@ -210,12 +211,29 @@ def check(what, got, want):
         fails.append("%-46s got %r, want %r" % (what, got, want))
 
 
+def pageoff(off):
+    """An offset on the battery page: the block, the seed pool and the New
+    Game settings.  The page's other old offsets are OPTWORK's now (work,
+    setwork), so one asked of the page here is a test gone stale."""
+    assert off < 0x13 or 0xC4 <= off < 0xE0, "page offset $%02X is OPTWORK's now" % off
+    return off
+
+
 def blk(bus, off):
-    return bus.sram[OPTBLOCK - 0x6000 + off]
+    return bus.sram[OPTBLOCK - 0x6000 + pageoff(off)]
 
 
 def setblk(bus, off, v):
-    bus.sram[OPTBLOCK - 0x6000 + off] = v
+    bus.sram[OPTBLOCK - 0x6000 + pageoff(off)] = v
+
+
+def work(bus, off):
+    """A byte of the settings code's work area, by its old page offset."""
+    return bus.wram[OPTWORK + off]
+
+
+def setwork(bus, off, v):
+    bus.wram[OPTWORK + off] = v
 
 
 def flags(bus):
@@ -430,7 +448,7 @@ def test_derive():
         bus, cpu = machine()
         setblk(bus, OPT_FLAGS, flag)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
-        got = tuple(blk(bus, OPTD + i) for i in range(11))
+        got = tuple(work(bus, OPTD + i) for i in range(11))
         check("derived constants, speedhacks=%d" % flag, got, want)
         #  The battle transition plays a $20-frame noise sweep; a transition
         #  shorter than that leaves the sound running past the picture, which
@@ -452,7 +470,7 @@ def test_derive():
     bus, cpu = machine()
     setblk(bus, OPT_FLAGS, OPTF_SPEEDHACKS)
     call(cpu, "opt_commit", dbr=CHUNK_OPT_BANK)
-    check("commit refreshes the derived bytes", blk(bus, OPTD), 8)
+    check("commit refreshes the derived bytes", work(bus, OPTD), 8)
 
 
 def test_guillotine():
@@ -1093,20 +1111,20 @@ def test_goal():
     check("dialogue $21 is the game's: its first line 'The four ORBS now cover'",
           bytes(line21[:brk]) == bytes([0x9D, 0xAB, 0x1A, 0xA9, 0x26, 0x44, 0x98, 0x9B, 0x8B, 0x9C, 0xFF,
                                         0xB1, 0x46, 0x38, 0xB2, 0xB9, 0x25]), True)
-    OPT = K["OPTDESC"] - 0x6000
+    OPT = K["OPTDESC"]
     TEXT_PTR0 = TEXT_PTR
     enc = lambda t: bytes(0xFF if c == " " else 0x80 + ord(c) - 48 if c.isdigit() else
                           0x8A + ord(c) - 65 if c.isupper() else 0xA4 + ord(c) - 97 for c in t)
     got = []
     for k, first in enumerate(("You lay your hands upon", "The ORB now covers", "The ORBS now cover")):
         bus, cpu = machine()
-        bus.sram[OPT:OPT + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[OPT:OPT + 0x50] = bytes([0xEE]) * 0x50
         bus.wram[DLGNPC] = ORB0 + k
         bus.wram[TEXT_PTR0], bus.wram[TEXT_PTR0 + 1] = p21 & 0xFF, p21 >> 8
         cpu.dbr = 0xA1 + K["BANK_DIALOGUE"]
         cpu.y = 0x5A
         call(cpu, "rando_dlgtext", bank=RANDO_BANK)
-        built = bytes(bus.sram[OPT:OPT + 0x50])
+        built = bytes(bus.wram[OPT:OPT + 0x50])
         want = enc(first) + line21[brk:]
         got.append((built[:len(want)] == want, len(want) <= 0x50, bus.wram[DLGNPC],
                     bus.wram[TEXT_PTR0] | bus.wram[TEXT_PTR0 + 1] << 8, cpu.y & 0xFF))
@@ -3092,12 +3110,12 @@ def test_rando_dialogue():
         bus, cpu = machine()
         bus.wram[DLGNPC] = entry + 1
         bus.sram[EARLY] = early
-        bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[OPTDESC_A:OPTDESC_A + 0x50] = bytes([0xEE]) * 0x50
         bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = 0xAA, 0xAA
         cpu.y = 0x5A
         dbr = cpu.dbr
         call(cpu, "rando_dlgtext", bank=RANDO_BANK)
-        buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+        buf = bytes(bus.wram[OPTDESC_A:OPTDESC_A + 0x50])
         end = buf.find(0)
         ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
         kept = (bus.wram[DLGNPC], ptr, cpu.y & 0xFF, cpu.dbr == dbr)
@@ -3138,11 +3156,11 @@ def test_rando_dialogue():
 
     #  Unarmed: nothing touched.
     bus, cpu = machine()
-    bus.sram[OPTDESC_A - 0x6000] = 0xEE
+    bus.wram[OPTDESC_A] = 0xEE
     bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = 0xAA, 0xAA
     call(cpu, "rando_dlgtext", bank=RANDO_BANK)
     check("unarmed: text_ptr and OPTDESC untouched",
-          (bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1], bus.sram[OPTDESC_A - 0x6000]),
+          (bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1], bus.wram[OPTDESC_A]),
           (0xAA, 0xAA, 0xEE))
 
     #  Arming, through TalkToObject.
@@ -3166,7 +3184,7 @@ def test_rando_dialogue():
     check("the King, placed: armed, the gold named",
           (bus.wram[DLGNPC], bus.wram[K["dlg_itemid"]]), (TALK_ENTRY["King"] + 1, 0x6E))
     call(cpu, "rando_dlgtext", bank=RANDO_BANK)
-    buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+    buf = bytes(bus.wram[OPTDESC_A:OPTDESC_A + 0x50])
     check("...and the line drawn is his", WORDS[0] in ff_decode(buf[:buf.find(0)]), True)
     bus, cpu = talk("Princess", 0xF0)
     check("the Princess, placed, the ship: armed, named as SHIP",
@@ -3228,11 +3246,11 @@ def test_rando_dialogue():
         bus.sram[KEYITEMS] = keyitems
         bus.sram[ENTRANCES] = entrances
         bus.wram[DLGNPC] = armed
-        bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[OPTDESC_A:OPTDESC_A + 0x50] = bytes([0xEE]) * 0x50
         bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
         cpu.y = 0x5A
         call(cpu, "rando_dlgtext", bank=RANDO_BANK)
-        buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+        buf = bytes(bus.wram[OPTDESC_A:OPTDESC_A + 0x50])
         now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
         text = ff_decode(buf[:buf.find(0)]) if now == OPTDESC_A and 0 in buf else None
         return now, text, cpu.y & 0xFF, bus.wram[DLGNPC]
@@ -3285,7 +3303,7 @@ def test_rando_dialogue():
             bus.sram[ENTRANCES] = K[mode]
             cpu.a = i
             cpu.run(0xA7, at[0], stop=SYM["DrawDialogueString_PtrLoaded"] + 4, limit=100_000)
-            buf = bytes(bus.sram[OPTDESC_A - 0x6000:OPTDESC_A - 0x6000 + 0x50])
+            buf = bytes(bus.wram[OPTDESC_A:OPTDESC_A + 0x50])
             ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
             drawn[i, setting] = ff_decode(buf[:buf.find(0)]) if ptr == OPTDESC_A else ptr == gameptr(i)
     check("...through DrawDialogueString: $11 and $DE their hints, $12 (Astos's) the game's, "
@@ -3384,7 +3402,7 @@ def test_lineup():
                     bus, cpu = machine()
                     setblk(bus, OPT_FLAGS, flag)
                     call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
-                    check("lineup step, speedhacks=%d" % flag, blk(bus, OPTD + 7), step)
+                    check("lineup step, speedhacks=%d" % flag, work(bus, OPTD + 7), step)
                     #  slot 0's record: +2 X, +3 Y, +4 destX, +5 destY
                     bus.wram[STR_BUF + 2] = startx
                     bus.wram[STR_BUF + 3] = SLOT_Y[a]
@@ -3922,35 +3940,37 @@ def test_goldxp():
     check("goldxp 100% leaves the reward alone",
           [bus.wram[BATTLEREWARD + i] for i in range(3)], [0x9A, 0xBC, 0xDE])
 
-    #  ...and writes nothing on the option page but its own accumulator.  It
-    #  ran four bytes from OPTSCRATCH, the second of which is OPTD_ELEMDMG: a
-    #  battle that ended off 100% left the weakness bonus at a byte of the
-    #  reward until the options were next committed.  A property rather than
-    #  that one byte, so the next neighbour is covered too.
-    acc = K["OPTREWARD"] - 0x6000
+    #  ...and writes nothing on the option page, nor in the settings code's
+    #  work bytes but its own accumulator.  It ran four bytes from OPTSCRATCH,
+    #  the second of which is OPTD_ELEMDMG: a battle that ended off 100% left
+    #  the weakness bonus at a byte of the reward until the options were next
+    #  committed.  A property rather than that one byte, so the next neighbour
+    #  is covered too.
+    acc = K["OPTREWARD"] - OPTWORK + 0x100          # in the page, then the work bytes
     page = bytes((i * 37 + 11) & 0xFF for i in range(256))
     stray = []
     for step in range(11):
         bus, cpu = machine()
         bus.sram[0xE00:0xF00] = page
+        bus.wram[OPTWORK:OPTWORK + 0x100] = page
         setblk(bus, OPT_GOLDXP, step)
-        before = bytes(bus.sram[0xE00:0xF00])
+        before = bytes(bus.sram[0xE00:0xF00]) + bytes(bus.wram[OPTWORK:OPTWORK + 0x100])
         for i, v in enumerate((0x2C, 0x01, 0x00)):
             bus.wram[BATTLEREWARD + i] = v
         call(cpu, "opt_scalereward", dbr=BANK_0C)
-        after = bytes(bus.sram[0xE00:0xF00])
-        stray += ["step %d wrote $%02X" % (step, o) for o in range(256)
-                  if before[o] != after[o] and not acc - 0xE00 <= o < acc - 0xE00 + 4]
+        after = bytes(bus.sram[0xE00:0xF00]) + bytes(bus.wram[OPTWORK:OPTWORK + 0x100])
+        stray += ["step %d wrote %s $%02X" % (step, "work" if o >= 0x100 else "page", o & 0xFF)
+                  for o in range(512) if before[o] != after[o] and not acc <= o < acc + 4]
     check("the reward scaler writes only its own four bytes", stray, [])
     bus, cpu = machine()
     call(cpu, "opt_init")
-    elem = bus.sram[K["OPTD_ELEMDMG"] - 0x6000]
+    elem = bus.wram[K["OPTD_ELEMDMG"]]
     setblk(bus, OPT_GOLDXP, 4)
     for i, v in enumerate((0x2C, 0x01, 0x00)):          # 300, at 200%
         bus.wram[BATTLEREWARD + i] = v
     call(cpu, "opt_scalereward", dbr=BANK_0C)
     check("the weakness bonus survives a battle's reward",
-          (bus.sram[K["OPTD_ELEMDMG"] - 0x6000], elem > 0), (elem, True))
+          (bus.wram[K["OPTD_ELEMDMG"]], elem > 0), (elem, True))
 
 
 def test_eobreward():
@@ -4090,7 +4110,7 @@ def test_repeatpotion():
 
 
 SHOP_CURPRICE = 0x030E
-OPT_SHOPQTY, OPT_SHOPMAX, OPT_SHOPUNIT = 0x28, 0x2A, 0x2B
+OPT_SHOPQTY, OPT_SHOPMAX, OPT_SHOPUNIT = 0x28, 0x2A, 0x2B     # OPTWORK offsets
 OPTF_BUYQTY = 0x00000040
 
 
@@ -4104,11 +4124,11 @@ def test_buyqty():
     """
     for unit in (1, 6, 60, 375, 1500, 5000, 20000, 40000, 65535):
         bus, cpu = machine()
-        setblk(bus, OPT_SHOPUNIT, unit & 0xFF)
-        setblk(bus, OPT_SHOPUNIT + 1, unit >> 8)
+        setwork(bus, OPT_SHOPUNIT, unit & 0xFF)
+        setwork(bus, OPT_SHOPUNIT + 1, unit >> 8)
         call(cpu, "opt_shopmax", dbr=BANK_0C)
         want = min(99, 65535 // unit)
-        got = blk(bus, OPT_SHOPMAX)
+        got = work(bus, OPT_SHOPMAX)
         check("cap for a %d gold item" % unit, got, want)
         #  the cap must be honest in both directions: one more must not fit
         check("cap for %d is the largest that fits" % unit,
@@ -4118,9 +4138,9 @@ def test_buyqty():
         #  handle more, which is precisely what the cap is for
         for qty in sorted({1, min(2, got), got}):
             bus2, cpu2 = machine()
-            setblk(bus2, OPT_SHOPUNIT, unit & 0xFF)
-            setblk(bus2, OPT_SHOPUNIT + 1, unit >> 8)
-            setblk(bus2, OPT_SHOPQTY, qty)
+            setwork(bus2, OPT_SHOPUNIT, unit & 0xFF)
+            setwork(bus2, OPT_SHOPUNIT + 1, unit >> 8)
+            setwork(bus2, OPT_SHOPQTY, qty)
             call(cpu2, "opt_shopscale", dbr=BANK_0C)
             total = bus2.wram[SHOP_CURPRICE] | (bus2.wram[SHOP_CURPRICE + 1] << 8)
             check("%d x %d gold" % (qty, unit), total, unit * qty)
@@ -4130,7 +4150,7 @@ def test_buyqty():
     for held in (0, 1, 50, 98, 99):
         for qty in (1, 2, 50):
             bus, cpu = machine()
-            setblk(bus, OPT_SHOPQTY, qty)
+            setwork(bus, OPT_SHOPQTY, qty)
             bus.sram[ITEMS - 0x6000 + 0x19] = held
             cpu.x = 0x19
             call(cpu, "OptShopHasRoom", bank=BANK_0C, dbr=BANK_0C)
@@ -4138,7 +4158,7 @@ def test_buyqty():
                   not (cpu.p & 0x01), held + qty <= 99)
 
             bus, cpu = machine()
-            setblk(bus, OPT_SHOPQTY, qty)
+            setwork(bus, OPT_SHOPQTY, qty)
             bus.sram[ITEMS - 0x6000 + 0x19] = held
             cpu.x = 0x19
             call(cpu, "OptShopAddItems", bank=BANK_0C, dbr=BANK_0C)
@@ -4170,13 +4190,13 @@ def test_statscale():
             num, sh = mk(n)
             for value in (0, 1, 2, 3, 7, 10, 99, 100, 255, 1000, 32767):
                 bus, cpu = machine()
-                setblk(bus, OPT_STATV, value & 0xFF)
-                setblk(bus, OPT_STATV + 1, value >> 8)
-                setblk(bus, OPT_STATNUM, num)
-                setblk(bus, OPT_STATSH, sh)
+                setwork(bus, OPT_STATV, value & 0xFF)
+                setwork(bus, OPT_STATV + 1, value >> 8)
+                setwork(bus, OPT_STATNUM, num)
+                setwork(bus, OPT_STATSH, sh)
                 cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
-                got = (blk(bus, OPT_STATV) | (blk(bus, OPT_STATV + 1) << 8)
-                       | (blk(bus, OPT_STATOVF) << 16))
+                got = (work(bus, OPT_STATV) | (work(bus, OPT_STATV + 1) << 8)
+                       | (work(bus, OPT_STATOVF) << 16))
                 want = ffr_scale(value, n, adjname)
                 check("scale %s n=%d of %d" % (adjname, n, value), got, want)
 
@@ -4185,13 +4205,13 @@ def test_statscale():
         num, sh = mk(4)
         for value in (1, 7, 99, 255, 1000, 32767):
             bus, cpu = machine()
-            setblk(bus, OPT_STATV, value & 0xFF)
-            setblk(bus, OPT_STATV + 1, value >> 8)
-            setblk(bus, OPT_STATNUM, num)
-            setblk(bus, OPT_STATSH, sh)
+            setwork(bus, OPT_STATV, value & 0xFF)
+            setwork(bus, OPT_STATV + 1, value >> 8)
+            setwork(bus, OPT_STATNUM, num)
+            setwork(bus, OPT_STATSH, sh)
             cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
             check("100%% %s leaves %d alone" % (adjname, value),
-                  blk(bus, OPT_STATV) | (blk(bus, OPT_STATV + 1) << 8), value)
+                  work(bus, OPT_STATV) | (work(bus, OPT_STATV + 1) << 8), value)
 
 
 BOSSES = {15, 105, 113} | set(range(118, 128))
@@ -4358,7 +4378,7 @@ def test_spellbuff():
                 want[3] = 0x02
             check("spell %d flags=%s: redirected" % (spell, on), ptr != 0x0400, True)
             check("spell %d flags=%s: record" % (spell, on),
-                  [blk(bus, OPT_MAGSHADOW + i) for i in range(8)], want)
+                  [work(bus, OPT_MAGSHADOW + i) for i in range(8)], want)
 
 
 BTLMAG_SPELLINDEX = 0x6B7D
@@ -4451,7 +4471,7 @@ def test_openchests():
 #  worth testing is that they agree with the tables in every flag state and
 #  that they fit the box.  Twelve columns and seven rows is the whole budget;
 #  a line one character over is invisible here and wraps on the console.
-OPTDESC = OPTBLOCK + 0x50
+OPTDESC = OPTWORK + 0x50
 F_WEAPONSTATS = 1 << 16
 F_CRITRATE = 1 << 20
 
@@ -4478,13 +4498,13 @@ def describe(itemid, flagbits=0):
     call(cpu, "opt_descgear")
     lines, i = [[]], 0
     while i < 0x50:
-        b = bus.sram[OPTDESC - 0x6000 + i]
+        b = bus.wram[OPTDESC + i]
         if b == 0:
             break
         if b == 0x05:                       # single line break
             lines.append([])
         elif b == 0x02:                     # draw an item's name
-            lines[-1].append("<%02X>" % bus.sram[OPTDESC - 0x6000 + i + 1])
+            lines[-1].append("<%02X>" % bus.wram[OPTDESC + i + 1])
             i += 1
         else:
             ch = _decode(b)
@@ -4570,7 +4590,7 @@ def test_shopinfo():
                 call(cpu, "opt_descgear")
                 skip = False
                 for j in range(0x50):
-                    b = bus.sram[OPTDESC - 0x6000 + j]
+                    b = bus.wram[OPTDESC + j]
                     if b == 0:
                         break
                     if skip:                 # the item id after an escape
@@ -4674,8 +4694,8 @@ def test_shopinfo():
 #  cursor is on raises their arms.  Worth testing against the permission
 #  tables directly, because a wrong answer here is a sprite that looks fine
 #  and means the opposite of what it says.
-OPTPOSE = OPTBLOCK + 0xB0
-OPTPOSEIT = OPTBLOCK + 0xB5
+OPTPOSE = OPTWORK + 0xB0
+OPTPOSEIT = OPTWORK + 0xB5
 F_SHOPINFO = 1 << 12
 POSE_VICTORY = 0x0E
 CH_CLASS = 0x6100               # unsram + $0100, $40 bytes per character
@@ -4715,7 +4735,7 @@ def test_shoppose():
             for i in range(4):
                 setblk(bus, OPT_FLAGS + i, 0xFF)
             bus.sram[CH_CLASS - 0x6000] = cls
-            bus.sram[OPTPOSEIT - 0x6000] = item
+            bus.wram[OPTPOSEIT] = item
             cpu.x = 0
             call(cpu, "opt_canuseit")
             if bool(cpu.p & 1) != expect(cls, item):
@@ -4735,7 +4755,7 @@ def test_shoppose():
         bus.wram[0x64] = cursx              # shopcurs_x
         bus.wram[0x300] = item              # item_box[0]
         call(cpu, "opt_setposes")
-        return list(bus.sram[OPTPOSE - 0x6000:][:4])
+        return list(bus.wram[OPTPOSE:][:4])
 
     V, _ = POSE_VICTORY, 0
     party = [0, 1, 2, 5]                    # Fighter, Thief, BlackBelt, BlackMage
@@ -4766,7 +4786,7 @@ def test_shoppose():
     for i, sx in enumerate((0x00, 0x40, 0x80, 0xC0)):
         bus, cpu = posemachine(F_SHOPINFO)
         for k in range(4):
-            bus.sram[OPTPOSE - 0x6000 + k] = POSE_VICTORY if k == i else 0
+            bus.wram[OPTPOSE + k] = POSE_VICTORY if k == i else 0
         cpu.x = sx
         call(cpu, "opt_pose")
         check("stat index $%02X is character %d" % (sx, i), cpu.a, POSE_VICTORY)
@@ -4786,7 +4806,7 @@ def test_shoppose():
                             ("flag on, just over",  F_SHOPINFO, 0x0F)):
         bus, cpu = posemachine(flag)
         for k in range(4):
-            bus.sram[OPTPOSE - 0x6000 + k] = val
+            bus.wram[OPTPOSE + k] = val
         cpu.x = 0x00
         call(cpu, "opt_pose")
         check("%s: no tile offset" % name, cpu.a, 0)
@@ -4803,21 +4823,21 @@ def test_shoppose():
 #  exactly one resistance, and uses the short forms for the lines that carry two
 #  names and for the element line.
 def test_descwidth():
-    OPTDESC_A, OPTCTX_A, DLG_ITEMID = 0x6E50, 0x6EC1, 0x61
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID = K["OPTDESC"], K["OPTCTX"], 0x61
     NARROW, CHEST = 12, 28          # OPTINFO_W - 2, and a full-width box
 
     def lines(item, ctx):
         bus, cpu = machine()
         for i in range(5):
             setblk(bus, OPT_FLAGS + i, 0xFF)
-        bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50] = bytes(0x50)
-        bus.sram[OPTCTX_A - 0x6000] = ctx
+        bus.wram[OPTDESC_A: OPTDESC_A + 0x50] = bytes(0x50)
+        bus.wram[OPTCTX_A] = ctx
         bus.wram[DLG_ITEMID] = item
         cpu.a = item
         call(cpu, "opt_descgear")
         if not (cpu.p & 0x01):
             return []
-        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        buf = bytes(bus.wram[OPTDESC_A: OPTDESC_A + 0x50])
         end = buf.find(0)
         #  Only $05 breaks a line; everything else is one tile or a code below
         #  $1A, and opt_emit is the only writer.
@@ -4875,14 +4895,14 @@ def _descgear(job):
         bus.rom = _descrom
         for i in range(5):
             setblk(bus, OPT_FLAGS + i, 0xFF)
-        bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50] = bytes(0x50)
-        bus.sram[0x6EC1 - 0x6000] = ctx
+        bus.wram[K["OPTDESC"]:K["OPTDESC"] + 0x50] = bytes(0x50)
+        bus.wram[K["OPTCTX"]] = ctx
         bus.wram[0x61] = item
         cpu.a = item
         call(cpu, "opt_descgear")
         if not (cpu.p & 0x01):
             return None
-        buf = bytes(bus.sram[0x6E50 - 0x6000: 0x6E50 - 0x6000 + 0x50])
+        buf = bytes(bus.wram[K["OPTDESC"]:K["OPTDESC"] + 0x50])
         end = buf.find(0)
         return buf[:end] if end >= 0 else buf
     finally:
@@ -5050,7 +5070,7 @@ def test_descsynth():
 #
 #  So the chest path expands the name itself, out of lut_SpellNames.
 def test_castline():
-    OPTDESC_A, OPTCTX_A, DLG_ITEMID = 0x6E50, 0x6EC1, 0x61
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID = K["OPTDESC"], K["OPTCTX"], 0x61
     OPTCTX_SHOP, OPTCTX_CHEST = 0, 3
     CUR_BANK, CHUNK_OPT_NES = 0x57, 0x11
     MG_START, WIDTH = 0xB0, 4
@@ -5067,12 +5087,12 @@ def test_castline():
         bus, cpu = machine()
         for i in range(5):
             setblk(bus, OPT_FLAGS + i, 0xFF)
-        bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50] = bytes(0x50)
-        bus.sram[OPTCTX_A - 0x6000] = ctx
+        bus.wram[OPTDESC_A: OPTDESC_A + 0x50] = bytes(0x50)
+        bus.wram[OPTCTX_A] = ctx
         bus.wram[DLG_ITEMID] = item
         cpu.a = item
         call(cpu, "opt_descgear")
-        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        buf = bytes(bus.wram[OPTDESC_A: OPTDESC_A + 0x50])
         end = buf.find(0)
         return buf[:end], bus.wram[DLG_ITEMID]
 
@@ -5421,9 +5441,12 @@ def test_softbattle():
             setblk(bus, OPT_FLAGS + i, F_SOFT[1] if (soft and i == F_SOFT[0]) else 0)
         return bus, cpu
     def sr(bus, a):
-        return bus.sram[a - 0x6000]
+        return bus.wram[a] if a < 0x2000 else bus.sram[a - 0x6000]     # OPTBTLSOFT is low WRAM
     def sw(bus, a, v):
-        bus.sram[a - 0x6000] = v
+        if a < 0x2000:
+            bus.wram[a] = v
+        else:
+            bus.sram[a - 0x6000] = v
 
     # -- the spell --------------------------------------------------------
     #  FFR's record: routine $08 cure ailment, effect $02, target $10, hit 0,
@@ -6199,7 +6222,7 @@ def test_menuscratch():
     heading (a section's toggle, then toggled back), and out with B: every
     derived byte as opt_derive wrote it, for each title preset."""
     UJ = SYM["UpdateJoy"]
-    OPTD = K["OPTD_WIPEOPEN_U"] - 0x6000
+    OPTD = K["OPTD_WIPEOPEN_U"]
     AUX = K["h_joyaux"]
     bad = []
     for preset in (0, 1, 2):
@@ -6208,7 +6231,7 @@ def test_menuscratch():
         call(cpu, "opt_init")
         cpu.a = preset
         call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
-        want = (bytes(bus.sram[OPTD:OPTD + 11]), bus.sram[K["OPTD_ELEMDMG"] - 0x6000])
+        want = (bytes(bus.wram[OPTD:OPTD + 11]), bus.wram[K["OPTD_ELEMDMG"]])
         def pad(nes, aux=0):
             bus.io[0x4218] = nes & 0x80
             bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
@@ -6229,7 +6252,7 @@ def test_menuscratch():
                 n += 1
             if cpu.pc == 0xFFFE:
                 break
-        got = (bytes(bus.sram[OPTD:OPTD + 11]), bus.sram[K["OPTD_ELEMDMG"] - 0x6000])
+        got = (bytes(bus.wram[OPTD:OPTD + 11]), bus.wram[K["OPTD_ELEMDMG"]])
         if cpu.pc != 0xFFFE or got != want:
             bad.append((preset, cpu.pc == 0xFFFE, got[0].hex(" "), want[0].hex(" ")))
     check("the settings screen visited and left: every derived byte as opt_derive wrote it", bad, [])
@@ -6241,10 +6264,10 @@ def test_menuscratch():
     call(cpu, "opt_init")
     cpu.a = 2
     call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
-    want = bytes(bus.sram[OPTD:OPTD + 11])
-    bus.sram[OPTD + 7:OPTD + 11] = bytes(4)
+    want = bytes(bus.wram[OPTD:OPTD + 11])
+    bus.wram[OPTD + 7:OPTD + 11] = bytes(4)
     call(cpu, "opt_init")
-    check("...and a boot cooks them again over what an old visit left", bytes(bus.sram[OPTD:OPTD + 11]), want)
+    check("...and a boot cooks them again over what an old visit left", bytes(bus.wram[OPTD:OPTD + 11]), want)
 
 
 # --- New Game's screens, in turn ----------------------------------------------------
@@ -8648,13 +8671,13 @@ def tac_setup(party, enemy, hp, script, mode, state, ail=0, mult=1, flags5=0, el
     bus = tac_base()
     tac_junk(bus)
     tac_dial(bus, mode, flags5)
-    setblk(bus, K["OPTD_ELEMDMG"] - OPTBLOCK, elemdmg)
+    bus.wram[K["OPTD_ELEMDMG"]] = elemdmg
     tac_write_party(bus, party)
     tac_write_boss(bus, enemy, hp, ail=ail, mult=mult, **boss)
     en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
     bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]] = deck
-    at = K["OPTAISHADOW"] - 0x6000
-    bus.sram[at:at + 16] = bytes(script)
+    at = K["OPTAISHADOW"]
+    bus.wram[at:at + 16] = bytes(script)
     bus.wram[0x9E], bus.wram[0x9F] = K["OPTAISHADOW"] & 0xFF, K["OPTAISHADOW"] >> 8
     bus.sram[BTL_RNGSTATE - 0x6000] = state
     return bus
@@ -8665,7 +8688,7 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
     Out: a list of what disagreed, and the reference's Mind."""
     table = bytes(bus.wram[rw("RW_BATRNG"):rw("RW_BATRNG") + 256])
     rec = tac_rec_of(bus)
-    elemdmg = blk(bus, K["OPTD_ELEMDMG"] - OPTBLOCK)
+    elemdmg = bus.wram[K["OPTD_ELEMDMG"]]
     wmharm = bool(blk(bus, K["OPTFB_WMHARM"] - OPTBLOCK) & K["OPTFM_WMHARM"])
     borrowed = bytes(bus.sram[0x686C - 0x6000:0x6874 - 0x6000]) + bytes(bus.wram[0x84:0x86])
     en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
@@ -9069,8 +9092,8 @@ def test_bosstactics():
             off, _ = in_place(party, enemy, hp, 0, state, follow=False)
             for mode in (1, 2):
                 got, bus = in_place(party, enemy, hp, mode, state, boss_step=step)
-                at = K["OPTAISHADOW"] - 0x6000
-                script = list(bus.sram[at:at + 16])
+                at = K["OPTAISHADOW"]
+                script = list(bus.wram[at:at + 16])
                 scripted = script != [0xFF] * 16 and rom[7] != 0xFF
                 if not scripted:
                     flat = [0, 0] + [0xFF] * 12
@@ -9256,15 +9279,15 @@ def test_bosstactics():
             deck = (bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]])
             state = bus.sram[BTL_RNGSTATE - 0x6000]
             hp = cur = chaosmax if act == cur4 else max(1, hp - 400)
-        at = K["OPTAISHADOW"] - 0x6000
-        script = list(tac_base().sram[at:at + 16])
+        at = K["OPTAISHADOW"]
+        script = list(tac_base().wram[at:at + 16])
         bus = tac_setup(party, 127, chaosmax, [0xFF] * 16, mode, 0)
         cpu = CPU(bus)
         cpu.dbr, cpu.pbr, cpu.pc = BANK_0C, BANK_0C, SYM["Enemy_DoAi"]
         cpu.push(0xFF); cpu.push(0xFD)
         while not (cpu.pbr == BANK_0C and cpu.pc in (SYM["EnemyAttackPlayer_Physical"], SYM["Enemy_DoMagicEffect"])):
             cpu.step()
-        script = list(bus.sram[at:at + 16])
+        script = list(bus.wram[at:at + 16])
         slots = [x for x in script[2:10] if x != 0xFF] + [x + 0x42 for x in script[11:15] if x != 0xFF]
         over = [(w, a) for w in (0, 8) for a in set(plays[w:w + 8]) if a != "swing"
                 and plays[w:w + 8].count(a) > slots.count(a)]
@@ -9429,16 +9452,16 @@ def test_staffspells():
                     bad.append("weapon %d byte %d bits $%02X: %s, off %s" % (i, y, bits, g, got[0]))
     check("opt_weapbyte: only a flagged staff's spell byte, RUSE's 4 and NUKE's $3D", bad[:4], [])
     #  And as the text reads in a chest's box, the spell's name spelled out.
-    OPTDESC_A, OPTCTX_A, DLG_ITEMID, OPTCTX_CHEST = 0x6E50, 0x6EC1, 0x61, 3
+    OPTDESC_A, OPTCTX_A, DLG_ITEMID, OPTCTX_CHEST = K["OPTDESC"], K["OPTCTX"], 0x61, 3
 
     def text(item, bits):
         bus, cpu = machine()
         setblk(bus, FB, bits)
-        bus.sram[OPTCTX_A - 0x6000] = OPTCTX_CHEST
+        bus.wram[OPTCTX_A] = OPTCTX_CHEST
         bus.wram[DLG_ITEMID] = item
         cpu.a = item
         call(cpu, "opt_descgear")
-        buf = bytes(bus.sram[OPTDESC_A - 0x6000: OPTDESC_A - 0x6000 + 0x50])
+        buf = bytes(bus.wram[OPTDESC_A: OPTDESC_A + 0x50])
         return buf[:buf.find(0)]
     ruse, nuke, conf = bytes([0x9B, 0x9E, 0x9C, 0x8E]), bytes([0x97, 0x9E, 0x94, 0x8E]), bytes([0x8C, 0x98, 0x97, 0x8F])
     on, off, defense = text(0x37, RUSE), text(0x37, 0), text(0x3B, RUSE)
@@ -9456,14 +9479,14 @@ def test_staffspells():
 
     #  The name: the spell, two spaces, the staff, a bonus's digits on it as
     #  on any name; everything else, gear or not, as with the flag off.
-    nb = K["OPTNAMEBUF"] - 0x6000
+    nb = K["OPTNAMEBUF"]
 
     def name(item, bits, seed=0x0BADF00D, bless=0, curse=0):
         bus, cpu = machine()
         setgear(bus, seed, bless, curse)
         warm(bus)
         setblk(bus, FB, bits)
-        bus.sram[nb:nb + 8] = b"\x9a" * 8       # a decoy: the last name built
+        bus.wram[nb:nb + 8] = b"\x9a" * 8       # a decoy: the last name built
         cpu.a, cpu.y = item, 0x5A
         call(cpu, "rando_nameptr", bank=RANDO_BANK)
         p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
@@ -10000,14 +10023,14 @@ def test_itemmagic():
             base[i] = 0x80 + abs(b)
             base[i - 1] = 0xC1 if b > 0 else 0xC2
         return bytes(base) + b"\0"
-    nb = K["OPTNAMEBUF"] - 0x6000
+    nb = K["OPTNAMEBUF"]
 
     def drawn(bits, m):
         bus, cpu = world(m)
         setblk(bus, FB, bits)
         out = []
         for item in range(256):
-            bus.sram[nb:nb + 8] = b"\x9a" * 8           # a decoy: the last name built
+            bus.wram[nb:nb + 8] = b"\x9a" * 8           # a decoy: the last name built
             cpu.a, cpu.y = item, 0x5A
             call(cpu, "rando_nameptr", bank=RANDO_BANK)
             p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
@@ -10047,7 +10070,7 @@ def test_itemmagic():
         rom[at7] = v
         cpu.a, cpu.y = DEFENSE, 0x5A
         call(cpu, "rando_nameptr", bank=RANDO_BANK)
-        got = bus.sram[nb + 6]
+        got = bus.wram[nb + 6]
         if got != (v if v > 200 else 0xFF):
             bad.append("seventh byte $%02X: drawn $%02X" % (v, got))
     check("the icon kept above 200, a letter padded over", bad[:4], [])
@@ -10933,17 +10956,17 @@ def test_menuinfo():
     #  stale value put the menu redraw over a shop: screen off, menu boxes
     #  drawn on top, sprites left standing.  Every entry now says which
     #  screen it is before anything can return early.
-    OPTCTX = OPTBLOCK + 0xC1
+    OPTCTX = OPTWORK + 0xC1
     for flagbits in (0, F_SHOPINFO):
         for poison in (1, 2, 0xFF):
             bus, cpu = machine()
             for i in range(4):
                 setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
-            bus.sram[OPTCTX - 0x6000] = poison
+            bus.wram[OPTCTX] = poison
             bus.wram[0x22] = 0              # joy_select: nothing pressed
             call(cpu, "opt_shopinfo_body")
             check("a shop never inherits a menu's context ($%02X, flags %d)"
-                  % (poison, flagbits), bus.sram[OPTCTX - 0x6000], 0)
+                  % (poison, flagbits), bus.wram[OPTCTX], 0)
 
     #  And the ids those produce have to be describable.
     for got in (0xB0, 0xB3, 0xEF, 0x1C, 0x43, 0x44, 0x6B):
@@ -10973,13 +10996,13 @@ def _chestinfo(flagbits, dlgid, itemid, dlgsfx=2):
         setblk(bus, OPT_FLAGS + i, (flagbits >> (8 * i)) & 0xFF)
     bus.wram[0x61] = itemid             # dlg_itemid
     bus.wram[0x7D] = dlgsfx             # dlgsfx -- deliberately NOT the tell
-    bus.sram[OPTDESC - 0x6000] = 0xAA   # poison: untouched means no description
+    bus.wram[OPTDESC] = 0xAA   # poison: untouched means no description
     cpu.a = dlgid                       # the dialogue being drawn, the real tell
     try:
         call(cpu, "opt_chestinfo")
     except Exception:
         return "drew"                   # got past the gate, into the PPU
-    return "drew" if bus.sram[OPTDESC - 0x6000] != 0xAA else "skipped"
+    return "drew" if bus.wram[OPTDESC] != 0xAA else "skipped"
 
 
 def test_chestinfo():
@@ -11337,7 +11360,7 @@ def test_housemp():
 #  The flag raises the damage half only, through a derived byte, because the
 #  use site is in bank $0C where a load costs one byte and a test would cost
 #  seven.
-OPTD_ELEMDMG_OFF = 0x21          # OPTBLOCK + $21
+OPTD_ELEMDMG_OFF = 0x21          # OPTWORK + $21
 
 
 def test_elembonus():
@@ -11348,12 +11371,12 @@ def test_elembonus():
         setblk(bus, OPT_ELEMDMG, step)
         call(cpu, "opt_derive", dbr=CHUNK_OPT_BANK)
         check("dial step %d derives +%d" % (step, want),
-              blk(bus, OPTD_ELEMDMG_OFF), want)
+              work(bus, OPTD_ELEMDMG_OFF), want)
 
     #  Deriving it is only half of it: the use site has to read the byte
     #  rather than the immediate it replaced.  ADC abs is $6D, and the operand
     #  is the derived byte's address.
-    addr = OPTBLOCK + OPTD_ELEMDMG_OFF
+    addr = OPTWORK + OPTD_ELEMDMG_OFF
     want = bytes([0x6D, addr & 0xFF, addr >> 8])
     bank = ROMDATA[(1 + 0x0C) * 0x10000 + 0x8000:][:0x4000]
     check("bank $0C adds the derived byte, once",
@@ -11775,7 +11798,7 @@ def test_titlerows():
 #  the way this breaks is that the cursor is simply still there -- invisible to
 #  every other test and visible only to someone playing.
 def test_equipcursor():
-    OPTCTX_A, OPTCTX_EQUIP, TEXT_PTR = 0x6EC1, 1, 0x3E
+    OPTCTX_A, OPTCTX_EQUIP, TEXT_PTR = K["OPTCTX"], 1, 0x3E
     clearoam = SYM.get("ClearOAM")
     check("ClearOAM is in the fixed bank, so a JSR reaches it from any chunk",
           clearoam is not None and clearoam >= 0xC000, True)
@@ -13211,7 +13234,7 @@ def test_rando_options():
     for view, start in ((0, ng0), (1, view_at)):
         for s, (name, plus, shift, count) in spec.items():
             vbus, vcpu = machine()
-            vbus.sram[OPTBLOCK - 0x6000 + 0x31] = view         # OPTMENU_VIEW
+            vbus.wram[K["OPTMENU_VIEW"]] = view
             vbus.sram[K[name] - K["OPT_NG"] + start + plus] = (count - 1) << shift
             for u in spec:
                 vcpu.x = u
@@ -13863,9 +13886,9 @@ def test_rando_spellnames():
             setblk(bus, 0, 0)
             cpu.a = 0xB0 + s
             call(cpu, "opt_descgear", dbr=CHUNK_OPT_BANK)
-            if bus.sram[K["OPTGEARI"] - 0x6000] != perm[s]:
+            if bus.wram[K["OPTGEARI"]] != perm[s]:
                 bad.append("   description of slot %d: spell %d"
-                           % (s, bus.sram[K["OPTGEARI"] - 0x6000]))
+                           % (s, bus.wram[K["OPTGEARI"]]))
         check("mode %d: all 64 slots named and described as their spell" % mode, len(bad), 0)
         fails.extend(bad[:4])
         #  Anything not a spell goes through the shop list untouched.
@@ -14520,7 +14543,7 @@ def test_pirates():
           (bool(moved["touch"]), bool(moved["script"])), (True, True))
 
     #  A battle.  btl_enemystats' nine records, and the 20 bytes each one's
-    #  en_romptr points at, from SRAM or ROM as the battle's bank sees it.
+    #  en_romptr points at, from low WRAM, SRAM or ROM as the battle's bank sees it.
     BANK0C, STATS = 0xA1 + 0x0C, K["btl_enemystats"]
     BUF, KINDS = K["OPTBTLENEMIES"], K["BTL_KINDS"]
 
@@ -14541,8 +14564,12 @@ def test_pirates():
         for s in range(9):
             st = bytearray(bus.sram[STATS - 0x6000 + s * REC:][:REC])
             ptr = st[0] | st[1] << 8
-            src = bus.sram if 0x6000 <= ptr < 0x8000 else bytes(rom[(BANK0C & 0x1F) * 0x10000:][:0x10000])
-            rec = bytes(src[ptr - 0x6000:][:REC]) if src is bus.sram else bytes(src[ptr:ptr + REC])
+            if ptr < 0x2000:
+                rec = bytes(bus.wram[ptr:ptr + REC])
+            elif ptr < 0x8000:
+                rec = bytes(bus.sram[ptr - 0x6000:][:REC])
+            else:
+                rec = bytes(rom[(BANK0C & 0x1F) * 0x10000 + ptr:][:REC])
             out.append((ptr, bytes(st[2:]), rec))
         return out
     rom_ffr = bytearray(ROMDATA)
@@ -14686,14 +14713,14 @@ def test_rando_enemyai():
         bad = []
         for e in range(128):
             enram(bus, e, e % 9)
-            bus.sram[shadow - 0x6000:shadow - 0x6000 + 16] = bytes(range(0xA0, 0xB0))
+            bus.wram[shadow:shadow + 16] = bytes(range(0xA0, 0xB0))
             bus.wram[0x9E], bus.wram[0x9F] = 0x20, 0x90
             call(cpu, "rando_enemyai", bank=RANDO_BANK, dbr=0xA1 + 0x0C)
             if eai[e] == 0xFF:
                 ok = cpu.p & 0x01 == 1
             else:
                 ok = (cpu.p & 0x01 == 0
-                      and bus.sram[shadow - 0x6000:shadow - 0x6000 + 16] == tab[eai[e] * 16:eai[e] * 16 + 16]
+                      and bus.wram[shadow:shadow + 16] == tab[eai[e] * 16:eai[e] * 16 + 16]
                       and bus.wram[0x9E] | bus.wram[0x9F] << 8 == shadow)
             if not ok:
                 bad.append(e)
@@ -15208,7 +15235,7 @@ def test_saveview():
     frame at a time, with the pad pressed as a player would."""
     OPT = CHUNK_OPT_BANK
     OPTLIST_ROWS = 20                    # the window, optmenu.asm
-    SEL, TOP, VIEW = 0x6E, 0x6F, OPTBLOCK + 0x31 - 0x6000
+    SEL, TOP, VIEW = 0x6E, 0x6F, K["OPTMENU_VIEW"]
     COUNT = K["NGROW_HEAD"]              # the save view's rows end where the New Game list's begin
     A_, B_, SELECT, START, UP, DOWN, LEFT, RIGHT = 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01
     UJ = SYM["UpdateJoy"]
@@ -15471,7 +15498,7 @@ def test_saveview():
     for _ in range(4):
         press(bus, cpu, 0, SH_L)
     check("B leaves", frame(bus, cpu, B_) and frame(bus, cpu, 0), False)
-    check("...the view's flag down, and nothing written", (bus.sram[VIEW], kept()), (0, before))
+    check("...the view's flag down, and nothing written", (bus.wram[VIEW], kept()), (0, before))
 
     #  The settings screen, after it, reads the settings again -- even with the
     #  view's flag left up, as a soft reset in the middle of the view leaves it.
@@ -15483,10 +15510,10 @@ def test_saveview():
     in_vblank(bus)
     call(cpu, "opt_init")
     saved(bus, cpu, 0x0BADF00D, NG)
-    bus.sram[VIEW] = 1
+    bus.wram[VIEW] = 1
     cpu.run(OPTMENU_BANK, SYM["opt_settings"], stop=UJ)
     check("the settings after a view cut short: the settings' own, editable",
-          (bus.sram[VIEW], screen(bus, 1)), (0, " ".join(label(1).split())))
+          (bus.wram[VIEW], screen(bus, 1)), (0, " ".join(label(1).split())))
 
     #  A saved step past its row's count reads as the first, row and pane --
     #  never past the end of the readouts.
@@ -15632,7 +15659,7 @@ def test_nones():
     bus.wram[PG + 0x20] = NONE
     call(cpu, "none_classtext")
     check("party creation's name for a None",
-          (bytes(bus.sram[nb - 0x6000:nb - 0x6000 + 8]), bus.wram[0x3E] | bus.wram[0x3F] << 8),
+          (bytes(bus.wram[nb:nb + 8]), bus.wram[0x3E] | bus.wram[0x3F] << 8),
           (bytes([0x97, 0xB2, 0xB1, 0xA8, 0xFF, 0xFF, 0xFF, 0x00]), nb))
 
     #  ...and drawn where Bl.MAGE was, it leaves nothing of Bl.MAGE behind:
@@ -15839,7 +15866,7 @@ def test_nones():
         for item in list(range(0x1C, 0x6C)) + list(range(0xB0, 0xF0)):
             bus, cpu = machine()
             party(bus, (cls, cls, cls, cls))
-            bus.sram[K["OPTPOSEIT"] - 0x6000] = item
+            bus.wram[K["OPTPOSEIT"]] = item
             cpu.x = 1
             call(cpu, "opt_canuseit", dbr=CHUNK_OPT_BANK)
             yes += cpu.p & 1
@@ -15946,13 +15973,13 @@ def test_rando_namelazy():
         s0 = cpu.steps
         cpu.a = item
         call(cpu, "rando_nameptr", bank=RANDO_BANK)
-        at = K["OPTNAMEBUF"] - 0x6000
+        at = K["OPTNAMEBUF"]
         check("$%02X: the vehicle's name" % item,
-              ((cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bytes(bus.sram[at:at + 8]).split(b"\0")[0] != b"",
+              ((cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bytes(bus.wram[at:at + 8]).split(b"\0")[0] != b"",
                bus.wram[tag], cpu.steps - s0 < 200),
               (K["OPTNAMEBUF"], True, 0, True))
         check("$%02X reads %s" % (item, name), "".join(
-            _decode(b) or "" for b in bytes(bus.sram[at:at + 8]).split(b"\0")[0]), name)
+            _decode(b) or "" for b in bytes(bus.wram[at:at + 8]).split(b"\0")[0]), name)
     for item in (0x1C, 0x6B):
         bus, cpu = machine()
         setgear(bus, 0x0BADF00D, 5, 5)

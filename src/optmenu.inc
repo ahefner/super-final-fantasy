@@ -112,7 +112,7 @@ OPTMENU_BEGIN  = MENURAM + $06  ; the window onto lut_OptRows this screen shows:
 OPTMENU_END    = MENURAM + $07  ;   its first row, and one past its last
 OPTMENU_PICK   = MENURAM + $08  ; nonzero for a list of choices (the New Game
                                 ;   list): only pick rows, and A or START picks
-OPTMENU_VIEW   = OPTBLOCK + $31 ; nonzero while the save view runs (below)
+OPTMENU_VIEW   = OPTWORK + $31  ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.
 PAD_RIGHT = $01

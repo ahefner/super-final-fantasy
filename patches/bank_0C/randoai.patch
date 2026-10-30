@@ -21,7 +21,7 @@
 .import rando_enemyai
     ;  The script comes from the randomizer's cache by the enemy id in RAM --
     ;  the enemy's own with Enemy scripts and skills off -- copied to
-    ;  OPTAISHADOW in SRAM, which the reads through @aiptr below see from this
+    ;  OPTAISHADOW in low WRAM, which the reads through @aiptr below see from this
     ;  bank.  Carry set: no script.  The ROM's id and lut_EnemyAi go unread.
     JSL rando_enemyai + RANDOFAR
     BCC @UseAi

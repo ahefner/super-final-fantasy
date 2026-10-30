@@ -11,8 +11,8 @@
 ;  rando_talk sets RW_DLGNPC when an NPC gives under placement, and names
 ;  what it gave in dlg_itemid; the next string DrawDialogueString draws is
 ;  that NPC's line, and rando_dlgtext, at DrawDialogueString_PtrLoaded,
-;  builds the replacement in OPTDESC (SRAM, which the drawer reads from any
-;  bank) and points text_ptr at it.  The flag is spent there, so nothing
+;  builds the replacement in OPTDESC (low WRAM, which the drawer reads from any
+;  chunk bank) and points text_ptr at it.  The flag is spent there, so nothing
 ;  after it is touched.  $02 in a line is the item's name; any other code
 ;  below $1A breaks the line.
 ;
@@ -67,7 +67,7 @@ rando_dlgtext:
     STA text_ptr+1
     ;  Copy it, terminator and all, from this chunk into OPTDESC.  With DBR
     ;  the line's chunk, (text_ptr) reads the line, and OPTDESC is still
-    ;  SRAM: a HiROM cart decodes $6000-$7FFF in every bank $A0-$BF.
+    ;  low WRAM, which every bank $80-$BF mirrors at $0000-$1FFF.
     PHB
     PHK
     PLB
@@ -143,7 +143,7 @@ rando_dlgtext:
     PHA
     PLB
     BRA @copyin
-.assert ^WORLDFAR >= $A0 && ^WORLDFAR <= $BF, error, "OPTDESC isn't SRAM from the world chunk"
+.assert ^WORLDFAR >= $A0 && ^WORLDFAR <= $BF, error, "OPTDESC isn't low WRAM from the world chunk"
 
 ;;  The Black Orb giving way with fewer than four lit (opt_orbgoal): the
 ;;  game's line, dialogue $21, its first line by the orbs the party carries

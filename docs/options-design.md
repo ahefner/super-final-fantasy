@@ -94,7 +94,7 @@ new game would be.  **Seed entry is not part of it (user, 2026-10-09):** it
 belongs to the New Game flow, which needs more thought first.
 
   - It is the settings screen held to its last section.  `opt_saveview` sets
-    `OPTMENU_VIEW` (`OPTBLOCK+$31`) and opens the window on the blank above
+    `OPTMENU_VIEW` (`OPTWORK+$31`) and opens the window on the blank above
     RANDOMIZATION; the heading reads SAVED GAME, and the blank row under it
     the seed, as eight hex digits high byte first -- the way `FFSEED=` and
     `randoref.py` take it.  The rows keep their indices, so the labels,
@@ -2598,6 +2598,24 @@ Layout, 19 bytes of the 256:
     respondrate 1    0-based
     checksum    1    sum forced to $FF, as the game's own save does
 
+**The page holds only what must outlive a power-off (2026-10-30, user:
+"start the settings page cleanup").**  The block above, `RANDO_POOL`
+(`$C4`, the seed's entropy) and `OPT_NG` (`$C8`, New Game's settings) stay
+on `$6E00`.  Everything else that lived there -- the derived bytes, the
+settings code's working bytes, `OPTDESC`, the shadows game code reads through
+pointers, the battle's enemy records -- moved to `OPTWORK`, `$0E00` in low
+WRAM, each at its old page offset.  Every bank the game and the settings run
+in (the chunks, `$A1-$BF`) mirrors low WRAM at `$0000-$1FFF`, so absolute
+addressing, 16-bit pointers and the long addresses built on a chunk's bank
+(`SRAMFAR`, `CHUNK0 * $10000`) reach it unchanged; no instruction changed,
+only the symbols' values.  Reset zeroes WRAM, and `opt_init` cooks `OPTD`
+and clears the poses every boot, as before.  The persistent layout did not
+move, so `OPT_FORMAT` stays 9 and every saved setting keeps.  Free on the
+page now: `$13-$C3` above the block (177 bytes) and `$E0-$FF` after
+`OPT_NG` (32), room for the scaling rows and more.  The tests' `blk` and
+`setblk` refuse an offset that moved (`pageoff`), and `work` / `setwork` read
+the work area by the same offsets.
+
 The derived bytes (`OPTD`) follow at `$6E13`, eleven of them, then SOFT in
 battle's two (`OPTBTLSOFT`, `OPTDRINKROW`) at `$6E1E`; `OPTSCRATCH` is
 `$6E20`.  `snesmap.inc` asserts they do not overlap.
@@ -2649,8 +2667,8 @@ The checksum scheme is modelled on the game's own at
 **Decision: scratch above the checksum is initialized at boot, and any byte
 that outlives the routine writing it is treated as hostile until proven
 otherwise.**  `OPT_SIZE` is `$13`, so only the settings are covered by the
-checksum -- everything from `OPTBLOCK+$13` up is working storage that happens
-to live in SRAM.  That is fine for per-call scratch, which every routine writes
+checksum -- everything from `OPTBLOCK+$13` up was working storage that
+happened to live in SRAM (in low WRAM, `OPTWORK`, since 2026-10-30).  That is fine for per-call scratch, which every routine writes
 before it reads.  It is not fine for a byte whose lifetime spans screens.
 
 `OPTPOSE` (`OPTBLOCK+$B0`, four bytes) was the one such byte: the shop writes
@@ -4156,7 +4174,8 @@ instruction had already set.
     its own.  A grep of every `NAME+k` in the option code against each name's
     declared size found no other overreach; `test_goldxp` now fills the
     option page with a pattern and fails if the reward scaler writes outside
-    its four bytes, at every step.  Give a multi-byte scratch its own name
+    its four bytes, at every step (the page and the work area both, since
+    the work area moved).  Give a multi-byte scratch its own name
     and size, and never put a byte that must survive beside one that is
     merely free.
   - **A routine's width is its caller's, whatever its directives say.**

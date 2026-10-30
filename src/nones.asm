@@ -77,7 +77,8 @@ none_nextclass:
 ;;  they are padded with spaces to seven, so that drawn over another one --
 ;;  the party creation screen redraws in place as the choice changes -- it
 ;;  leaves nothing of it behind.  "None" alone left "NoneAGE" after Bl.MAGE.
-;;  OPTNAMEBUF is SRAM, which every bank sees, and is only ever a scratch copy.
+;;  OPTNAMEBUF is low WRAM (OPTWORK), which every chunk bank sees, and is only
+;;  ever a scratch copy.
 ;;
 ;;  Out: OPTNAMEBUF; A and X not kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -264,7 +265,7 @@ none_magperm:
     LDA #$FF
     LDY #7
   @fill:
-    STA OPTNAMEBUF, Y           ; SRAM, which the caller's bank sees
+    STA OPTNAMEBUF, Y           ; low WRAM, which the caller's bank sees
     DEY
     BPL @fill
     LDA #<OPTNAMEBUF
