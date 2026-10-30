@@ -1982,8 +1982,12 @@ opt_statoff:
     CLC
     RTS
 
-;  The four stats the battle keeps in its RAM copy, scaled once per battle.
+;  The four stats the battle keeps in its RAM copy, scaled once per battle --
+;  each enemy's record first pointed at the world's (rando_btlenemies), as
+;  FFR scales the records it has rewritten.
+.import rando_btlenemies
 opt_scaleenemies:
+    JSL rando_btlenemies + RANDOFAR
     JSR opt_statoff
     BCC @go
     RTL                         ; the loop below is too long to branch over

@@ -50,6 +50,7 @@
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
+.export rando_btlenemies
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
@@ -131,6 +132,7 @@ wPOS     = .LOWORD(RW_POS)
 wNORUN   = .LOWORD(RW_NORUN)
 wSURPRISE = .LOWORD(RW_SURPRISE)
 wTOUCH   = .LOWORD(RW_TOUCH)
+wENEMIES = .LOWORD(RW_ENEMIES)
 wESCRIPT = .LOWORD(RW_ESCRIPT)
 wSCRIPTS = .LOWORD(RW_SCRIPTS)
 wSPL     = .LOWORD(RW_SPL)
@@ -1016,11 +1018,11 @@ build:
     JSR deal_surprise
 
   @touch:
+    JSR copy_enemies
     JSR copy_touch
     LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
+    AND #STATUS_FIELD           ; Pirates shares the byte
     BEQ @ai                     ; STATUS_OFF
-    CMP #STATUS_MODES
-    BCS @ai
     JSR deal_touch
 
     ;  Scripts, then what is in them; each half of each row its own stream.
@@ -5056,6 +5058,65 @@ copy_touch:
     RTS
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  copy_enemies -- every enemy's record, as the world has it
+;;
+;;  data_EnemyStats into RW_ENEMIES, and under Pirates Buffed or Nasty FFR's
+;;  SwolePirates over the pirates' (EnableSwolePirates: the fields it sets,
+;;  before any scaling, as FFR's scaling comes after).  The touches and the
+;;  scripts keep their own tables, RW_TOUCH and RW_ESCRIPT, which the battle
+;;  asks by enemy.  A8, I16, DBR = $7F.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+copy_enemies:
+    .a8
+    .i16
+    LDX #$0000
+  @copy:
+    LDA f:ROMENEMIES, X
+    STA a:wENEMIES, X
+    INX
+    CPX #128 * ENEMY_RECORD
+    BCC @copy
+    LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
+    AND #PIRATES_FIELD
+    BEQ @done                   ; Off
+    LDX #$0000
+  @buff:
+    REP #$20
+    .a16
+    LDA f:RANDOFAR + lut_PirateBuff, X
+    AND #$00FF
+    TAY                         ; the field...
+    SEP #$20
+    .a8
+    LDA f:RANDOFAR + lut_PirateBuff + 1, X
+    STA a:wENEMIES + PIRATES * ENEMY_RECORD, Y  ; ...FFR's value
+    INX
+    INX
+    CPX #PIRATE_BUFFS * 2
+    BCC @buff
+  @done:
+    RTS
+
+;  FFR's EnableSwolePirates: each field it sets, and its value.
+lut_PirateBuff:
+    .BYTE ENROMSTAT_EXP,        <800
+    .BYTE ENROMSTAT_EXP + 1,    >800
+    .BYTE ENROMSTAT_GP,         <800
+    .BYTE ENROMSTAT_GP + 1,     >800
+    .BYTE ENROMSTAT_HPMAX,      <160
+    .BYTE ENROMSTAT_HPMAX + 1,  >160
+    .BYTE ENROMSTAT_NUMHITS,    2
+    .BYTE ENROMSTAT_DAMAGE,     32
+    .BYTE ENROMSTAT_ABSORB,     32
+    .BYTE ENROMSTAT_MAGDEF,     30
+    .BYTE ENROMSTAT_HITRATE,    35      ; FFR's accuracy
+    .BYTE ENROMSTAT_CRITRATE,   5
+    .BYTE ENROMSTAT_EVADE,      24      ; FFR's agility
+PIRATE_BUFFS = (* - lut_PirateBuff) / 2
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  deal_touch -- FFR's ShuffleEnemyStatusAttacks, made a permutation
 ;;
@@ -5063,7 +5124,8 @@ copy_touch:
 ;;  from the top, element and ailment moving together.  FFR shuffles all 128
 ;;  and then skips the pirates' slot as it writes back, which can hand the
 ;;  pirates' touch to a second enemy and drop another's; this is the
-;;  permutation that was meant.  A8, I16, DBR = $7F.
+;;  permutation that was meant.  Under Pirates Nasty, FFR's
+;;  AllowUnsafePirates, all 128.  A8, I16, DBR = $7F.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 deal_touch:
@@ -5081,7 +5143,7 @@ deal_touch:
     SEP #$20
     .a8
     LDA #128
-    JSR list_but_pirates        ; wLIST = 0..127 but 15, A = 127
+    JSR list_enemies            ; wLIST = 0..127 but 15, A = 127 (or 128)
     STA a:wFC                   ; i + 1
   @loop:
     LDA a:wFC
@@ -5126,8 +5188,9 @@ deal_touch:
     RTS
 
 
-;;  wLIST = 0..A-1 without the pirates, and A = how many that is.  A8, I16.
-list_but_pirates:
+;;  wLIST = 0..A-1 without the pirates -- with them under Pirates Nasty --
+;;  and A = how many that is.  A8, I16.
+list_enemies:
     .a8
     .i16
     STA a:wT2
@@ -5135,7 +5198,12 @@ list_but_pirates:
     LDY #$0000                  ; entries
   @fill:
     CPX #PIRATES
-    BEQ @skip
+    BNE @take
+    LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
+    AND #PIRATES_FIELD
+    CMP #PIRATES_NASTY << PIRATES_SHIFT
+    BCC @skip
+  @take:
     TXA
     STA a:wLIST, Y
     INY
@@ -5240,7 +5308,8 @@ shuffle_ids:
 ;;
 ;;  The 118 normal enemies but the pirates trade script ids, so the 36 that
 ;;  have one still number 36, and the pirates keep theirs (none).  FFR's
-;;  Everything has a Script at Vanilla, and its safe pirates.
+;;  Everything has a Script at Vanilla, and its safe pirates -- under Pirates
+;;  Nasty its unsafe ones, the pirates dealt in.
 ;;  A8, I16, DBR = $7F.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -5259,7 +5328,7 @@ deal_escripts:
     SEP #$20
     .a8
     LDA #118
-    JSR list_but_pirates
+    JSR list_enemies
     JMP shuffle_ids
 
 
@@ -5818,6 +5887,156 @@ rando_touch:
     LDY a:wTOUCH, X
     LDA a:wTOUCH + 1, X
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_btlenemies -- the battle's enemies' records, from the cache
+;;
+;;  Called by opt_scaleenemies just after LoadEnemyStats, which pointed each
+;;  enemy's en_romptr at its ROM record and copied part of that into its RAM
+;;  stats.  The battle reads the rest through the pointer as it goes -- hits,
+;;  hit% and crit% as it attacks, max HP and magic defense as a spell lands,
+;;  Boss tactics' reckoning -- and the pointer reaches SRAM but not the
+;;  cache.  So each kind of enemy in the battle, four at most, has its record
+;;  copied from RW_ENEMIES into OPTBTLENEMIES, each enemy is pointed at its
+;;  kind's, and its RAM stats are copied again from that as LoadEnemyStats
+;;  copies them.  What the world changes in a record, the battle sees.
+;;  A, X, Y not kept; the scratch words are free once ensure has run.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_btlenemies:
+    .a8
+    .i8
+    PHB
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    REP #$30
+    .a16
+    .i16
+    STZ a:wE                    ; the kinds copied
+    STZ a:wI                    ; the slot
+  @slot:
+    LDX a:wI
+    LDA f:SRAMFAR + btl_enemyIDs, X
+    AND #$00FF
+    CMP #128
+    BCS @next                   ; none there ($FF)
+    STA a:wQ                    ; the enemy
+    JSR btl_point
+  @next:
+    INC a:wI
+    LDA a:wI
+    CMP #9
+    BCC @slot
+    JMP leave
+
+;;  The enemy wQ in slot wI: its kind's record in OPTBTLENEMIES, copied there
+;;  if it is the battle's first of that kind, its en_romptr at it, and its RAM
+;;  stats from it.  A16, I16, DBR = $7F.
+btl_point:
+    .a16
+    .i16
+    LDY #$0000                  ; its kind: one copied already...
+  @find:
+    CPY a:wE
+    BEQ @new
+    LDA a:wLIST, Y
+    AND #$00FF
+    CMP a:wQ
+    BEQ @have
+    INY
+    BRA @find
+  @new:
+    CPY #BTL_KINDS              ; ...or the next, while there is room: a
+    BCC :+                      ;   fifth would keep the ROM's
+    RTS
+:
+    SEP #$20
+    .a8
+    LDA a:wQ
+    STA a:wLIST, Y
+    REP #$20
+    .a16
+    INC a:wE
+    STY a:wP
+    TYA
+    JSR times20
+    TAX                         ; its buffer...
+    LDA a:wQ
+    JSR times20
+    TAY                         ; ...and the enemy's record
+    SEP #$20
+    .a8
+    LDA #ENEMY_RECORD
+    STA a:wK
+  @copy:
+    LDA a:wENEMIES, Y
+    STA f:SRAMFAR + OPTBTLENEMIES, X
+    INX
+    INY
+    DEC a:wK
+    BNE @copy
+    REP #$20
+    .a16
+    LDY a:wP
+  @have:                        ; Y = the kind
+    TYA
+    JSR times20
+    CLC
+    ADC #OPTBTLENEMIES
+    PHA                         ; the record the battle will read
+    LDA a:wI
+    JSR times20
+    TAX                         ; the enemy's RAM stats
+    PLA
+    STA f:SRAMFAR + btl_enemystats + en_romptr, X
+    LDA a:wQ
+    JSR times20
+    TAY                         ; its record in the cache
+    SEP #$20
+    .a8
+    ;  ...and what LoadEnemyStats took from the ROM's, from this one, as its
+    ;  lut_RomRamMapping has it.
+    LDA a:wENEMIES + ENROMSTAT_HPMAX, Y
+    STA f:SRAMFAR + btl_enemystats + en_hp, X
+    LDA a:wENEMIES + ENROMSTAT_HPMAX + 1, Y
+    STA f:SRAMFAR + btl_enemystats + en_hp + 1, X
+    LDA a:wENEMIES + ENROMSTAT_ABSORB, Y
+    STA f:SRAMFAR + btl_enemystats + en_defense, X
+    LDA a:wENEMIES + ENROMSTAT_MORALE, Y
+    STA f:SRAMFAR + btl_enemystats + en_morale, X
+    LDA a:wENEMIES + ENROMSTAT_EVADE, Y
+    STA f:SRAMFAR + btl_enemystats + en_evade, X
+    LDA a:wENEMIES + ENROMSTAT_DAMAGE, Y
+    STA f:SRAMFAR + btl_enemystats + en_strength, X
+    LDA a:wENEMIES + ENROMSTAT_AI, Y
+    STA f:SRAMFAR + btl_enemystats + en_ai, X
+    LDA a:wENEMIES + ENROMSTAT_EXP, Y
+    STA f:SRAMFAR + btl_enemystats + en_exp, X
+    LDA a:wENEMIES + ENROMSTAT_EXP + 1, Y
+    STA f:SRAMFAR + btl_enemystats + en_exp + 1, X
+    LDA a:wENEMIES + ENROMSTAT_GP, Y
+    STA f:SRAMFAR + btl_enemystats + en_gp, X
+    LDA a:wENEMIES + ENROMSTAT_GP + 1, Y
+    STA f:SRAMFAR + btl_enemystats + en_gp + 1, X
+    LDA a:wENEMIES + ENROMSTAT_HPMAX, Y
+    STA f:SRAMFAR + btl_enemystats + en_unknown12, X
+    REP #$20
+    .a16
+    RTS
+
+;;  A = A * 20, a record's offset.  A16; wT2 clobbered.
+times20:
+    .a16
+    ASL A
+    ASL A
+    STA a:wT2
+    ASL A
+    ASL A
+    CLC
+    ADC a:wT2
+    RTS
+.assert ENEMY_RECORD = 20, error, "times20 is a record's stride"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

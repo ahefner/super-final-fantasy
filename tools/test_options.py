@@ -4219,10 +4219,15 @@ def test_scaleenemies():
     This is where a wrong field offset would hide: the arithmetic is already
     checked against FFR's formula, so what is left is whether each stat gets
     the adjustment FFR gives it, whether bosses take the other setting, and
-    whether the clamps hold.
+    whether the clamps hold.  The stats come from the world's records first
+    (rando_btlenemies, test_pirates), so the case's go in the cache's record
+    for each enemy, and decoys in the RAM stats it replaces.
     """
     def setup(enemy_step, boss_step, slots):
         bus, cpu = machine()
+        setsave(bus, 0x12345678, 0)
+        warm(bus)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
         setblk(bus, OPT_ENEMY, enemy_step)
         setblk(bus, OPT_BOSS, boss_step)
         for i in range(9):
@@ -4231,11 +4236,11 @@ def test_scaleenemies():
             bus.sram[ENEMY_IDS - 0x6000 + slot] = eid
             b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
             bus.sram[b + EN_ID] = eid
-            bus.sram[b + EN_HP] = hp & 0xFF
-            bus.sram[b + EN_HP + 1] = hp >> 8
-            bus.sram[b + EN_DEF] = dfn
-            bus.sram[b + EN_EVADE] = ev
-            bus.sram[b + EN_STR] = st
+            for f in (EN_HP, EN_HP + 1, EN_DEF, EN_EVADE, EN_STR):
+                bus.sram[b + f] = 0xA5
+            r = rw("RW_ENEMIES") + eid * 20         # ENROMSTAT_HPMAX, ABSORB, EVADE, DAMAGE
+            bus.wram[r + 4], bus.wram[r + 5] = hp & 0xFF, hp >> 8
+            bus.wram[r + 9], bus.wram[r + 8], bus.wram[r + 12] = dfn, ev, st
         return bus, cpu
 
     def read(bus, slot):
@@ -4266,11 +4271,11 @@ def test_scaleenemies():
     check("empty slots untouched",
           list(bus.sram[b:b + 0x14]), [0x5A] * 0x14)
 
-    #  and 100% on both settings must change nothing at all
+    #  and 100% on both settings must leave the records' stats as they are
     bus, cpu = setup(3, 3, slots)
-    before = {s: read(bus, s) for s in slots}
     call(cpu, "opt_scaleenemies", dbr=BANK_0C)
-    check("100%% is a no-op", {s: read(bus, s) for s in slots}, before)
+    check("100%% is a no-op", {s: read(bus, s) for s in slots},
+          {s: (hp, dfn, ev, st) for s, (eid, hp, dfn, ev, st) in slots.items()})
 
 
 FRAMECOUNTER = 0xF0
@@ -13163,7 +13168,9 @@ def test_rando_options():
             ("Thief lockpicking", "OPT_THIEFHIT", 4, 4, 12),
             ("Magic levels", "OPT_NG_MAGIC", 0, 2, 2),
             ("Item magic", "OPT_NG_MAGIC", 4, 2, 3),
-            ("Starting caster item", "OPT_STARTITEMS", 6, 2, 3)):
+            ("Starting caster item", "OPT_STARTITEMS", 6, 2, 3),
+            ("Status attacks", "OPT_NG_STATUS", 0, 1, 2),   # beside Pirates
+            ("Pirates", "OPT_NG_STATUS", 4, 2, 3)):
         at = K[byte] - 0x6000 + {"CHIME": 1, "ROD": 2, "Other items": 2, "Xcalber": 1}.get(name, 0)
         mask = ((1 << width) - 1) << shift if width < 8 else 0xFF
         row = optrow(name)
@@ -13194,6 +13201,8 @@ def test_rando_options():
     for e in range(4):
         spec[44 + e] = ("OPT_NG_EARLY", 0, e, 2)
     spec[48] = ("OPT_NG_ENTRANCES", 0, 0, 3)
+    spec[15] = ("OPT_NG_STATUS", 0, 0, 2)        # Status attacks, under...
+    spec[54] = ("OPT_NG_STATUS", 0, 4, 3)        # ...Pirates, one byte
     spec[8] = ("OPT_NG_MAGIC", 0, 0, 2)          # Magic levels, under...
     spec[52] = ("OPT_NG_MAGIC", 0, 4, 3)         # ...Item magic, one byte
     view_at = 0x6400 - 0x6000 + (K["RANDO_SAVE"] - 0x6000) + K["RANDO_NGOFF"]
@@ -13209,7 +13218,7 @@ def test_rando_options():
                 call(vcpu, "opt_menu_valbyte", dbr=OPTMENU_BANK)
                 if (vcpu.a & 0xFF) != (count - 1 if u == s else 0):
                     bad.append((view, s, u, vcpu.a & 0xFF))
-    check("each key item row, and Map shuffle, reads its own field alone", bad[:4], [])
+    check("each key item row, Map shuffle and the shared bytes' rows read their own field alone", bad[:4], [])
 
     ngat = K["OPT_NG"] - 0x6000
     check("...and leaves the block sealed", blk(bus, OPT_CKSUM),
@@ -14455,6 +14464,113 @@ def test_rando_touch():
                 check(name + ": the pirates keep theirs", got[30:32], vanilla[30:32])
                 seen.add(got)
     check("three seeds, three shuffles", len(seen), 3)
+
+
+def test_pirates():
+    """Pirates: Off, Buffed, Nasty (user, 2026-10-30), RANDO_STATUS bits 4-5
+    beside Status attacks' bit 0.  The cache's enemy records (RW_ENEMIES) are
+    the ROM's, FFR's SwolePirates over the pirates' under Buffed and Nasty,
+    and Nasty deals the pirates into Status attacks and Enemy scripts as
+    FFR's AllowUnsafePirates does -- each held to randoref.  A battle reads
+    the world's records: through OptLoadEnemyStats as bank $0C calls it, each
+    kind's record copied into OPTBTLENEMIES, every enemy's en_romptr at its
+    kind's and its RAM stats from it, so Buffed loads exactly as the plain
+    LoadEnemyStats does from a ROM holding FFR's pirate record, scaling
+    after; and with nothing changed, as LoadEnemyStats does from the ROM."""
+    check("the field: Pirates in bits 4-5, Status attacks in bit 0, three modes",
+          (K["PIRATES_FIELD"], K["PIRATES_SHIFT"], K["PIRATES_MODES"], K["STATUS_FIELD"],
+           K["PIRATES_BUFFED"], K["PIRATES_NASTY"]), (0x30, 4, 3, 0x01, 1, 2))
+    PIR, REC = 15, 20
+    #  FFR's EnableSwolePirates, transcribed again: the reference's record.
+    ffr = bytearray(ROMDATA[ENEMIES_ROM + PIR * REC:][:REC])
+    for off, v in ((0, 0x20), (1, 0x03), (2, 0x20), (3, 0x03), (4, 160), (5, 0), (0x0A, 2),
+                   (0x0C, 32), (0x09, 32), (0x11, 30), (0x0B, 35), (0x0D, 5), (0x08, 24)):
+        ffr[off] = v
+    check("the reference's buffed pirates: 800 XP and gold, 160 HP, FFR's stats",
+          R.build_enemies(ROMDATA, 1)[PIR * REC:][:REC], bytes(ffr))
+    E = rw("RW_ENEMIES")
+    moved = {"touch": set(), "script": set()}
+    #  Most enemies touch for nothing, as the pirates do, and most have no
+    #  script: seeds where the reference deals them one, under Nasty.
+    van_t = R.build_touch(ROMDATA, 1, 0)[2 * PIR:2 * PIR + 2]
+    seeds = [next(s for s in range(1, 4000) if R.build_touch(ROMDATA, s, 1, 2)[2 * PIR:2 * PIR + 2] != van_t),
+             next(s for s in range(1, 4000) if R.build_ai(ROMDATA, s, 1, 0, pirates=2)[0][PIR] != 0xFF)]
+    for pirates in (0, 1, 2, 3):                # 3 is past Nasty: as Nasty
+        for status, seed in ((0, 0x600DCAFE), (1, 0x600DCAFE), (1, 7), (1, seeds[0]), (1, seeds[1])):
+            bus, cpu = machine()
+            setai(bus, seed, status | pirates << 4, scripts=1)
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            name = "pirates %d status %d seed $%08X" % (pirates, status, seed)
+            p = min(pirates, 2)
+            check(name + ": the records", bytes(bus.wram[E:E + 128 * REC]), R.build_enemies(ROMDATA, p))
+            touch, eai, _ = ai_cache(bus)
+            check(name + ": the touches", touch, R.build_touch(ROMDATA, seed, status, p))
+            check(name + ": the scripts", eai, R.build_ai(ROMDATA, seed, 1, 0, pirates=p)[0])
+            van_t = R.build_touch(ROMDATA, seed, 0)[2 * PIR:2 * PIR + 2]
+            van_s = ROMDATA[ENEMIES_ROM + PIR * REC + 7]
+            if p < 2:
+                check(name + ": the pirates keep their touch and script",
+                      (touch[2 * PIR:2 * PIR + 2], eai[PIR]), (van_t, van_s))
+            elif status:
+                if touch[2 * PIR:2 * PIR + 2] != van_t:
+                    moved["touch"].add(seed)
+                if eai[PIR] != van_s:
+                    moved["script"].add(seed)
+    check("...and under Nasty some seed deals the pirates a touch, and one a script",
+          (bool(moved["touch"]), bool(moved["script"])), (True, True))
+
+    #  A battle.  btl_enemystats' nine records, and the 20 bytes each one's
+    #  en_romptr points at, from SRAM or ROM as the battle's bank sees it.
+    BANK0C, STATS = 0xA1 + 0x0C, K["btl_enemystats"]
+    BUF, KINDS = K["OPTBTLENEMIES"], K["BTL_KINDS"]
+
+    def battle(rom, pirates, ids, boss=STAT_100, plain=False):
+        bus, cpu = machine()
+        if rom is not ROMDATA:
+            bus.rom = rom
+        setai(bus, 0x600DCAFE, pirates << 4)
+        setblk(bus, OPT_ENEMY, STAT_100)
+        setblk(bus, OPT_BOSS, boss)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        for s in range(9):
+            bus.sram[ENEMY_IDS - 0x6000 + s] = ids[s] if s < len(ids) else 0xFF
+        for i in range(9 * REC):
+            bus.sram[STATS - 0x6000 + i] = 0x5A     # decoys, for the empty slots
+        call(cpu, "LoadEnemyStats" if plain else "OptLoadEnemyStats", bank=BANK0C, dbr=BANK0C)
+        out = []
+        for s in range(9):
+            st = bytearray(bus.sram[STATS - 0x6000 + s * REC:][:REC])
+            ptr = st[0] | st[1] << 8
+            src = bus.sram if 0x6000 <= ptr < 0x8000 else bytes(rom[(BANK0C & 0x1F) * 0x10000:][:0x10000])
+            rec = bytes(src[ptr - 0x6000:][:REC]) if src is bus.sram else bytes(src[ptr:ptr + REC])
+            out.append((ptr, bytes(st[2:]), rec))
+        return out
+    rom_ffr = bytearray(ROMDATA)
+    rom_ffr[ENEMIES_ROM + PIR * REC:ENEMIES_ROM + PIR * REC + REC] = ffr
+    pirates9 = [PIR] * 9
+    for boss in (STAT_100, STAT_100 + 3):
+        got = battle(ROMDATA, 1, pirates9, boss)
+        want = battle(rom_ffr, 0, pirates9, boss)
+        check("Buffed, boss stats step %d: as FFR's record loads and scales" % boss,
+              [g[1:] for g in got], [w[1:] for w in want])
+        check("...nine pirates, one record in OPTBTLENEMIES", {g[0] for g in got}, {BUF})
+        check("...Nasty loads as Buffed", battle(ROMDATA, 2, pirates9, boss), got)
+    #  Off, four kinds and a fifth, an empty slot among them while there is
+    #  room for a kind, and empty slots after: each kind its own record, as
+    #  the ROM has it, in the order met; the fifth the ROM's own; the RAM
+    #  stats as the plain load leaves them; the empty slots alone.
+    mixed = [3, 0xFF, 0x20, 3, 119, 0x41, 0x20, 0x55]
+    got, plain = battle(ROMDATA, 0, mixed), battle(ROMDATA, 0, mixed, plain=True)
+    order = [3, 0x20, 119, 0x41]
+    want_ptr = [BUF + REC * order.index(e) if e in order else plain[s][0] for s, e in enumerate(mixed)]
+    check("Off: four kinds in OPTBTLENEMIES in the order met, a fifth the ROM's",
+          [g[0] for g in got[:len(mixed)]], want_ptr)
+    check("...each record and its RAM stats the ROM's, as the plain load has them",
+          [g[1:] for g in got[:len(mixed)]], [p[1:] for p in plain[:len(mixed)]])
+    empty = [s for s in range(9) if s >= len(mixed) or mixed[s] == 0xFF]
+    check("...the empty slots untouched", [(got[s][0], got[s][1]) for s in empty],
+          [(0x5A5A, bytes([0x5A] * (REC - 2)))] * len(empty))
+    check("...the buffer holds four", KINDS, 4)
 
 
 def test_rando_touchload():
@@ -16005,7 +16121,7 @@ def main():
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
              test_enemyelement, test_rando_formations, test_rando_formload,
              test_rando_runs, test_rando_formdata, test_rando_touch,
-             test_rando_touchload, test_rando_ai, test_rando_enemyai,
+             test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
              test_rando_begin, test_nones, test_rando_namelazy, test_saveview,
              test_stackshift)

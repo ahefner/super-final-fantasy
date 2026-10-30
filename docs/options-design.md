@@ -234,7 +234,9 @@ Max gear blessing "adds 3 hit%, 2 damage and 3 crit"; Min gear curse "The
 lowest penalty gear may roll..." (the user's); Formation zones' Random
 "...the game never used. Coneria is unmodified." (the user's); Surprise
 rates' Shuffle without "and you it"; Status attacks' Shuffle "Enemies trade
-touch effects, bosses included. Pirates are unmodified." (the user's); Enemy
+touch effects, bosses included. Pirates are unmodified." (the user's; the
+pirates' sentence, and Enemy scripts' "The pirates keep theirs.", dropped
+2026-10-30 for the Pirates row, user: "remove mention of the pirates"); Enemy
 skills' Enemies rearranged, and its Bosses "Spells and skills are shuffled
 among the fiends, WarMECH, and CHAOS. No consecutive NUKE or NUCLEAR." (the
 user's).  Batch 4, KEY ITEMS: Key items' Vanilla names what
@@ -1354,7 +1356,8 @@ box to half speed, and the boss went back to RDNMI.
 
 **Where it is.**  Its own chunk, `CHUNK_TACTICS` (`$18`, `src/tactics.asm`),
 native and sixteen bits wide, with its scratch at `TC_BASE` in bank `$7F`
-between the roll screen's and placement's, cleared each decision -- nothing
+-- between the roll screen's and placement's until 2026-10-30, since in the
+lower half (the enemy records took its place, "Pirates") -- cleared each decision -- nothing
 there is power-on clean, and the tests fill it with junk first.  Three
 byte-neutral hooks in bank `$0C`: `tactics_turn.patch` takes four of the nine
 dead bytes `randoai.patch` left in `Enemy_DoAi` for `JSL tac_turn`, which, if
@@ -1820,7 +1823,58 @@ on, pirates safe, the vanilla script count, No Empty Scripts off; no Remove
 Boss Scripts, balanced generator or boss sub-options.  The touch reaches the
 battle through `opt_scaleatk`, the script through `rando_enemyai` and a
 16-byte shadow in SRAM.  Played 2026-10-09, in a full playthrough with every
-flag on.
+flag on.  The pirates' safety became the Pirates row's (below).
+
+**Pirates** (user, 2026-10-30: "Three values - Off, Buffed, and Nasty";
+built, not yet played), a value row after Enemy skills.  Off: "Pirates
+retain their vanilla stats."  Buffed, FFR's `SwolePirates`: "Pirates are
+stronger and tougher."  Nasty, that and FFR's `AllowUnsafePirates`:
+"Pirates may gain new abilities."  (All three the user's words.)  Free
+Enterprise sets Nasty, as FFR's preset sets both flags; every other preset
+Off.
+
+  - **Buffed** is FFR's `EnableSwolePirates`, its values over the pirates'
+    record: 800 XP and 800 gold (40 and 40), 160 HP (6), 2 hits (1), 32
+    damage (8), 32 absorb (0), 35 hit% (2), 5 crit% (1), 24 evade (12), 30
+    magic defense (15).  Boss stats and Gold and XP scale them after, as
+    FFR's scaling comes after (FFR counts the pirates a boss, as this cart's
+    `opt_isboss` does).
+  - **Nasty** deals the pirates into Status attacks and Enemy scripts like
+    any other enemy, as `AllowUnsafePirates` does in FFR's touch shuffle and
+    script shuffle (user: both): `list_enemies` lists them.  With those rows
+    off it is Buffed.
+  - **The world's enemy records.**  The battle copies 8 of an enemy's 20
+    record bytes into its RAM stats (`LoadEnemyStats`) and reads the other
+    12 -- hits, hit%, crit%, max HP, magic defense, category, weakness,
+    resistances -- from the ROM through `en_romptr` each time, a 16-bit
+    pointer that reaches SRAM but not the cache.  So rather than hook each
+    read (user: "it's better to minimize the number of code hooks ... And
+    this is more flexible"), the cache holds all 128 records, `RW_ENEMIES`,
+    built by `copy_enemies` with Buffed's values in the pirates'; and on
+    each battle's load `rando_btlenemies` (from `opt_scaleenemies`, the
+    existing hook) copies each kind's record, four kinds at most, into
+    `OPTBTLENEMIES` (OPTDESC, which only the menus and the dialogue box
+    build), points every enemy's `en_romptr` at its kind's and copies its RAM
+    stats again from it as `LoadEnemyStats` does.  Whatever the world
+    changes in a record from now on -- stronger Astos or Bahamut, alternate
+    fiends, per-boss HP -- the battle sees with no new hook.  The touches
+    and scripts keep their own tables (`RW_TOUCH`, `RW_ESCRIPT`).
+  - **Where things went.**  The field is `RANDO_STATUS`'s bits 4-5
+    (`PIRATES_FIELD`), Status attacks keeping bit 0 (`STATUS_FIELD`): the
+    settings page had no byte left.  Zero in every save before, which reads
+    Off, so the save format stays.  `RW_ENEMIES` took $7F:B380-$7F:BD7F,
+    after the teleport tables; the roll screen's variables moved above it
+    (`ROLLRAM`), and Boss tactics' scratch, `TC_BASE`, moved to $7F:4800,
+    in bank $7F's lower half between the map edit screen's WRAM and the
+    ending's buffer, neither up in a battle.
+  - `test_pirates` holds the records, the touches and the scripts to
+    `randoref` under each mode (FFR's record transcribed again), and a
+    battle's load through `OptLoadEnemyStats` as bank $0C calls it: Buffed
+    loads and scales exactly as the plain `LoadEnemyStats` does from a ROM
+    holding FFR's pirate record; nine pirates share one record; Off, four
+    kinds and a fifth, loads as the plain load does from the ROM, the fifth
+    keeping the ROM's record, the empty slots untouched.
+    `test_scaleenemies` now puts its cases' stats in the records.
 
 RNG tables, a value row: Off, Shuffle -- FFR's flag of that name, on in all
 its presets but Improved Vanilla.  The encounter table (`lut_RNG`: whether a
@@ -2397,6 +2451,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Status attacks | Off, Shuffle | -- | 2 | Off |
 | Enemy scripts | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | Enemy skills | Off, Enemies, Bosses, Both | -- | 4 | Off |
+| Pirates | Off, Buffed, Nasty | -- | 3 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
@@ -3698,7 +3753,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    6780 free   the settings screen's engine and rows (6695)
+    BANK_OPT    6776 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -3732,13 +3787,14 @@ text region in the game references.
                              randomizer's chunk) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  1323 free  the settings screen's descriptions (measured
+    BANK_OPTTEXT  1199 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115 (236 with
-                             AoE's three by value, 2026-10-29), Thief
+                             AoE's three by value, 2026-10-29), Pirates'
+                             three 124 (2026-10-30), Thief
                              lockpicking's 115, Item magic's 115, Map
                              edits' three 348 (freed 2026-10-24), Short
                              ToFR's 143
@@ -3747,7 +3803,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   1415 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
+    BANK_RANDO   1063 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3773,7 +3829,9 @@ text region in the game references.
                              the flow's edits and seed 21 + 21; the Seed
                              Summary's numbers and places (pl_summary) 52;
                              the hint lines' lookup 88 (the lines are
-                             BANK_WORLD's)
+                             BANK_WORLD's); the enemy records, Pirates
+                             Buffed and Nasty, and the battle's copies
+                             352 (2026-10-30)
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -3797,7 +3855,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  4262 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  4199 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the

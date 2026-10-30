@@ -1,7 +1,7 @@
 # Free Enterprise: FFR's Free_Enterprise.json, without its recruitment
 # (user) -- so without the party it builds by recruiting.  Not yet on the
-# cartridge: its alternate fiends and final boss, buffed Astos, Bahamut and
-# pirates, WarMECH guarding Tiamat, the guarded Masamune, better trap chests,
+# cartridge: its alternate fiends and final boss, buffed Astos and Bahamut,
+# WarMECH guarding Tiamat, the guarded Masamune, better trap chests,
 # random loot, boss HP 80-240%, Thor's Hammer, the Black Shirt and the Power
 # Rod as incentives (docs/ffr-presets.md, 3.5).
 name = "Free Enterprise"
@@ -18,6 +18,7 @@ battles, and a casting item to start.
 "Starting caster item" = "AoE"          # FFR's StartingEquipmentRandomAoe
 "Trap tiles" = "B"
 "Enemy skills" = "Enemies"
+"Pirates" = "Nasty"                    # FFR's SwolePirates and AllowUnsafePirates
 "Key items" = "Wide"
 
 "SHIP" = "Free"

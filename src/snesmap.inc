@@ -1556,6 +1556,12 @@ OPTCALLV        = $0113         ; 2 bytes, just above tmp_hi
 POSE_VICTORY    = $0E
 OPTSAVEPTR      = OPTBLOCK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
 OPTDESC_MAX     = $50
+;  The records of the battle's enemies, a kind each, four kinds at most, which
+;  the battle reads through en_romptr (rando_btlenemies).  OPTDESC: only the
+;  menus and the dialogue box build there, and never during a battle.
+OPTBTLENEMIES   = OPTDESC
+BTL_KINDS       = 4
+.assert BTL_KINDS * ENEMY_RECORD <= OPTDESC_MAX, error, "the battle's enemy records overflow OPTDESC"
 
 ;  Flags this file reads.  The bit numbers are the menu's row order, which is
 ;  what lut_OptRows in optmenu.asm already assigns.
@@ -1869,6 +1875,20 @@ SURPRISE_MODES  = 2
 STATUS_OFF      = 0
 STATUS_SHUFFLE  = 1
 STATUS_MODES    = 2
+STATUS_FIELD    = $01           ; RANDO_STATUS: the mode in bit 0...
+
+;  ...and Pirates (user, 2026-10-30: "Off, Buffed, and Nasty") in bits 4-5,
+;  zero in every save made before it.  Buffed is FFR's SwolePirates, their
+;  record's stats and rewards FFR's (opt_buffpirates); Nasty is that and its
+;  AllowUnsafePirates too, the pirates dealt into Status attacks and Enemy
+;  scripts like any other enemy (user: both).  Their byte because the
+;  settings page has no other: the Goal took its last.
+PIRATES_FIELD   = $30
+PIRATES_SHIFT   = 4
+PIRATES_OFF     = 0
+PIRATES_BUFFED  = 1
+PIRATES_NASTY   = 2
+PIRATES_MODES   = 3
 
 ;  Enemy scripts and Enemy skills: bit 0 the normal enemies, bit 1 the bosses.
 ;  Scripts are FFR's Shuffle Scripts: which enemy has which script.  Skills
@@ -2024,7 +2044,13 @@ RW_NORMY        = RANDOWRAM+$32E0
 RW_NORMMAP      = RANDOWRAM+$3320
 RW_EXITX        = RANDOWRAM+$3360 ; 16: each exit's overworld x and y
 RW_EXITY        = RANDOWRAM+$3370
-.assert RW_EXITY + 16 <= RP_BASE, error, "the teleport tables run into placement's memory"
+;  Every enemy's record as the world has it (copy_enemies): data_EnemyStats'
+;  128, Pirates Buffed's values in the pirates'.  The battle reads a battle's
+;  through OPTBTLENEMIES (rando_btlenemies).
+ENEMY_RECORD    = $14
+RW_ENEMIES      = RANDOWRAM+$3380
+RW_ENEMIES_END  = RW_ENEMIES + 128 * ENEMY_RECORD
+.assert RW_EXITY + 16 <= RW_ENEMIES, error, "the teleport tables run into the enemy records"
 
 ;  New Game's roll screen (roll.asm): up while the world builds, ticked from
 ;  the randomizer's yields (rando_yield).  Beside the cache, which never
@@ -2032,38 +2058,39 @@ RW_EXITY        = RANDOWRAM+$3370
 ;  zeroes it and roll_end clears it.  Two bytes a variable, so a store from
 ;  sixteen-bit code cannot reach the next.  The randomizer writes ROLL_STAGE
 ;  and ROLL_YREQ; the rest is the screen's.
-ROLL_ON         = RANDOWRAM+$3380 ; 1: the roll screen is up and ticking
-ROLL_T          = RANDOWRAM+$3382 ; ticks since it came up
-ROLL_FRAME      = RANDOWRAM+$3384 ; the step shown: 0 or 1
-ROLL_BRIGHT     = RANDOWRAM+$3386 ; INIDISP's brightness, fading in
-ROLL_STAGE      = RANDOWRAM+$3388 ; ROLLSTAGE_*: whose pitches the notes take
-ROLL_NEXT       = RANDOWRAM+$338A ; ticks to the next note
-ROLL_GATE       = RANDOWRAM+$338C ; ticks the note sounds yet
-ROLL_IDX        = RANDOWRAM+$338E ; the note, 0-7 in its stage's scale
-ROLL_YELP       = RANDOWRAM+$3390 ; notes of the pulse's answer left, 0 if none
-ROLL_YT         = RANDOWRAM+$3392 ; the tick within its note
-ROLL_YREQ       = RANDOWRAM+$3394 ; 1: something thrown away, answer (pl_yelp)
-ROLL_PICK       = RANDOWRAM+$3396 ; which picture
-ROLL_BUF        = RANDOWRAM+$33A0 ; 16 words: a row of the picture, being built
-ROLL_ROW        = RANDOWRAM+$33C0 ; roll_row's: the row...
-ROLL_PALHI      = RANDOWRAM+$33C2 ; ...its half's palette, as the word's high byte
-ROLL_OFF        = RANDOWRAM+$33C4 ; ...the tile's row, in lut_RollChr
-ROLL_P0         = RANDOWRAM+$33C6 ; ...its two planes, shifting out
-ROLL_P1         = RANDOWRAM+$33C7
-ROLL_HI         = RANDOWRAM+$33C8 ; ...a pixel's plane 1 bit, as the colour's 2
-ROLL_N          = RANDOWRAM+$33C9 ; ...pixels left of the half
-ROLL_CGOFF      = RANDOWRAM+$33CA ; roll_build's: the pick's colours, in lut_RollPal
-ROLL_FX         = RANDOWRAM+$33CC ; the pick's effect (lut_RollFx): walk, hop, throb
-ROLL_AFTER      = RANDOWRAM+$33CE ; the track roll_end starts, or 0
-ROLL_YARM       = RANDOWRAM+$33D0 ; 1: an answer asked for, waiting for the beat
-ROLL_YNUM       = RANDOWRAM+$33D2 ; answers so far, 0-2: the third is the run
-ROLL_YK         = RANDOWRAM+$33D4 ; this answer's phrase: 0 the pair, 1 the run
-ROLL_YI         = RANDOWRAM+$33D6 ; its note being played, 0-3
-ROLL_YDIR       = RANDOWRAM+$33D8 ; its way through the scale: 1 up, 0 down
-ROLL_YSTEP      = RANDOWRAM+$33DA ; scratch: a reach, a step, a note's length
-ROLL_YNOTES     = RANDOWRAM+$33DC ; 4 bytes: its notes, as steps of lut_RollPitch
-ROLL_PAD        = RANDOWRAM+$33E0 ; roll_fail's: the pad last frame, for a new press
-ROLL_END        = RANDOWRAM+$33E2
+ROLLRAM         = RW_ENEMIES_END
+ROLL_ON         = ROLLRAM+$0000 ; 1: the roll screen is up and ticking
+ROLL_T          = ROLLRAM+$0002 ; ticks since it came up
+ROLL_FRAME      = ROLLRAM+$0004 ; the step shown: 0 or 1
+ROLL_BRIGHT     = ROLLRAM+$0006 ; INIDISP's brightness, fading in
+ROLL_STAGE      = ROLLRAM+$0008 ; ROLLSTAGE_*: whose pitches the notes take
+ROLL_NEXT       = ROLLRAM+$000A ; ticks to the next note
+ROLL_GATE       = ROLLRAM+$000C ; ticks the note sounds yet
+ROLL_IDX        = ROLLRAM+$000E ; the note, 0-7 in its stage's scale
+ROLL_YELP       = ROLLRAM+$0010 ; notes of the pulse's answer left, 0 if none
+ROLL_YT         = ROLLRAM+$0012 ; the tick within its note
+ROLL_YREQ       = ROLLRAM+$0014 ; 1: something thrown away, answer (pl_yelp)
+ROLL_PICK       = ROLLRAM+$0016 ; which picture
+ROLL_BUF        = ROLLRAM+$0020 ; 16 words: a row of the picture, being built
+ROLL_ROW        = ROLLRAM+$0040 ; roll_row's: the row...
+ROLL_PALHI      = ROLLRAM+$0042 ; ...its half's palette, as the word's high byte
+ROLL_OFF        = ROLLRAM+$0044 ; ...the tile's row, in lut_RollChr
+ROLL_P0         = ROLLRAM+$0046 ; ...its two planes, shifting out
+ROLL_P1         = ROLLRAM+$0047
+ROLL_HI         = ROLLRAM+$0048 ; ...a pixel's plane 1 bit, as the colour's 2
+ROLL_N          = ROLLRAM+$0049 ; ...pixels left of the half
+ROLL_CGOFF      = ROLLRAM+$004A ; roll_build's: the pick's colours, in lut_RollPal
+ROLL_FX         = ROLLRAM+$004C ; the pick's effect (lut_RollFx): walk, hop, throb
+ROLL_AFTER      = ROLLRAM+$004E ; the track roll_end starts, or 0
+ROLL_YARM       = ROLLRAM+$0050 ; 1: an answer asked for, waiting for the beat
+ROLL_YNUM       = ROLLRAM+$0052 ; answers so far, 0-2: the third is the run
+ROLL_YK         = ROLLRAM+$0054 ; this answer's phrase: 0 the pair, 1 the run
+ROLL_YI         = ROLLRAM+$0056 ; its note being played, 0-3
+ROLL_YDIR       = ROLLRAM+$0058 ; its way through the scale: 1 up, 0 down
+ROLL_YSTEP      = ROLLRAM+$005A ; scratch: a reach, a step, a note's length
+ROLL_YNOTES     = ROLLRAM+$005C ; 4 bytes: its notes, as steps of lut_RollPitch
+ROLL_PAD        = ROLLRAM+$0060 ; roll_fail's: the pad last frame, for a new press
+ROLL_END        = ROLLRAM+$0062
 .assert ROLL_ON >= RW_EXITY + 16, error, "the roll screen's variables overlap the cache"
 .assert ROLL_END <= RP_BASE, error, "the roll screen's variables run into placement's memory"
 ;  The map edit screen's twin of ROLL_ON (owscreen.asm): nonzero while the
@@ -2076,14 +2103,16 @@ OWS_TICKON      = ROLL_END
 OWS_TICKFRAME   = 2
 OWS_CANBACK     = $40             ; ows_choose's A: B leaves, answering NGNAV_BACK
 OWS_KEEP        = $20             ; ...and start from RANDO_OWEDITS as given, not the save's
-.assert OWS_TICKON + 2 <= RANDOWRAM + $3400, error, "OWS_TICKON runs into boss tactics' scratch"
+.assert OWS_TICKON + 2 <= RP_BASE, error, "OWS_TICKON runs into placement's memory"
 
 ;  Boss tactics' scratch (tactics.asm): one decision's, so nothing here
-;  outlives a turn but the latch.  Above the roll screen's and below
-;  placement's, neither of which is live in a battle.  Words throughout, read
-;  and written long; four-byte values low word first.  Cleared at the start
-;  of each decision: nothing up here is clean at power on.
-TC_BASE         = RANDOWRAM+$3400
+;  outlives a turn but the latch.  In bank $7F's lower half, between the map
+;  edit screen's WRAM and the ending's, neither of which is up in a battle
+;  (moved there 2026-10-30, the cache taking its place for the enemy
+;  records).  Words throughout, read and written long; four-byte values low
+;  word first.  Cleared at the start of each decision: nothing here is clean
+;  at power on.
+TC_BASE         = $7F4800
 ;  A word a party slot, four slots:
 TC_LIVE         = TC_BASE+$000  ; 1 if neither dead nor stone
 TC_AIL          = TC_BASE+$008  ; ailments (the out-of-battle record's)
@@ -2247,10 +2276,10 @@ TC_SPRECEND     = TC_SPREC + 64 * 5
 ;  The aim a decision leaves for the swing or spell it chose: the slot with
 ;  $A0 in, the same complemented, and the attacker.  All three must agree --
 ;  a power-on's leftovers will not -- and whoever reads it clears it.
-TC_LATCH        = RANDOWRAM+$3FF0
-.assert TC_BASE >= ROLL_END, error, "boss tactics' scratch overlaps the roll screen's"
+TC_LATCH        = TC_BASE+$BF0
+.assert TC_BASE >= OWSRAM_END, error, "boss tactics' scratch overlaps the map edit screen's"
 .assert TC_SPRECEND <= TC_LATCH, error, "boss tactics' spell records run into the latch"
-.assert TC_LATCH + 3 <= RP_BASE, error, "boss tactics' scratch runs into placement's memory"
+.assert TC_LATCH + 3 <= $7F0000 + THEENDBUF_AT, error, "boss tactics' scratch runs into the ending's"
 ROLLSTAGE_PLACE   = 0           ; placing the key items (and before)
 ROLLSTAGE_WIRING  = 1           ; entrance shuffle: dealing the doors
 ROLLSTAGE_LOGIC   = 2           ; ...and working out what they open
@@ -2278,7 +2307,8 @@ SHOP_CARAVAN    = 70
 
 ;  Incentive placement's working memory (place.inc).  It runs first in each
 ;  cache build, so nothing here outlives the build; the result goes to
-;  RW_PLACE in the cache.  Above the cache, which ends below $B380.
+;  RW_PLACE in the cache.  Above the cache and the roll screen's, which end
+;  below $BE00.
 RP_BASE         = RANDOWRAM+$4000
 RP_BYBITOFF     = RP_BASE+$0000   ; 33 words: where each bit's list of locations starts
 RP_BYBIT        = RP_BASE+$0042   ; RP_BYBITMAX: the locations whose masks name each bit

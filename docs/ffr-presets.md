@@ -263,8 +263,11 @@ HARM.
 
 **Free Enterprise:**
 
-  - Alternate fiends; buffed Astos, Bahamut and pirates; WarMECH guarding
-    Tiamat; an alternate final boss.
+  - Alternate fiends; buffed Astos and Bahamut; WarMECH guarding Tiamat; an
+    alternate final boss.  The buffed pirates, and FFR's unsafe pirates, are
+    the Pirates row's Nasty (built 2026-10-30), which the preset sets; the
+    world's enemy records (`RW_ENEMIES`, options-design.md "Pirates") are
+    where the rest of these would go.
   - Bahamut must be fought for the class change.
   - The Masamune is guaranteed, with a guardian.
   - Better trap chests, random loot with High wealth, and boss HP scaled

@@ -571,6 +571,13 @@ ENEMIES_AT = (1 + 0x0C) * 0x10000 + 0x8520
 ENEMYAI_AT = (1 + 0x0C) * 0x10000 + 0x9020
 STATUS_OFF, STATUS_SHUFFLE = 0, 1
 STATUS_MODES = 2
+STATUS_FIELD = 0x01                             # RANDO_STATUS: the mode in bit 0...
+PIRATES_FIELD, PIRATES_SHIFT = 0x30, 4          # ...and Pirates in bits 4-5
+PIRATES_OFF, PIRATES_BUFFED, PIRATES_NASTY = 0, 1, 2
+PIRATES_NAMES = {"off": PIRATES_OFF, "buffed": PIRATES_BUFFED, "nasty": PIRATES_NASTY}
+#  FFR's EnableSwolePirates: record offset, value.
+PIRATE_BUFF = ((0, 800 & 0xFF), (1, 800 >> 8), (2, 800 & 0xFF), (3, 800 >> 8), (4, 160), (5, 0),
+               (0x0A, 2), (0x0C, 32), (0x09, 32), (0x11, 30), (0x0B, 35), (0x0D, 5), (0x08, 24))
 STATUS_NAMES = {"off": STATUS_OFF, "shuffle": STATUS_SHUFFLE}
 AI_OFF, AI_ENEMIES, AI_BOSSES, AI_BOTH = 0, 1, 2, 3
 AI_MODES = 4
@@ -608,14 +615,15 @@ def script_text(rom, rec):
                                               " ".join(skills) or "-")
 
 
-def build_touch(rom, seed, status):
-    """Every enemy's touch, element then ailment, 256 bytes."""
+def build_touch(rom, seed, status, pirates=PIRATES_OFF):
+    """Every enemy's touch, element then ailment, 256 bytes.  The pirates are
+    dealt in under Pirates Nasty."""
     t = bytearray()
     for e in range(128):
         t += rom[ENEMIES_AT + e * 20 + 0x0E:][:2]
     if 0 < status < STATUS_MODES:
         rng = Stream(seed, STREAM_TOUCH)
-        es = [e for e in range(128) if e != PIRATES]
+        es = [e for e in range(128) if e != PIRATES or pirates >= PIRATES_NASTY]
         for i in range(len(es) - 1, 0, -1):
             j = rng.below(i + 1)
             a, b = es[i] * 2, es[j] * 2
@@ -690,10 +698,20 @@ def _deal_group(table, group, rng, opening=True):
         table[g * 16:g * 16 + 16] = bytes(r)
 
 
-def build_ai(rom, seed, scripts, skills, opening=True):
+def build_enemies(rom, pirates=PIRATES_OFF):
+    """Every enemy's record (128 x 20, RW_ENEMIES): the ROM's, FFR's
+    SwolePirates over the pirates' under Pirates Buffed or Nasty."""
+    r = bytearray(rom[ENEMIES_AT:ENEMIES_AT + 128 * 20])
+    if pirates:
+        for off, v in PIRATE_BUFF:
+            r[PIRATES * 20 + off] = v
+    return bytes(r)
+
+
+def build_ai(rom, seed, scripts, skills, opening=True, pirates=PIRATES_OFF):
     """Each enemy's script id (128 bytes) and the 44 scripts (704).  opening
     False drops the NUKE-and-NUCLEAR opening rule, for the test that finds a
-    seed where it matters."""
+    seed where it matters.  The pirates trade too under Pirates Nasty."""
     eai = bytearray(rom[ENEMIES_AT + e * 20 + 7] for e in range(128))
     table = bytearray(rom[ENEMYAI_AT:ENEMYAI_AT + 44 * 16])
     if not 0 <= scripts < AI_MODES:
@@ -701,9 +719,10 @@ def build_ai(rom, seed, scripts, skills, opening=True):
     if not 0 <= skills < AI_MODES:
         skills = AI_OFF
     if scripts & AI_ENEMIES:
-        #  The normal enemies trade script ids, the pirates sitting out.
+        #  The normal enemies trade script ids, the pirates sitting out but
+        #  under Pirates Nasty.
         rng = Stream(seed, STREAM_SCRIPTS)
-        es = [e for e in range(118) if e != PIRATES]
+        es = [e for e in range(118) if e != PIRATES or pirates >= PIRATES_NASTY]
         ids = [eai[e] for e in es]
         _fisher_yates(ids, rng)
         for e, v in zip(es, ids):
@@ -2117,6 +2136,8 @@ def main():
                     help="surprise rates")
     ap.add_argument("--status", choices=sorted(STATUS_NAMES), default="off",
                     help="status attacks: enemies' touches")
+    ap.add_argument("--pirates", choices=sorted(PIRATES_NAMES), default="off",
+                    help="pirates: buffed, or nasty (dealt into the touches and scripts too)")
     ap.add_argument("--scripts", choices=sorted(AI_NAMES), default="off",
                     help="enemy scripts: who has which")
     ap.add_argument("--skills", choices=sorted(AI_NAMES), default="off",
@@ -2149,6 +2170,11 @@ def main():
             AI_NAMES[a.skills], RNG_NAMES[a.rng], int(a.ordeals == "shuffle"))
     else:
         ap.error("give a battery file or --seed")
+    if a.srm:
+        pirates = (status & PIRATES_FIELD) >> PIRATES_SHIFT
+        status &= STATUS_FIELD
+    else:
+        pirates = PIRATES_NAMES[a.pirates]
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
           " blessing +%d, curse -%d, formation rarity %d, zones %d, unrunnable %d,"
           " surprise %d, status %d, scripts %d, skills %d, RNG tables %d, Ordeals %d"
@@ -2225,13 +2251,13 @@ def main():
         for row in range(16):
             print("    $%X0  %s" % (row, " ".join("%02X" % b for b in enc[row * 16:row * 16 + 16])))
     if status:
-        was, now = build_touch(rom, seed, 0), build_touch(rom, seed, status)
+        was, now = build_touch(rom, seed, 0), build_touch(rom, seed, status, pirates)
         for e in range(128):
             if was[2 * e:2 * e + 2] != now[2 * e:2 * e + 2]:
                 print("  touch  %-9s %s  (was %s)" % (enemy_name(rom, e), touch_text(*now[2 * e:2 * e + 2]),
                                                      touch_text(*was[2 * e:2 * e + 2])))
     if scripts or skills:
-        (ew, tw), (en, tn) = build_ai(rom, seed, 0, 0), build_ai(rom, seed, scripts, skills)
+        (ew, tw), (en, tn) = build_ai(rom, seed, 0, 0), build_ai(rom, seed, scripts, skills, pirates=pirates)
         for e in range(128):
             if ew[e] != en[e]:
                 print("  script %-9s %s  (was %s)" % (enemy_name(rom, e),

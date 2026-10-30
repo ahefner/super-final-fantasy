@@ -722,11 +722,10 @@ lut_Desc_58_0:  ; Status attacks: Off
   FFPAD {"Each enemy's touch does what"}, 28
   FFPAD {"it always does."}, 28
 
-lut_Desc_58_1:  ; Status attacks: Shuffle
-  FFLINES 3
+lut_Desc_58_1:  ; Status attacks: Shuffle (the pirates, Pirates' since 2026-10-30)
+  FFLINES 2
   FFPAD {"Enemies trade touch effects,"}, 28
-  FFPAD {"bosses included. Pirates are"}, 28
-  FFPAD {"unmodified."}, 28
+  FFPAD {"bosses included."}, 28
 
 lut_Desc_59:  ; Enemy scripts, by value
   .BYTE DESC_BYVALUE
@@ -738,13 +737,12 @@ lut_Desc_59_0:  ; Enemy scripts: Off
   FFPAD {"Every enemy fights the way"}, 28
   FFPAD {"it always does."}, 28
 
-lut_Desc_59_1:  ; Enemy scripts: Enemies
-  FFLINES 5
+lut_Desc_59_1:  ; Enemy scripts: Enemies (the pirates, Pirates' since 2026-10-30)
+  FFLINES 4
   FFPAD {"Normal enemies trade their"}, 28
   FFPAD {"spell and skill lists, so"}, 28
   FFPAD {"one that never cast may, and"}, 28
-  FFPAD {"a caster may not. The"}, 28
-  FFPAD {"pirates keep theirs."}, 28
+  FFPAD {"a caster may not."}, 28
 
 lut_Desc_59_2:  ; Enemy scripts: Bosses
   FFLINES 4
@@ -793,6 +791,26 @@ lut_Desc_60_3:  ; Enemy skills: Both
   FFPAD {"among the fiends, and among"}, 28
   FFPAD {"the last bosses. Never two"}, 28
   FFPAD {"NUKEs or NUCLEARs in a row."}, 28
+
+lut_Desc_104:  ; Pirates, by value (the user's words, 2026-10-30)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_104_0, lut_Desc_104_1, lut_Desc_104_2
+  .assert * - lut_Desc_104 = 1 + 2 * PIRATES_MODES, error, "one description per pirates mode"
+
+lut_Desc_104_0:  ; Pirates: Off
+  FFLINES 2
+  FFPAD {"Pirates retain their vanilla"}, 28
+  FFPAD {"stats."}, 28
+
+lut_Desc_104_1:  ; Buffed
+  FFLINES 2
+  FFPAD {"Pirates are stronger and"}, 28
+  FFPAD {"tougher."}, 28
+
+lut_Desc_104_2:  ; Nasty
+  FFLINES 2
+  FFPAD {"Pirates may gain new"}, 28
+  FFPAD {"abilities."}, 28
 
 lut_Desc_71:  ; Ordeals pillars, by value
   .BYTE DESC_BYVALUE
@@ -1081,7 +1099,7 @@ lut_DescLo:
   .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
-  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_61, <lut_Desc_71
+  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71
   .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_93, <lut_Desc_103, <lut_Desc_74, <lut_Desc_75
   .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
   .BYTE <lut_Desc_82, <lut_Desc_83, <lut_Desc_84, <lut_Desc_85, <lut_DescBlank, <lut_Desc_86
@@ -1104,7 +1122,7 @@ lut_DescHi:
   .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
-  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_61, >lut_Desc_71
+  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71
   .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_103, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
   .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86
