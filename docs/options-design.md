@@ -1826,9 +1826,9 @@ battle through `opt_scaleatk`, the script through `rando_enemyai` and a
 flag on.  The pirates' safety became the Pirates row's (below).
 
 **Pirates** (user, 2026-10-30: "Three values - Off, Buffed, and Nasty";
-built; the world's enemy records played the same day, every battle of a full
-Chaos Rush seed loading through them, Pirates Off -- Buffed and Nasty not
-yet played), a value row after Enemy skills.  Off: "Pirates
+built; Buffed and the world's enemy records played the same day, a full
+Chaos Rush seed with Pirates Buffed, every battle loading through them --
+Nasty not yet played), a value row after Enemy skills.  Off: "Pirates
 retain their vanilla stats."  Buffed, FFR's `SwolePirates`: "Pirates are
 stronger and tougher."  Nasty, that and FFR's `AllowUnsafePirates`:
 "Pirates may gain new abilities."  (All three the user's words.)  Free
@@ -2602,7 +2602,7 @@ Layout, 19 bytes of the 256:
 
 **The page holds only what must outlive a power-off (2026-10-30, user:
 "start the settings page cleanup"; played the same day, a full Chaos Rush
-seed: "seems to be in good working order").**  The block above, `RANDO_POOL`
+seed with Pirates Buffed: "seems to be in good working order").**  The block above, `RANDO_POOL`
 (`$C4`, the seed's entropy) and `OPT_NG` (`$C8`, New Game's settings) stay
 on `$6E00`.  Everything else that lived there -- the derived bytes, the
 settings code's working bytes, `OPTDESC`, the shadows game code reads through
