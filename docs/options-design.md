@@ -1369,8 +1369,11 @@ the slot must still be alive, and whoever reads it clears it);
 `EnemyAttackPlayer_Physical` for `JSL tac_swing` and `JSR
 PrepCharStatPointers`; `tactics_cast.patch` turns
 `Battle_CastMagicOnRandomPlayer`'s load and `ORA` into `JSL tac_cast` and a
-NOP.  The decision borrows `$84` and the eight attacker bytes to ask
-`opt_scaleatk` for the swing's scaled numbers, and puts them back.
+NOP.  The decision borrowed `$84` and the eight attacker bytes to ask
+`opt_scaleatk` for the swing's scaled numbers until 2026-10-30; since then
+the record it reads through `en_romptr` is the battle's copy, scaled at the
+load, so its hit%, hits, crit% and max HP are the swing's own (the max HP
+had been the ROM's, unscaled, beside a scaled HP).
 
 `tools/tacref.py` is the reckoning in Python, integer for integer.
 `test_bosstactics` holds the game to it first -- one swing through the real
@@ -1856,8 +1859,10 @@ Off.
     each battle's load `rando_btlenemies` (from `opt_scaleenemies`, the
     existing hook) copies each kind's record, four kinds at most, into
     `OPTBTLENEMIES` (OPTDESC, which only the menus and the dialogue box
-    build), points every enemy's `en_romptr` at its kind's and copies its RAM
-    stats again from it as `LoadEnemyStats` does.  Whatever the world
+    build) and points every enemy's `en_romptr` at its kind's;
+    `opt_scaleenemies` scales the copies and copies every enemy's RAM stats
+    from its kind's as `LoadEnemyStats` does (since 2026-10-30, "Enemy and
+    Boss stat scaling").  Whatever the world
     changes in a record from now on -- stronger Astos or Bahamut, alternate
     fiends, per-boss HP -- the battle sees with no new hook.  The touches
     and scripts keep their own tables (`RW_TOUCH`, `RW_ESCRIPT`).
@@ -3450,10 +3455,21 @@ the worst flush ending at scanline 255 of 262.
     (`ExpGoldBoost`, `ScalePrices`), so its rewards stay the vanilla
     game's size.  `test_goldxp` holds the peg, `test_eobreward` the printer
     over the digit boundaries, the old edge and the top of the range.
-  - **Enemy and Boss stat scaling** -- `opt_scaleenemies` / `opt_scaleatk`,
-    reproducing FFR's `RangeScale` exactly: with low equal to high the random
-    exponent drops out and the result is `value * (1 + (p-1) * adj)`, rounded
-    half to even because C#'s `Math.Round` is.
+  - **Enemy and Boss stat scaling** -- `opt_scaleenemies`, reproducing
+    FFR's `RangeScale` exactly: with low equal to high the random exponent
+    drops out and the result is `value * (1 + (p-1) * adj)`, rounded half to
+    even because C#'s `Math.Round` is.  Since 2026-10-30 (the plan for the
+    scaling rows, user: "scale them just in time"; built, not yet played)
+    it scales each kind's
+    record in the battle's copies once at the load -- HP, absorb, evade,
+    damage, hits, hit% and crit% -- and copies every enemy's RAM stats from
+    it, so max HP (as a spell lands, and Boss tactics) is scaled too, as
+    FFR's rewritten ROM is.  A kind whose own dial is 100% is left as it
+    is, as FFR returns early for each group (`ScaleEnemyStats`,
+    `ScaleBossStats`) -- which matters only for the hits floor: a record of
+    0 hits stays 0 there, and none in the cartridge has.  `opt_scaleatk`
+    scaled hits, hit% and crit% at every attack until then; it keeps the
+    touch and Weapon Stats.
   - **Repeated Potion Use** -- `opt_usedpotion`.
   - **Buy Quantity** -- `OptShopConfirmQty` and its loop in the fixed bank,
     with the arithmetic in `opt_shopmax` / `opt_shopscale`.
@@ -3774,7 +3790,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    6776 free   the settings screen's engine and rows (6695)
+    BANK_OPT    6675 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -3805,7 +3821,8 @@ text region in the game references.
                              Map edits (51: its row, readouts and scalar;
                              removed 2026-10-24),
                              and Short ToFR's row (32; its code went to the
-                             randomizer's chunk) --
+                             randomizer's chunk), and the scaling moved
+                             onto the battle's records (101, 2026-10-30) --
                              the next feature with much code goes to a
                              chunk of its own, as Boss tactics did
     BANK_OPTTEXT  1199 free  the settings screen's descriptions (measured
@@ -3824,7 +3841,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   1063 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
+    BANK_RANDO   1131 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3852,7 +3869,8 @@ text region in the game references.
                              the hint lines' lookup 88 (the lines are
                              BANK_WORLD's); the enemy records, Pirates
                              Buffed and Nasty, and the battle's copies
-                             352 (2026-10-30)
+                             352 (2026-10-30), 68 of it back when the
+                             RAM-stat copy moved to opt_scaleenemies
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -3868,10 +3886,11 @@ text region in the game references.
                              38 pictures' resolved frames, colours,
                              effects and voices, the scales and their
                              reach (from tools/genroll.py)
-    BANK_TACTICS  7447 free  Boss tactics (8937): gathering, the deck, the threat, the
+    BANK_TACTICS  7567 free  Boss tactics (8937): gathering, the deck, the threat, the
                              race, the dice's sums, the normal tail, the
                              choice, the arithmetic, and gentactics.py's
-                             tables (199 + 3 x 129 words + 81 words)
+                             tables (199 + 3 x 129 words + 81 words);
+                             tac_bossatk's 120 freed 2026-10-30
     BANK_NEWGAME 14507 free  New Game's flow: its presets (eight of 90
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),

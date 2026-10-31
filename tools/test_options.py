@@ -4234,15 +4234,22 @@ EN_HP, EN_DEF, EN_EVADE, EN_STR, EN_ID = 0x02, 0x04, 0x0A, 0x0B, 0x11
 
 
 def test_scaleenemies():
-    """The pass over the battle's copy of the enemy stats.
+    """The battle's enemies scaled once, at their load: each kind's record
+    in OPTBTLENEMIES and every enemy's RAM stats from it.
 
     This is where a wrong field offset would hide: the arithmetic is already
     checked against FFR's formula, so what is left is whether each stat gets
     the adjustment FFR gives it, whether bosses take the other setting, and
-    whether the clamps hold.  The stats come from the world's records first
+    whether the clamps hold.  The stats come from the world's records
     (rando_btlenemies, test_pirates), so the case's go in the cache's record
-    for each enemy, and decoys in the RAM stats it replaces.
+    for each enemy, and decoys in the RAM stats it replaces.  Since
+    2026-10-30 the record itself is scaled -- hits, hit% and crit%, which
+    the attack scaled until then, and the max HP a spell and Boss tactics
+    read -- and the attack scales nothing more.
     """
+    #  ENROMSTAT_HPMAX, ABSORB, EVADE, DAMAGE, NUMHITS, HITRATE, CRITRATE
+    FIELDS = (4, 9, 8, 12, 10, 11, 13)
+
     def setup(enemy_step, boss_step, slots):
         bus, cpu = machine()
         setsave(bus, 0x12345678, 0)
@@ -4252,35 +4259,54 @@ def test_scaleenemies():
         setblk(bus, OPT_BOSS, boss_step)
         for i in range(9):
             bus.sram[ENEMY_IDS - 0x6000 + i] = 0xFF
-        for slot, (eid, hp, dfn, ev, st) in slots.items():
+        for slot, (eid, stats) in slots.items():
             bus.sram[ENEMY_IDS - 0x6000 + slot] = eid
             b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
             bus.sram[b + EN_ID] = eid
-            for f in (EN_HP, EN_HP + 1, EN_DEF, EN_EVADE, EN_STR):
+            for f in (EN_HP, EN_HP + 1, EN_DEF, EN_EVADE, EN_STR, K["en_unknown12"]):
                 bus.sram[b + f] = 0xA5
-            r = rw("RW_ENEMIES") + eid * 20         # ENROMSTAT_HPMAX, ABSORB, EVADE, DAMAGE
+            r = rw("RW_ENEMIES") + eid * 20
+            hp, rest = stats[0], stats[1:]
             bus.wram[r + 4], bus.wram[r + 5] = hp & 0xFF, hp >> 8
-            bus.wram[r + 9], bus.wram[r + 8], bus.wram[r + 12] = dfn, ev, st
+            for f, v in zip(FIELDS[1:], rest):
+                bus.wram[r + f] = v
         return bus, cpu
 
     def read(bus, slot):
+        """The slot's RAM stats -- HP, absorb, evade, damage, and the HP's low
+        byte LoadEnemyStats copies again -- and its record's seven."""
         b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
-        return (bus.sram[b + EN_HP] | (bus.sram[b + EN_HP + 1] << 8),
-                bus.sram[b + EN_DEF], bus.sram[b + EN_EVADE], bus.sram[b + EN_STR])
+        ptr = bus.sram[b] | bus.sram[b + 1] << 8
+        rec = bytes(bus.wram[ptr:ptr + 20])
+        return ((bus.sram[b + EN_HP] | (bus.sram[b + EN_HP + 1] << 8),
+                 bus.sram[b + EN_DEF], bus.sram[b + EN_EVADE], bus.sram[b + EN_STR], bus.sram[b + K["en_unknown12"]]),
+                (rec[4] | rec[5] << 8,) + tuple(rec[f] for f in FIELDS[1:]))
 
-    #  slot 0 an ordinary enemy, slot 3 a boss (Lich), slot 8 empty
-    slots = {0: (0x20, 500, 40, 60, 30), 3: (119, 1200, 80, 100, 90)}
+    def want(stats, n):
+        """FFR's: each group's own 100% returns early, the floor unapplied."""
+        hp, dfn, ev, st, hits, hr, cr = stats
+        if n == STAT_100 + 1:
+            return (hp, dfn, ev, st, hp & 0xFF), tuple(stats)
+        rec = (min(ffr_scale(hp, n, "1.00"), 0x7FFF), min(ffr_scale(dfn, n, "0.50"), 0xFF),
+               min(ffr_scale(ev, n, "1.00"), 0xF0), min(ffr_scale(st, n, "0.25"), 0xFF),
+               max(1, min(ffr_scale(hits, n, "0.50"), 0xFF)), min(ffr_scale(hr, n, "1.00"), 0xFF),
+               min(ffr_scale(cr, n, "0.50"), 0xFF))
+        return (rec[0], rec[1], rec[2], rec[3], rec[0] & 0xFF), rec
+
+    #  slot 0 an ordinary enemy, slot 3 a boss (Lich), slot 5 the first's
+    #  kind again, slot 6 all zeros (hits floored at 1, as FFR floors them),
+    #  slot 8 empty: HP, absorb, evade, damage, hits, hit%, crit%
+    slots = {0: (0x20, (500, 40, 60, 30, 3, 50, 2)), 3: (119, (1200, 80, 100, 90, 1, 70, 1)),
+             5: (0x20, (500, 40, 60, 30, 3, 50, 2)), 6: (0x30, (0, 0, 0, 0, 0, 0, 0))}
     for estep, bstep in ((3, 3), (7, 3), (3, 7), (0, 19), (19, 0)):
         bus, cpu = setup(estep, bstep, slots)
         call(cpu, "opt_scaleenemies", dbr=BANK_0C)
-        for slot, (eid, hp, dfn, ev, st) in slots.items():
+        for slot, (eid, stats) in slots.items():
             n = (bstep if eid in BOSSES else estep) + 1
-            want = (min(ffr_scale(hp, n, "1.00"), 0x7FFF),
-                    min(ffr_scale(dfn, n, "0.50"), 0xFF),
-                    min(ffr_scale(ev, n, "1.00"), 0xF0),
-                    min(ffr_scale(st, n, "0.25"), 0xFF))
-            check("slot %d, enemy=%d boss=%d" % (slot, estep, bstep),
-                  read(bus, slot), want)
+            check("slot %d, enemy=%d boss=%d: RAM stats and record" % (slot, estep, bstep),
+                  read(bus, slot), want(stats, n))
+        check("...a kind's two enemies at one record, scaled once",
+              bus.sram[BTL_ENEMYSTATS - 0x6000:][:2] == bus.sram[BTL_ENEMYSTATS - 0x6000 + 5 * 0x14:][:2], True)
 
     #  an empty slot must be left exactly alone
     bus, cpu = setup(19, 19, slots)
@@ -4295,7 +4321,20 @@ def test_scaleenemies():
     bus, cpu = setup(3, 3, slots)
     call(cpu, "opt_scaleenemies", dbr=BANK_0C)
     check("100%% is a no-op", {s: read(bus, s) for s in slots},
-          {s: (hp, dfn, ev, st) for s, (eid, hp, dfn, ev, st) in slots.items()})
+          {s: want(stats, 4) for s, (eid, stats) in slots.items()})
+
+    #  ...and the attack takes the record's hit%, hits and crit% as they are,
+    #  at 500% as at 100%: the record was scaled at the load.
+    HR, NH, CR = (K[n] - 0x6000 for n in ("btl_attacker_hitrate", "btl_attacker_numhits", "btl_attacker_critrate"))
+    for step in (3, 19):
+        bus, cpu = setup(step, step, slots)
+        call(cpu, "opt_scaleenemies", dbr=BANK_0C)
+        enram(bus, 0x20, slot=0)
+        bus.sram[HR], bus.sram[NH] = 0x37, 0x05
+        cpu.a = 0x09                                 # the crit rate, as the caller loads it
+        call(cpu, "OptScaleEnemyAttack", dbr=BANK_0C)
+        check("the attack, step %d: hit%%, hits and crit%% as loaded" % step,
+              (bus.sram[HR], bus.sram[NH], bus.sram[CR]), (0x37, 0x05, 0x09))
 
 
 FRAMECOUNTER = 0xF0

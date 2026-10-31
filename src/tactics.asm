@@ -57,7 +57,7 @@
 .export tac_moments, tac_mean, tac_meansq, tac_spellmom, tac_tail, tac_sqrt
 .export tac_div, tac_divl, tac_mul, tac_f, tac_hits, tac_aim, tac_var
 .import BattleRNG_L, CallMusicPlay
-.import opt_isbossfar, opt_scaleatk, opt_spellbytefar
+.import opt_isbossfar, opt_spellbytefar
 .import hal_audioframe
 .import lut_MagicData, Enemy_DoMagicEffect, EnemyAttackPlayer_Physical
 
@@ -134,7 +134,6 @@ tac_turn:
     STA f:TC_DECKM
 :   JSR tac_party
     JSR tac_boss
-    JSR tac_bossatk
     JSR tac_script
     JSR tac_think
     JSR tac_decide
@@ -506,9 +505,12 @@ lut_TacIB:  .BYTE 0, 0, $12, 0, 2 * $12, 0, 3 * $12, 0
 
 
 ;;  The boss: from its RAM stats, ($9A) -- HP, ailments, evade, absorb,
-;;  multiplier, strength -- and its ROM record, through en_romptr -- max HP,
+;;  multiplier, strength -- and its record, through en_romptr -- max HP,
 ;;  magic defense, category, weakness, resistance, and the swing's hit rate,
-;;  hits and crit rate as the ROM has them.  X, Y clobbered.
+;;  hits and crit rate.  The record is the battle's copy, scaled at its load
+;;  (opt_scaleenemies), so these are the swing's own; until 2026-10-30
+;;  tac_bossatk scaled them as the swing would, and the max HP was the ROM's
+;;  unscaled one beside a scaled HP.  X, Y clobbered.
 tac_boss:
     .a8
     .i8
@@ -569,55 +571,6 @@ tac_boss:
     .i8
     SEC
     XCE
-    RTS
-
-
-;;  The swing's hit rate, hits and crit rate scaled as EnemyAttackPlayer_
-;;  Physical will scale them: its places borrowed -- $84 at the RAM stats,
-;;  the eight attacker bytes -- for opt_scaleatk, and put back.  X, Y
-;;  clobbered.
-tac_bossatk:
-    .a8
-    .i8
-    LDA $84
-    STA f:TC_SAVE
-    LDA $85
-    STA f:TC_SAVE + 1
-    LDX #7
-  : LDA btl_attacker_strength, X
-    STA f:TC_SAVE + 2, X
-    DEX
-    BPL :-
-    LDA $9A
-    STA $84
-    LDA $9B
-    STA $85
-    LDA f:TC_B0
-    STA btl_attacker_strength
-    LDA f:TC_HR
-    STA btl_attacker_hitrate
-    LDA f:TC_BMULT
-    STA btl_attacker_numhitsmult
-    LDA f:TC_BNH
-    STA btl_attacker_numhits
-    LDA f:TC_CR
-    STA btl_attacker_critrate   ; as OptScaleEnemyAttack stores it, then
-    JSL opt_scaleatk + OPTFAR   ;   asks
-    LDA btl_attacker_hitrate
-    STA f:TC_HR
-    LDA btl_attacker_numhits
-    STA f:TC_BNH
-    LDA btl_attacker_critrate
-    STA f:TC_CR
-    LDX #7
-  : LDA f:TC_SAVE + 2, X
-    STA btl_attacker_strength, X
-    DEX
-    BPL :-
-    LDA f:TC_SAVE
-    STA $84
-    LDA f:TC_SAVE + 1
-    STA $85
     RTS
 
 

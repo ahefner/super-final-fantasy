@@ -1983,32 +1983,101 @@ opt_statoff:
     CLC
     RTS
 
-;  The four stats the battle keeps in its RAM copy, scaled once per battle --
-;  each enemy's record first pointed at the world's (rando_btlenemies), as
-;  FFR scales the records it has rewritten.
+;  The battle's enemies, once per battle.  Each kind's record comes from the
+;  world's (rando_btlenemies) and is scaled here as FFR scales its ROM's --
+;  HP, absorb, evade, damage, hits, hit% and crit%, each with its
+;  adjustment and clamp -- and every enemy's RAM stats are copied from its
+;  kind's as LoadEnemyStats copies them.  So all the battle reads of an enemy,
+;  through its RAM stats or through en_romptr, is scaled once, here: max HP
+;  and Boss tactics' reckoning as well as what used to be scaled at each
+;  attack (user, 2026-10-30: "scale them just in time").
 .import rando_btlenemies
 opt_scaleenemies:
     JSL rando_btlenemies + RANDOFAR
     JSR opt_statoff
-    BCC @go
-    RTL                         ; the loop below is too long to branch over
-  @go:
+    BCS @copy                   ; both 100%: FFR's early return
+    LDA #$00
+    STA OPTSTATSLOT             ; the kind
+    TAX                         ; X its record, $14 bytes each
+  @kind:
+    LDY OPTSTATSLOT
+    CPY OPTBTLNKIND
+    BCS @copy
+    LDA OPTBTLKIND, Y
+    JSR opt_statn               ; Boss stats' n, or Enemy stats'
+    LDA OPTSTATN
+    CMP #STAT_100 + 1
+    BEQ :+                      ; its own 100%: FFR returns early per group,
+    JSR opt_scalerecord         ;   so a record it leaves keeps even 0 hits
+:   TXA
+    CLC
+    ADC #ENEMY_RECORD
+    TAX
+    INC OPTSTATSLOT
+    BRA @kind
+
+    ;  Every enemy's RAM stats from its kind's record, as LoadEnemyStats'
+    ;  lut_RomRamMapping copies them.  An enemy still at its ROM record keeps
+    ;  what LoadEnemyStats gave it: only a fifth kind would, and a
+    ;  formation's four enemy ids never make one.
+  @copy:
     LDA #$00
     STA OPTSTATSLOT
-    LDX #$00                    ; X walks the records, $14 bytes each
+    TAX                         ; X walks the RAM stats, $14 bytes each
   @slot:
     LDY OPTSTATSLOT
     LDA btl_enemyIDs, Y
     CMP #$FF
-    BNE @live
-    JMP @next                   ; empty slot; too far to branch
-  @live:
-    LDA btl_enemystats + en_enemyid, X
-    JSR opt_statn
+    BEQ @next                   ; empty
+    LDA btl_enemystats + en_romptr + 1, X
+    CMP #>OPTBTLENEMIES
+    BNE @next
+    LDA btl_enemystats + en_romptr, X
+    SEC
+    SBC #<OPTBTLENEMIES
+    TAY                         ; its kind's record
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX, Y
+    STA btl_enemystats + en_hp, X
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX + 1, Y
+    STA btl_enemystats + en_hp + 1, X
+    LDA OPTBTLENEMIES + ENROMSTAT_ABSORB, Y
+    STA btl_enemystats + en_defense, X
+    LDA OPTBTLENEMIES + ENROMSTAT_MORALE, Y
+    STA btl_enemystats + en_morale, X
+    LDA OPTBTLENEMIES + ENROMSTAT_EVADE, Y
+    STA btl_enemystats + en_evade, X
+    LDA OPTBTLENEMIES + ENROMSTAT_DAMAGE, Y
+    STA btl_enemystats + en_strength, X
+    LDA OPTBTLENEMIES + ENROMSTAT_AI, Y
+    STA btl_enemystats + en_ai, X
+    LDA OPTBTLENEMIES + ENROMSTAT_EXP, Y
+    STA btl_enemystats + en_exp, X
+    LDA OPTBTLENEMIES + ENROMSTAT_EXP + 1, Y
+    STA btl_enemystats + en_exp + 1, X
+    LDA OPTBTLENEMIES + ENROMSTAT_GP, Y
+    STA btl_enemystats + en_gp, X
+    LDA OPTBTLENEMIES + ENROMSTAT_GP + 1, Y
+    STA btl_enemystats + en_gp + 1, X
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX, Y
+    STA btl_enemystats + en_unknown12, X
+  @next:
+    TXA
+    CLC
+    ADC #$14
+    TAX
+    INC OPTSTATSLOT
+    LDA OPTSTATSLOT
+    CMP #$09
+    BCC @slot
+    RTL
 
-    LDA btl_enemystats + en_hp, X       ; HP, adjustment 1.00, capped $7FFF
+;  One kind's record in OPTBTLENEMIES, at X, scaled by OPTSTATN: the seven
+;  stats FFR's ScaleSingleEnemyStats scales, with its adjustments and its
+;  clamps.  X kept.
+opt_scalerecord:
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX, X      ; HP, 1.00, capped $7FFF
     STA OPTSTATV
-    LDA btl_enemystats + en_hp + 1, X
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX + 1, X
     STA OPTSTATV+1
     JSR opt_adj100
     JSR opt_statmul
@@ -2024,64 +2093,69 @@ opt_scaleenemies:
     STA OPTSTATV+1
   @hpok:
     LDA OPTSTATV
-    STA btl_enemystats + en_hp, X
+    STA OPTBTLENEMIES + ENROMSTAT_HPMAX, X
     LDA OPTSTATV+1
-    STA btl_enemystats + en_hp + 1, X
+    STA OPTBTLENEMIES + ENROMSTAT_HPMAX + 1, X
 
-    LDA btl_enemystats + en_defense, X  ; absorb, adjustment 0.50
+    LDA OPTBTLENEMIES + ENROMSTAT_ABSORB, X     ; absorb, 0.50
     STA OPTSTATV
     JSR opt_adj50
     JSR opt_statbyte
-    STA btl_enemystats + en_defense, X
+    STA OPTBTLENEMIES + ENROMSTAT_ABSORB, X
 
-    LDA btl_enemystats + en_evade, X    ; evade, 1.00, capped at FFR's
-    STA OPTSTATV                        ;   default EvadeCap of "medium"
+    LDA OPTBTLENEMIES + ENROMSTAT_EVADE, X      ; evade, 1.00, capped at FFR's
+    STA OPTSTATV                                ;   default EvadeCap of "medium"
     JSR opt_adj100
     JSR opt_statbyte
     CMP #$F0
-    BCC @evok
+    BCC :+
     LDA #$F0
-  @evok:
-    STA btl_enemystats + en_evade, X
+:   STA OPTBTLENEMIES + ENROMSTAT_EVADE, X
 
-    LDA btl_enemystats + en_strength, X ; damage, adjustment 0.25
+    LDA OPTBTLENEMIES + ENROMSTAT_DAMAGE, X     ; damage, 0.25
     STA OPTSTATV
     JSR opt_adj25
     JSR opt_statbyte
-    STA btl_enemystats + en_strength, X
+    STA OPTBTLENEMIES + ENROMSTAT_DAMAGE, X
 
-  @next:
-    TXA
-    CLC
-    ADC #$14
-    TAX
-    INC OPTSTATSLOT
-    LDA OPTSTATSLOT
-    CMP #$09
-    BEQ @done
-    JMP @slot
-  @done:
-    RTL
+    LDA OPTBTLENEMIES + ENROMSTAT_NUMHITS, X    ; hits, 0.50, floored at 1
+    STA OPTSTATV
+    JSR opt_adj50
+    JSR opt_statbyte
+    BNE :+
+    LDA #$01
+:   STA OPTBTLENEMIES + ENROMSTAT_NUMHITS, X
 
-;  The three the battle reads straight out of ROM each time an enemy attacks,
-;  scaled after they are loaded.  $84 still points at that enemy's RAM stats.
-;
-;  First, Weapon Stats' enemy half: FFR's FixWeaponStats write at $325B0, the
-;  one the port first left out.  The caller has just loaded the attacker's
-;  category from ROM byte $10 and its element from $12 -- its WEAKNESS, which
-;  Disch marks "BUGGED ?", and which is why frost wolves bite with fire.  FFR
-;  makes the category 0 and takes the element from $0E, the element of the
-;  enemy's touch: poison for a poisoner, status for a stunner.  Against a
-;  player the element does one thing, decide whether armour that resists it
-;  stops the touch's ailment, so this is what makes an Aegis Shield stop a
-;  scorpion and an Ice Shield stop nothing a ghoul does.  ($86) points at
-;  the enemy's ROM record in bank $0C, which is the data bank we were called
-;  with.  Y is the caller's to reload, and it does.
+    LDA OPTBTLENEMIES + ENROMSTAT_HITRATE, X    ; hit%, 1.00
+    STA OPTSTATV
+    JSR opt_adj100
+    JSR opt_statbyte
+    STA OPTBTLENEMIES + ENROMSTAT_HITRATE, X
+
+    LDA OPTBTLENEMIES + ENROMSTAT_CRITRATE, X   ; crit%, 0.50
+    STA OPTSTATV
+    JSR opt_adj50
+    JSR opt_statbyte
+    STA OPTBTLENEMIES + ENROMSTAT_CRITRATE, X
+    RTS
+
+;  Weapon Stats' enemy half, as an enemy attacks: FFR's FixWeaponStats write
+;  at $325B0, the one the port first left out.  The caller has just loaded the
+;  attacker's category from ROM byte $10 and its element from $12 -- its
+;  WEAKNESS, which Disch marks "BUGGED ?", and which is why frost wolves bite
+;  with fire.  FFR makes the category 0 and takes the element from $0E, the
+;  element of the enemy's touch: poison for a poisoner, status for a stunner.
+;  Against a player the element does one thing, decide whether armour that
+;  resists it stops the touch's ailment, so this is what makes an Aegis
+;  Shield stop a scorpion and an Ice Shield stop nothing a ghoul does.  $84
+;  points at the enemy's RAM stats.  Y is the caller's to reload, and it does.
 ;
 ;  The touch comes from the randomizer's cache, by the enemy id in RAM, since
 ;  Status attacks may have moved it: the ailment always -- bank $0C's load of
 ;  it from ROM is gone -- and the element under Weapon Stats.  With Status
-;  attacks off, both are the record's own, as before.
+;  attacks off, both are the record's own, as before.  The hit%, hits and
+;  crit% it takes from the record were scaled with it at the battle's load
+;  (opt_scaleenemies); until 2026-10-30 this scaled them, at every attack.
 .import rando_touch
 opt_scaleatk:
     LDY #en_enemyid
@@ -2090,37 +2164,10 @@ opt_scaleatk:
     STA btl_attacker_attackailment
     LDA OPTFB_WEAPONSTATS
     AND #OPTFM_WEAPONSTATS
-    BEQ @scale
+    BEQ @out
     LDA #$00
     STA btl_attacker_category
     STY btl_attacker_element
-  @scale:
-    JSR opt_statoff
-    BCS @out
-    LDY #en_enemyid
-    LDA ($84), Y
-    JSR opt_statn
-
-    LDA btl_attacker_hitrate            ; hit%, adjustment 1.00
-    STA OPTSTATV
-    JSR opt_adj100
-    JSR opt_statbyte
-    STA btl_attacker_hitrate
-
-    LDA btl_attacker_numhits            ; hits, adjustment 0.50, floored at 1
-    STA OPTSTATV
-    JSR opt_adj50
-    JSR opt_statbyte
-    BNE @hitsok
-    LDA #$01
-  @hitsok:
-    STA btl_attacker_numhits
-
-    LDA btl_attacker_critrate           ; crit%, adjustment 0.50
-    STA OPTSTATV
-    JSR opt_adj50
-    JSR opt_statbyte
-    STA btl_attacker_critrate
   @out:
     RTL
 

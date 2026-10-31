@@ -5901,9 +5901,10 @@ rando_touch:
 ;;  Boss tactics' reckoning -- and the pointer reaches SRAM and low WRAM but
 ;;  not the cache.  So each kind of enemy in the battle, four at most, has its record
 ;;  copied from RW_ENEMIES into OPTBTLENEMIES, each enemy is pointed at its
-;;  kind's, and its RAM stats are copied again from that as LoadEnemyStats
-;;  copies them.  What the world changes in a record, the battle sees.
-;;  A, X, Y not kept; the scratch words are free once ensure has run.
+;;  kind's, and the kinds are left in OPTBTLKIND for opt_scaleenemies, which
+;;  scales the records and copies every enemy's RAM stats from its kind's.
+;;  What the world changes in a record, the battle sees.  A, X, Y not kept;
+;;  the scratch words are free once ensure has run.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_btlenemies:
@@ -5930,11 +5931,24 @@ rando_btlenemies:
     LDA a:wI
     CMP #9
     BCC @slot
+    SEP #$20
+    .a8
+    LDX #$0000                  ; the kinds, for the scaling
+  @kinds:
+    CPX a:wE
+    BCS @kept
+    LDA a:wLIST, X
+    STA f:SRAMFAR + OPTBTLKIND, X
+    INX
+    BRA @kinds
+  @kept:
+    LDA a:wE
+    STA f:SRAMFAR + OPTBTLNKIND
     JMP leave
 
 ;;  The enemy wQ in slot wI: its kind's record in OPTBTLENEMIES, copied there
-;;  if it is the battle's first of that kind, its en_romptr at it, and its RAM
-;;  stats from it.  A16, I16, DBR = $7F.
+;;  if it is the battle's first of that kind, and its en_romptr at it.  A16,
+;;  I16, DBR = $7F.
 btl_point:
     .a16
     .i16
@@ -5992,39 +6006,6 @@ btl_point:
     TAX                         ; the enemy's RAM stats
     PLA
     STA f:SRAMFAR + btl_enemystats + en_romptr, X
-    LDA a:wQ
-    JSR times20
-    TAY                         ; its record in the cache
-    SEP #$20
-    .a8
-    ;  ...and what LoadEnemyStats took from the ROM's, from this one, as its
-    ;  lut_RomRamMapping has it.
-    LDA a:wENEMIES + ENROMSTAT_HPMAX, Y
-    STA f:SRAMFAR + btl_enemystats + en_hp, X
-    LDA a:wENEMIES + ENROMSTAT_HPMAX + 1, Y
-    STA f:SRAMFAR + btl_enemystats + en_hp + 1, X
-    LDA a:wENEMIES + ENROMSTAT_ABSORB, Y
-    STA f:SRAMFAR + btl_enemystats + en_defense, X
-    LDA a:wENEMIES + ENROMSTAT_MORALE, Y
-    STA f:SRAMFAR + btl_enemystats + en_morale, X
-    LDA a:wENEMIES + ENROMSTAT_EVADE, Y
-    STA f:SRAMFAR + btl_enemystats + en_evade, X
-    LDA a:wENEMIES + ENROMSTAT_DAMAGE, Y
-    STA f:SRAMFAR + btl_enemystats + en_strength, X
-    LDA a:wENEMIES + ENROMSTAT_AI, Y
-    STA f:SRAMFAR + btl_enemystats + en_ai, X
-    LDA a:wENEMIES + ENROMSTAT_EXP, Y
-    STA f:SRAMFAR + btl_enemystats + en_exp, X
-    LDA a:wENEMIES + ENROMSTAT_EXP + 1, Y
-    STA f:SRAMFAR + btl_enemystats + en_exp + 1, X
-    LDA a:wENEMIES + ENROMSTAT_GP, Y
-    STA f:SRAMFAR + btl_enemystats + en_gp, X
-    LDA a:wENEMIES + ENROMSTAT_GP + 1, Y
-    STA f:SRAMFAR + btl_enemystats + en_gp + 1, X
-    LDA a:wENEMIES + ENROMSTAT_HPMAX, Y
-    STA f:SRAMFAR + btl_enemystats + en_unknown12, X
-    REP #$20
-    .a16
     RTS
 
 ;;  A = A * 20, a record's offset.  A16; wT2 clobbered.

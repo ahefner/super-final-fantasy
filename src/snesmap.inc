@@ -1572,6 +1572,8 @@ OPTDESC_MAX     = $50
 ;  menus and the dialogue box build there, and never during a battle.
 OPTBTLENEMIES   = OPTDESC
 BTL_KINDS       = 4
+OPTBTLKIND      = OPTWORK+$C4   ; 4: each record's enemy, for the scaling...
+OPTBTLNKIND     = OPTWORK+$C8   ; ...and how many kinds the battle has
 .assert BTL_KINDS * ENEMY_RECORD <= OPTDESC_MAX, error, "the battle's enemy records overflow OPTDESC"
 
 ;  Flags this file reads.  The bit numbers are the menu's row order, which is
@@ -2213,7 +2215,6 @@ TC_PK           = TC_BASE+$2CA
 TC_BEST         = TC_BASE+$2CC
 TC_BESTI        = TC_BASE+$2CE
 TC_SUM          = TC_BASE+$2D0
-TC_SAVE         = TC_BASE+$2D2  ; 10 bytes: what tac_bossatk borrows
 TC_S1Y          = TC_BASE+$2E0  ; the dice's sums: what gets past absorb...
 TC_S1V          = TC_BASE+$2E2  ; ...the roll...
 TC_S2Y          = TC_BASE+$2E4  ; ...their squares (4)...
