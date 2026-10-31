@@ -1654,7 +1654,7 @@ or all of them".
 seeds so the player has some hope of progressing"; played 2026-10-17) is
 FFR's `StartingEquipmentRandomCasterItem`, a row under Starting items, off
 in every preset but Free Enterprise's.  It reads Off / AoE / Any (user,
-2026-10-29: "Off / AoE / Any"; built, not yet played): Any is the item
+2026-10-29: "Off / AoE / Any"; AoE played 2026-10-30): Any is the item
 below, AoE FFR's `StartingEquipmentRandomAoe` (below), which Free
 Enterprise turns on.  A new game gives the first character one weapon
 or armour, unequipped, dealt evenly from `GetCasterItemPool`: every item
@@ -1827,8 +1827,8 @@ flag on.  The pirates' safety became the Pirates row's (below).
 
 **Pirates** (user, 2026-10-30: "Three values - Off, Buffed, and Nasty";
 built; Buffed and the world's enemy records played the same day, a full
-Chaos Rush seed with Pirates Buffed, every battle loading through them --
-Nasty not yet played), a value row after Enemy skills.  Off: "Pirates
+Chaos Rush seed with Pirates Buffed, every battle loading through them;
+Nasty played before the option page cleanup), a value row after Enemy skills.  Off: "Pirates
 retain their vanilla stats."  Buffed, FFR's `SwolePirates`: "Pirates are
 stronger and tougher."  Nasty, that and FFR's `AllowUnsafePirates`:
 "Pirates may gain new abilities."  (All three the user's words.)  Free
