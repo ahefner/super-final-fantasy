@@ -1,6 +1,6 @@
 # Beginner: FFR's Beginner.json (docs/ffr-presets.md has the comparison).
-# FFR's stat dials roll 70-150% per enemy; ours are one fixed value, so
-# 100% stands in.  FFR has 60% encounters outdoors and 70% in dungeons; our
+# FFR's stats roll 70-150% per enemy, HP with them; our dials step by 25%,
+# so 75-150%.  FFR has 60% encounters outdoors and 70% in dungeons; our
 # dial is one rate.
 name = "Beginner"
 description = """
@@ -12,6 +12,14 @@ is free.
 # Scale
 "Gold and XP" = "250%"
 "Encounter rate" = "60%"
+"Enemy stats min" = "75%"               # FFR's 70%
+"Enemy stats max" = "150%"
+"Enemy HP min" = "75%"                  # FFR's HP follows the stats
+"Enemy HP max" = "150%"
+"Boss stats min" = "75%"
+"Boss stats max" = "150%"
+"Boss HP min" = "75%"
+"Boss HP max" = "150%"
 "Elemental bonus" = "+30"
 
 # Quality of life

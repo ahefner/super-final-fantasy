@@ -18,8 +18,14 @@ double gold and XP. Nothing is randomized.
 # Scale
 "Gold and XP" = "200%"
 "Encounter rate" = "100%"
-"Enemy stats" = "100%"
-"Boss stats" = "100%"
+"Enemy stats min" = "100%"
+"Enemy stats max" = "100%"
+"Enemy HP min" = "100%"
+"Enemy HP max" = "100%"
+"Boss stats min" = "100%"
+"Boss stats max" = "100%"
+"Boss HP min" = "100%"
+"Boss HP max" = "100%"
 "Elemental bonus" = "+4"
 
 # Quality of life

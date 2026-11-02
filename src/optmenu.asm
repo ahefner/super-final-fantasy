@@ -43,6 +43,7 @@
 ;  here goes on drawing the old tile after the glyph moves, which is how the
 ;  elemental dial came to read "S50".
 .export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift, lut_ValBit, lut_ValMask
+.export lut_RangeMin, lut_RangeMax              ; for test_rangerows
 .import opt_commit            ; the options bank's, by JSL (this is a chunk apart)
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
@@ -620,7 +621,7 @@ opt_section_toggle:
     LDA #$01
     STA OPTMENU_ALLSET
     LDA #$00
-    STA f:OPTMENU_ANY             ; SCALE is four dials and no boxes at all
+    STA f:OPTMENU_ANY             ; SCALE is dials and no boxes at all
 
   @scan:
     INC OPTMENU_SCAN
@@ -1585,8 +1586,11 @@ opt_value_adjust:
     BEQ @done                   ; at the bottom already
     DEY
     TYA
+    JSR opt_range_floor         ; a max stops at its min
+    BCC @done
   @store:
     JSR opt_field_put
+    JSR opt_range_push          ; a min raised past its max takes it along
     JSR opt_sfx_move
 
   @done:
@@ -1600,6 +1604,78 @@ opt_value_adjust:
     JSR opt_menu_breathe
     JMP opt_menu_desc
   @same:
+    RTS
+
+
+;;  The scaling's four ranges, each a min row with its max row right under it
+;;  (user, 2026-11-01: rows read min and max).  Scalars, as the rows name
+;;  them; every one a whole byte of the block.  The max is stored, and the
+;;  menu keeps it at or above the min.  opt_statrange still reads a max below
+;;  its min as the min, so a block that has one anyway scales as it shows.
+lut_RangeMin: .BYTE $02, 56, $03, 59    ; Enemy stats, Enemy HP, Boss stats, Boss HP
+lut_RangeMax: .BYTE 55, 57, 58, 60
+RANGE_PAIRS = 4
+
+;;  A max may not step below its min.  In: A = the step a left press would
+;;  take scalar X to.  Out: C clear if X is a max and that step is below its
+;;  min.  A and X kept; Y clobbered.
+opt_range_floor:
+    LDY #RANGE_PAIRS - 1
+  @find:
+    PHA
+    TXA
+    CMP lut_RangeMax, Y
+    BEQ @max
+    PLA
+    DEY
+    BPL @find
+    SEC                         ; not a max: no floor
+    RTS
+  @max:
+    LDA lut_RangeMin, Y
+    TAY
+    LDA lut_ValOff, Y
+    TAY                         ; Y = where its min is
+    PLA
+    CMP OPTBLOCK, Y             ; C set: at or above the min
+    RTS
+
+;;  A min raised past its max pushes the max up with it, and repaints the
+;;  max's row, the one under the cursor -- unless that is below the window,
+;;  where the scroll that brings it in draws it.  In: X = the scalar just
+;;  stored.  A, X and Y clobbered.
+opt_range_push:
+    LDY #RANGE_PAIRS - 1
+  @find:
+    TXA
+    CMP lut_RangeMin, Y
+    BEQ @min
+    DEY
+    BPL @find
+    RTS                         ; not a min
+  @min:
+    LDA lut_ValOff, X
+    TAX                         ; X = where the min is
+    LDA lut_RangeMax, Y
+    TAY
+    LDA lut_ValOff, Y
+    TAY                         ; Y = where its max is
+    LDA OPTBLOCK, X
+    CMP OPTBLOCK, Y
+    BCC @out                    ; still below the max
+    BEQ @out                    ; ...or at it
+    STA OPTBLOCK, Y
+    LDA OPTMENU_SEL
+    INC A
+    SEC
+    SBC OPTMENU_TOP
+    CMP #OPTLIST_ROWS
+    BCS @out
+    STA OPTMENU_ROWNUM
+    LDA OPTMENU_SEL
+    INC A
+    JMP opt_menu_drawrow
+  @out:
     RTS
 
 
@@ -1770,7 +1846,7 @@ lut_OptRows:
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
 
-  ;  The four dials come first, and the reason is the paging.  Left and right
+  ;  The dials come first, and the reason is the paging.  Left and right
   ;  page the list by half a screen everywhere except on a value row, where
   ;  they belong to the value -- so a cursor sitting among the dials cannot
   ;  page at all.  At the top of the list that costs nothing: the cursor
@@ -1790,14 +1866,22 @@ lut_OptRows:
   .BYTE $8E, $B1, $A6, $B2, $B8, $B1, $B7, $A8, $B5, $FF
   .BYTE $B5, $A4, $B7, $A8, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $02, $02   ; Enemy stats
-  .BYTE $8E, $B1, $A8, $B0, $BC, $FF, $B6, $B7, $A4, $B7
-  .BYTE $B6, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $02, $03   ; Boss stats
-  .BYTE $8B, $B2, $B6, $B6, $FF, $B6, $B7, $A4, $B7, $B6
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
-  .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  .BYTE $02, $02    ; Enemy stats min
+  OPTLABEL "Enemy stats min"
+  .BYTE $02, 55     ; Enemy stats max          (scalar 55: OPT_ENEMYTO)
+  OPTLABEL "Enemy stats max"
+  .BYTE $02, 56     ; Enemy HP min             (scalar 56: OPT_ENEMYHP)
+  OPTLABEL "Enemy HP min"
+  .BYTE $02, 57     ; Enemy HP max             (scalar 57: OPT_ENEMYHPTO)
+  OPTLABEL "Enemy HP max"
+  .BYTE $02, $03    ; Boss stats min
+  OPTLABEL "Boss stats min"
+  .BYTE $02, 58     ; Boss stats max           (scalar 58: OPT_BOSSTO)
+  OPTLABEL "Boss stats max"
+  .BYTE $02, 59     ; Boss HP min              (scalar 59: OPT_BOSSHP)
+  OPTLABEL "Boss HP min"
+  .BYTE $02, 60     ; Boss HP max              (scalar 60: OPT_BOSSHPTO)
+  OPTLABEL "Boss HP max"
   .BYTE $02, $04   ; Elemental bonus
   FFPAD "Elemental bonus", 30
   .BYTE $03, $00   ; (blank)
@@ -2189,7 +2273,7 @@ lut_ValEncounter:
   .BYTE $82, $80, $80, CHR_PCT   ; 200%
   .BYTE $83, $80, $80, CHR_PCT   ; 300%
 
-;  Enemy and boss stats: 25%% to 500%% in 25%% steps
+;  Enemy and boss stats and HP, min and max: 25%% to 500%% in 25%% steps
 lut_ValStat:
   .BYTE $FF, $82, $85, CHR_PCT   ;  25%
   .BYTE $FF, $85, $80, CHR_PCT   ;  50%
@@ -2433,6 +2517,9 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValItemMagic
               .BYTE <lut_ValGoal
               .BYTE <lut_ValPirates
+              .REPEAT 6                                       ; the scaling's ranges
+              .BYTE <lut_ValStat
+              .ENDREP
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2456,6 +2543,9 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValItemMagic
               .BYTE >lut_ValGoal
               .BYTE >lut_ValPirates
+              .REPEAT 6
+              .BYTE >lut_ValStat
+              .ENDREP
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2480,6 +2570,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE ITEMMAGIC_MODES
               .BYTE GOAL_MODES
               .BYTE PIRATES_MODES
+              .RES 6, 20                                      ; the scaling's ranges
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2492,11 +2583,14 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 3                                         ; Item magic
               .BYTE 3                                         ; Goal
               .BYTE 3                                         ; Pirates
+              .RES 6, 2                                       ; the scaling's ranges
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
 ;  Thief and Ninja hit growth and the starting items are the block's sixth
-;  and seventh, numbered last because they came last.
+;  and seventh, numbered last because they came last.  The scaling's six
+;  ranges' rows (scalars 55-60) are the block's last, after the starting
+;  items.
 lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELEMDMG
               .BYTE <OPT_NG_TRAPS, <OPT_NG_SHOPS, <OPT_NG_CHESTS, <OPT_NG_MAGIC
               .BYTE <OPT_NG_BLESS, <OPT_NG_CURSE, <OPT_NG_FORMS, <OPT_NG_ZONES
@@ -2518,6 +2612,8 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_MAGIC                             ; above Magic levels
               .BYTE <OPT_NG_GOAL
               .BYTE <OPT_NG_STATUS                            ; above Status attacks
+              .BYTE <OPT_ENEMYTO, <OPT_ENEMYHP, <OPT_ENEMYHPTO
+              .BYTE <OPT_BOSSTO, <OPT_BOSSHP, <OPT_BOSSHPTO
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2536,6 +2632,7 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE ITEMMAGIC_SHIFT                           ; Item magic
               .BYTE 0                                         ; Goal
               .BYTE PIRATES_SHIFT                             ; Pirates
+              .RES 6, 0                                       ; the scaling's ranges
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
               .RES 6, $FF
@@ -2558,7 +2655,8 @@ lut_ValMask:  .RES 8, $FF
               .BYTE ITEMMAGIC_FIELD                           ; Item magic
               .BYTE $FF                                       ; Goal
               .BYTE PIRATES_FIELD                             ; Pirates
-VALSCALARS = 55
+              .RES 6, $FF                                     ; the scaling's ranges
+VALSCALARS = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
 .assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"

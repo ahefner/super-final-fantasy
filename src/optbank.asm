@@ -51,7 +51,7 @@
 .export opt_runlabel, opt_runiswait, opt_scalereward, opt_usedpotion
 .export opt_shopmax, opt_shopscale
 .export opt_scaleenemies, opt_scaleatk
-.export opt_statmul, opt_isboss, opt_statn   ; for the tests
+.export opt_scalestat, opt_isboss, opt_statrange, lut_StatLog   ; for the tests
 .export opt_isbossfar
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
@@ -157,13 +157,16 @@ lut_Presets:
     ;  Auto retargeting is off in all three, for the player to turn on (user,
     ;  2026-10-11): it takes strategy out of a fight.
     ;
-    ;  Rows sit sixteen bytes apart so the index stays a shift rather than a
-    ;  multiply.  The padding costs 9 bytes and buys that.
+    ;  Rows sit 32 bytes apart so the index stays a shift rather than a
+    ;  multiply.  Then the scaling's six range scalars: Enemy stats max,
+    ;  Enemy HP min and max, Boss stats max, Boss HP min and max -- 100% in
+    ;  all three, so every range is the single 100% of its minimum.
     .DWORD  0                                                              ; Vanilla
     .BYTE   0, 0
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_VANILLA
     .BYTE   STARTITEMS_NONE
-    .RES    3, $00
+    .RES    6, STAT_100
+    .RES    13, $00
     ;  Improved is FFR's Improved Vanilla (user, 2026-10-11): the quality of
     ;  life and the bugfixes, gold and XP doubled, Thief and Ninja hit growth
     ;  at Moderate, and the elemental bonus left at the cartridge's +4 --
@@ -173,20 +176,23 @@ lut_Presets:
     .BYTE   OPTF5_BUGFIX, OPTFM_TRANCE
     .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
     .BYTE   STARTITEMS_NONE
-    .RES    3, $00
+    .RES    6, STAT_100
+    .RES    13, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
     .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
     .BYTE   OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE | OPTFM_RUSESTAFF
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE | (LOCKPICK_15 << LOCKPICK_SHIFT)
     .BYTE   STARTITEMS_NONE
-    .RES    3, $00
+    .RES    6, STAT_100
+    .RES    13, $00
+.assert * - lut_Presets = 3 * 32, error, "a title preset's row is PRESET_STRIDE bytes"
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
 ;  run from the flags up to but not including OPT_RESPOND, which
 ;  opt_loadpreset writes itself.
 PRESET_FIELDS = OPT_RESPOND - OPT_FLAGS
-PRESET_STRIDE = 16
-.assert PRESET_FIELDS = OPT_FLAGBYTES + 7, error, "preset row does not match the option block"
+PRESET_STRIDE = 32
+.assert PRESET_FIELDS = OPT_FLAGBYTES + 13, error, "preset row does not match the option block"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -261,6 +267,7 @@ opt_init:
 opt_loadpreset:
     STA OPT_PRESET
     ASL A                       ; index * PRESET_STRIDE
+    ASL A
     ASL A
     ASL A
     ASL A
@@ -1808,10 +1815,11 @@ opt_shopscale:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Enemy and boss stat scaling
 ;;
-;;  FFR scales the enemy table in the ROM when it builds a seed.  A runtime
-;;  flag cannot, so this scales the copy the battle makes -- and, for the three
-;;  stats the battle reads straight out of ROM rather than that copy, the
-;;  values after they are loaded.  Same stats, same factors, same clamps.
+;;  FFR scales the enemy table in the ROM when it builds a seed.  The dials
+;;  are live, so this scales the battle's copies of its enemies' records as
+;;  it loads, each stat of each kind by the enemy's own roll from the seed
+;;  within the dials' range.  Same stats, same factors, same clamps, and the
+;;  same log-even draw, FFR's RangeScale.
 ;;
 ;;  Which stats, and with which of FFR's adjustment factors:
 ;;
@@ -1850,137 +1858,256 @@ opt_isbossfar:
     JSR opt_isboss
     RTL
 
-;  A = enemy id.  Picks the setting that applies and leaves n in OPTSTATN.
-opt_statn:
+;  A = enemy id.  Its group's ranges into OPTBTLRANGE -- Boss stats and
+;  Boss HP for one of the thirteen, Enemy stats and Enemy HP for the rest --
+;  each max no lower than its min.  Out: C set if all four are 100%,
+;  FFR's early return for a group whose ranges are all 100% (ScaleEnemyStats,
+;  ScaleBossStats), so a record it leaves keeps even 0 hits.  X clobbered.
+opt_statrange:
     JSR opt_isboss
+    BCS @boss
     LDA OPT_ENEMY
-    BCC @got
+    STA OPTBTLRANGE
+    LDA OPT_ENEMYTO
+    STA OPTBTLRANGE + 1
+    LDA OPT_ENEMYHP
+    STA OPTBTLRANGE + 2
+    LDA OPT_ENEMYHPTO
+    STA OPTBTLRANGE + 3
+    BRA @order
+  @boss:
     LDA OPT_BOSS
-  @got:
-    CLC
-    ADC #$01                    ; step 3 is 100%, so n = step + 1
-    STA OPTSTATN
-    RTS
-
-;  OPTSTATV *= OPTSTATNUM / (1 << OPTSTATSH), rounded to nearest.
-opt_statmul:
-    LDA #$00
-    STA OPTSTATACC
-    STA OPTSTATACC+1
-    STA OPTSTATACC+2
-    LDY OPTSTATNUM
-    BEQ @round
-  @add:
-    CLC
-    LDA OPTSTATACC
-    ADC OPTSTATV
-    STA OPTSTATACC
-    LDA OPTSTATACC+1
-    ADC OPTSTATV+1
-    STA OPTSTATACC+1
-    LDA OPTSTATACC+2
-    ADC #$00
-    STA OPTSTATACC+2
-    DEY
-    BNE @add
-  @round:
-    ;  C# rounds a double half to even, and Math.Round's default is what FFR
-    ;  gets, so halves go to the even neighbour rather than always up.
-    LDA #$01                    ; den = 1 << shift
-    LDY OPTSTATSH
-  @den:
-    ASL A
-    DEY
-    BNE @den
-    STA OPTSTATMASK
-    LSR A
-    STA OPTSTATHALF
-    DEC OPTSTATMASK             ; mask = den - 1
-
-    LDA OPTSTATACC
-    AND OPTSTATMASK
-    STA OPTSTATREM              ; what the shift is about to throw away
-
-    LDY OPTSTATSH
-  @shift:
-    LSR OPTSTATACC+2
-    ROR OPTSTATACC+1
-    ROR OPTSTATACC
-    DEY
-    BNE @shift
-
-    LDA OPTSTATREM
-    CMP OPTSTATHALF
-    BCC @keep                   ; below half: down
-    BNE @bump                   ; above half: up
-    LDA OPTSTATACC
-    AND #$01
-    BEQ @keep                   ; exactly half: only bump an odd result
-  @bump:
-    INC OPTSTATACC
-    BNE @keep
-    INC OPTSTATACC+1
-  @keep:
-    LDA OPTSTATACC
-    STA OPTSTATV
-    LDA OPTSTATACC+1
-    STA OPTSTATV+1
-    LDA OPTSTATACC+2            ; FFR scales into an int and clamps after, so
-    STA OPTSTATOVF              ;   the callers need what did not fit
-    RTS
-
-;  Set up OPTSTATNUM/OPTSTATSH for each of FFR's three adjustments.
-opt_adj100:
-    LDA OPTSTATN                ; n / 4
-    STA OPTSTATNUM
-    LDA #$02
-    STA OPTSTATSH
-    RTS
-opt_adj50:
-    LDA OPTSTATN                ; (n + 4) / 8
-    CLC
-    ADC #$04
-    STA OPTSTATNUM
-    LDA #$03
-    STA OPTSTATSH
-    RTS
-opt_adj25:
-    LDA OPTSTATN                ; (n + 12) / 16
-    CLC
-    ADC #$0C
-    STA OPTSTATNUM
-    LDA #$04
-    STA OPTSTATSH
-    RTS
-
-;  Scale one byte through the adjustment already set up, clamping at A's
-;  value on entry to @clamp.  In: OPTSTATV low byte.  Out: A.
-opt_statbyte:
-    LDA #$00
-    STA OPTSTATV+1
-    JSR opt_statmul
-    LDA OPTSTATV+1              ; anything above the low byte is over 255
-    ORA OPTSTATOVF
-    BEQ @fits
-    LDA #$FF
-    RTS
-  @fits:
-    LDA OPTSTATV
-    RTS
-
-;  Nothing to do when both settings are 100%: that is FFR's early return, and
-;  every fraction above would be 1 anyway.
-opt_statoff:
-    LDA OPT_ENEMY
+    STA OPTBTLRANGE
+    LDA OPT_BOSSTO
+    STA OPTBTLRANGE + 1
+    LDA OPT_BOSSHP
+    STA OPTBTLRANGE + 2
+    LDA OPT_BOSSHPTO
+    STA OPTBTLRANGE + 3
+  @order:
+    LDX #$02                    ; HP's range, then the stats'
+  @range:
+    LDA OPTBTLRANGE + 1, X
+    CMP OPTBTLRANGE, X
+    BCS :+
+    LDA OPTBTLRANGE, X          ; below its minimum: the minimum
+    STA OPTBTLRANGE + 1, X
+:   DEX
+    DEX
+    BPL @range
+    LDX #$03
+  @same:
+    LDA OPTBTLRANGE, X
     CMP #STAT_100
     BNE @on
-    LDA OPT_BOSS
-    CMP #STAT_100
-    BNE @on
+    DEX
+    BPL @same
     SEC
     RTS
   @on:
     CLC
+    RTS
+
+;  lut_ValStat's steps, step s being (s+1)/4: log2 of each, in 1/256ths of an
+;  octave -- round(256 * log2((s+1) / 4)) -- and 2 to the power f/256 for
+;  each f, in 1.15 -- round(32768 * 2^(f/256)).  tools/randoref.py computes
+;  both the same way and test_scaleenemies holds the ROM to it.
+lut_StatLog:
+    .WORD -512 & $FFFF, -256 & $FFFF, -106 & $FFFF, 0, 82, 150, 207, 256, 300, 338
+    .WORD 374, 406, 435, 463, 488, 512, 534, 556, 575, 594
+lut_StatExp:
+    .WORD $8000, $8059, $80B2, $810B, $8165, $81BF, $8219, $8273
+    .WORD $82CE, $8328, $8383, $83DF, $843A, $8496, $84F2, $854E
+    .WORD $85AB, $8608, $8665, $86C2, $871F, $877D, $87DB, $883A
+    .WORD $8898, $88F7, $8956, $89B5, $8A15, $8A75, $8AD5, $8B35
+    .WORD $8B96, $8BF7, $8C58, $8CB9, $8D1B, $8D7D, $8DDF, $8E41
+    .WORD $8EA4, $8F07, $8F6B, $8FCE, $9032, $9096, $90FA, $915F
+    .WORD $91C4, $9229, $928E, $92F4, $935A, $93C0, $9427, $948E
+    .WORD $94F5, $955C, $95C4, $962C, $9694, $96FD, $9765, $97CF
+    .WORD $9838, $98A2, $990C, $9976, $99E0, $9A4B, $9AB6, $9B22
+    .WORD $9B8D, $9BF9, $9C65, $9CD2, $9D3F, $9DAC, $9E19, $9E87
+    .WORD $9EF5, $9F64, $9FD2, $A041, $A0B0, $A120, $A190, $A200
+    .WORD $A270, $A2E1, $A352, $A3C3, $A435, $A4A7, $A519, $A58C
+    .WORD $A5FF, $A672, $A6E6, $A759, $A7CE, $A842, $A8B7, $A92C
+    .WORD $A9A1, $AA17, $AA8D, $AB04, $AB7A, $ABF1, $AC69, $ACE0
+    .WORD $AD58, $ADD1, $AE49, $AEC2, $AF3B, $AFB5, $B02F, $B0A9
+    .WORD $B124, $B19F, $B21A, $B296, $B312, $B38E, $B40B, $B488
+    .WORD $B505, $B583, $B601, $B67F, $B6FE, $B77D, $B7FC, $B87C
+    .WORD $B8FC, $B97C, $B9FD, $BA7E, $BAFF, $BB81, $BC03, $BC86
+    .WORD $BD09, $BD8C, $BE0F, $BE93, $BF18, $BF9C, $C021, $C0A7
+    .WORD $C12C, $C1B2, $C239, $C2C0, $C347, $C3CE, $C456, $C4DF
+    .WORD $C567, $C5F0, $C67A, $C703, $C78D, $C818, $C8A3, $C92E
+    .WORD $C9BA, $CA46, $CAD2, $CB5F, $CBEC, $CC7A, $CD08, $CD96
+    .WORD $CE25, $CEB4, $CF43, $CFD3, $D063, $D0F4, $D185, $D216
+    .WORD $D2A8, $D33A, $D3CD, $D460, $D4F3, $D587, $D61B, $D6B0
+    .WORD $D745, $D7DA, $D870, $D906, $D99D, $DA34, $DACC, $DB63
+    .WORD $DBFC, $DC94, $DD2E, $DDC7, $DE61, $DEFB, $DF96, $E031
+    .WORD $E0CD, $E169, $E205, $E2A2, $E340, $E3DD, $E47B, $E51A
+    .WORD $E5B9, $E658, $E6F8, $E799, $E839, $E8DB, $E97C, $EA1E
+    .WORD $EAC1, $EB64, $EC07, $ECAB, $ED4F, $EDF4, $EE99, $EF3F
+    .WORD $EFE5, $F08B, $F132, $F1DA, $F281, $F32A, $F3D3, $F47C
+    .WORD $F525, $F5D0, $F67A, $F725, $F7D1, $F87D, $F929, $F9D6
+    .WORD $FA84, $FB32, $FBE0, $FC8F, $FD3E, $FDEE, $FE9E, $FF4F
+.assert * - lut_StatLog = 2 * (20 + 256), error, "a log per step and an exponential per 1/256"
+
+;;  OPTSTATP = A * OPTSTATMD, 32 bits.  Native, A16 and I16.  Y clobbered.
+opt_mul16:
+    .a16
+    .i16
+    STA OPTSTATP
+    STZ OPTSTATP + 2
+    LDY #16
+  @bit:
+    LDA OPTSTATP                ; the multiplier's next bit, shifting out as
+    LSR A                       ;   the product shifts in
+    LDA OPTSTATP + 2
+    BCC :+
+    CLC
+    ADC OPTSTATMD               ; C the carry out, shifted in below
+:   ROR A
+    STA OPTSTATP + 2
+    ROR OPTSTATP
+    DEY
+    BNE @bit
+    RTS
+    .a8
+    .i8
+
+;;  One stat, FFR's RangeScale: OPTSTATV times a factor drawn log-evenly
+;;  between steps OPTSTATLO and OPTSTATHI (HI not below LO) by the roll
+;;  OPTSTATU, the factor moved toward 1 by the adjustment OPTSTATJ, rounded
+;;  half to even as C#'s Math.Round, and clamped at OPTSTATCAP.  Out:
+;;  OPTSTATV.  X and Y kept; emulation mode in and out, native within, DBR
+;;  this bank's for the tables -- low WRAM's OPTWORK is in every chunk's.
+;;
+;;  The factor is lo * (hi/lo)^(u/256), in 4.12: the log of hi/lo times the
+;;  roll is the exponent, in 1/256ths of an octave, and lut_StatExp its
+;;  fraction's power of 2.  So a single value -- hi the same as lo -- is lo
+;;  exactly, n/4, and scales as the dials did before they were ranges.
+opt_scalestat:
+    PHB
+    PHX
+    PHY
+    PHK
+    PLB
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    LDA OPTSTATHI
+    AND #$00FF
+    ASL A
+    TAX
+    LDA lut_StatLog, X
+    PHA
+    LDA OPTSTATLO
+    AND #$00FF
+    ASL A
+    TAX
+    PLA
+    SEC
+    SBC lut_StatLog, X        ; log2(hi/lo), 1/256ths
+    STA OPTSTATMD
+    LDA OPTSTATU
+    AND #$00FF
+    JSR opt_mul16               ; times the roll, /256: the exponent e,
+    LDA OPTSTATP + 1            ;   0..1101, is bytes 1 and 2
+    PHA
+    AND #$00FF
+    ASL A
+    TAX
+    LDA lut_StatExp, X        ; 2^(e's fraction), 1.15
+    STA OPTSTATMD
+    LDA OPTSTATLO
+    AND #$00FF
+    INC A                       ; lo is n/4, n the step plus one
+    JSR opt_mul16               ; n * 2^fraction << 15
+    PLA
+    XBA
+    AND #$00FF                  ; e's whole octaves, 0..4
+    EOR #$FFFF
+    CLC
+    ADC #$0006
+    TAY                         ; 5 - octaves, 1..5: << the octaves, >> 2 for
+  @fixed:                       ;   n/4, >> 3 from 1.15 to 4.12
+    LSR OPTSTATP + 2
+    ROR OPTSTATP
+    DEY
+    BNE @fixed
+
+    ;  The adjustment, a power of two: 1 + (s-1)*adj above 1 and
+    ;  1 - (1-s)*adj below, as FFR writes it.
+    LDA OPTSTATJ
+    AND #$00FF
+    TAY
+    LDA OPTSTATP
+    SEC
+    SBC #$1000
+    BCC @below
+  @up:
+    DEY
+    BMI :+
+    LSR A
+    BRA @up
+:   CLC
+    ADC #$1000
+    BRA @adjusted
+  @below:
+    EOR #$FFFF
+    INC A                       ; 1 - s
+  @down:
+    DEY
+    BMI :+
+    LSR A
+    BRA @down
+:   EOR #$FFFF                  ; 1 - that: its complement, and the
+    SEC                         ;   negation's +1 as the carry
+    ADC #$1000
+  @adjusted:
+    STA OPTSTATMD
+
+    ;  The value times it, 16.12, rounded to whole: half to even.
+    LDA OPTSTATV
+    JSR opt_mul16
+    LDA OPTSTATP
+    AND #$0FFF
+    PHA                         ; what the shift throws away
+    LDY #12
+  @whole:
+    LSR OPTSTATP + 2
+    ROR OPTSTATP
+    DEY
+    BNE @whole
+    PLA
+    CMP #$0800
+    BCC @rounded                ; below half: down
+    BNE @bump                   ; above: up
+    LDA OPTSTATP
+    LSR A
+    BCC @rounded                ; exactly half: only an odd result goes up
+  @bump:
+    INC OPTSTATP
+    BNE @rounded
+    INC OPTSTATP + 2
+  @rounded:
+    LDA OPTSTATP + 2            ; past 16 bits, or past the clamp: the clamp
+    BNE @clamp
+    LDA OPTSTATP
+    CMP OPTSTATCAP
+    BCC @fits
+  @clamp:
+    LDA OPTSTATCAP
+  @fits:
+    STA OPTSTATV
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLY
+    PLX
+    PLB
     RTS
 
 ;  The battle's enemies, once per battle.  Each kind's record comes from the
@@ -1990,12 +2117,12 @@ opt_statoff:
 ;  kind's as LoadEnemyStats copies them.  So all the battle reads of an enemy,
 ;  through its RAM stats or through en_romptr, is scaled once, here: max HP
 ;  and Boss tactics' reckoning as well as what used to be scaled at each
-;  attack (user, 2026-10-30: "scale them just in time").
-.import rando_btlenemies
+;  attack (user, 2026-10-30: "scale them just in time").  Each stat of each
+;  kind by its own roll (rando_dice) within its group's range for it, as
+;  FFR rolls each stat of each enemy.
+.import rando_btlenemies, rando_dice
 opt_scaleenemies:
     JSL rando_btlenemies + RANDOFAR
-    JSR opt_statoff
-    BCS @copy                   ; both 100%: FFR's early return
     LDA #$00
     STA OPTSTATSLOT             ; the kind
     TAX                         ; X its record, $14 bytes each
@@ -2003,13 +2130,16 @@ opt_scaleenemies:
     LDY OPTSTATSLOT
     CPY OPTBTLNKIND
     BCS @copy
+    STX OPTSTATREC
     LDA OPTBTLKIND, Y
-    JSR opt_statn               ; Boss stats' n, or Enemy stats'
-    LDA OPTSTATN
-    CMP #STAT_100 + 1
-    BEQ :+                      ; its own 100%: FFR returns early per group,
-    JSR opt_scalerecord         ;   so a record it leaves keeps even 0 hits
-:   TXA
+    JSR opt_statrange           ; Boss stats and HP, or Enemy stats and HP
+    BCS :+                      ; all 100%: FFR returns early per group
+    LDY OPTSTATSLOT
+    LDA OPTBTLKIND, Y
+    JSL rando_dice + RANDOFAR
+    LDX OPTSTATREC
+    JSR opt_scalerecord
+:   LDA OPTSTATREC
     CLC
     ADC #ENEMY_RECORD
     TAX
@@ -2071,73 +2201,91 @@ opt_scaleenemies:
     BCC @slot
     RTL
 
-;  One kind's record in OPTBTLENEMIES, at X, scaled by OPTSTATN: the seven
-;  stats FFR's ScaleSingleEnemyStats scales, with its adjustments and its
-;  clamps.  X kept.
+;  One kind's record in OPTBTLENEMIES, at X, scaled by its group's ranges
+;  (OPTBTLRANGE) and its rolls (OPTBTLDICE): the seven stats FFR's
+;  ScaleSingleEnemyStats scales, with its adjustments and its clamps -- HP by
+;  the HP range, the six others by the stats range.  X kept; DBR this
+;  bank's within, for lut_ScaleByte.
 opt_scalerecord:
-    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX, X      ; HP, 1.00, capped $7FFF
+    PHB
+    PHK
+    PLB
+    STX OPTSTATREC
+    LDA OPTBTLRANGE + 2         ; HP, 1.00, capped $7FFF
+    STA OPTSTATLO
+    LDA OPTBTLRANGE + 3
+    STA OPTSTATHI
+    LDA OPTBTLDICE
+    STA OPTSTATU
+    LDA #$00
+    STA OPTSTATJ
+    LDA #$FF
+    STA OPTSTATCAP
+    LDA #$7F
+    STA OPTSTATCAP + 1
+    LDA OPTBTLENEMIES + ENROMSTAT_HPMAX, X
     STA OPTSTATV
     LDA OPTBTLENEMIES + ENROMSTAT_HPMAX + 1, X
-    STA OPTSTATV+1
-    JSR opt_adj100
-    JSR opt_statmul
-    LDA OPTSTATOVF              ; past 16 bits, or past $7FFF: peg it
-    BNE @hpcap
-    LDA OPTSTATV+1
-    CMP #$80
-    BCC @hpok
-  @hpcap:
-    LDA #$FF
-    STA OPTSTATV
-    LDA #$7F
-    STA OPTSTATV+1
-  @hpok:
+    STA OPTSTATV + 1
+    JSR opt_scalestat
     LDA OPTSTATV
     STA OPTBTLENEMIES + ENROMSTAT_HPMAX, X
-    LDA OPTSTATV+1
+    LDA OPTSTATV + 1
     STA OPTBTLENEMIES + ENROMSTAT_HPMAX + 1, X
 
-    LDA OPTBTLENEMIES + ENROMSTAT_ABSORB, X     ; absorb, 0.50
+    LDA OPTBTLRANGE             ; the others, a byte each
+    STA OPTSTATLO
+    LDA OPTBTLRANGE + 1
+    STA OPTSTATHI
+    LDA #$00
+    STA OPTSTATV + 1
+    STA OPTSTATCAP + 1
+    LDX #$00
+  @stat:
+    LDA lut_ScaleByte + 1, X
+    STA OPTSTATJ
+    LDA lut_ScaleByte + 2, X
+    STA OPTSTATCAP
+    TXA
+    LSR A
+    LSR A
+    TAY
+    LDA OPTBTLDICE + 1, Y       ; its own roll
+    STA OPTSTATU
+    LDA lut_ScaleByte, X
+    CLC
+    ADC OPTSTATREC
+    TAY                         ; the stat in the record
+    LDA OPTBTLENEMIES, Y
     STA OPTSTATV
-    JSR opt_adj50
-    JSR opt_statbyte
-    STA OPTBTLENEMIES + ENROMSTAT_ABSORB, X
-
-    LDA OPTBTLENEMIES + ENROMSTAT_EVADE, X      ; evade, 1.00, capped at FFR's
-    STA OPTSTATV                                ;   default EvadeCap of "medium"
-    JSR opt_adj100
-    JSR opt_statbyte
-    CMP #$F0
-    BCC :+
-    LDA #$F0
-:   STA OPTBTLENEMIES + ENROMSTAT_EVADE, X
-
-    LDA OPTBTLENEMIES + ENROMSTAT_DAMAGE, X     ; damage, 0.25
-    STA OPTSTATV
-    JSR opt_adj25
-    JSR opt_statbyte
-    STA OPTBTLENEMIES + ENROMSTAT_DAMAGE, X
-
-    LDA OPTBTLENEMIES + ENROMSTAT_NUMHITS, X    ; hits, 0.50, floored at 1
-    STA OPTSTATV
-    JSR opt_adj50
-    JSR opt_statbyte
-    BNE :+
-    LDA #$01
-:   STA OPTBTLENEMIES + ENROMSTAT_NUMHITS, X
-
-    LDA OPTBTLENEMIES + ENROMSTAT_HITRATE, X    ; hit%, 1.00
-    STA OPTSTATV
-    JSR opt_adj100
-    JSR opt_statbyte
-    STA OPTBTLENEMIES + ENROMSTAT_HITRATE, X
-
-    LDA OPTBTLENEMIES + ENROMSTAT_CRITRATE, X   ; crit%, 0.50
-    STA OPTSTATV
-    JSR opt_adj50
-    JSR opt_statbyte
-    STA OPTBTLENEMIES + ENROMSTAT_CRITRATE, X
+    JSR opt_scalestat
+    LDA OPTSTATV
+    CMP lut_ScaleByte + 3, X
+    BCS :+
+    LDA lut_ScaleByte + 3, X  ; the floor
+:   STA OPTBTLENEMIES, Y
+    INX
+    INX
+    INX
+    INX
+    CPX #SCALEBYTES * 4
+    BCC @stat
+    LDX OPTSTATREC
+    PLB
     RTS
+
+;  The six byte stats, in rando_dice's order after HP: where each is in the
+;  record, its adjustment as a right shift (FFR's 0.50, 1.00, 0.25), its
+;  clamp and its floor.  Evade's clamp is FFR's default EvadeCap of
+;  "medium"; hits never fall below 1.
+lut_ScaleByte:
+    .BYTE ENROMSTAT_ABSORB,   1, $FF, 0
+    .BYTE ENROMSTAT_EVADE,    0, $F0, 0
+    .BYTE ENROMSTAT_DAMAGE,   2, $FF, 0
+    .BYTE ENROMSTAT_NUMHITS,  1, $FF, 1
+    .BYTE ENROMSTAT_HITRATE,  0, $FF, 0
+    .BYTE ENROMSTAT_CRITRATE, 1, $FF, 0
+SCALEBYTES = 6
 
 ;  Weapon Stats' enemy half, as an enemy attacks: FFR's FixWeaponStats write
 ;  at $325B0, the one the port first left out.  The caller has just loaded the

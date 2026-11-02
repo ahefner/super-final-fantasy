@@ -173,7 +173,13 @@ def resolve(files, rows=None):
         if skip and randomizes(settings(name), rows):
             raise PresetError("%s: skips New Game's screens but randomizes something, which only "
                               "the map edit screen checks can be won" % f)
-        out.append((name, lines, TITLE_PRESETS.get(title, TITLE_CUSTOM), settings(name)))
+        #  A scaling range's max no lower than its min, as the menu keeps it.
+        #  Their steps are in percent order, so the indices compare.
+        s = settings(name)
+        for label in s:
+            if label.endswith(" max") and s.get(label[:-4] + " min", 0) > s[label]:
+                raise PresetError("%s: \"%s\" is below \"%s\"" % (f, label, label[:-4] + " min"))
+        out.append((name, lines, TITLE_PRESETS.get(title, TITLE_CUSTOM), s))
     return out
 
 

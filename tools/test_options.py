@@ -59,9 +59,13 @@ OPT_FLAGS, OPT_GOLDXP, OPT_ENCOUNTER = 4, 10, 11
 OPT_ENEMY, OPT_BOSS, OPT_ELEMDMG = 12, 13, 14
 OPT_THIEFHIT = 15       # the sixth scalar; bit 21 until it took a third value
 OPT_STARTITEMS = 16     # the seventh: FFR's starting item set
-OPT_RESPOND, OPT_CKSUM = 17, 18
-OPT_SIZE = 19
-OPT_FORMAT = 9          # bumped when the Free items left the flag word for the key item rows
+#  The scaling's ranges: Enemy stats' and Boss stats' max, and HP's
+#  own min and max for each.
+OPT_ENEMYTO, OPT_ENEMYHP, OPT_ENEMYHPTO = 17, 18, 19
+OPT_BOSSTO, OPT_BOSSHP, OPT_BOSSHPTO = 20, 21, 22
+OPT_RESPOND, OPT_CKSUM = 23, 24
+OPT_SIZE = 25
+OPT_FORMAT = 10         # bumped when the scaling's six range scalars came
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -215,7 +219,7 @@ def pageoff(off):
     """An offset on the battery page: the block, the seed pool and the New
     Game settings.  The page's other old offsets are OPTWORK's now (work,
     setwork), so one asked of the page here is a test gone stale."""
-    assert off < 0x13 or 0xC4 <= off < 0xE0, "page offset $%02X is OPTWORK's now" % off
+    assert off < OPT_SIZE or 0xC4 <= off < 0xE0, "page offset $%02X is OPTWORK's now" % off
     return off
 
 
@@ -225,6 +229,15 @@ def blk(bus, off):
 
 def setblk(bus, off, v):
     bus.sram[OPTBLOCK - 0x6000 + pageoff(off)] = v
+
+
+def setscale(bus, estep, bstep):
+    """Every scaling range a single value: each group's stats and HP, and
+    each max at its min."""
+    for at in (OPT_ENEMY, OPT_ENEMYTO, OPT_ENEMYHP, OPT_ENEMYHPTO):
+        setblk(bus, at, estep)
+    for at in (OPT_BOSS, OPT_BOSSTO, OPT_BOSSHP, OPT_BOSSHPTO):
+        setblk(bus, at, bstep)
 
 
 def work(bus, off):
@@ -317,6 +330,10 @@ def test_presets():
         #  it at level 15 and its Improved Vanilla does not, so Super only.
         check("%s: Thief lockpicking step" % name, blk(bus, OPT_THIEFHIT) >> 4, lp)
         check("%s: no starting items" % name, blk(bus, OPT_STARTITEMS), 0)
+        #  every range the single 100% of its minimum
+        check("%s: the scaling's ranges" % name,
+              [blk(bus, a) for a in (OPT_ENEMYTO, OPT_ENEMYHP, OPT_ENEMYHPTO, OPT_BOSSTO, OPT_BOSSHP, OPT_BOSSHPTO)],
+              [3] * 6)
         #  loadpreset seals as it goes, so init must accept what it wrote
         cpu2 = CPU(bus); cpu2.dbr = 0xA7
         call(cpu2, "opt_init")
@@ -4167,9 +4184,10 @@ def test_buyqty():
 
 
 from fractions import Fraction
-OPT_STATV, OPT_STATNUM, OPT_STATSH, OPT_STATOVF = 0x32, 0x34, 0x35, 0x3E
-ADJ = {"1.00": (lambda n: (n, 2)), "0.50": (lambda n: (n + 4, 3)),
-       "0.25": (lambda n: (n + 12, 4))}
+import math
+OPT_STATV, OPT_STATLO, OPT_STATHI, OPT_STATU, OPT_STATJ = 0x32, 0x3B, 0x3C, 0x3D, 0x3E
+OPT_STATCAP = 0xD4
+ADJ = {"1.00": 0, "0.50": 1, "0.25": 2}
 
 
 def ffr_scale(value, n, adj):
@@ -4183,35 +4201,79 @@ def ffr_scale(value, n, adj):
     return round(value * scale)          # Python rounds half to even too
 
 
-def test_statscale():
-    """The scaling arithmetic, against FFR's formula."""
-    for adjname, mk in ADJ.items():
-        for n in range(1, 21):
-            num, sh = mk(n)
-            for value in (0, 1, 2, 3, 7, 10, 99, 100, 255, 1000, 32767):
-                bus, cpu = machine()
-                setwork(bus, OPT_STATV, value & 0xFF)
-                setwork(bus, OPT_STATV + 1, value >> 8)
-                setwork(bus, OPT_STATNUM, num)
-                setwork(bus, OPT_STATSH, sh)
-                cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
-                got = (work(bus, OPT_STATV) | (work(bus, OPT_STATV + 1) << 8)
-                       | (work(bus, OPT_STATOVF) << 16))
-                want = ffr_scale(value, n, adjname)
-                check("scale %s n=%d of %d" % (adjname, n, value), got, want)
+def ffr_range(value, lo, hi, t, adj):
+    """FFR's RangeScale over a range, in floating point, at exponent t."""
+    s = math.exp(math.log(lo) + t * (math.log(hi) - math.log(lo)))
+    a = (s - 1) * float(Fraction(adj)) + 1 if s > 1 else 1 - (1 - s) * float(Fraction(adj))
+    return round(value * a)
 
-    #  100% must be the identity, which is FFR's early return
-    for adjname, mk in ADJ.items():
-        num, sh = mk(4)
-        for value in (1, 7, 99, 255, 1000, 32767):
-            bus, cpu = machine()
-            setwork(bus, OPT_STATV, value & 0xFF)
-            setwork(bus, OPT_STATV + 1, value >> 8)
-            setwork(bus, OPT_STATNUM, num)
-            setwork(bus, OPT_STATSH, sh)
-            cpu.run(CHUNK_OPT_BANK, SYM["opt_statmul"])
-            check("100%% %s leaves %d alone" % (adjname, value),
-                  work(bus, OPT_STATV) | (work(bus, OPT_STATV + 1) << 8), value)
+
+def test_statscale():
+    """The scaling arithmetic (opt_scalestat): the ROM's tables are
+    randoref's, every case lands where randoref's integer version does, a
+    single value is FFR's exact number, and a range is FFR's log-even
+    RangeScale to within the 256 rolls' grain."""
+    at = rom_at("lut_StatLog")
+    logs = [int.from_bytes(ROMDATA[at + 2 * i:][:2], "little", signed=True) for i in range(R.STAT_STEPS)]
+    exps = [int.from_bytes(ROMDATA[at + 2 * (R.STAT_STEPS + f):][:2], "little") for f in range(256)]
+    check("lut_StatLog is randoref's", logs, R.STAT_LOG)
+    check("lut_StatExp is randoref's", exps, R.STAT_EXP)
+
+    def run(value, lo, hi, u, j, cap):
+        bus, cpu = machine()
+        setwork(bus, OPT_STATV, value & 0xFF)
+        setwork(bus, OPT_STATV + 1, value >> 8)
+        for off, v in ((OPT_STATLO, lo), (OPT_STATHI, hi), (OPT_STATU, u), (OPT_STATJ, j),
+                       (OPT_STATCAP, cap & 0xFF), (OPT_STATCAP + 1, cap >> 8)):
+            setwork(bus, off, v)
+        cpu.x, cpu.y = 0x5A, 0xA5
+        cpu.run(CHUNK_OPT_BANK, SYM["opt_scalestat"])
+        return work(bus, OPT_STATV) | work(bus, OPT_STATV + 1) << 8, (cpu.x, cpu.y)
+
+    values = (0, 1, 2, 3, 7, 10, 99, 100, 255, 1000, 32767)
+    rnd = random.Random(0x5CA1E)
+    bad, ffr, kept = [], [], []
+    #  A single value: every step, each adjustment, any roll -- FFR's exact
+    #  number, as the dials gave before they were ranges.
+    for adjname, j in ADJ.items():
+        for step in range(R.STAT_STEPS):
+            for value in values:
+                u = rnd.randrange(256)
+                got, xy = run(value, step, step, u, j, 0x7FFF)
+                if got != min(ffr_scale(value, step + 1, adjname), 0x7FFF):
+                    bad.append(("single", adjname, step, value, u, got, ffr_scale(value, step + 1, adjname)))
+                kept.append(xy)
+    #  Ranges: the ends, 100% inside and not, the widest; rolls at both ends
+    #  and between; the clamps.
+    pairs = [(0, 19), (2, 5), (3, 7), (0, 3), (5, 9), (1, 2), (18, 19), (2, 9), (3, 19)]
+    for adjname, j in ADJ.items():
+        for lo, hi in pairs:
+            for u in (0, 1, 2, 64, 127, 128, 200, 254, 255):
+                for value in values:
+                    for cap in (0x7FFF, 0xFF, 0xF0):
+                        if cap != 0x7FFF and value > 255:
+                            continue
+                        got, xy = run(value, lo, hi, u, j, cap)
+                        want = R.stat_scale(value, lo, hi, u, j, cap)
+                        if got != want:
+                            bad.append(("range", adjname, lo, hi, u, value, cap, got, want))
+                        kept.append(xy)
+                    f = ffr_range(1000, (lo + 1) / 4, (hi + 1) / 4, u / 256, adjname)
+                    r = R.stat_scale(1000, lo, hi, u, j, 0xFFFF)
+                    if abs(r - f) > f * 0.004 + 1:
+                        ffr.append((adjname, lo, hi, u, r, f))
+    check("opt_scalestat: every case randoref's", bad[:3], [])
+    check("randoref's range: FFR's RangeScale to within 0.4%", ffr[:3], [])
+    check("opt_scalestat keeps X and Y", set(kept), {(0x5A, 0xA5)})
+    #  The factor itself: lo at the bottom roll, rising with the roll, under
+    #  hi at the top.
+    mono = []
+    for lo, hi in pairs:
+        fs = [R.stat_factor(lo, hi, u) for u in range(256)]
+        if fs[0] != (lo + 1) * 1024 or fs != sorted(fs) or not fs[-1] < (hi + 1) * 1024 or \
+                (hi > lo and fs[255] < (hi + 1) * 1024 * 0.98):
+            mono.append((lo, hi, fs[0], fs[-1]))
+    check("a range's factor: lo at roll 0, rising, just under hi at 255", mono, [])
 
 
 BOSSES = {15, 105, 113} | set(range(118, 128))
@@ -4237,26 +4299,29 @@ def test_scaleenemies():
     """The battle's enemies scaled once, at their load: each kind's record
     in OPTBTLENEMIES and every enemy's RAM stats from it.
 
-    This is where a wrong field offset would hide: the arithmetic is already
-    checked against FFR's formula, so what is left is whether each stat gets
-    the adjustment FFR gives it, whether bosses take the other setting, and
-    whether the clamps hold.  The stats come from the world's records
-    (rando_btlenemies, test_pirates), so the case's go in the cache's record
-    for each enemy, and decoys in the RAM stats it replaces.  Since
-    2026-10-30 the record itself is scaled -- hits, hit% and crit%, which
-    the attack scaled until then, and the max HP a spell and Boss tactics
-    read -- and the attack scales nothing more.
+    This is where a wrong field offset would hide: the arithmetic is checked
+    against FFR's formula by test_statscale, so what is left is whether each
+    stat gets the adjustment and the roll FFR gives it, whether bosses take
+    the other ranges and HP its own, and whether the clamps hold.  The stats
+    come from the world's records (rando_btlenemies, test_pirates), so the
+    case's go in the cache's record for each enemy, and decoys in the RAM
+    stats it replaces.  Each enemy's rolls are the seed's and its own
+    (randoref's enemy_dice), so two enemies with the same stats at the same
+    ranges come out differently.
     """
     #  ENROMSTAT_HPMAX, ABSORB, EVADE, DAMAGE, NUMHITS, HITRATE, CRITRATE
     FIELDS = (4, 9, 8, 12, 10, 11, 13)
+    SEED = 0x12345678
+    E_AT = (OPT_ENEMY, OPT_ENEMYTO, OPT_ENEMYHP, OPT_ENEMYHPTO)
+    B_AT = (OPT_BOSS, OPT_BOSSTO, OPT_BOSSHP, OPT_BOSSHPTO)
 
-    def setup(enemy_step, boss_step, slots):
+    def setup(esteps, bsteps, slots, seed=SEED):
         bus, cpu = machine()
-        setsave(bus, 0x12345678, 0)
+        setsave(bus, seed, 0)
         warm(bus)
         call(cpu, "rando_ensure", bank=RANDO_BANK)
-        setblk(bus, OPT_ENEMY, enemy_step)
-        setblk(bus, OPT_BOSS, boss_step)
+        for at, v in zip(E_AT + B_AT, tuple(esteps) + tuple(bsteps)):
+            setblk(bus, at, v)
         for i in range(9):
             bus.sram[ENEMY_IDS - 0x6000 + i] = 0xFF
         for slot, (eid, stats) in slots.items():
@@ -4274,42 +4339,57 @@ def test_scaleenemies():
 
     def read(bus, slot):
         """The slot's RAM stats -- HP, absorb, evade, damage, and the HP's low
-        byte LoadEnemyStats copies again -- and its record's seven."""
+        byte LoadEnemyStats copies again -- and its record."""
         b = BTL_ENEMYSTATS - 0x6000 + slot * 0x14
         ptr = bus.sram[b] | bus.sram[b + 1] << 8
         rec = bytes(bus.wram[ptr:ptr + 20])
         return ((bus.sram[b + EN_HP] | (bus.sram[b + EN_HP + 1] << 8),
                  bus.sram[b + EN_DEF], bus.sram[b + EN_EVADE], bus.sram[b + EN_STR], bus.sram[b + K["en_unknown12"]]),
-                (rec[4] | rec[5] << 8,) + tuple(rec[f] for f in FIELDS[1:]))
+                rec)
 
-    def want(stats, n):
-        """FFR's: each group's own 100% returns early, the floor unapplied."""
-        hp, dfn, ev, st, hits, hr, cr = stats
-        if n == STAT_100 + 1:
-            return (hp, dfn, ev, st, hp & 0xFF), tuple(stats)
-        rec = (min(ffr_scale(hp, n, "1.00"), 0x7FFF), min(ffr_scale(dfn, n, "0.50"), 0xFF),
-               min(ffr_scale(ev, n, "1.00"), 0xF0), min(ffr_scale(st, n, "0.25"), 0xFF),
-               max(1, min(ffr_scale(hits, n, "0.50"), 0xFF)), min(ffr_scale(hr, n, "1.00"), 0xFF),
-               min(ffr_scale(cr, n, "0.50"), 0xFF))
-        return (rec[0], rec[1], rec[2], rec[3], rec[0] & 0xFF), rec
+    def want(bus, eid, steps, seed=SEED):
+        """randoref's record, from the cache's as the case left it."""
+        r = rw("RW_ENEMIES") + eid * 20
+        rec = R.scale_record(bytes(bus.wram[r:r + 20]), steps, R.enemy_dice(seed, eid))
+        hp = rec[4] | rec[5] << 8
+        return (hp, rec[9], rec[8], rec[12], rec[4]), rec
 
     #  slot 0 an ordinary enemy, slot 3 a boss (Lich), slot 5 the first's
     #  kind again, slot 6 all zeros (hits floored at 1, as FFR floors them),
-    #  slot 8 empty: HP, absorb, evade, damage, hits, hit%, crit%
-    slots = {0: (0x20, (500, 40, 60, 30, 3, 50, 2)), 3: (119, (1200, 80, 100, 90, 1, 70, 1)),
-             5: (0x20, (500, 40, 60, 30, 3, 50, 2)), 6: (0x30, (0, 0, 0, 0, 0, 0, 0))}
-    for estep, bstep in ((3, 3), (7, 3), (3, 7), (0, 19), (19, 0)):
-        bus, cpu = setup(estep, bstep, slots)
+    #  slot 7 another enemy with slot 0's stats (its own rolls), slot 8
+    #  empty: HP, absorb, evade, damage, hits, hit%, crit%
+    stats = (500, 40, 60, 30, 3, 50, 2)
+    slots = {0: (0x20, stats), 3: (119, (1200, 80, 100, 90, 1, 70, 1)),
+             5: (0x20, stats), 6: (0x30, (0, 0, 0, 0, 0, 0, 0)), 7: (0x21, stats)}
+    cases = [((3, 3, 3, 3), (3, 3, 3, 3)),          # all 100%: nothing
+             ((7, 7, 7, 7), (3, 3, 3, 3)),          # single values, as the dials were
+             ((3, 3, 3, 3), (1, 1, 1, 1)),
+             ((2, 5, 2, 5), (2, 5, 2, 9)),          # Beginner's, and Free Enterprise's bosses
+             ((0, 19, 3, 3), (3, 3, 0, 19)),        # stats alone, HP alone
+             ((3, 3, 7, 7), (19, 19, 0, 0)),        # HP's own single value; the clamps
+             ((9, 2, 6, 1), (5, 0, 3, 3)),          # a max below the min: the min
+             ((0, 0, 19, 19), (3, 7, 3, 3))]
+    for esteps, bsteps in cases:
+        bus, cpu = setup(esteps, bsteps, slots)
+        wants = {slot: want(bus, eid, bsteps if eid in BOSSES else esteps) for slot, (eid, _) in slots.items()}
         call(cpu, "opt_scaleenemies", dbr=BANK_0C)
-        for slot, (eid, stats) in slots.items():
-            n = (bstep if eid in BOSSES else estep) + 1
-            check("slot %d, enemy=%d boss=%d: RAM stats and record" % (slot, estep, bstep),
-                  read(bus, slot), want(stats, n))
+        for slot, (eid, _) in slots.items():
+            check("slot %d, enemy %s boss %s: RAM stats and record" % (slot, esteps, bsteps),
+                  read(bus, slot), wants[slot])
         check("...a kind's two enemies at one record, scaled once",
               bus.sram[BTL_ENEMYSTATS - 0x6000:][:2] == bus.sram[BTL_ENEMYSTATS - 0x6000 + 5 * 0x14:][:2], True)
+    #  ...where the rolls matter, two enemies alike apart from their ids come
+    #  out apart, and a seed of its own moves them
+    bus, cpu = setup((0, 19, 0, 19), (3, 3, 3, 3), slots)
+    call(cpu, "opt_scaleenemies", dbr=BANK_0C)
+    check("two enemies' own rolls: alike stats, unlike results", read(bus, 0)[1] != read(bus, 7)[1], True)
+    bus2, cpu2 = setup((0, 19, 0, 19), (3, 3, 3, 3), slots, seed=0x0BADF00D)
+    w2 = want(bus2, 0x20, (0, 19, 0, 19), seed=0x0BADF00D)
+    call(cpu2, "opt_scaleenemies", dbr=BANK_0C)
+    check("another seed, other rolls", (read(bus2, 0) == w2, read(bus2, 0)[1] != read(bus, 0)[1]), (True, True))
 
     #  an empty slot must be left exactly alone
-    bus, cpu = setup(19, 19, slots)
+    bus, cpu = setup((19,) * 4, (19,) * 4, slots)
     b = BTL_ENEMYSTATS - 0x6000 + 8 * 0x14
     for i in range(0x14):
         bus.sram[b + i] = 0x5A
@@ -4317,17 +4397,11 @@ def test_scaleenemies():
     check("empty slots untouched",
           list(bus.sram[b:b + 0x14]), [0x5A] * 0x14)
 
-    #  and 100% on both settings must leave the records' stats as they are
-    bus, cpu = setup(3, 3, slots)
-    call(cpu, "opt_scaleenemies", dbr=BANK_0C)
-    check("100%% is a no-op", {s: read(bus, s) for s in slots},
-          {s: want(stats, 4) for s, (eid, stats) in slots.items()})
-
     #  ...and the attack takes the record's hit%, hits and crit% as they are,
     #  at 500% as at 100%: the record was scaled at the load.
     HR, NH, CR = (K[n] - 0x6000 for n in ("btl_attacker_hitrate", "btl_attacker_numhits", "btl_attacker_critrate"))
     for step in (3, 19):
-        bus, cpu = setup(step, step, slots)
+        bus, cpu = setup((step,) * 4, (step,) * 4, slots)
         call(cpu, "opt_scaleenemies", dbr=BANK_0C)
         enram(bus, 0x20, slot=0)
         bus.sram[HR], bus.sram[NH] = 0x37, 0x05
@@ -8173,7 +8247,8 @@ def test_ngpresets():
     for r in range(K["OPTROW_COUNT"]):
         rec = tab("lut_OptRows", (r + 1) * 32)[r * 32:]
         if rec[0] in (1, 2):
-            rom_rows.append(("chk" if rec[0] == 1 else "val", rec[1], text(rec[2:24])))
+            label = text(rec[2:24])
+            rom_rows.append(("chk" if rec[0] == 1 else "val", rec[1], label))
     check("presetdefs: the ROM's rows, kind, bit or scalar, and label",
           rom_rows, [(r.kind, r.arg, r.label) for r in rows])
     lo, hi, shift, count = tab("lut_ValTabLo", 64), tab("lut_ValTabHi", 64), tab("lut_ValShift", 64), tab("lut_ValCount", 64)
@@ -8595,8 +8670,7 @@ def tac_base():
         bus, cpu = machine()
         setsave(bus, 1, 0)
         call(cpu, "rando_ensure", bank=RANDO_BANK)
-        setblk(bus, OPT_ENEMY, STAT_100)
-        setblk(bus, OPT_BOSS, STAT_100)
+        setscale(bus, STAT_100, STAT_100)
         _tac_base.append((bytes(bus.wram), bytes(bus.sram)))
     bus = Bus(ROMDATA)
     bus.wram[:], bus.sram[:] = _tac_base[0]
@@ -13542,6 +13616,96 @@ def optrow(label):
     raise KeyError(label)
 
 
+def test_rangerows():
+    """The scaling's ranges in the menu (user, 2026-11-01: rows read min and
+    max).  Each min row has its max right under it.  Left on a max stops at
+    its min; right on a min past its max pushes the max up with it and
+    repaints that row when it is in the window, and nowhere else when it is
+    not.  Nothing else in the block moves.  A preset with a max below its
+    min is refused."""
+    import genpresets as G
+    SEL, TOP = 0x6E, 0x6F
+    RIGHT, LEFT = K["RIGHT"], K["LEFT"]
+    img = (OPTMENU_BANK & 0x1F) * 0x10000
+    base = rom_at("lut_OptRows")
+    mins = ROMDATA[img + SYM["lut_RangeMin"]:][:4]
+    maxs = ROMDATA[img + SYM["lut_RangeMax"]:][:4]
+    off = ROMDATA[img + SYM["lut_ValOff"]:][:64]
+    pairs = []
+    for name, lo, hi, (want_lo, want_hi) in zip(
+            ("Enemy stats", "Enemy HP", "Boss stats", "Boss HP"), mins, maxs,
+            ((OPT_ENEMY, OPT_ENEMYTO), (OPT_ENEMYHP, OPT_ENEMYHPTO),
+             (OPT_BOSS, OPT_BOSSTO), (OPT_BOSSHP, OPT_BOSSHPTO))):
+        row = optrow(name + " min")
+        check("%s: the max row right under the min" % name, optrow(name + " max"), row + 1)
+        check("%s: the rows' scalars, the table's pair" % name,
+              (ROMDATA[base + row * 32 + 1], ROMDATA[base + (row + 1) * 32 + 1]), (lo, hi))
+        check("%s: the pair's bytes" % name, (off[lo], off[hi]), (want_lo, want_hi))
+        pairs.append((name, row, want_lo, want_hi))
+
+    nt = K["NESNT"] - 0x7E0000
+    def screen_row(bus, text):
+        for r in range(30):
+            line = "".join(_decode(b) or "?" for b in bus.wram[nt + r * 32 + 2:nt + r * 32 + 31])
+            if text in line:
+                return " ".join(line.split())
+        return ""
+    for name, row, lo, hi in pairs:
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        rest = lambda: [blk(bus, a) for a in range(OPT_SIZE) if a not in (lo, hi, OPT_PRESET, OPT_CKSUM)]
+        before = rest()
+        def press(r, d, top):
+            bus.wram[SEL], bus.wram[TOP] = r, top
+            cpu.a = d
+            call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
+            return blk(bus, lo), blk(bus, hi)
+        def run(r, d, n, top):
+            return [press(r, d, top) for _ in range(n)]
+        setblk(bus, lo, 3); setblk(bus, hi, 5)              # 100% up to 150%
+        check("%s: right on the min below its max, the max row not drawn" % name,
+              (press(row, RIGHT, 0), screen_row(bus, name + " max")), ((4, 5), ""))
+        check("%s: right on the min pushes the max" % name,
+              run(row, RIGHT, 3, 0), [(5, 5), (6, 6), (7, 7)])
+        check("%s: ...and repaints its row" % name, screen_row(bus, name + " max"), name + " max 200%")
+        check("%s: left on the min leaves the max" % name,
+              run(row, LEFT, 2, 0), [(6, 7), (5, 7)])
+        check("%s: left on the max stops at the min" % name,
+              run(row + 1, LEFT, 4, 0), [(5, 6), (5, 5), (5, 5), (5, 5)])
+        check("%s: right on the max is free" % name,
+              run(row + 1, RIGHT, 2, 0), [(5, 6), (5, 7)])
+        setblk(bus, lo, 18); setblk(bus, hi, 18)
+        check("%s: both stop at the top" % name, run(row, RIGHT, 2, 0), [(19, 19), (19, 19)])
+        #  The min on the window's last row: its max below the window is
+        #  pushed but not drawn, and the description box under the list is
+        #  left as it was.  These rows are the list's first, so the window
+        #  that puts one there starts "above" the list, in the menu's own
+        #  8-bit arithmetic.
+        setblk(bus, lo, 3); setblk(bus, hi, 3)
+        box = bytes(bus.wram[nt + (K["OPTLIST_TOP"] + 20) * 32:nt + 30 * 32])
+        check("%s: pushed from the window's last row" % name, press(row, RIGHT, (row - 19) & 0xFF), (4, 4))
+        check("%s: ...nothing drawn under the list" % name,
+              bytes(bus.wram[nt + (K["OPTLIST_TOP"] + 20) * 32:nt + 30 * 32]) == box, True)
+        check("%s: nothing else in the block moved" % name, rest(), before)
+
+    #  Each preset's max at or above its min, or the build says which.
+    files = G.load()
+    G.resolve(files)
+    bad = []
+    for f, t in files:
+        if t.get("base"):
+            t = dict(t, settings=dict(t["settings"], **{"Boss HP max": "75%"}))
+        bad.append((f, t))
+    try:
+        G.resolve(bad)
+        got = None
+    except G.PresetError as e:
+        got = str(e)
+    check("a preset's max below its min is refused",
+          got and "\"Boss HP max\" is below \"Boss HP min\"" in got, True)
+
+
 def test_shoulders():
     """L and R page the settings list, up and down half a screen, as SNES
     menus do -- on any row, a value row too, where left and right step the
@@ -14591,8 +14755,7 @@ def test_pirates():
         if rom is not ROMDATA:
             bus.rom = rom
         setai(bus, 0x600DCAFE, pirates << 4)
-        setblk(bus, OPT_ENEMY, STAT_100)
-        setblk(bus, OPT_BOSS, boss)
+        setscale(bus, STAT_100, boss)
         call(cpu, "rando_ensure", bank=RANDO_BANK)
         for s in range(9):
             bus.sram[ENEMY_IDS - 0x6000 + s] = ids[s] if s < len(ids) else 0xFF
@@ -16169,7 +16332,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_rangerows, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

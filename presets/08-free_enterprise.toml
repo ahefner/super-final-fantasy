@@ -2,8 +2,8 @@
 # (user) -- so without the party it builds by recruiting.  Not yet on the
 # cartridge: its alternate fiends and final boss, buffed Astos and Bahamut,
 # WarMECH guarding Tiamat, the guarded Masamune, better trap chests,
-# random loot, boss HP 80-240%, Thor's Hammer, the Black Shirt and the Power
-# Rod as incentives (docs/ffr-presets.md, 3.5).
+# random loot, Thor's Hammer, the Black Shirt and the Power Rod as
+# incentives (docs/ffr-presets.md, 3.5).
 name = "Free Enterprise"
 inherit = "Beginner"
 description = """
@@ -14,6 +14,8 @@ battles, and a casting item to start.
 [settings]
 "Gold and XP" = "300%"
 "Encounter rate" = "Off"
+"Boss HP min" = "75%"                   # FFR's 80-240%, to our 25% steps
+"Boss HP max" = "250%"
 "Short ToFR" = true
 "Starting caster item" = "AoE"          # FFR's StartingEquipmentRandomAoe
 "Trap tiles" = "B"

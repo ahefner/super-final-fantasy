@@ -71,7 +71,7 @@ and Floor Shuffle, CR Chaos Rush and FE Free Enterprise.
 |-----------------------|-------|--------------|---------|---------|---------|---------|
 | Gold and XP           | 200%¹ | 250%         | 250%    | 250%    | 500%    | 300%    |
 | Encounter rate        | 100%  | 60%²         | 60%     | 60%     | 30%     | Off     |
-| Enemy, boss stats     | 100%  | 100%³        | 100%³   | 100%³   | 100%³   | 100%³ ⁴ |
+| Enemy, boss stats and HP | 100% | 75-150%³   | 75-150%³ | 75-150%³ | 75-150%³ | 75-150%³ ⁴ |
 | Elemental bonus       | +4⁵   | +30          | +30     | +30     | +30     | +30     |
 | Auto retargeting      | off   | off          | off     | off     | off     | off     |
 | Bugfixes, all four    | on    | on           | on      | on      | on      | on      |
@@ -103,10 +103,13 @@ and Floor Shuffle, CR Chaos Rush and FE Free Enterprise.
    Our Improved was 100%; it changes to 200% (user, 2026-10-11).
 2. FFR has two rates: Beginner is 60% on the overworld and 70% in dungeons.
    Our dial has one.
-3. FFR rolls each enemy's stats between 70% and 150%, and its HP between 50%
-   and 150%.  Our dials are one fixed percentage each, HP included, so 100%
-   stands in.
-4. Free Enterprise also scales boss HP on its own, 80-240%.
+3. FFR rolls each enemy's stats between 70% and 150%, and its HP with them:
+   its HP range (50-150%) applies only with SeparateEnemyHPScaling, which
+   these presets leave off.  Our dials step by 25%, so 75-150%, stats and
+   HP rows alike (2026-10-31, the scaling rows; before them, one fixed
+   percentage, and 100% stood in).
+4. Free Enterprise also scales boss HP on its own, 80-240%
+   (SeparateBossHPScaling): 75-250% here, the nearest steps.
 5. FFR's Improved Vanilla has its "Weapon Type Bonus" checkbox off, so the
    +10 on its slider does nothing (`IncreaseWeaponBonus` returns early).
    Our Improved was +10, from misreading this as FFR's value; it changes
@@ -215,9 +218,11 @@ HARM.
 
 ### 3.3 Medium
 
-  - **Random-range values on the stat dials** (FFR's 70-150%, and HP
-    50-150%), in every randomized preset.  It needs a per-enemy roll into
-    the cache.
+  - **Random-range values on the stat dials** (FFR's 70-150%), in every
+    randomized preset: the scaling rows (2026-10-31, built, not yet
+    played), each enemy's rolls from the seed at each battle's load
+    rather than in the cache (options-design.md, "Enemy and Boss stat
+    scaling").
   - **Random shop prices, 30-250%** (`PriceScaleFactor`), in every
     randomized preset.  Each item's price is rolled into the cache.
   - **XP chests** (`ExpChestConversion` 20%), in every randomized preset.
@@ -270,8 +275,9 @@ HARM.
     where the rest of these would go.
   - Bahamut must be fought for the class change.
   - The Masamune is guaranteed, with a guardian.
-  - Better trap chests, random loot with High wealth, and boss HP scaled
-    80-240%.
+  - Better trap chests and random loot with High wealth.  Its boss HP,
+    80-240%, is the Boss HP rows' 75-250% (2026-10-31), which the preset
+    sets.
   - A random AoE-casting item at the start: Starting caster item's AoE
     (built 2026-10-29), which the preset sets.  It had stood in with the
     any-spell item until then.

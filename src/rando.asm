@@ -50,7 +50,7 @@
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
-.export rando_btlenemies
+.export rando_btlenemies, rando_dice
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
@@ -233,6 +233,7 @@ STREAM_ORDEALS  = $4F52444C     ; "ORDL"
 STREAM_KEYS     = $4B455953     ; "KEYS"
 STREAM_CASTER   = $43415354     ; "CAST": the starting caster item's one draw
 STREAM_ITEMMAGIC = $494D4147    ; "IMAG"
+STREAM_DICE     = $44494345     ; "DICE": each enemy's, the id XORed in (rando_dice)
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -5888,6 +5889,55 @@ rando_touch:
     TAX
     LDY a:wTOUCH, X
     LDA a:wTOUCH + 1, X
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_dice -- an enemy's rolls for the stat scaling
+;;
+;;  Where in each of the scaling's ranges the enemy falls, a byte per stat:
+;;  HP first, then the six others in opt_scalerecord's order.  The seed's and
+;;  the enemy's alone -- a stream of its own, the enemy id XORed into the
+;;  seed with STREAM_DICE, warmed up as every stream is -- so a Goblin is the
+;;  same Goblin all game, the same seed gives the same Goblins, and the dials
+;;  stay live: they decide only what a roll means (user, 2026-10-30).  Drawn
+;;  as each battle loads, never kept: seven bytes the cache need not hold.
+;;
+;;  In: A = the enemy id.  Out: OPTBTLDICE.  A, X, Y not kept.  By JSL,
+;;  emulation mode.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_dice:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    REP #$20
+    .a16
+    LDA $01, S
+    AND #$00FF
+    EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_DICE)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_DICE)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDX #$00
+  @die:
+    JSR xs_step                 ; A = the new low half: its low byte
+    SEP #$20
+    .a8
+    STA f:SRAMFAR + OPTBTLDICE, X
+    REP #$20
+    .a16
+    INX
+    CPX #7
+    BCC @die
+    SEP #$20
+    .a8
+    PLA
     JMP leave
 
 

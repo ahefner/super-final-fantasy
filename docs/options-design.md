@@ -1159,10 +1159,39 @@ it does the Ribbon's (`overlay_strays`), and `test_strayobjects` holds bank
 `$00` to those six bytes.  The world graph reads the cart, so it now has one
 fairy and one plate; the logic tables come out the same.
 
-### Scale (5)
+### Scale (11)
 
 Value rows, and the first section in the list: Gold + XP Scaling, Encounter
-Rate, Enemy Stats, Boss Stats, Elemental and Type Bonus.
+Rate, Enemy stats min and max, Enemy HP min and max, Boss stats min and
+max, Boss HP min and max, Elemental and Type Bonus.
+
+**The scaling's ranges (2026-10-31; built, not yet played).**  FFR's
+EnemyScaleStats, EnemyScaleHp, BossScaleStats and BossScaleHp are each a
+low and a high percentage, and so are the cart's four now: a row for the
+minimum and a maximum row under it, labelled min and max (user:
+'"up to" (or min/max) is more clear'; drafted as "up to", renamed min
+and max on the user's word, 2026-11-01), every row an ordinary dial of
+`lut_ValStat`'s 25% steps.  HP has
+its own rows, with no "Stats" value to follow the stats range (user: it
+"just makes the min/max UI logic that much more complex"): FFR gives HP its
+own roll either way, so HP rows set to the stats rows' numbers are FFR's
+default, SeparateHP off.  With the max at its min a range is the single
+value the dial was before.  The rows' bytes are the block's six after the
+starting items (`OPT_ENEMYTO` .. `OPT_BOSSHPTO`), `OPT_FORMAT` 10.  A max
+below its min counts as the min where the scaling reads it
+(`opt_statrange`).  **How the two rows hold each other** (2026-11-01,
+built for the user to judge in play: "I can judge the min/max adjustment
+behavior once I can test it").  The max is stored, not an excess over the
+min.  Left on a max stops at its min (`opt_range_floor`); right on a min
+that passes its max pushes the max up with it, and repaints the max's row,
+the one under it (`opt_range_push`).  Left on a min leaves its max where it
+is.  The pairs are `lut_RangeMin` / `lut_RangeMax`, each max's row right
+under its min's (`test_rangerows`).  The other way, an excess stored and
+the max dragged along by every move of the min, was the alternative
+offered.  A preset may not set a max below its min: `genpresets.resolve`
+refuses it.  The labels and descriptions are the user's approved text
+(2026-11-01: "Labels and descriptions look fine").  How the ranges scale:
+"Enemy and Boss stat scaling".
 
 **Decision: the dials come first, because of the paging.**  Left and right page
 the list by half a screen everywhere except on a value row, where they belong
@@ -1170,7 +1199,10 @@ to the value -- so a cursor sitting among the dials cannot page at all.  At the
 top of the list that costs nothing: the cursor starts on the heading, where
 left and right still page, and the first page lands well below them.  Anywhere
 else it would be a hole in the middle of the scrolling, in a position that
-moved every time a flag was added above it.
+moved every time a flag was added above it.  With the eleven dials of the
+scaling's ranges, the d-pad's first page from the heading lands on Boss HP
+min, where a second press steps it; left as it is (user, 2026-11-01: "this
+is why we use the l/r triggers for scrolling").
 
 **The shoulders page anywhere** (user, 2026-10-15: "the idiomatic SNES way to
 page through menus is using the left and right shoulder buttons").  L pages
@@ -2441,8 +2473,10 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 |---|---|---|---|---|
 | Gold + XP | 0-500% | 50% | 11 | 250% |
 | Encounter rate | see below | -- | 14 | 60% |
-| Enemy stats | 25-500% | 25% | 20 | 100% |
-| Boss stats | 25-500% | 25% | 20 | 100% |
+| Enemy stats min, max | 25-500% | 25% | 20 | 100%, 100% |
+| Enemy HP min, max | 25-500% | 25% | 20 | 100%, 100% |
+| Boss stats min, max | 25-500% | 25% | 20 | 100%, 100% |
+| Boss HP min, max | 25-500% | 25% | 20 | 100%, 100% |
 | Elemental bonus | +0 to +50 | 2 | 26 | +30 |
 | Trap tiles | Off, Shuffle, A, B, A+B | -- | 5 | Off |
 | Shops | Off, Shuffle | -- | 2 | Off |
@@ -2593,15 +2627,17 @@ addresses are not extents, and several buffers here are deliberately overlaid
 on each other because their scenes are mutually exclusive.  Coverage by a
 single name is the test, not absence of a name.
 
-Layout, 19 bytes of the 256:
+Layout, 25 bytes of the 256:
 
-    (at OPTBLOCK = $6E00, 19 of the 256 bytes available)
+    (at OPTBLOCK = $6E00, 25 of the 256 bytes available)
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
     flags       6    checkbox bits; 26-36 spare since format 9
-    scalars     7    gold/XP, encounter, enemy, boss, elemental, Thief hit,
-                     starting items -- step indices
+    scalars    13    gold/XP, encounter, enemy, boss, elemental, Thief hit,
+                     starting items, then the scaling's six ranges' (enemy
+                     stats max, enemy HP min and max, boss stats max, boss
+                     HP min and max) -- step indices
     respondrate 1    0-based
     checksum    1    sum forced to $FF, as the game's own save does
 
@@ -2620,7 +2656,8 @@ only the symbols' values.  Reset zeroes WRAM, and `opt_init` cooks `OPTD`
 and clears the poses every boot, as before.  The persistent layout did not
 move, so `OPT_FORMAT` stays 9 and every saved setting keeps.  Free on the
 page now: `$13-$C3` above the block (177 bytes) and `$E0-$FF` after
-`OPT_NG` (32), room for the scaling rows and more.  The tests' `blk` and
+`OPT_NG` (32), room for the scaling rows and more -- which took six,
+2026-10-31, so `$19-$C3` (171).  The tests' `blk` and
 `setblk` refuse an offset that moved (`pageoff`), and `work` / `setwork` read
 the work area by the same offsets.
 
@@ -2642,12 +2679,13 @@ The new-game bytes are covered by the checksum -- `opt_sum` adds them after the
 block's eighteen -- and cleared by every preset.  The pool is deliberately
 outside it: battery noise on a fresh cartridge is welcome there.
 
-`OPT_FORMAT` is 9.  It went to 3 when the flag word grew its fifth byte, to 4
+`OPT_FORMAT` is 10.  It went to 3 when the flag word grew its fifth byte, to 4
 when the elemental bonus became a dial and needed a fifth scalar, to 5 when
 the checksum took in the new-game bytes, to 6 when Thief hit growth became a
 sixth scalar, to 7 when the starting items took a seventh, to 8 when the
 flag word grew its sixth byte, and to 9 when the Free items left the flag
-word (bits 26-36 spare; Short ToFR took 26 on 2026-10-19) for the key item rows; each bump
+word (bits 26-36 spare; Short ToFR took 26 on 2026-10-19) for the key item rows, and to 10
+when the scaling's six range scalars came (2026-10-31); each bump
 costs a cartridge its saved settings once, on the first boot after.  The Shops, Chests, Magic,
 gear and Map shuffle bytes did not bump it:
 an appended byte whose zero means off reads correctly in an older block, and
@@ -2674,7 +2712,7 @@ The checksum scheme is modelled on the game's own at
 
 **Decision: scratch above the checksum is initialized at boot, and any byte
 that outlives the routine writing it is treated as hostile until proven
-otherwise.**  `OPT_SIZE` is `$13`, so only the settings are covered by the
+otherwise.**  `OPT_SIZE` is `$19` (`$13` until 2026-10-31), so only the settings are covered by the
 checksum -- everything from `OPTBLOCK+$13` up was working storage that
 happened to live in SRAM (in low WRAM, `OPTWORK`, since 2026-10-30).  That is fine for per-call scratch, which every routine writes
 before it reads.  It is not fine for a byte whose lifetime spans screens.
@@ -3455,21 +3493,47 @@ the worst flush ending at scanline 255 of 262.
     (`ExpGoldBoost`, `ScalePrices`), so its rewards stay the vanilla
     game's size.  `test_goldxp` holds the peg, `test_eobreward` the printer
     over the digit boundaries, the old edge and the top of the range.
-  - **Enemy and Boss stat scaling** -- `opt_scaleenemies`, reproducing
-    FFR's `RangeScale` exactly: with low equal to high the random exponent
-    drops out and the result is `value * (1 + (p-1) * adj)`, rounded half to
-    even because C#'s `Math.Round` is.  Since 2026-10-30 (the plan for the
-    scaling rows, user: "scale them just in time"; built, not yet played)
-    it scales each kind's
-    record in the battle's copies once at the load -- HP, absorb, evade,
-    damage, hits, hit% and crit% -- and copies every enemy's RAM stats from
-    it, so max HP (as a spell lands, and Boss tactics) is scaled too, as
-    FFR's rewritten ROM is.  A kind whose own dial is 100% is left as it
-    is, as FFR returns early for each group (`ScaleEnemyStats`,
-    `ScaleBossStats`) -- which matters only for the hits floor: a record of
-    0 hits stays 0 there, and none in the cartridge has.  `opt_scaleatk`
-    scaled hits, hit% and crit% at every attack until then; it keeps the
-    touch and Weapon Stats.
+  - **Enemy and Boss stat scaling** -- `opt_scaleenemies`, FFR's
+    `RangeScale`.  Since 2026-10-30 (the plan for the scaling rows, user:
+    "scale them just in time") it scales each kind's record in the
+    battle's copies once at the load -- HP, absorb, evade, damage, hits,
+    hit% and crit% -- and copies every enemy's RAM stats from it, so max HP
+    (as a spell lands, and Boss tactics) is scaled too, as FFR's rewritten
+    ROM is.  `opt_scaleatk` scaled hits, hit% and crit% at every attack
+    until then; it keeps the touch and Weapon Stats.
+
+    **Ranges (2026-10-31; built, not yet played).**  Each stat of each kind
+    is drawn between its group's range for it (`opt_statrange`: Boss stats
+    and Boss HP for the thirteen, Enemy stats and Enemy HP for the rest),
+    log-evenly as FFR draws (user: log-scale), by the enemy's roll for that
+    stat.  The rolls are the seed's and the enemy's alone (`rando_dice`:
+    the enemy id XORed into the seed with `STREAM_DICE`, warmed, seven
+    draws, HP's first), drawn into `OPTBTLDICE` as each kind loads and
+    never kept, so the dials stay live and decide only what a roll means
+    (user, 2026-10-30, "So the cached monster stats would be the base
+    stats, and we'd scale them 'just in time'"): a Goblin is the same all
+    game, the same seed gives the same Goblins, and a dial changed on the
+    title moves every enemy within the new range by the same rolls.  The
+    arithmetic (`opt_scalestat`, native mode, 16-bit): the factor is
+    lo * (hi/lo)^(u/256) in 4.12 fixed point -- log2(hi/lo) from
+    `lut_StatLog` in 1/256ths of an octave, times the roll, its fraction's
+    power of two from `lut_StatExp` -- then FFR's adjustment (1 + (s-1)*adj
+    above 1, 1 - (1-s)*adj below; adj 1, 1/2 or 1/4, a shift), the value
+    times that rounded half to even as C#'s `Math.Round`, and the clamp.
+    With hi equal to lo the factor is exactly lo, n/4, so a single value
+    scales exactly as the dials did.  Over a range it is FFR's to within
+    the grain of a 256-step roll and a 1/256-octave exponent, under 0.3% of
+    the factor, where FFR's 32-bit draw is continuous.  A group whose four
+    numbers are all 100% is left as it is, as FFR returns early for each
+    group (`ScaleEnemyStats`, `ScaleBossStats`) -- which matters only for
+    the hits floor: a record of 0 hits stays 0 there, and none in the
+    cartridge has.  `test_statscale` holds the ROM's tables and every case
+    to `randoref.py`'s `stat_scale`, a single value to FFR's exact rational
+    and a range to FFR's floating `RangeScale`; `test_scaleenemies` holds
+    each slot's record and RAM stats to `randoref.scale_record` with the
+    enemy's `enemy_dice`, HP's range apart from the stats', the clamps, a
+    max below its min, and two enemies alike but for their ids
+    coming out apart.
   - **Repeated Potion Use** -- `opt_usedpotion`.
   - **Buy Quantity** -- `OptShopConfirmQty` and its loop in the fixed bank,
     with the arithmetic in `opt_shopmax` / `opt_shopscale`.
@@ -3790,7 +3854,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    6675 free   the settings screen's engine and rows (6695)
+    BANK_OPT    5710 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -3822,17 +3886,24 @@ text region in the game references.
                              removed 2026-10-24),
                              and Short ToFR's row (32; its code went to the
                              randomizer's chunk), and the scaling moved
-                             onto the battle's records (101, 2026-10-30) --
-                             the next feature with much code goes to a
-                             chunk of its own, as Boss tactics did
-    BANK_OPTTEXT  1199 free  the settings screen's descriptions (measured
+                             onto the battle's records (101, 2026-10-30),
+                             and the scaling's ranges (739: opt_scalestat,
+                             its log and exponential tables, 552 of it,
+                             opt_statrange; ld65's map read 6449 before
+                             them, 2026-10-31) -- the next feature with
+                             much code goes to a chunk of its own, as Boss
+                             tactics did
+    BANK_OPTTEXT  1172 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
                              Boss tactics' three 432, the NUKE Stick's 115,
                              the starting caster item's 115 (236 with
                              AoE's three by value, 2026-10-29), Pirates'
-                             three 124 (2026-10-30), Thief
+                             three 124 (2026-10-30), the scaling's ranges'
+                             three and six pointers 267 (ld65's map read
+                             1411 before them, 2026-10-31; 239 once the
+                             max rows' text lost a line, 2026-11-01), Thief
                              lockpicking's 115, Item magic's 115, Map
                              edits' three 348 (freed 2026-10-24), Short
                              ToFR's 143
@@ -3841,7 +3912,7 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   1131 free  the randomizer (measured 2026-10-28); the Ordeals pillars took 622,
+    BANK_RANDO   1072 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3895,7 +3966,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  4199 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3568 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -3903,7 +3974,11 @@ text region in the game references.
                              tiles, 1024 of nametable; measured
                              2026-10-22); it reaches opt_commit by JSL now;
                              the Seed Summary 1264 (sumscreen.asm,
-                             2026-10-27)
+                             2026-10-27); the scaling's six rows 234
+                             (ld65's map read 3904 before them,
+                             2026-10-31); min and max held together 102
+                             (opt_range_floor and opt_range_push, a
+                             listing's count, 2026-11-01)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

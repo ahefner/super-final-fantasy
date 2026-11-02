@@ -165,15 +165,32 @@ lut_Desc_23:  ; Encounter rate
 
 lut_Desc_24:  ; Enemy stats
   FFLINES 3
-  FFPAD {"Scales HP, damage, defense"}, 28
-  FFPAD {"and accuracy for ordinary"}, 28
+  FFPAD {"Scales damage, defense and"}, 28
+  FFPAD {"accuracy for ordinary"}, 28
+  FFPAD {"enemies."}, 28
+
+lut_Desc_106:  ; Enemy HP
+  FFLINES 2
+  FFPAD {"Scales HP for ordinary"}, 28
   FFPAD {"enemies."}, 28
 
 lut_Desc_25:  ; Boss stats
   FFLINES 3
-  FFPAD {"Scales HP, damage, defense"}, 28
-  FFPAD {"and accuracy for the"}, 28
-  FFPAD {"thirteen bosses."}, 28
+  FFPAD {"Scales damage, defense and"}, 28
+  FFPAD {"accuracy for the thirteen"}, 28
+  FFPAD {"bosses."}, 28
+
+lut_Desc_107:  ; Boss HP
+  FFLINES 2
+  FFPAD {"Scales HP for the thirteen"}, 28
+  FFPAD {"bosses."}, 28
+
+lut_Desc_105:  ; max, under each of the four mins
+  FFLINES 4
+  FFPAD {"Each kind of enemy is"}, 28
+  FFPAD {"scaled by a random amount"}, 28
+  FFPAD {"between the min and the max."}, 28
+  FFPAD {"The seed sets the amount."}, 28
 
 lut_Desc_26:  ; Better Thief and Ninja
   FFLINES 5
@@ -1089,7 +1106,8 @@ lut_DescCustom:  ; Custom Game
 ;  One pointer per list row, so a blank row needs no special case.
 lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_45, <lut_DescBlank, <lut_Desc_22, <lut_Desc_23, <lut_Desc_24
-  .BYTE <lut_Desc_25, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0, <lut_DescBlank, <lut_Desc_3
+  .BYTE <lut_Desc_105, <lut_Desc_106, <lut_Desc_105
+  .BYTE <lut_Desc_25, <lut_Desc_105, <lut_Desc_107, <lut_Desc_105, <lut_Desc_28, <lut_DescBlank, <lut_Desc_0, <lut_DescBlank, <lut_Desc_3
   .BYTE <lut_Desc_4, <lut_Desc_5, <lut_Desc_6, <lut_Desc_7, <lut_Desc_8, <lut_Desc_9
   .BYTE <lut_Desc_10, <lut_Desc_11, <lut_Desc_12, <lut_Desc_13, <lut_Desc_14, <lut_Desc_15
   .BYTE <lut_Desc_16, <lut_Desc_17, <lut_Desc_69, <lut_Desc_70, <lut_DescBlank, <lut_Desc_1
@@ -1112,7 +1130,8 @@ lut_DescLoEnd:
 .assert lut_DescLoEnd - lut_DescLo = OPTROW_COUNT, error, "one description pointer per row"
 lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_45, >lut_DescBlank, >lut_Desc_22, >lut_Desc_23, >lut_Desc_24
-  .BYTE >lut_Desc_25, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0, >lut_DescBlank, >lut_Desc_3
+  .BYTE >lut_Desc_105, >lut_Desc_106, >lut_Desc_105
+  .BYTE >lut_Desc_25, >lut_Desc_105, >lut_Desc_107, >lut_Desc_105, >lut_Desc_28, >lut_DescBlank, >lut_Desc_0, >lut_DescBlank, >lut_Desc_3
   .BYTE >lut_Desc_4, >lut_Desc_5, >lut_Desc_6, >lut_Desc_7, >lut_Desc_8, >lut_Desc_9
   .BYTE >lut_Desc_10, >lut_Desc_11, >lut_Desc_12, >lut_Desc_13, >lut_Desc_14, >lut_Desc_15
   .BYTE >lut_Desc_16, >lut_Desc_17, >lut_Desc_69, >lut_Desc_70, >lut_DescBlank, >lut_Desc_1

@@ -195,13 +195,26 @@ OPT_THIEFHIT    = OPTBLOCK+$0F  ; the sixth: Thief and Ninja hit growth, which
                                 ;   writes them: opt_loadpreset copies from
                                 ;   OPT_FLAGS up to OPT_RESPOND.
 OPT_STARTITEMS  = OPTBLOCK+$10  ; the seventh: which of FFR's starting sets
-OPT_RESPOND     = OPTBLOCK+$11  ; 0-based, so the default 8 is stored as 7
-OPT_CKSUM       = OPTBLOCK+$12
-OPT_SIZE        = $13
+;  The scaling's ranges (user, 2026-10-31): Enemy stats and Boss stats above
+;  are each a range's min, and these the rest -- each max, and HP's
+;  own range for each group, as FFR's EnemyScaleHp and BossScaleHp.  Steps
+;  of lut_ValStat, as the two minimums are.
+OPT_ENEMYTO     = OPTBLOCK+$11  ; Enemy stats max
+OPT_ENEMYHP     = OPTBLOCK+$12  ; Enemy HP min
+OPT_ENEMYHPTO   = OPTBLOCK+$13  ; Enemy HP max
+OPT_BOSSTO      = OPTBLOCK+$14  ; Boss stats max
+OPT_BOSSHP      = OPTBLOCK+$15  ; Boss HP min
+OPT_BOSSHPTO    = OPTBLOCK+$16  ; Boss HP max
+OPT_RESPOND     = OPTBLOCK+$17  ; 0-based, so the default 8 is stored as 7
+OPT_CKSUM       = OPTBLOCK+$18
+OPT_SIZE        = $19
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $09           ; bumped from $08: the Free items left the
+OPT_FORMAT      = $0A           ; bumped from $09: the scaling's six range
+                                ; scalars, so the respond rate and checksum
+                                ; moved up six.
+                                ; Bumped from $08: the Free items left the
                                 ; flag word for the new-game rows, which grew
                                 ; by the key item rows, packed (RANDO_KEYITEMS).
                                 ; Bumped from $07: the flag word took a
@@ -833,26 +846,20 @@ OPTSHOPTY       = OPTWORK+$2E
 OPTSHOPQX       = OPTWORK+$2F  ; the count, in the command box
 OPTSHOPQY       = OPTWORK+$30
 
-;  Enemy/boss stat scaling.  FFR's RangeScale, with one percentage rather than
-;  a range, reduces to  value * (1 + (p-1)*adj)  -- the random exponent drops
-;  out when low and high are equal.  Our steps are 25% apart, so p = n/4 and
-;  every scale is an exact fraction:
-;
-;      adjustment 1.00 (HP, evade, hit%)          n / 4
-;      adjustment 0.50 (absorb, hits, crit%)    (n+4) / 8
-;      adjustment 0.25 (damage)                (n+12) / 16
-;
-;  n is the step index plus one, so STAT_100 (3) gives n=4 and every fraction
-;  is 1 -- which is FFR's "100% changes nothing" early exit, for free.
-OPTSTATV        = OPTWORK+$32  ; 2 bytes: the value being scaled
-OPTSTATNUM      = OPTWORK+$34  ; numerator
-OPTSTATSH       = OPTWORK+$35  ; log2 of the denominator
-OPTSTATACC      = OPTWORK+$36  ; 3 bytes of accumulator
-OPTSTATN        = OPTWORK+$39  ; n for whichever of the two settings applies
-OPTSTATSLOT     = OPTWORK+$3A  ; which enemy slot the scaling loop is on
-OPTSTATREM      = OPTWORK+$3B  ; remainder, for rounding half to even
-OPTSTATHALF     = OPTWORK+$3C
-OPTSTATMASK     = OPTWORK+$3D
+;  Enemy/boss stat scaling (opt_scalestat): FFR's RangeScale, a factor drawn
+;  log-evenly between a range's two percentages, then moved toward 1 by the
+;  stat's adjustment.  The draw is the enemy's roll for the stat
+;  (OPTBTLDICE), so the seed decides where in the range an enemy falls and
+;  the dials decide the range (user, 2026-10-30).
+OPTSTATV        = OPTWORK+$32  ; 2 bytes: the value being scaled, and the result
+OPTSTATP        = OPTWORK+$34  ; 4 bytes: a product (opt_mul16)
+OPTSTATMD       = OPTWORK+$38  ; 2 bytes: its multiplicand
+OPTSTATSLOT     = OPTWORK+$3A  ; which enemy slot or kind the scaling loop is on
+OPTSTATLO       = OPTWORK+$3B  ; the range being applied: its minimum's step...
+OPTSTATHI       = OPTWORK+$3C  ; ...and its maximum's
+OPTSTATU        = OPTWORK+$3D  ; the roll, 0..255: where in the range
+OPTSTATJ        = OPTWORK+$3E  ; the adjustment as a right shift: 0 for FFR's
+                                ;   1.00, 1 for 0.50, 2 for 0.25
 OPTFB_OPENCHESTS = OPT_FLAGS+0
 OPTFM_OPENCHESTS = $20   ; bit 5
 
@@ -884,8 +891,6 @@ OPTFIXANY       = OPTWORK+$3F
 ;  keeps it here while it works out what to prompt for.
 btlmag_spellindex = $6B7D
 
-OPTSTATOVF      = OPTWORK+$3E  ; bits 16-23 of the product: HP can
-                                ;   exceed 16 bits before it is clamped
 
 ;  Which page of the battle magic list is showing, 0 or 1.  The disassembly
 ;  writes it as a bare address; it is named here because the option code needs
@@ -1574,6 +1579,12 @@ OPTBTLENEMIES   = OPTDESC
 BTL_KINDS       = 4
 OPTBTLKIND      = OPTWORK+$C4   ; 4: each record's enemy, for the scaling...
 OPTBTLNKIND     = OPTWORK+$C8   ; ...and how many kinds the battle has
+OPTBTLDICE      = OPTWORK+$C9   ; 7: the kind being scaled's rolls (rando_dice),
+                                ;   HP's first, then the record's other six
+OPTBTLRANGE     = OPTWORK+$D0   ; 4: its group's ranges' steps: stats from and
+                                ;   to, then HP from and to
+OPTSTATCAP      = OPTWORK+$D4   ; 2: the stat's clamp
+OPTSTATREC      = OPTWORK+$D6   ; the kind's record, an offset into OPTBTLENEMIES
 .assert BTL_KINDS * ENEMY_RECORD <= OPTDESC_MAX, error, "the battle's enemy records overflow OPTDESC"
 
 ;  Flags this file reads.  The bit numbers are the menu's row order, which is

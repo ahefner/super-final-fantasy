@@ -16,7 +16,7 @@ Run it to see a world without playing it:
 
 It reads the cartridge's tables from the built ROM, so build first.
 """
-import argparse, os, sys
+import argparse, math, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -54,6 +54,7 @@ STREAM_ORDEALS = 0x4F52444C     # "ORDL"
 STREAM_KEYS = 0x4B455953        # "KEYS"
 STREAM_CASTER = 0x43415354      # "CAST"
 STREAM_ITEMMAGIC = 0x494D4147   # "IMAG"
+STREAM_DICE = 0x44494345        # "DICE": each enemy's, the id XORed in
 WARMUP = 8
 
 
@@ -705,6 +706,70 @@ def build_enemies(rom, pirates=PIRATES_OFF):
     if pirates:
         for off, v in PIRATE_BUFF:
             r[PIRATES * 20 + off] = v
+    return bytes(r)
+
+
+# --- the stat scaling (optbank.asm's opt_scalestat) -------------------------
+#  The dials' steps are (s+1)/4, 25% to 500%; STAT_100 is 100%.  A range's
+#  factor is lo * (hi/lo)^(u/256) for the enemy's roll u, in 4.12 fixed point,
+#  then moved toward 1 by the stat's adjustment (a right shift: 0, 1, 2 for
+#  FFR's 1.00, 0.50, 0.25), and the value times it rounded half to even.
+STAT_STEPS, STAT_100 = 20, 3
+STAT_LOG = [round(256 * math.log2((st + 1) / 4)) for st in range(STAT_STEPS)]
+STAT_EXP = [round(32768 * 2 ** (f / 256)) for f in range(256)]
+#  The record's stats in the rolls' order: offset, adjustment, clamp, floor.
+#  HP is a word and takes the HP range; the six bytes take the stats range.
+SCALE_HP = (4, 0, 0x7FFF, 0)
+SCALE_BYTES = ((0x09, 1, 0xFF, 0), (0x08, 0, 0xF0, 0), (0x0C, 2, 0xFF, 0),
+               (0x0A, 1, 0xFF, 1), (0x0B, 0, 0xFF, 0), (0x0D, 1, 0xFF, 0))
+
+
+def enemy_dice(seed, enemy):
+    """An enemy's seven rolls (rando_dice): HP's, then SCALE_BYTES'."""
+    rng = Stream(seed ^ enemy, STREAM_DICE)
+    out = []
+    for _ in range(7):
+        rng.s = xs32(rng.s)
+        out.append(rng.s & 0xFF)
+    return out
+
+
+def stat_factor(lo, hi, u):
+    """The range's factor at roll u, 4.12: lo exactly when hi is lo."""
+    e = ((STAT_LOG[hi] - STAT_LOG[lo]) * u) >> 8
+    return ((lo + 1) * STAT_EXP[e & 0xFF]) >> (5 - (e >> 8))
+
+
+def stat_scale(v, lo, hi, u, adj, cap):
+    """One stat scaled, as opt_scalestat: adjusted, rounded, clamped."""
+    s = stat_factor(lo, hi, u)
+    a = 0x1000 + ((s - 0x1000) >> adj) if s >= 0x1000 else 0x1000 - ((0x1000 - s) >> adj)
+    p = v * a
+    q, r = p >> 12, p & 0xFFF
+    if r > 0x800 or (r == 0x800 and q & 1):
+        q += 1
+    return min(q, cap)
+
+
+def stat_ranges(steps):
+    """A group's four steps (stats min, max; HP min, max), each max no
+    lower than its min, as opt_statrange leaves them."""
+    slo, shi, hlo, hhi = steps
+    return slo, max(slo, shi), hlo, max(hlo, hhi)
+
+
+def scale_record(rec, steps, dice):
+    """A record (20 bytes) as a battle's load scales it (opt_scalerecord):
+    unchanged when all four steps are 100%, FFR's per-group early return."""
+    if all(st == STAT_100 for st in steps):
+        return bytes(rec)
+    slo, shi, hlo, hhi = stat_ranges(steps)
+    r = bytearray(rec)
+    off, adj, cap, _ = SCALE_HP
+    hp = stat_scale(r[off] | r[off + 1] << 8, hlo, hhi, dice[0], adj, cap)
+    r[off], r[off + 1] = hp & 0xFF, hp >> 8
+    for (off, adj, cap, floor), u in zip(SCALE_BYTES, dice[1:]):
+        r[off] = max(stat_scale(r[off], slo, shi, u, adj, cap), floor)
     return bytes(r)
 
 

@@ -22,7 +22,7 @@ OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
 .include "presetcount.inc"      ; NGP_COUNT, from presets/*.toml
-OPTROW_SETTINGS = 114           ; the settings, the randomization and the key items
+OPTROW_SETTINGS = 120           ; the settings, the randomization and the key items
 NGROW_HEAD    = OPTROW_SETTINGS ; then the New Game list: two blanks,
 NGROW_CUSTOM  = NGROW_HEAD + 2  ;   Custom Game, and a row per preset
 OPTROW_COUNT  = NGROW_CUSTOM + 1 + NGP_COUNT
