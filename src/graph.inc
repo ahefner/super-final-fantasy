@@ -29,13 +29,13 @@ ES_VANILLA_SM_N  = 40
 .global lut_GrSrcId, lut_GrSrcReq, lut_GrLandX, lut_GrLandY
 .global lut_GrLandMap, lut_GrLandRoom, lut_GrLandOff, lut_GrLandNodes
 .global lut_GrExitX, lut_GrExitY, lut_GrExitOff, lut_GrExitNodes
-.global lut_GrLocOff, lut_GrLocNodes, lut_GrLocReq, lut_GrEntIds
-.global lut_GrOwNode, lut_GrDockOff, lut_GrDockNodes, lut_GrDockCondOn
-.global lut_GrDockCondOff, lut_GrEntWalk, lut_GrEntFly, lut_EsRecLoc
-.global lut_EsRecLand, lut_EsRecExit, lut_EsRecFlags, lut_EsRecTeleOff
-.global lut_EsRecTeles, lut_EsEnter, lut_EsTele, lut_EsTowns
-.global lut_EsTop, lut_EsFreeOw, lut_EsFreeSm, lut_EsIcecaveLoop
-.global lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord, lut_EsKeepCardia
-.global lut_EsOwCoordCardia, lut_EsStarter, lut_EsSafe, lut_EsConnected
-.global lut_EsStarting, lut_EsDanger, lut_EsVanEnt, lut_EsVanNorm
-.global lut_EsVanExit
+.global lut_GrLocOff, lut_GrLocNodes, lut_GrSaraOff, lut_GrLocReq
+.global lut_GrEntIds, lut_GrOwNode, lut_GrDockOff, lut_GrDockNodes
+.global lut_GrDockCondOn, lut_GrDockCondOff, lut_GrEntWalk, lut_GrEntFly
+.global lut_EsRecLoc, lut_EsRecLand, lut_EsRecExit, lut_EsRecFlags
+.global lut_EsRecTeleOff, lut_EsRecTeles, lut_EsEnter, lut_EsTele
+.global lut_EsTowns, lut_EsTop, lut_EsFreeOw, lut_EsFreeSm
+.global lut_EsIcecaveLoop, lut_EsVanillaOw, lut_EsVanillaSm, lut_EsOwCoord
+.global lut_EsKeepCardia, lut_EsOwCoordCardia, lut_EsStarter, lut_EsSafe
+.global lut_EsConnected, lut_EsStarting, lut_EsDanger, lut_EsVanEnt
+.global lut_EsVanNorm, lut_EsVanExit

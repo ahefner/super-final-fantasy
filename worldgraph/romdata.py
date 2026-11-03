@@ -169,15 +169,36 @@ _MAPOBJ = bank0(0xB400, MAP_COUNT * 0x30)
 OBJ_INROOM, OBJ_STATIONARY = 0x80, 0x40
 
 
-def map_objects(m):
-    """The 15 object slots of map m: (id, x, y, flags), skipping empty ones."""
+def map_objects(m, sara=0):
+    """The 15 object slots of map m: (id, x, y, flags), skipping empty ones.
+    `sara` (Rebellious Princess's spot, PRINCESS_SPOTS) moves the kidnapped
+    princess: off the Temple of Fiends, and onto her spot's map."""
     out = []
     for s in range(15):
         o = m * 0x30 + s * 3
         oid, xf, y = _MAPOBJ[o], _MAPOBJ[o + 1], _MAPOBJ[o + 2]
-        if oid:
+        if oid and not (sara and oid == OBJID_PRINCESS1):
             out.append((oid, xf & 0x3F, y & 0x3F, xf & 0xC0))
+    if sara and PRINCESS_SPOTS[sara][1] == m:
+        _, _, x, y, flags = PRINCESS_SPOTS[sara]
+        out.append((OBJID_PRINCESS1, x, y, flags))
     return out
+
+
+#  Rebellious Princess (user, 2026-11-02, rebellious-princess.txt): where the
+#  kidnapped princess may be, the vanilla first.  (name, map, x, y, flags):
+#  standing, in a room where the room is one.
+OBJID_PRINCESS1 = 0x03
+PRINCESS_SPOTS = [
+    ("Temple of Fiends", 12, 20, 18, 0xC0),     # Garland's: vanilla
+    ("Dwarf Cave", 19, 8, 2, 0xC0),             # next to the Smith (user)
+    ("Elfland Castle", 9, 6, 5, 0xC0),          # with the sleeping prince
+    ("Crescent Lake", 4, 39, 7, 0x40),          # in the sages' circle
+    ("Sarda's Cave", 21, 8, 2, 0xC0),           # on the chair (user)
+    ("Cardia", 16, 28, 16, 0x40),               # the cave by Bahamut's
+    ("Pravoka", 1, 6, 7, 0x40),                 # by Bikke
+    ("Melmond", 3, 17, 12, 0x40),               # in the middle of town
+]
 
 
 def talk_routines():

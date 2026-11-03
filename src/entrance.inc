@@ -72,6 +72,8 @@ esGONE  = .LOWORD(ES_VARS) + $62    ; 4: rando_winnable's: the removed items' bi
 esHAVE  = .LOWORD(ES_VARS) + $66    ; 4: ...what is held...
 esPLCD  = .LOWORD(ES_VARS) + $6A    ; ...nonzero under Key items Standard or Wide
 esNREACH = .LOWORD(ES_NREACH)       ; ...and the incentive spots reached
+esS     = .LOWORD(ES_VARS) + $6E    ; Rebellious Princess's spot being worked out
+.assert esS + 2 <= .LOWORD(ES_WORDSEND), error, "esS runs past ES_VARS"
 .assert esNREACH = .LOWORD(ES_VARS) + $6C, error, "ES_NREACH follows esPLCD"
 .assert esNREACH + 2 <= .LOWORD(ES_WORDSEND), error, "entrance shuffle's words run past ES_VARS"
 
@@ -94,6 +96,10 @@ eNREQ   = .LOWORD(ES_NREQ)
 eQUEUE  = .LOWORD(ES_QUEUE)
 eQD     = .LOWORD(ES_QD)
 eTMP    = .LOWORD(ES_TMP)
+eSARAM  = .LOWORD(ES_SARAM)
+eSARAN  = .LOWORD(ES_SARAN)
+esSARAON = .LOWORD(RW_SARAON)
+.assert ES_REQ + GR_NODES * ES_NODEMAX * 4 <= ES_SARAM, error, "ES_REQ runs into ES_SARAM"
 eMASK   = .LOWORD(RP_MASK)
 eMOFF   = .LOWORD(RP_MOFF)
 eCHAOS  = .LOWORD(RP_CHAOS)
@@ -1699,8 +1705,30 @@ es_locmasks:
     AND a:esOWN + 2
     STA a:esOWN + 2
   @own:
-    ;  Its regions' masks, each with its own, merged.
+    ;  Its regions' masks, each with its own, merged -- the princess's
+    ;  event's, with Rebellious Princess, at every one of her spots while
+    ;  pl_sara builds (RW_SARAON: es_saraspots), or at the one RW_SARALOG
+    ;  while rando_winnable tries it (lut_GrSaraOff).
     STZ a:esNT
+    LDA a:esLOC
+    CMP #LOGIC_PRINCESS
+    BNE @locnodes
+    LDA a:esSARAON
+    AND #$00FF
+    BEQ :+
+    JSR es_saraspots
+    BRA @gathered
+:   LDA a:esSARALOG
+    AND #$00FF
+    BEQ @locnodes
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrSaraOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrSaraOff, X
+    STA a:esLI
+    BRA @node
+  @locnodes:
     LDA a:esLOC
     ASL A
     TAX
@@ -1709,39 +1737,7 @@ es_locmasks:
     LDA f:LOGICFAR + lut_GrLocOff, X
     STA a:esLI
   @node:
-    LDA a:esLI
-    CMP a:esLE
-    BCS @gathered
-    TAX
-    LDA f:LOGICFAR + lut_GrLocNodes, X
-    AND #$00FF
-    TAX
-    LDA a:eNREQ, X
-    AND #$00FF
-    STA a:esK
-    TXA
-    JSR es_reqaddr
-    STA a:esQ
-  @mask:
-    LDA a:esK
-    BEQ @nextnode
-    DEC a:esK
-    LDX a:esQ
-    LDA a:0, X
-    ORA a:esOWN
-    STA a:esC
-    LDA a:2, X
-    ORA a:esOWN + 2
-    STA a:esC + 2
-    TXA
-    CLC
-    ADC #4
-    STA a:esQ
-    JSR es_insert
-    BRA @mask
-  @nextnode:
-    INC a:esLI
-    JMP @node
+    JSR es_regmasks
   @gathered:
     LDA a:esLOC
     CMP #GR_LOCS - 1
@@ -1811,9 +1807,145 @@ es_locmasks:
     JMP @loc
 
 
+;;  The masks of the regions lut_GrLocNodes lists from esLI to esLE, each
+;;  with esOWN, merged into ES_TMP (esNT).  A16, I16.
+es_regmasks:
+    .a16
+    .i16
+  @node:
+    LDA a:esLI
+    CMP a:esLE
+    BCS @done
+    TAX
+    LDA f:LOGICFAR + lut_GrLocNodes, X
+    AND #$00FF
+    TAX
+    LDA a:eNREQ, X
+    AND #$00FF
+    STA a:esK
+    TXA
+    JSR es_reqaddr
+    STA a:esQ
+  @mask:
+    LDA a:esK
+    BEQ @nextnode
+    DEC a:esK
+    LDX a:esQ
+    LDA a:0, X
+    ORA a:esOWN
+    STA a:esC
+    LDA a:2, X
+    ORA a:esOWN + 2
+    STA a:esC + 2
+    TXA
+    CLC
+    ADC #4
+    STA a:esQ
+    JSR es_insert
+    BRA @mask
+  @nextnode:
+    INC a:esLI
+    BRA @node
+  @done:
+    RTS
+
+;;  Rebellious Princess, while pl_sara builds (RW_SARAON): the princess's
+;;  event's masks at each of her spots -- its region's (lut_GrSaraOff), with
+;;  her own requirement, esOWN -- into ES_SARAM, SARA_SPOTMAX places each,
+;;  0 past the spot's own, and how many into ES_SARAN; then Garland's again
+;;  in ES_TMP, padded with SARA_NEVER to SARA_SLOT, for her place in
+;;  RP_MASK, which placement fills with the spot it tries (pl_sarause).
+;;  Each spot is one region, so its masks fit the slot (gengraph.py).
+;;  A16, I16.
+es_saraspots:
+    .a16
+    .i16
+    LDA #SARA_SPOTS - 1
+    STA a:esS
+  @spot:
+    STZ a:esNT
+    LDA a:esS
+    ASL A
+    TAX
+    LDA f:LOGICFAR + lut_GrSaraOff + 2, X
+    STA a:esLE
+    LDA f:LOGICFAR + lut_GrSaraOff, X
+    STA a:esLI
+    JSR es_regmasks
+    LDA a:esS                   ; its slot: esS * SARA_SPOTMAX * 4
+    ASL A
+    ASL A
+    ASL A
+    STA a:esK
+    ASL A
+    CLC
+    ADC a:esK
+    TAY
+    LDX #$0000
+  @copy:
+    CPX #SARA_SPOTMAX * 4
+    BCS @copied
+    TXA
+    LSR A
+    LSR A
+    CMP a:esNT
+    BCC :+
+    LDA #0                      ; past its own: 0, which names no bit
+    STA a:eSARAM, Y
+    STA a:eSARAM + 2, Y
+    BRA @next
+:   LDA a:eTMP, X
+    STA a:eSARAM, Y
+    LDA a:eTMP + 2, X
+    STA a:eSARAM + 2, Y
+  @next:
+    INX
+    INX
+    INX
+    INX
+    INY
+    INY
+    INY
+    INY
+    BRA @copy
+  @copied:
+    LDX a:esS
+    SEP #$20
+    .a8
+    LDA a:esNT
+    STA a:eSARAN, X
+    REP #$20
+    .a16
+    DEC a:esS
+    BPL @spot
+    LDA a:esNT                  ; Garland's, the last gathered, padded
+    ASL A
+    ASL A
+    TAX
+  @pad:
+    CPX #SARA_SLOT * 4
+    BCS @padded
+    LDA #.LOWORD(SARA_NEVER)
+    STA a:eTMP, X
+    LDA #.HIWORD(SARA_NEVER)
+    STA a:eTMP + 2, X
+    INX
+    INX
+    INX
+    INX
+    BRA @pad
+  @padded:
+    LDA #SARA_SLOT
+    STA a:esNT
+    RTS
+.assert SARA_SPOTMAX * 4 = 24, error, "es_saraspots takes a slot's offset as esS * 24"
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  es_bybit -- placement's index of the masks: for each bit, the locations
-;;  whose masks name it, in order.  Out: C set if it does not fit
+;;  whose masks name it, in order.  Rebellious Princess's slot (RW_SARAON)
+;;  is padded with SARA_NEVER, which names every bit, so placement asks
+;;  after her on every bit, wherever she is.  Out: C set if it does not fit
 ;;  RP_BYBITMAX.  A16, I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

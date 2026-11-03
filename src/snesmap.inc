@@ -1551,6 +1551,7 @@ OPTPOSEIT       = OPTWORK+$B5  ; the item the cursor is on
 OPTPOSECL       = OPTWORK+$B6  ; that character's class
 OPTPOSEBIT      = OPTWORK+$B7  ; which bit of a magic permission byte
 OPTWSIDX        = OPTWORK+$B8  ; Weapon Stats: the equipped weapon's 1-based id
+.assert OPTDESC + OPTDLG_MAX <= OPTWSIDX, error, "a dialogue line would reach Weapon Stats' byte"
 
 ;  The word table outgrew a byte offset, so opt_word walks it with a 24-bit
 ;  pointer, which has to live in the direct page.  tmp is the game's own
@@ -1583,6 +1584,10 @@ OPTCALLV        = $0113         ; 2 bytes, just above tmp_hi
 POSE_VICTORY    = $0E
 OPTSAVEPTR      = OPTWORK+$AB  ; 2 bytes: text_ptr, which the shop loop owns
 OPTDESC_MAX     = $50
+;  A dialogue line built in OPTDESC may run past its $50 into the shop and
+;  description screens' scratch after it (OPTGEARX .. OPTPOSEBIT), which
+;  nothing on a map uses: Rebellious Princess's Garland (dlgsara.inc).
+OPTDLG_MAX      = $68
 ;  The records of the battle's enemies, a kind each, four kinds at most, which
 ;  the battle reads through en_romptr (rando_btlenemies).  OPTDESC: only the
 ;  menus and the dialogue box build there, and never during a battle.
@@ -1975,6 +1980,24 @@ AI_MODES        = 4
 RNG_OFF         = 0
 RNG_SHUFFLE     = 1
 RNG_MODES       = 2
+RNG_FIELD       = $0F           ; RANDO_RNG: the mode in bits 0-3...
+
+;  ...and Rebellious Princess (user, 2026-11-02, rebellious-princess.txt) in
+;  bit 4, zero in every save made before it: Off.  On, the kidnapped princess
+;  is at one of SARA_SPOTS spots, the seed's (pl_sara), Garland's the first.
+PRINCESS_FIELD  = $10
+PRINCESS_SHIFT  = 4
+PRINCESS_MODES  = 2
+SARA_SPOTS      = 8
+;  Her event's masks while placement tries her spots: each spot's in turn,
+;  at most SARA_SPOTMAX -- the most one region holds (ES_NODEMAX), and each
+;  spot is one region (gengraph.py) -- over a slot of SARA_SLOT, one more,
+;  padded with SARA_NEVER: it names bits no one owns (the logic has 29), so
+;  it is never met, and every bit, so the by-bit index asks after her on
+;  every one, wherever she is (es_bybit).
+SARA_SPOTMAX    = 6
+SARA_SLOT       = SARA_SPOTMAX + 1
+SARA_NEVER      = $FFFFFFFF
 
 ;  The save checksum's version.  SaveGame seeds its sum with SAVEVER where the
 ;  game seeded it with 0, and VerifyChecksum expects SAVEK where the game
@@ -1999,6 +2022,14 @@ RANDOWRAM       = $7F8000
 RW_TAG          = RANDOWRAM+$0000 ; RW_TAG_VAL once the cache below is whole
 RW_TAGBLK       = RANDOWRAM+$00C0 ; the save block the cache was built from
 .assert RANDO_SAVE_SIZE <= $40, error, "the save block outgrows the cache's copy of it"
+RW_SARALOG      = RANDOWRAM+$0001 ; the spot the logic puts the princess at: pl_sara's
+                                  ;   try while it tries, else 0, Garland's (the map
+                                  ;   edit screen's check is so)
+RW_SARAORD      = RANDOWRAM+$0002 ; 8: pl_sara's order of the spots, the seed's...
+RW_SARAK        = RANDOWRAM+$000A ; ...and how far it has tried
+RW_SARAON       = RANDOWRAM+$000B ; 1 while pl_sara builds: es_build works out every
+                                  ;   spot's masks, placement tries each (pl_trysara)
+RW_SARAG        = RANDOWRAM+$000C ; nonzero once pl_trysara has tried Garland's on a world
 RW_RNG          = RANDOWRAM+$0010 ; 4 bytes: the stream being drawn from
 RW_T            = RANDOWRAM+$0014 ; 2 bytes of scratch for the PRNG
 RW_LEN          = RANDOWRAM+$0016 ; 2 bytes: entries left in RW_LIST
@@ -2097,6 +2128,7 @@ RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
 RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
 RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
 RW_TAVERNS      = RANDOWRAM+$3210 ; 8: each town's tavern's class, by map (deal_taverns); $FF Melmond's
+RW_SARA         = RANDOWRAM+$3218 ; Rebellious Princess: the princess's spot, 0 Garland's (pl_sara)
 RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
@@ -2446,6 +2478,11 @@ RP_VENDOROK     = RP_BASE+$0B7A   ; 1: the caravan reachable at all (pl_reachspo
 RP_WORDSEND     = RP_BASE+$0B7C
 RP_GRP          = RP_BASE+$0B80   ; the spread group of forward placement's draw
 RP_MOFF         = RP_BASE+$0C00   ; 257 words: each location's masks' offset in RP_MASK
+RP_KEYS         = RP_BASE+$0680   ; 4: the key items pl_reachspots holds (RP_ITEMS, or the Loose)
+RP_STRM         = RP_BASE+$0684   ; 4: the stream pl_trysara draws each spot's tries from
+RP_NATT         = RP_BASE+$0688   ; its tries per spot
+RP_SARASRC      = RP_BASE+$068A   ; where the spots' masks are: 0 logic.inc's, 1 ES_SARAM
+.assert RP_BYBIT + RP_BYBITMAX <= RP_KEYS, error, "RP_BYBIT runs into RP_KEYS"
 RP_FWD          = RP_BASE+$0E04   ; 248 words: each pool place's forward weight (pl_forward)
 ;  Entrance shuffle's (entrance.inc), in the same memory: it runs at New Game
 ;  before placement, and in the cache build, where only the rewards' RV_ area
@@ -2473,6 +2510,12 @@ ES_DEAD         = RP_BASE+$2F00   ; 32: ...and the dead ends set aside from them
 ES_ORDER        = RP_BASE+$2F20   ; 32: the entrances, in the order they are filled
 ES_PEND         = RP_BASE+$2F40   ; 32: teleports still to fill
 ES_TMP          = RP_BASE+$2A80   ; 32 masks: a set being merged
+ES_SARAM        = RP_BASE+$2300   ; SARA_SPOTS x SARA_SPOTMAX masks: the princess's event's at each
+                                  ;   of her spots, 0-padded, under RW_SARAON (es_locmasks)...
+ES_SARAN        = RP_BASE+$2F60   ; SARA_SPOTS: ...and how many each spot has
+.assert ES_SARAM + SARA_SPOTS * SARA_SPOTMAX * 4 <= ES_NREQ, error, "ES_SARAM runs into ES_NREQ"
+.assert ES_PEND + 32 <= ES_SARAN && ES_SARAN + SARA_SPOTS <= ES_VARS, error, "ES_SARAN overlaps"
+.assert SARA_SPOTMAX = ES_NODEMAX, error, "a spot's region holds ES_NODEMAX masks"
 ES_GREP         = RP_BASE+$2D00   ; ES_GROUPMAX: each spread group's first chest (over the shuffle's)
 ES_GENTS        = RP_BASE+$2D40   ; ES_GROUPMAX x 4: its entrances
 ES_GROUPMAX     = 64

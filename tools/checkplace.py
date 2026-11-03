@@ -22,9 +22,16 @@ needs worldgraph/, which is why it is not part of test_options.py.
 
     pypy3 tools/checkplace.py [seeds] [shuffled seeds] [edited seeds] [goal seeds]
 
-Last, the Goal (RANDO_GOAL) on the unedited map: each removal under every
+Then the Goal (RANDO_GOAL) on the unedited map: each removal under every
 goal, the Black Orb asking the Goal's orbs on the graph, beside the map edit
 screen's answer, which should say winnable exactly when a world is placed.
+
+    pypy3 tools/checkplace.py [seeds] [shuffled] [edited] [goal] [princess seeds]
+
+Last, Rebellious Princess: randoref.sara_world's spot and world, played on a
+graph with the kidnapped princess there (build's sara) -- Key items Vanilla
+with the game's own rewards, Standard and Wide placed, without Map shuffle
+and with it, and with map edits.
 """
 import os
 import sys
@@ -230,6 +237,7 @@ def main():
                 ", ".join("%s %d" % kv for kv in moored.most_common())))
     lost += check_edited(int(sys.argv[3]) if len(sys.argv) > 3 else max(seeds // 10, 4))
     lost += check_goals(int(sys.argv[4]) if len(sys.argv) > 4 else max(seeds // 10, 4), get)
+    lost += check_princess(int(sys.argv[5]) if len(sys.argv) > 5 else max(seeds // 20, 4))
     print("%.0fs" % (time.time() - t0))
     return 1 if lost else 0
 
@@ -340,3 +348,63 @@ def check_goals(seeds, get):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+#  Rebellious Princess: each seed's spot and world (randoref.sara_world)
+#  played on a graph built with her there.  Key items Vanilla too, its
+#  rewards the graph's own; "late" is Standard without Early King, where the
+#  King waits on her, and the Vanilla rows with and without it.
+PRINCESS_CONFIGS = dict(CONFIGS, **{
+    "vanilla":    (0, [0x00, 0x00, 0x00], [0x00, 0x00], 0x00),
+    "vanilla-ek": (0, [0x00, 0x00, 0x00], [0x00, 0x00], 0x0F),
+    "van-ship":   (0, [0x02, 0x00, 0x00], [0x00, 0x00], 0x00),
+})
+
+
+def check_princess(seeds):
+    van = rd.vanilla_overworld()
+    lost = 0
+    for f, modes in ((0, (R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)), (0x0BFF, (R.ENTRANCES_OFF,))):
+        tiles = O.apply(van, f) if f else None
+        for mode in modes:
+            for name, cfg in PRINCESS_CONFIGS.items():
+                names = tuple(n for k, n in enumerate(G.EARLY) if cfg[3] >> k & 1)
+                free = R.place_setup(*cfg)[0]
+                stats, spots = Counter(), Counter()
+                for seed in range(1, seeds + 1):
+                    spot, (mode_after, k, out, dock) = R.sara_world(seed, *cfg, mode, f, rebel=True)
+                    spots[spot] += 1
+                    placed = cfg[0] in (R.KEYITEMS_STANDARD, R.KEYITEMS_WIDE)
+                    if placed and out is None:
+                        stats["no world"] += 1
+                        continue
+                    if mode_after != R.ENTRANCES_OFF:
+                        entrance, normal, exits = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)),
+                                                               mode_after, f, R.floater_removed(cfg[1]))[:3]
+                        w = wiring.Wiring({e: entrance[e] for e in range(32)}, {t: normal[t] for t in range(64)},
+                                          {x: exits[x] for x in range(16)})
+                    else:
+                        w = None
+                    pos = O.positions(rd.VANILLA_POS, f) if f else dict(rd.VANILLA_POS)
+                    if placed or R.place_setup(*cfg)[0] & R._BIT["SHIP"]:
+                        pos["ship"] = LD.DOCKS[dock][1]     # a free one Coneria's; else Bikke's
+                    g, ow, _, _ = build.build(ow_tiles=tiles, pos=pos, wiring=w, early=names, sara=spot)
+                    idx, _ = G.order(g)
+                    adj = analysis.adjacency(g, [e for e in placement.vehicle_edges(g, ow) if e[2] != BIT["SHIP"]])
+                    if placed:
+                        for kk in idx[:248]:
+                            g.locations[kk].reward = None
+                        for i, c in enumerate(out):
+                            if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
+                                g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
+                    if winnable(g, adj, free):
+                        stats["won"] += 1
+                    else:
+                        print("  princess at %d, edits $%04X mode %d %s seed %d: Chaos out of reach" % (
+                            spot, f, mode, name, seed))
+                        stats["lost"] += 1
+                        lost += 1
+                print("princess edits $%04X mode %d %-11s %d seeds: %d winnable, %d lost, %d with no world; "
+                      "spots %s" % (f, mode, name, seeds, stats["won"], stats["lost"], stats["no world"],
+                                    dict(sorted(spots.items()))))
+    return lost

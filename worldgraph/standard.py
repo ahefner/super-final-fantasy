@@ -53,7 +53,7 @@ def _neighbours(i):
 
 
 class StandardMap:
-    def __init__(self, g, m, talk, gates=GATE_TILE):
+    def __init__(self, g, m, talk, gates=GATE_TILE, sara=0):
         self.g, self.m = g, m
         name = rd.MAP_NAMES[m]
         self.tiles = rd.standard_map(m)
@@ -75,7 +75,7 @@ class StandardMap:
             else:
                 kind.append("floor")
 
-        self.objects = rd.map_objects(m)
+        self.objects = rd.map_objects(m, sara)
         self.blockers = []
         for oid, x, y, flags in self.objects:
             visible = rd.INIT_GAME_FLAGS[oid] & 1

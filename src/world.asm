@@ -11,6 +11,7 @@
 .a8
 .i8
 .include "snesmap.inc"
+.include "Constants.inc"
 .include "logic.inc"
 .include "goal.inc"
 .include "variables.inc"
@@ -27,10 +28,16 @@
 .export lut_OweRow, lut_OweEnt, OWE_ENTRY
 ;  The hint lines, for rando_dlgtext.
 .export lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi, DLG_NHINT
+;  ...and Rebellious Princess's lines, for it too.
+.export lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine
+;  ...and where she is on the maps, for rando_tofrplate.
+.import LoadSingleMapObject
+.export rando_saraobjects, lut_SaraMap, lut_SaraXF, lut_SaraY, lut_SaraSlot, lut_SaraSage
 
 .segment "BANK_WORLD"
 
 wRNG    = .LOWORD(RW_RNG)
+esSARALOG = .LOWORD(RW_SARALOG)
 
 ;  Native mode with DBR = $7F, from emulation; and back, for an RTL.  As
 ;  rando.asm's.
@@ -199,3 +206,5 @@ ow_lists:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .include "dlghint.inc"
+.include "dlgsara.inc"
+.include "sara.inc"

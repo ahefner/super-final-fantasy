@@ -23,6 +23,8 @@
 ; ---------------------------------------------------------------------------
 
 DLG_ITEM = $02                  ; the name of dlg_itemid; DLG_NL, fftext.inc
+DLG_GARLAND   = $04             ; Garland's line, and the kidnapped princess's
+DLG_PRINCESS1 = $05             ;   (lut_MapObjTalkData)
 
 ;  The game's dialogue pointers, NES bank $0A's first $200 bytes.
 DLGPTRFAR = (CHUNK0 + BANK_DIALOGUE) * $10000 + lut_DialoguePtrTbl
@@ -40,7 +42,7 @@ rando_dlgtext:
     .a8
     .i8
     LDA f:RW_DLGNPC
-    BEQ @hint
+    BEQ @sara
     CMP #DLG_ORB0
     BCC :+
     JMP rando_dlgorb
@@ -90,6 +92,40 @@ rando_dlgtext:
   @out:
     RTL
 
+    ;  Nothing armed.  Rebellious Princess, with her moved (user,
+    ;  2026-11-02): the kidnapped princess's line, dialogue $05, is her
+    ;  spot's, and Garland's, $04, protests (dlgsara.inc, the world chunk's).
+  @sara:
+    JSR sara_moved              ; X = her spot
+    BCC @hint
+    LDA f:DLGPTRFAR + DLG_PRINCESS1 * 2
+    CMP text_ptr
+    BNE @garland
+    LDA f:DLGPTRFAR + DLG_PRINCESS1 * 2 + 1
+    CMP text_ptr+1
+    BNE @garland
+    LDA f:WORLDFAR + lut_SaraLineLo, X
+    STA text_ptr
+    LDA f:WORLDFAR + lut_SaraLineHi, X
+    BRA @worldline
+  @garland:
+    LDA f:DLGPTRFAR + DLG_GARLAND * 2
+    CMP text_ptr
+    BNE @hint
+    LDA f:DLGPTRFAR + DLG_GARLAND * 2 + 1
+    CMP text_ptr+1
+    BNE @hint
+    LDA #<lut_GarlandLine
+    STA text_ptr
+    LDA #>lut_GarlandLine
+  @worldline:
+    STA text_ptr+1
+    PHB
+    LDA #^WORLDFAR
+    PHA
+    PLB
+    JMP @copyin
+
     ;  Nothing armed.  With the key items shuffled, a line that says where
     ;  one is -- the CROWN in the Cave of Marsh, the KEY with the Elf
     ;  Prince -- is wrong, so it gives way to one that isn't (user,
@@ -133,8 +169,9 @@ rando_dlgtext:
     PLX
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     CMP f:WORLDFAR + lut_DlgHintMap, X
-    BCC @out                    ; its Map shuffle isn't on: the game's line
-    LDA f:WORLDFAR + lut_DlgHintLo, X
+    BCS :+
+    RTL                         ; its Map shuffle isn't on: the game's line
+:   LDA f:WORLDFAR + lut_DlgHintLo, X
     STA text_ptr
     LDA f:WORLDFAR + lut_DlgHintHi, X
     STA text_ptr+1
@@ -142,7 +179,7 @@ rando_dlgtext:
     LDA #^WORLDFAR
     PHA
     PLB
-    BRA @copyin
+    JMP @copyin
 .assert ^WORLDFAR >= $A0 && ^WORLDFAR <= $BF, error, "OPTDESC isn't low WRAM from the world chunk"
 
 ;;  The Black Orb giving way with fewer than four lit (opt_orbgoal): the

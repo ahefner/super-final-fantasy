@@ -57,6 +57,7 @@ STREAM_ITEMMAGIC = 0x494D4147   # "IMAG"
 STREAM_DICE = 0x44494345        # "DICE": each enemy's, the id XORed in
 STREAM_PARTY = 0x50525459       # "PRTY": the forced party's picks
 STREAM_TAVERNS = 0x5441564E     # "TAVN": each town's tavern's class
+STREAM_SARA = 0x53415241        # "SARA": the order of the princess's spots
 WARMUP = 8
 
 
@@ -528,6 +529,8 @@ PARTY_FIELD, PARTY_SHIFT = 0xF0, 4              # ...and Party in bits 4-7
 RUNS_FIELD = 0x0F                               # RANDO_NORUN's bits 0-3...
 TAVERNS_FIELD, TAVERNS_SHIFT = 0x30, 4          # ...and Taverns in bits 4-5
 TAVERNS_OFF, TAVERNS_RECRUIT, TAVERNS_REPLACE = 0, 1, 2
+RNG_FIELD = 0x0F                                # RANDO_RNG's bits 0-3...
+PRINCESS_FIELD = 0x10                           # ...and Rebellious Princess in bit 4
 SURPRISE_NAMES = {"off": SURPRISE_OFF, "shuffle": SURPRISE_SHUFFLE}
 NORMAL_FORMS, CHAOS_FORM = 115, 123
 
@@ -1279,7 +1282,7 @@ def _holds(r, owedits):
     return owedits & on == on and not owedits & off
 
 
-def es_masks(entrance, normal, exits, early, owedits=0):
+def es_masks(entrance, normal, exits, early, owedits=0, sara=0, spots=False):
     M = _GD.MASKS
     adj = [[] for _ in range(_GD.NODES)]
     for src, dst, r in _GD.EDGES:
@@ -1314,15 +1317,31 @@ def es_masks(entrance, normal, exits, early, owedits=0):
                     queue.append(d)
     out = []
     for c, (nodes, r) in enumerate(zip(_GD.LOC_NODES, _GD.LOC_REQ)):
+        if c == PRINCESS_LOC and sara:
+            nodes = _GD.SARA_NODES[sara]    # Rebellious Princess's spot
         own = M[r]
         e = _L.LOCS[c][3]
         if e and e != 4 and early >> (e - 1) & 1:
             own &= ~_L.EARLY_BIT[e - 1]
         out.append(_minimal([m | own for n in nodes for m in req[n]]))
     chaos = _minimal([m | M[_GD.CHAOS_REQ] for n in _GD.CHAOS_NODES for m in req[n]])
-    if (sum(len(m) for m in out) > ES_LOC_MASKS or len(chaos) > ES_NODE_MASKS or
-            sum(len({b for m in ms for b in range(32) if m >> b & 1}) for ms in out) > ES_BYBIT):
+    count = [len(m) for m in out]
+    named = [{b for m in ms for b in range(32) if m >> b & 1} for ms in out]
+    saram = None
+    if spots:
+        #  Rebellious Princess's build (entrance.inc's es_saraspots): her event's
+        #  masks at every spot, her place SARA_SLOT long, one more than any
+        #  spot's -- its padding names every bit, so the by-bit index has her
+        #  under all 32 (es_bybit).
+        own = M[_GD.LOC_REQ[PRINCESS_LOC]]
+        saram = [_minimal([m | own for n in ns for m in req[n]]) for ns in _GD.SARA_NODES]
+        assert all(len(ms) < SARA_SLOT for ms in saram)
+        count[PRINCESS_LOC] = SARA_SLOT
+        named[PRINCESS_LOC] = set(range(32))
+    if sum(count) > ES_LOC_MASKS or len(chaos) > ES_NODE_MASKS or sum(len(n) for n in named) > ES_BYBIT:
         return None
+    if spots:
+        return out, chaos, req, saram
     return out, chaos, req
 
 
@@ -1520,7 +1539,7 @@ def item_rows(items3):
     return [(v >> (2 * k)) & 3 for k in range(12)]
 
 
-def place_setup(keyitems, items3, gear2, early):
+def place_setup(keyitems, items3, gear2, early, sara=0):
     """The settings as placement sees them: the free mask, the items to place
     (cartridge order), which of those are incentives, the incentive places,
     and each location's masks with the Early flags' waivers applied."""
@@ -1555,8 +1574,10 @@ def place_setup(keyitems, items3, gear2, early):
     spot = 0x01 if keyitems == KEYITEMS_STANDARD else 0x02
     inclocs = {c for c, l in enumerate(_L.LOCS) if l[2] & spot}
     masks = []
-    for kind, ident, flags, e, ms, _ in _L.LOCS:
+    for c, (kind, ident, flags, e, ms, _) in enumerate(_L.LOCS):
         clear = _L.EARLY_BIT[e - 1] if e and early >> (e - 1) & 1 else 0
+        if c == PRINCESS_LOC and sara:
+            ms = _L.SARA[sara]                  # Rebellious Princess's spot
         masks.append([m & ~clear for m in ms])
     return free, items, inc, inclocs, masks
 
@@ -1816,29 +1837,66 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
 
 
 def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STREAM_KEYS,
-                    attempts=PLACE_ATTEMPTS, tune=None, goal=GOAL_4ORBS):
+                    attempts=PLACE_ATTEMPTS, tune=None, goal=GOAL_4ORBS, spots=None):
     """Where each item goes: a list in PLACE_ITEMS order of cartridge location
     indices, $FF for an item not placed (free, or gear left as Treasure);
-    None under Key items Vanilla, and None too if every attempt failed."""
+    None under Key items Vanilla, and None too if every attempt failed.
+
+    spots, Rebellious Princess's build (place.inc's pl_trysara): her spots
+    in that order where placement can start (sara_go), each with her masks
+    there and attempts tries of its own from a fresh stream; then, if
+    Garland's was not among them, Garland's -- the tries without the flag.
+    Then (the placement, its spot), or None."""
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
         return None
     free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early)
+    saram = None
     if world is not None:
-        masks, chaos, spread = world
+        masks, chaos, spread = world[:3]
+        if spots is not None:
+            saram = world[3]
     else:
         chaos = spread = None
+    if spots is not None and saram is None:
+        saram = _L.SARA
     if tune is None:
         tune = TUNE_SAFE if world is None else TUNE_LOOSE
-    rng = Stream(seed, stream)
-    for _ in range(attempts):
-        placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune, goal)
-        if placed is not None:
-            out = [0xFF] * len(PLACE_ITEMS)
-            for c, i in placed.items():
-                if i != CARAVAN_TREASURE:
-                    out[i] = c
-            return out
+    if spots is None:
+        tries = [0]
+    else:
+        def startable(spot):
+            m = masks[:PRINCESS_LOC] + [saram[spot]] + masks[PRINCESS_LOC + 1:]
+            return sara_go(m, free, items, inc, inclocs)
+        tries = [spot for spot in spots if startable(spot)]
+        if 0 not in tries:
+            tries.append(0)             # Garland's, unchecked: as without the flag
+    for spot in tries:
+        if spots is not None:
+            masks = masks[:PRINCESS_LOC] + [saram[spot]] + masks[PRINCESS_LOC + 1:]
+        rng = Stream(seed, stream)
+        for _ in range(attempts):
+            placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune, goal)
+            if placed is not None:
+                out = [0xFF] * len(PLACE_ITEMS)
+                for c, i in placed.items():
+                    if i != CARAVAN_TREASURE:
+                        out[i] = c
+                return out if spots is None else (out, spot)
     return None
+
+
+def sara_go(masks, free, items, inc, inclocs):
+    """Rebellious Princess, her spot moved (place.inc's pl_sarago): can
+    placement start -- is an incentive spot reached holding what is free and
+    the Loose key items?  Until one is, only Loose items can be placed; with
+    her away and the King waiting on her, every try would stall."""
+    if not inc:
+        return True
+    owned = free
+    for i in items:
+        if i < PLACE_KEYS and i not in inc:
+            owned |= _BIT[_NAME[i]]
+    return bool(place_accessible(masks, {}, owned)[0] & inclocs)
 
 
 #  A New Game's world under entrance shuffle: for each attempt k, a wiring
@@ -1853,7 +1911,9 @@ ES_PLACE_ATTEMPTS = 4
 
 
 def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE, owedits=0,
-                goal=GOAL_4ORBS):
+                goal=GOAL_4ORBS, spots=None):
+    """...and with spots (build_placement's), the spot too: (k, wiring,
+    placement, dock, spot)."""
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE) or entrances == ENTRANCES_OFF:
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
@@ -1861,21 +1921,23 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), entrances, owedits, floater_removed(items3))
         if w is None:
             continue
-        mm = es_masks(w[0], w[1], w[2], early, owedits)
+        mm = es_masks(w[0], w[1], w[2], early, owedits, spots=spots is not None)
         if mm is None:
             continue
-        masks, chaos, req = mm
+        masks, chaos, req = mm[:3]
         roots = es_roots(w[0], w[1])
         groups = es_groups(roots, masks)
         if groups is None:
             continue
         out = build_placement(seed, keyitems, items3, gear2, early,
-                              world=(masks, chaos, groups), stream=STREAM_KEYS + k,
-                              attempts=ES_PLACE_ATTEMPTS, tune=tune_edits(tune, owedits), goal=goal)
+                              world=(masks, chaos, groups) + tuple(mm[3:]), stream=STREAM_KEYS + k,
+                              attempts=ES_PLACE_ATTEMPTS, tune=tune_edits(tune, owedits), goal=goal,
+                              spots=spots)
         if out is None:
             continue
+        out, spot = out if spots is not None else (out, 0)
         dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
-        return k, w[:3], out, dock
+        return (k, w[:3], out, dock) + ((spot,) if spots is not None else ())
     return None
 
 
@@ -1887,25 +1949,26 @@ def build_world(seed, keyitems, items3, gear2, early, entrances, tune=TUNE_LOOSE
 #  dock as the shuffle chooses it.  (0, the wiring, placement, dock), or None
 #  -- no world, and then no placement: the logic has nothing else to fall
 #  back on.
-def build_edited(seed, keyitems, items3, gear2, early, owedits, goal=GOAL_4ORBS):
+def build_edited(seed, keyitems, items3, gear2, early, owedits, goal=GOAL_4ORBS, spots=None):
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
         return None
     ship = [n for n, _ in PLACE_ITEMS].index("SHIP")
     w = (list(_GD.VANILLA_ENTRANCE), list(_GD.VANILLA_NORMAL), list(_GD.VANILLA_EXIT))
-    mm = es_masks(w[0], w[1], w[2], early, owedits)
+    mm = es_masks(w[0], w[1], w[2], early, owedits, spots=spots is not None)
     if mm is None:
         return None
-    masks, chaos, req = mm
+    masks, chaos, req = mm[:3]
     roots = es_roots(w[0], w[1])
     groups = es_groups(roots, masks)
     if groups is None:
         return None
-    out = build_placement(seed, keyitems, items3, gear2, early, world=(masks, chaos, groups),
-                          tune=tune_edits(TUNE_SAFE, owedits), goal=goal)
+    out = build_placement(seed, keyitems, items3, gear2, early, world=(masks, chaos, groups) + tuple(mm[3:]),
+                          tune=tune_edits(TUNE_SAFE, owedits), goal=goal, spots=spots)
     if out is None:
         return None
+    out, spot = out if spots is not None else (out, 0)
     dock = 0 if out[ship] == 0xFF else es_dock(out[ship], masks, req, roots, owedits)
-    return 0, w, out, dock
+    return (0, w, out, dock) + ((spot,) if spots is not None else ())
 
 
 #  The unwinnable warning (rando_winnable): can the settings make a world
@@ -1920,8 +1983,9 @@ def build_edited(seed, keyitems, items3, gear2, early, owedits, goal=GOAL_4ORBS)
 WIN_AIRSHIP = 1
 
 
-def winnable(keyitems, items3, early, owedits, goal=GOAL_4ORBS):
-    masks, chaos, req = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)
+def winnable(keyitems, items3, early, owedits, goal=GOAL_4ORBS, sara=0):
+    masks, chaos, req = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits,
+                                 sara)
     rows = item_rows(items3)
     gone, free = set(), 0
     for k, name in enumerate(ITEMROW_ITEM):
@@ -1970,21 +2034,21 @@ def incentive_counts(keyitems, items3, gear2, early, owedits):
     return len(inc), len(inclocs), len(inclocs & reach)
 
 
-def seed_summary(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS):
+def seed_summary(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS, rebel=False):
     """The Seed Summary's (sumscreen.asm, from place.inc's pl_summary): the
     incentive items, the spots the settings name, those the party reaches
     holding every key item to place -- on the world new_world chooses, its
     wiring's logic, or the vanilla tables' -- and the set of them.  None
     with no placement."""
-    mode, k, out, _ = new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)
+    sara, (mode, k, out, _) = sara_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal, rebel)
     if out is None:
         return None
-    free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early)
+    free, items, inc, inclocs, masks = place_setup(keyitems, items3, gear2, early, sara)
     if mode != ENTRANCES_OFF:
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode, owedits, floater_removed(items3))
-        masks = es_masks(w[0], w[1], w[2], early, owedits)[0]
+        masks = es_masks(w[0], w[1], w[2], early, owedits, sara)[0]
     elif owedits:
-        masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits)[0]
+        masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits, sara)[0]
     full = free
     for i in items:
         if i < PLACE_KEYS:
@@ -1998,16 +2062,60 @@ def new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=G
     attempt k, the placement or None, the ship's dock).  The shuffle when it
     is on and finds a world, else the vanilla wiring: the precomputed tables
     without map edits, the seed's own logic with them."""
+    return _new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)[:4]
+
+
+def _new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS, spots=None):
+    """new_world's, and the princess's spot (0 without spots, or with no
+    placement)."""
     if keyitems not in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
-        return ENTRANCES_OFF, 0, None, 0
+        return ENTRANCES_OFF, 0, None, 0, 0
     if entrances != ENTRANCES_OFF:
-        w = build_world(seed, keyitems, items3, gear2, early, entrances, owedits=owedits, goal=goal)
+        w = build_world(seed, keyitems, items3, gear2, early, entrances, owedits=owedits, goal=goal,
+                        spots=spots)
         if w is not None:
-            return entrances, w[0], w[2], w[3]
+            return entrances, w[0], w[2], w[3], w[4] if spots is not None else 0
     if owedits:
-        w = build_edited(seed, keyitems, items3, gear2, early, owedits, goal)
-        return (ENTRANCES_OFF, 0, None, 0) if w is None else (ENTRANCES_OFF, 0, w[2], w[3])
-    return ENTRANCES_OFF, 0, build_placement(seed, keyitems, items3, gear2, early, goal=goal), 0
+        w = build_edited(seed, keyitems, items3, gear2, early, owedits, goal, spots)
+        if w is None:
+            return ENTRANCES_OFF, 0, None, 0, 0
+        return ENTRANCES_OFF, 0, w[2], w[3], w[4] if spots is not None else 0
+    out = build_placement(seed, keyitems, items3, gear2, early, goal=goal, spots=spots)
+    if spots is not None:
+        return (ENTRANCES_OFF, 0, None, 0, 0) if out is None else (ENTRANCES_OFF, 0, out[0], 0, out[1])
+    return ENTRANCES_OFF, 0, out, 0, 0
+
+
+#  Rebellious Princess (user, 2026-11-02; rando.asm's pl_sara): the order the
+#  seed puts her eight spots in, and the first whose world is won -- under Key
+#  items Standard or Wide, placement tries the spots in that order on each
+#  world it builds, so the first world that places, at the first spot that
+#  places there; under Vanilla the first winnable passes -- or Garland's if
+#  none.  (spot, new_world's result).
+PRINCESS_LOC = 248              # the princess's event: genlogic's EVENT_ORDER[0]
+SARA_SPOTS = 8
+SARA_SLOT = 7                   # her place's masks while placement tries spots (snesmap.inc)
+_SARA_NAMES = ["the Temple of Fiends", "the Dwarf Cave", "Elfland Castle", "Crescent Lake", "Sarda's Cave",
+               "Cardia", "Pravoka", "Melmond"]     # worldgraph/romdata.PRINCESS_SPOTS's
+
+
+def sara_order(seed):
+    xs = list(range(SARA_SPOTS))
+    _fisher_yates(xs, Stream(seed, STREAM_SARA))
+    return xs
+
+
+def sara_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS, rebel=False):
+    if not rebel:
+        return 0, new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)
+    order = sara_order(seed)
+    if keyitems in (KEYITEMS_STANDARD, KEYITEMS_WIDE):
+        w = _new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal, spots=order)
+        return w[4], w[:4]
+    for spot in order:
+        if winnable(keyitems, items3, early, owedits, goal, spot)[0]:
+            return spot, new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)
+    return 0, new_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal)
 
 
 #  A wiring as a party walks it, for reading a seed: each overworld entrance,
@@ -2238,12 +2346,14 @@ def srm_wiring_text(srm):
     """A battery file's wiring, as the cache build makes the game's: placement
     worked out from the save's settings (new_world), its attempt k in the
     Map shuffle mode it leaves once it has placed the key items, else
-    vanilla.  The save keeps only the settings (SAVEVER 3)."""
+    vanilla.  The save keeps only the settings (SAVEVER 3); Rebellious
+    Princess's spot is chosen with the world (sara_world)."""
     at = SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000)
     b = srm[at:at + RANDO_SAVE_SIZE]
     seed = int.from_bytes(b[0:4], "little")
-    mode, k, place, _ = new_world(seed, b[0x13], list(b[0x14:0x17]), list(b[0x17:0x19]), b[0x19], b[0x1A],
-                                  owedits=b[0x1C] | b[0x1D] << 8, goal=b[0x1B])
+    sara, (mode, k, place, _) = sara_world(seed, b[0x13], list(b[0x14:0x17]), list(b[0x17:0x19]), b[0x19],
+                                           b[0x1A], owedits=b[0x1C] | b[0x1D] << 8, goal=b[0x1B],
+                                           rebel=bool(b[0x11] & PRINCESS_FIELD))   # RANDO_RNG
     w = None
     if place is not None and mode in (ENTRANCES_ONLY, ENTRANCES_FLOORS):
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode)
@@ -2253,6 +2363,8 @@ def srm_wiring_text(srm):
     else:
         head = "Map shuffle %s, seed %08X, attempt %d" % (ENTRANCE_NAMES[mode], seed, k)
         ent, norm = w[0], w[1]
+    if sara:
+        head += "; the princess at %s" % _SARA_NAMES[sara]
     return [head] + es_tree_text(ent, norm)
 
 
@@ -2313,6 +2425,7 @@ def main():
         status &= STATUS_FIELD
         surprise &= SURPRISE_FIELD
         runs &= RUNS_FIELD
+        rngt &= RNG_FIELD
     else:
         pirates = PIRATES_NAMES[a.pirates]
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"
@@ -2327,6 +2440,8 @@ def main():
         srm = open(a.srm, "rb").read()
         if srm[SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000) + 0x1A]:
             print("\n".join(srm_wiring_text(srm)))
+        elif srm[SRAM_SAVE - 0x6000 + (RANDO_SAVE - 0x6000) + 0x11] & PRINCESS_FIELD:
+            print(srm_wiring_text(srm)[0])          # where the princess is
     _, bonus = build_gear(rom, seed, bless, curse)
     GEAR_BONUS.update({0x1C + i: b for i, b in enumerate(bonus)})
     if any(bonus) and not a.find:

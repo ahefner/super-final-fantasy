@@ -13,7 +13,7 @@
 .include "fftext.inc"
 .include "optmenu.inc"
 
-.export lut_Desc_109
+.export lut_Desc_109, lut_Desc_110
 
 .segment "BANK_OPTTEXT2"
 
@@ -37,3 +37,19 @@ lut_Desc_109_2:  ; Taverns: Replace
   FFLINES 2
   FFPAD {"Recruits may replace"}, 28
   FFPAD {"existing party members."}, 28
+
+lut_Desc_110:  ; Rebellious Princess, by value (drafts, 2026-11-02)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_110_0, lut_Desc_110_1
+  .assert * - lut_Desc_110 = 1 + 2 * PRINCESS_MODES, error, "one description per Rebellious Princess mode"
+
+lut_Desc_110_0:  ; Rebellious Princess: Off
+  FFLINES 2
+  FFPAD {"Garland holds the princess"}, 28
+  FFPAD {"in the Temple of Fiends."}, 28
+
+lut_Desc_110_1:  ; Rebellious Princess: On
+  FFLINES 3
+  FFPAD {"The princess has run away"}, 28
+  FFPAD {"from home. She may be found"}, 28
+  FFPAD {"in one of several places."}, 28

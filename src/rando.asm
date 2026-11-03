@@ -57,6 +57,7 @@
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
 .import lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi   ; world.asm's, for dlgtext.inc
+.import lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine                ; ...as are these
 .importzp DLG_NHINT
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
@@ -136,6 +137,12 @@ wSURPRISE = .LOWORD(RW_SURPRISE)
 wTOUCH   = .LOWORD(RW_TOUCH)
 wENEMIES = .LOWORD(RW_ENEMIES)
 wTAVERNS = .LOWORD(RW_TAVERNS)
+wSARA    = .LOWORD(RW_SARA)
+wSARALOG = .LOWORD(RW_SARALOG)
+wSARAORD = .LOWORD(RW_SARAORD)
+wSARAK   = .LOWORD(RW_SARAK)
+wSARAON  = .LOWORD(RW_SARAON)
+wSARAG   = .LOWORD(RW_SARAG)
 wESCRIPT = .LOWORD(RW_ESCRIPT)
 wSCRIPTS = .LOWORD(RW_SCRIPTS)
 wSPL     = .LOWORD(RW_SPL)
@@ -239,6 +246,7 @@ STREAM_ITEMMAGIC = $494D4147    ; "IMAG"
 STREAM_DICE     = $44494345     ; "DICE": each enemy's, the id XORed in (rando_dice)
 STREAM_PARTY    = $50525459     ; "PRTY": the forced party's picks (rando_party)
 STREAM_TAVERNS  = $5441564E     ; "TAVN": each town's tavern's class (deal_taverns)
+STREAM_SARA     = $53415241     ; "SARA": the order of the princess's spots (pl_sara)
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -1172,6 +1180,114 @@ stale:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  pl_sara -- Rebellious Princess's spot, and the world placed around it
+;;
+;;  Off: the princess at Garland's, and pl_place as it was.  On (user,
+;;  2026-11-02): the seed orders the eight spots (STREAM_SARA, a Fisher-Yates
+;;  over 0-7: randoref.sara_order), and a spot that cannot be won is passed
+;;  over.  Under Key items Standard or Wide, placement tries the spots in
+;;  that order on each world it builds (RW_SARAON: pl_trysara), so the
+;;  first world that places has her at the first spot that places there;
+;;  Garland's is among them, tried as without the flag, so the flag never
+;;  costs a world.  Under Vanilla, the first spot rando_winnable passes,
+;;  the logic putting her there while it looks (RW_SARALOG: es_locmasks);
+;;  the map edit screen's check, which passed, is Garland's, so one always
+;;  does.  Out: RW_SARA the spot, 0 Garland's; RW_SARALOG and RW_SARAON 0.
+;;
+;;  Native, DBR = $7F, either width; out with widths as they fall.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+pl_sara:
+    SEP #$30
+    .a8
+    .i8
+    LDA #0
+    STA a:wSARA
+    STA a:wSARALOG
+    STA a:wSARAON
+    LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
+    AND #PRINCESS_FIELD
+    BNE :+
+    JMP pl_place
+:   REP #$30
+    .a16
+    .i16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_SARA)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_SARA)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #wSARAORD
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDX #$0000
+  @fill:
+    TXA
+    STA a:wSARAORD, X
+    INX
+    CPX #SARA_SPOTS
+    BCC @fill
+    LDA #SARA_SPOTS
+    JSR fy_bytes
+    SEP #$30
+    .a8
+    .i8
+    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
+    CMP #KEYITEMS_STANDARD
+    BEQ @placed
+    CMP #KEYITEMS_WIDE
+    BEQ @placed
+    STZ a:wSARAK                ; Vanilla: the first spot that is won
+  @try:
+    SEP #$30
+    .a8
+    .i8
+    LDX a:wSARAK
+    LDA a:wSARAORD, X
+    STA a:wSARALOG
+    SEC                         ; the world's own check, from emulation
+    XCE                         ;   mode
+    JSL rando_winnable + WORLDFAR
+    LDA #$00
+    ROL A                       ; 1: not winnable
+    CLC
+    XCE
+    CMP #$00
+    BEQ @won
+    INC a:wSARAK
+    LDA a:wSARAK
+    CMP #SARA_SPOTS
+    BCC @try
+    LDA #0                      ; none: Garland's
+    STA a:wSARALOG
+  @won:
+    LDA a:wSARALOG
+    STA a:wSARA
+    LDA #0
+    STA a:wSARALOG
+    JMP pl_place                ; (which places nothing under Vanilla)
+  @placed:
+    LDA #1
+    STA a:wSARAON
+    JSR pl_place
+    SEP #$30
+    .a8
+    .i8
+    LDA #0
+    STA a:wSARAON
+    LDA f:RW_PLACED
+    BEQ :+
+    LDA a:wSARALOG              ; the spot of the try that placed
+    STA a:wSARA
+:   LDA #0
+    STA a:wSARALOG
+    RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  build -- generate everything from the save block
 ;;
 ;;  Native mode, DBR = $7F, either register width.  Out: as it came in.
@@ -1179,7 +1295,7 @@ stale:
 
 build:
     PHP
-    JSR pl_place                ; the key items first: the deals read where
+    JSR pl_sara                 ; the key items first: the deals read where
     REP #$30                    ;   they are (place.inc)
     .a16
     .i16
@@ -1367,6 +1483,7 @@ build:
   @rng:
     JSR copy_rng
     LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
+    AND #RNG_FIELD              ; (Rebellious Princess above it)
     BEQ @ordeals                ; RNG_OFF
     CMP #RNG_MODES
     BCS @ordeals
@@ -1854,6 +1971,9 @@ tele_scroll:
 ;;  Temple.  From Talk_Princess1 (randoprincess.patch), emulation mode, the
 ;;  game's data bank.  A clobbered; X and Y kept.
 rando_princesswarp:
+    LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
+    AND #PRINCESS_FIELD         ; Rebellious Princess: she stays (user:
+    BNE :+                      ;   "teleporting back ... must be disabled")
     LDA f:RW_ENTRANCES          ; the mode the game has
     BNE :+
     LDA #NORMTELE_SAVEDPRINCESS
@@ -2027,6 +2147,7 @@ tofr_land:
 ;;  object table's three bytes; LoadSingleMapObject reads them through
 ;;  (tmp+12), from the zero page every bank decodes.
 rando_tofrplate:
+    JSL rando_saraobjects + WORLDFAR    ; Rebellious Princess's princess, and sages
     JSR tofr_here
     BEQ @out
     PHB
@@ -2066,6 +2187,25 @@ rando_objid:
   @table:
     LDA (tmp+4), Y
     RTL
+
+;;  Rebellious Princess on the maps: her objects are loaded in the world
+;;  chunk (sara.inc).  Her graphic needs nothing: the free slot she takes
+;;  loads object 0's, which is the kidnapped princess's (lut_MapObjGfx).
+.import rando_saraobjects
+
+;;  X = spot, or C clear: is she moved, from Garland's, at all.
+sara_moved:
+    LDA f:RANDO_SAVEFAR + (RANDO_RNG - RANDO_SAVE)
+    AND #PRINCESS_FIELD
+    BEQ @no
+    LDA f:RW_SARA
+    BEQ @no
+    TAX
+    SEC
+    RTS
+  @no:
+    CLC
+    RTS
 
 ;;  After slot A / 3's CHR row: one of Garland's slots on this floor, its
 ;;  standing sprite's four tiles with colour 1 made 0, as FFR's

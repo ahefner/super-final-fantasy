@@ -90,6 +90,10 @@ pTUNE    = .LOWORD(RP_TUNE)
 pFRESH   = .LOWORD(RP_FRESH)
 pGRP     = .LOWORD(RP_GRP)
 pVENDOROK = .LOWORD(RP_VENDOROK)
+pKEYS    = .LOWORD(RP_KEYS)
+pSTRM    = .LOWORD(RP_STRM)
+pNATT    = .LOWORD(RP_NATT)
+pSARASRC = .LOWORD(RP_SARASRC)
 
 W1             = 1024          ; a weight of 1.0
 FWD_ONE        = 256           ; a place's forward weight, new (pl_forward)
@@ -113,6 +117,8 @@ SHOPPABLE      = $00087FFF
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .import lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
 .import lut_LogicGroup
+.import lut_LogicSaraLo, lut_LogicSaraHi    ; Rebellious Princess's spots' masks
+.assert LOGIC_SARASLOT = SARA_SLOT && LOGIC_SARASPOTS = SARA_SPOTS, error, "genlogic.py's spots are not snesmap.inc's"
 .assert RW_SUMSPOTS + LOGIC_POOL <= RW_DOMAINS, error, "placement's results run into the formations"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -127,13 +133,14 @@ SHOPPABLE      = $00087FFF
 ;;  and the Map shuffle mode the game has, RW_ENTRANCES.
 ;;
 ;;  Native, DBR = $7F, either width; out the same, widths as they fall.
-;;  rando_place is it from a JSL in emulation mode, for the tests.
+;;  rando_place is the build's (pl_sara: Rebellious Princess's spot around
+;;  it) from a JSL in emulation mode, for the tests.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_place:
     PHB
     JSR enter
-    JSR pl_place
+    JSR pl_sara
     JMP leave
 
 pl_place:
@@ -180,21 +187,14 @@ pl_place:
     JSR pl_masks
     JSR pl_vanilla
     JSR pl_items
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
-    EOR #.LOWORD(STREAM_KEYS)
-    STA a:wRNG
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
-    EOR #.HIWORD(STREAM_KEYS)
-    STA a:wRNG+2
-    JSR rando_warm
+    STZ a:pSARASRC              ; her spots' masks: logic.inc's
+    LDA #.LOWORD(STREAM_KEYS)
+    STA a:pSTRM
+    LDA #.HIWORD(STREAM_KEYS)
+    STA a:pSTRM + 2
     LDA #PLACE_ATTEMPTS
-    STA a:pATT
-  @try:
-    JSR pl_attempt
+    JSR pl_trysara
     BCS @won
-    JSR pl_yelp
-    DEC a:pATT
-    BNE @try
     RTS                         ; none: key items stay where they are
   @won:
     JSR pl_store
@@ -209,7 +209,7 @@ pl_place:
 ;;  in the cache beside it.  With none in ES_ATTEMPTS, the game is Off's.
 ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
-.import es_build, es_dockfar
+.import es_build, es_dockfar, rando_winnable
 pl_shuffled:
     .a16
     JSR pl_items
@@ -224,24 +224,18 @@ pl_shuffled:
     BCC :+
     JSR pl_yelp                 ; a wiring refused
     BRA @next
-:   LDA a:pESK
+:   LDA #1
+    STA a:pSARASRC              ; her spots' masks: es_build's
+    LDA a:pESK
     CLC
     ADC #.LOWORD(STREAM_KEYS)
-    EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
-    STA a:wRNG
+    STA a:pSTRM
     LDA #.HIWORD(STREAM_KEYS)
     ADC #0
-    EOR f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
-    STA a:wRNG+2
-    JSR rando_warm
+    STA a:pSTRM + 2
     LDA #ES_PLACE_ATTEMPTS
-    STA a:pATT
-  @try:
-    JSR pl_attempt
+    JSR pl_trysara
     BCS @won
-    JSR pl_yelp
-    DEC a:pATT
-    BNE @try
   @next:
     INC a:pESK
     BRA @world
@@ -278,21 +272,14 @@ pl_shuffled:
     JSR pl_masks
     JSR pl_vanilla
     JSR pl_items
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
-    EOR #.LOWORD(STREAM_KEYS)
-    STA a:wRNG
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
-    EOR #.HIWORD(STREAM_KEYS)
-    STA a:wRNG+2
-    JSR rando_warm
+    STZ a:pSARASRC
+    LDA #.LOWORD(STREAM_KEYS)
+    STA a:pSTRM
+    LDA #.HIWORD(STREAM_KEYS)
+    STA a:pSTRM + 2
     LDA #PLACE_ATTEMPTS
-    STA a:pATT
-  @offtry:
-    JSR pl_attempt
+    JSR pl_trysara
     BCS :+
-    JSR pl_yelp
-    DEC a:pATT
-    BNE @offtry
     RTS
 :   JSR pl_store
     RTS
@@ -314,21 +301,15 @@ pl_edited:
     JSL es_build + WORLDFAR
     BCC :+
     RTS
-:   LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
-    EOR #.LOWORD(STREAM_KEYS)
-    STA a:wRNG
-    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
-    EOR #.HIWORD(STREAM_KEYS)
-    STA a:wRNG+2
-    JSR rando_warm
+:   LDA #1
+    STA a:pSARASRC
+    LDA #.LOWORD(STREAM_KEYS)
+    STA a:pSTRM
+    LDA #.HIWORD(STREAM_KEYS)
+    STA a:pSTRM + 2
     LDA #PLACE_ATTEMPTS
-    STA a:pATT
-  @try:
-    JSR pl_attempt
+    JSR pl_trysara
     BCS @won
-    JSR pl_yelp
-    DEC a:pATT
-    BNE @try
     RTS
   @won:
     JSR pl_store
@@ -613,6 +594,12 @@ pl_rowval:
 ;;  RP_VENDOROK set for pl_vendor.  A16.
 pl_reachspots:
     .a16
+    LDA a:pITEMS
+    STA a:pKEYS
+    LDA a:pITEMS + 2
+    STA a:pKEYS + 2
+;;  ...or holding the key items in RP_KEYS (pl_sarago).
+pl_reachkeys:
     LDX #$0000
   @clear:
     LDA #$FFFF
@@ -636,7 +623,7 @@ pl_reachspots:
   @key:
     LDA a:pK
     JSR pl_bitword
-    AND a:pITEMS, Y
+    AND a:pKEYS, Y
     BEQ :+                      ; not to be placed: free, or removed
     LDX a:pK
     LDA f:RANDOFAR + lut_PlaceLBit, X
@@ -661,6 +648,228 @@ pl_reachspots:
     AND #$00FF
     STA a:pVENDOROK
     LDA a:pINCSRC
+    RTS
+
+;;  Placement's tries on one world.  Without Rebellious Princess's build
+;;  (RW_SARAON), RP_NATT of them, as ever (pl_tries).  With it, as many at
+;;  each of her spots in the seed's order (RW_SARAORD, pl_sara) where
+;;  placement can start (pl_sarago), her masks the spot's (pl_sarause); and
+;;  if none places, at Garland's unchecked -- placement can start there by
+;;  sending an incentive loose, as without the flag -- unless it was tried.
+;;  Each spot's tries draw afresh, so Garland's are the tries the world
+;;  would have without the flag, and the flag never costs a world.  The
+;;  first that places is the world's.  In: A = tries per spot, RP_STRM the
+;;  stream, RP_SARASRC where her masks are.  Out: C set if one placed,
+;;  RW_SARALOG its spot.  A16, I16.
+pl_trysara:
+    .a16
+    .i16
+    STA a:pNATT
+    SEP #$20
+    .a8
+    STZ a:wSARAK
+    STZ a:wSARALOG
+    LDA a:wSARAON
+    BEQ @tries                  ; Garland's alone
+    STZ a:wSARAG
+  @spot:
+    LDA a:wSARAK
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:wSARAORD, X
+    STA a:wSARALOG
+    REP #$20
+    .a16
+    JSR pl_sarause
+    JSR pl_sarago
+    BCC @nextspot
+    SEP #$20
+    .a8
+    LDA a:wSARALOG
+    BNE :+
+    INC a:wSARAG                ; Garland's tried
+:   REP #$20
+    .a16
+    JSR pl_tries
+    BCS @won
+  @nextspot:
+    SEP #$20
+    .a8
+    INC a:wSARAK
+    LDA a:wSARAK
+    CMP #SARA_SPOTS
+    BCC @spot
+    LDA a:wSARAG
+    BNE @none
+    STZ a:wSARALOG              ; Garland's, unchecked
+    REP #$20
+    .a16
+    JSR pl_sarause
+  @tries:
+    REP #$20
+    .a16
+    JMP pl_tries
+  @none:
+    REP #$20
+    .a16
+    CLC
+  @won:
+    RTS
+
+;;  RP_NATT tries at placement, drawing from RP_STRM afresh.  Out: C set if
+;;  one placed.  A16, I16.
+pl_tries:
+    .a16
+    .i16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR a:pSTRM
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR a:pSTRM + 2
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA a:pNATT
+    STA a:pATT
+  @try:
+    JSR pl_attempt
+    BCS @won
+    JSR pl_yelp
+    DEC a:pATT
+    BNE @try
+    CLC
+  @won:
+    RTS
+
+;;  Her masks at the spot RW_SARALOG into her place in RP_MASK: SARA_SLOT
+;;  of them, SARA_NEVER past the spot's own -- logic.inc's (lut_LogicSaraLo/
+;;  Hi, past the locations'; genlogic.py gives her place SARA_SLOT), or
+;;  es_build's (ES_SARAM), as RP_SARASRC says.  A16, I16.
+pl_sarause:
+    .a16
+    .i16
+    LDY a:pMOFF + LOGIC_PRINCESS * 2    ; her place
+    LDA #SARA_SLOT
+    STA a:pCNT
+    LDA a:wSARALOG
+    AND #$00FF
+    TAX
+    LDA a:pSARASRC
+    BNE @es
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_LogicSaraHi + 1, X
+    XBA
+    LDA f:LOGICFAR + lut_LogicSaraLo + 1, X
+    REP #$20
+    .a16
+    ASL A
+    ASL A
+    STA a:pEND
+    SEP #$20
+    .a8
+    LDA f:LOGICFAR + lut_LogicSaraHi, X
+    XBA
+    LDA f:LOGICFAR + lut_LogicSaraLo, X
+    REP #$20
+    .a16
+    ASL A
+    ASL A
+    TAX
+  @rom:
+    CPX a:pEND
+    BCS @pad
+    LDA f:LOGICFAR + lut_LogicMasks, X
+    STA a:pMASK, Y
+    LDA f:LOGICFAR + lut_LogicMasks + 2, X
+    STA a:pMASK + 2, Y
+    INX
+    INX
+    INX
+    INX
+    INY
+    INY
+    INY
+    INY
+    DEC a:pCNT
+    BRA @rom
+  @es:
+    LDA f:ES_SARAN, X
+    AND #$00FF
+    STA a:pEND                  ; its count
+    TXA                         ; its slot: X * SARA_SPOTMAX * 4
+    ASL A
+    ASL A
+    ASL A
+    STA a:pT
+    ASL A
+    CLC
+    ADC a:pT
+    TAX
+  @esmask:
+    LDA a:pEND
+    BEQ @pad
+    DEC a:pEND
+    LDA f:ES_SARAM, X
+    STA a:pMASK, Y
+    LDA f:ES_SARAM + 2, X
+    STA a:pMASK + 2, Y
+    INX
+    INX
+    INX
+    INX
+    INY
+    INY
+    INY
+    INY
+    DEC a:pCNT
+    BRA @esmask
+  @pad:
+    LDA a:pCNT
+    BEQ @done
+    LDA #.LOWORD(SARA_NEVER)
+    STA a:pMASK, Y
+    LDA #.HIWORD(SARA_NEVER)
+    STA a:pMASK + 2, Y
+    INY
+    INY
+    INY
+    INY
+    DEC a:pCNT
+    BRA @pad
+  @done:
+    RTS
+.assert SARA_SPOTMAX * 4 = 24, error, "pl_sarause takes a slot's offset as X * 24"
+
+;;  Rebellious Princess, her spot moved: can placement start -- does the
+;;  party reach an incentive spot holding what is free and the key items
+;;  that are Loose (RP_ITEMS less RP_INC0)?  Until it does, only Loose items
+;;  can be placed, and only where those reach; with her away and the King
+;;  waiting on her, Coneria's island may hold nothing to start from, and
+;;  every try would stall (randoref.build_placement).  With no incentives at
+;;  all it can.  Out: C set if it can.  A16, I16.
+pl_sarago:
+    .a16
+    .i16
+    LDA a:pINC0
+    ORA a:pINC0 + 2
+    BEQ @yes
+    LDA a:pINC0
+    EOR #$FFFF
+    AND a:pITEMS
+    STA a:pKEYS
+    LDA a:pINC0 + 2
+    EOR #$FFFF
+    AND a:pITEMS + 2
+    STA a:pKEYS + 2
+    JSR pl_reachkeys            ; the incentive spots reached
+    CMP #1
+    RTS                         ; C set if one is
+  @yes:
+    SEC
     RTS
 
 ;;  One attempt.  Out: C set if every item was placed and the seed is won.

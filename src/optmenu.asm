@@ -2132,6 +2132,8 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"Party"}
   .BYTE $02, 62    ; Taverns   (scalar 62: OPT_NG_NORUN bits 4-5)
   OPTLABEL {"Taverns"}
+  .BYTE $02, 63    ; Rebellious Princess   (scalar 63: OPT_NG_RNG bit 4)
+  OPTLABEL {"Rebellious Princess"}
   ;  The key item rows (randomization-notes.md section 12), saved with the
   ;  game like the rows above, and shown by the save view with them.  The
   ;  item and gear rows read "Incentive", nine columns, so their readouts are
@@ -2581,6 +2583,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .ENDREP
               .BYTE <lut_ValParty
               .BYTE <lut_ValTaverns
+              .BYTE <lut_ValOnOff                             ; Rebellious Princess
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2609,6 +2612,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .ENDREP
               .BYTE >lut_ValParty
               .BYTE >lut_ValTaverns
+              .BYTE >lut_ValOnOff
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2636,6 +2640,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .RES 6, 20                                      ; the scaling's ranges
               .BYTE PARTY_MODES
               .BYTE TAVERNS_MODES
+              .BYTE PRINCESS_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2651,6 +2656,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .RES 6, 2                                       ; the scaling's ranges
               .BYTE 3                                         ; Party
               .BYTE 3                                         ; Taverns
+              .BYTE 2                                         ; Rebellious Princess
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2683,6 +2689,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_BOSSTO, <OPT_BOSSHP, <OPT_BOSSHPTO
               .BYTE <OPT_NG_SURPRISE                          ; above Surprise rates
               .BYTE <OPT_NG_NORUN                             ; above Unrunnable fights
+              .BYTE <OPT_NG_RNG                               ; above RNG tables
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2704,13 +2711,15 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .RES 6, 0                                       ; the scaling's ranges
               .BYTE PARTY_SHIFT                               ; Party
               .BYTE TAVERNS_SHIFT                             ; Taverns
+              .BYTE PRINCESS_SHIFT                            ; Rebellious Princess
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
               .RES 4, $FF
               .BYTE RUNS_FIELD                                ; Unrunnable fights
               .BYTE SURPRISE_FIELD                            ; Surprise rates
               .BYTE STATUS_FIELD                              ; Status attacks
-              .RES 3, $FF
+              .RES 2, $FF
+              .BYTE RNG_FIELD                                 ; RNG tables
               .BYTE THIEFHIT_FIELD                            ; Thief and Ninja hit%
               .BYTE STARTITEMS_SET                            ; Starting items
               .RES 2, $FF
@@ -2731,7 +2740,8 @@ lut_ValMask:  .RES 8, $FF
               .RES 6, $FF                                     ; the scaling's ranges
               .BYTE PARTY_FIELD                               ; Party
               .BYTE TAVERNS_FIELD                             ; Taverns
-VALSCALARS = 63
+              .BYTE PRINCESS_FIELD                            ; Rebellious Princess
+VALSCALARS = 64
 VAL_PARTY  = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"

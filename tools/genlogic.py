@@ -77,8 +77,8 @@ DOCKS = [("Coneria", (152, 169)), ("Pravoka", (210, 153)), ("Elfland", (141, 211
 FFR_SHIP_DOCK = {2: 1, 16: 1, 3: 2, 10: 2, 23: 2, 11: 2, 5: 2, 15: 2, 20: 3, 21: 4}
 
 
-def antichains(early):
-    g, ow, _, _ = build.build(early=early)
+def antichains(early, sara=0):
+    g, ow, _, _ = build.build(early=early, sara=sara)
     req = analysis.requirements(g, placement.vehicle_edges(g, ow))
     return g, ow, [analysis.location_requirements(l, req) for l in g.locations]
 
@@ -352,6 +352,28 @@ def main():
     assert sum(1 for r in rows if r[2] & F_STANDARD) == 21
     assert sum(1 for r in rows if r[2] & F_WIDE) == 25
 
+    #  Rebellious Princess: the kidnapped princess at each of her spots
+    #  (romdata.PRINCESS_SPOTS), her event's masks there -- and moving her
+    #  changes no other location's, with Early Ordeals (the one Early flag
+    #  the graph sees) on or off.
+    global SARA
+    princess = EVENT_ORDER.index("Talk_Princess1") + 248
+    SARA = [sorted(base[idx[princess]])]
+    for s in range(1, len(rd.PRINCESS_SPOTS)):
+        for early in ((), ("ordeals",)):
+            sg, _, got = antichains(early, sara=s)
+            sidx, schaos = order(sg)
+            ref = base if not early else antichains(early)[2]
+            ridx = idx if not early else order(antichains(early)[0])[0]
+            for c in range(256):
+                if c != princess:
+                    assert sorted(got[sidx[c]]) == sorted(ref[ridx[c]]), (
+                        "Sara at %s moves location %d" % (rd.PRINCESS_SPOTS[s][0], c))
+            if not early:
+                SARA.append(sorted(got[sidx[princess]]))
+            else:
+                assert sorted(got[sidx[princess]]) == SARA[s], "Early Ordeals moves Sara's masks"
+
     groups = spread_groups(g, idx, base)
     for spot in (F_STANDARD, F_WIDE):
         inc = [groups[c] for c, r in enumerate(rows[:248]) if r[2] & spot and groups[c] != 0xFF]
@@ -393,15 +415,41 @@ def write_py(rows, chaos_masks, docks, groups):
         f.write("SPREAD = %r\n" % (groups,))
         f.write("#  What each gives in the vanilla game: its logic bit + 1, or 0.\n")
         f.write("VANBIT = %r\n" % (VANBIT,))
+        f.write("#  Rebellious Princess: the princess's event's masks at each of her spots\n"
+                "#  (worldgraph/romdata.PRINCESS_SPOTS), the vanilla first.\n")
+        f.write("SARA = %r\n" % (SARA,))
+
+
+#  Rebellious Princess: the princess's event's place in lut_LogicMasks holds
+#  SARA_SLOT masks, one more than any spot's, padded with SARA_NEVER
+#  (snesmap.inc), so that placement
+#  can put any spot's there in turn (place.inc's pl_sarause).
+SARA_SLOT = 7
+SARA_NEVER = 0xFFFFFFFF
 
 
 def write_inc(rows, chaos_masks, docks, groups):
+    princess = EVENT_ORDER.index("Talk_Princess1") + 248
+    assert all(len(s) < SARA_SLOT for s in SARA)
     masks, offs = [], []
-    for r in rows:
+    for c, r in enumerate(rows):
         offs.append(len(masks))
         masks += r[4]
+        if c == princess:
+            masks += [SARA_NEVER] * (SARA_SLOT - len(r[4]))
     offs.append(len(masks))
-    lists = [[c for c, r in enumerate(rows) if any(m >> b & 1 for m in r[4])] for b in range(32)]
+    #  Rebellious Princess's spots' masks follow the locations': where each
+    #  spot's start, and the last's end.
+    soffs = []
+    for s in SARA:
+        soffs.append(len(masks))
+        masks += s
+    soffs.append(len(masks))
+    #  ...and the princess's event is asked again on any bit a spot's masks
+    #  name, wherever she is.
+    lists = [[c for c, r in enumerate(rows)
+              if any(m >> b & 1 for m in (r[4] + [m for s in SARA for m in s] if c == princess else r[4]))]
+             for b in range(32)]
     boffs, at = [], 0
     for l in lists:
         boffs.append(at)
@@ -421,7 +469,10 @@ def write_inc(rows, chaos_masks, docks, groups):
         f.write("LOGIC_NSTANDARD = %d\nLOGIC_NWIDE = %d\n\n" % (
             sum(1 for r in rows if r[2] & F_STANDARD), sum(1 for r in rows if r[2] & F_WIDE)))
         f.write("LOGIC_DOCKS  = %d\n" % len(DOCKS))
-        f.write("LOGIC_NOGROUP = $FF\n\n")
+        f.write("LOGIC_NOGROUP = $FF\n")
+        f.write("LOGIC_PRINCESS = %d\n" % princess)
+        f.write("LOGIC_SARASPOTS = %d\n" % len(SARA))
+        f.write("LOGIC_SARASLOT = %d\n\n" % SARA_SLOT)
         f.write(";  The logic's bits, model.py's order.\n")
         for i, n in enumerate(REQS):
             f.write("LBIT_%-10s = %d\n" % (n, i))
@@ -437,6 +488,10 @@ def write_inc(rows, chaos_masks, docks, groups):
         f.write(";  Where each location's masks start in lut_LogicMasks, and where they end.\n")
         emit(f, "lut_LogicMaskLo", [o & 0xFF for o in offs])
         emit(f, "lut_LogicMaskHi", [o >> 8 for o in offs])
+        f.write(";  Rebellious Princess: where each of her spots' masks for the princess's\n"
+                ";  event start in lut_LogicMasks (past the locations'), and the last's end.\n")
+        emit(f, "lut_LogicSaraLo", [o & 0xFF for o in soffs])
+        emit(f, "lut_LogicSaraHi", [o >> 8 for o in soffs])
         f.write(";  Four bytes each, low first, in model.py's bit order.\n")
         emit(f, "lut_LogicMasks", [b for m in masks for b in m.to_bytes(4, "little")])
         f.write(";  For each bit, the locations whose masks name it, so that gaining a bit\n"

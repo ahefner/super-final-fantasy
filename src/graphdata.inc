@@ -249,7 +249,9 @@ lut_GrExitNodes:
   .BYTE $02, $0C, $15, $15, $42, $44, $20, $00, $15, $15, $00, $00, $13, $38, $0B, $34
   .BYTE $13, $3A, $04, $0A
 
-;  The cartridge's locations, then Chaos: their regions and requirement.
+;  The cartridge's locations, then Chaos: their regions and requirement --
+;  and past Chaos's, the princess's event's at each of Rebellious
+;  Princess's spots, where each starts in lut_GrLocNodes in lut_GrSaraOff.
 lut_GrLocOff:
   .WORD $0000, $0001, $0002, $0003, $0004, $0005, $0006, $0007
   .WORD $0008, $0009, $000A, $000B, $000C, $000D, $000E, $000F
@@ -303,7 +305,11 @@ lut_GrLocNodes:
   .BYTE $9E, $C6, $C5, $9E, $9E, $9E, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F
   .BYTE $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $7D, $7D
   .BYTE $AC, $4B, $4D, $B8, $52, $52, $B9, $AF, $B7, $B0, $B1, $25, $4F, $8B, $AE, $A7
-  .BYTE $A8, $A9, $AA, $18, $BD
+  .BYTE $A8, $A9, $AA, $18, $BD, $4F, $52, $4B, $AF, $B9, $B4, $AC, $AE
+
+lut_GrSaraOff:
+  .WORD $0115, $0116, $0117, $0118, $0119, $011A, $011B, $011C
+  .WORD $011D
 
 lut_GrLocReq:
   .BYTE $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00

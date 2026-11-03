@@ -39,13 +39,14 @@ EARLY = {"king": "Talk_KingConeria", "sarda": "Talk_Sarda", "sage": "Talk_CanoeS
 GOAL = ("ToFRChaos", "Talk_fight")      # Chaos: the one fight on the last floor
 
 
-def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=(), edits=None):
+def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=(), edits=None, sara=0):
     """`wiring` (wiring.Wiring) says where every entrance, teleport and exit
     leads; without it, where the ROM's tables say.  `exits` moves exits for
     an alternate overworld.  `early` names FFR's Early flags that are on,
     from EARLY's keys.  `edits` (owedits.graph_edits) builds the overworld
     for every combination of the map edits at once (edited.py), `pos` then
-    owedits.graph_positions's: a conditional graph."""
+    owedits.graph_positions's: a conditional graph.  `sara` puts the
+    kidnapped princess at Rebellious Princess's spot (romdata.PRINCESS_SPOTS)."""
     assert set(early) <= set(EARLY), early
     early_npcs = {EARLY[e] for e in early if EARLY[e]}
     g = Graph(conditional=edits is not None)
@@ -65,7 +66,7 @@ def build(ow_tiles=None, pos=None, exits=None, wiring=None, early=(), edits=None
         ow = Overworld(g, ow_tiles, pos, ent_name)
     ent_cond = getattr(ow, "ent_cond", {})
     gates = GATE_TILE_EARLY_ORDEALS if "ordeals" in early else GATE_TILE
-    maps = [StandardMap(g, m, talk, gates) for m in range(rd.MAP_COUNT)]
+    maps = [StandardMap(g, m, talk, gates, sara) for m in range(rd.MAP_COUNT)]
 
     #  Every way into a map: (caller node, landing nodes, map, what).  The
     #  warp-back edges and the checks in fecheck.py are made from these.

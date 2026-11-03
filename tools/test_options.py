@@ -158,21 +158,29 @@ def machine():
 
 def _symbanks():
     """Each label's chunk bank, from the segment its source file defines it
-    in: BANK_X is CHUNK_X's.  A name defined in two segments is left out,
-    and so are the game's banks and the fixed bank, which call() places by
-    address as it always has."""
+    in -- or the file that includes it, for src/'s .inc files: BANK_X is
+    CHUNK_X's.  A name defined in two segments is left out, and so are the
+    game's banks and the fixed bank, which call() places by address as it
+    always has."""
     import glob
     seen = {}
-    for f in glob.glob(os.path.join(ROOT, "src", "*.asm")):
-        seg = None
+
+    def scan(f, seg):
         for line in open(f):
             m = re.match(r'\s*\.segment\s+"(\w+)"', line)
             if m:
                 seg = m.group(1)
                 continue
+            m = re.match(r'\s*\.include\s+"(\w+\.inc)"', line)
+            if m and seg and os.path.exists(os.path.join(ROOT, "src", m.group(1))):
+                scan(os.path.join(ROOT, "src", m.group(1)), seg)
+                continue
             m = re.match(r"([A-Za-z_]\w*):", line)
             if m and seg and seg.startswith("BANK_") and "CHUNK_" + seg[5:] in K:
                 seen.setdefault(m.group(1), set()).add(0xA1 + K["CHUNK_" + seg[5:]])
+        return seg
+    for f in glob.glob(os.path.join(ROOT, "src", "*.asm")):
+        scan(f, None)
     return {n: b.pop() for n, b in seen.items() if len(b) == 1 and n in SYM}
 
 
@@ -16431,6 +16439,426 @@ def test_forcedparty():
           (want, [AAAA] * 4))
 
 
+# --- Rebellious Princess: the kidnapped princess elsewhere --------------------
+def princess_cart(job):
+    """New Game's world under Rebellious Princess: rando_place with the RNG
+    byte as the job has it (bit 4 the flag, the RNG tables' mode beside it).
+    (RW_SARA, RW_SARALOG, RW_SARAON, RW_PLACED, RW_PLACE, k, dock, the mode
+    the game has, the Seed Summary's, the instructions it took), or a string
+    if the save was written.  job: (seed, config, Map shuffle mode, map
+    edits, the RNG byte)."""
+    seed, (keyitems, items3, gear2, early), mode, owedits, rngbyte = job
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_ENTRANCES"] - 0x6000] = mode
+    s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = owedits.to_bytes(2, "little")
+    s[K["RANDO_RNG"] - 0x6000] = rngbyte
+    for name in ("RW_SARA", "RW_SARALOG", "RW_SARAON", "RW_PLACED", "RW_ESK"):
+        bus.wram[rw(name)] = 0x77                   # decoys
+    spots = rw("RW_SUMSPOTS")
+    before = bytes(s)
+    n0 = cpu.steps
+    cpu.run(RANDO_BANK, SYM["rando_place"], limit=80_000_000)
+    if bytes(s) != before:
+        return "the save written"
+    summary = (bus.wram[rw("RW_SUMINC")], bus.wram[rw("RW_SUMREACH")],
+               {c for c in range(248) if bus.wram[spots + c] == 1})
+    return ((bus.wram[rw("RW_SARA")], bus.wram[rw("RW_SARALOG")], bus.wram[rw("RW_SARAON")]) + placement(bus) +
+            (bus.wram[rw("RW_ESK")], bus.wram[rw("RW_SHIPDOCK")], bus.wram[rw("RW_ENTRANCES")], summary,
+             cpu.steps - n0))
+
+
+def test_princess():
+    """Rebellious Princess (user, 2026-11-02; rebellious-princess.txt): the
+    kidnapped princess at one of eight spots, the seed's, Garland's among
+    them; a spot that cannot be won passed over.  The row, its field beside
+    RNG tables' and its descriptions; the spots against the world graph's
+    and the maps' free slots; her masks at each in both logics; the build's
+    spot and world against randoref.sara_world, Key items Vanilla, Standard
+    and Wide, under Map shuffle and map edits, and the flag never costing a
+    world; the maps as they load, her graphic, her lines and Garland's, and
+    no teleport home."""
+    import presetdefs as P, genpresets as G, textwrap
+    import graphdata as GD, logicdata as L
+    RNGB = K["RANDO_RNG"] - 0x6000
+    PF = K["PRINCESS_FIELD"]
+    P1 = K["OBJID_PRINCESS_1"]
+    SPOTS, SLOT = K["SARA_SPOTS"], K["SARA_SLOT"]
+    NAMES = ["Garland's", "the Dwarf Cave", "Elfland Castle", "Crescent Lake", "Sarda's Cave", "Cardia",
+             "Pravoka", "Melmond"]
+
+    #  The row.
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Rebellious Princess")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    field = lambda r: (tbl("lut_ValOff", r.arg), tbl("lut_ValBit", r.arg), tbl("lut_ValMask", r.arg))
+    check("Rebellious Princess: after Taverns, in RANDOMIZATION, Off and On (user)",
+          (row.section, names[names.index("Rebellious Princess") - 1], row.values),
+          ("RANDOMIZATION", "Taverns", ["Off", "On"]))
+    check("...its field the RNG byte's bit 4, RNG tables' its bits 0-3",
+          (field(row), field(rows[names.index("RNG tables")])),
+          ((K["OPT_NG_RNG"] - OPTBLOCK, 4, PF), (K["OPT_NG_RNG"] - OPTBLOCK, 0, K["RNG_FIELD"])))
+    presets = G.resolve(G.load(), rows)
+    check("...Off in every preset (user)", {row.values[s["Rebellious Princess"]] for _, _, _, s in presets}, {"Off"})
+    SEL, TOP = 0x6E, 0x6F
+    def desc(r, value_byte):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.sram[K["OPT_NG_RNG"] - 0x6000] = value_byte
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    want = ["Garland holds the princess in the Temple of Fiends.",
+            "The princess has run away from home. She may be found in one of several places."]
+    prow, rrow = optrow("Rebellious Princess"), optrow("RNG tables")
+    check("its panes, each value, from the second bank, RNG tables' mode beside it a decoy",
+          [desc(prow, v << 4 | 1) for v in range(2)], [textwrap.wrap(t, 28) for t in want])
+    check("...and RNG tables' pane its own with the princess's bit set",
+          [desc(rrow, v | PF) for v in range(2)], [desc(rrow, v) for v in range(2)])
+    #  The RNG tables with the bit set: as without (the build once read the
+    #  whole byte, and the bit turned the shuffle off).
+    for mode in (0, 1):
+        bus, cpu = machine()
+        setsave(bus, 0x600DCAFE, 0)
+        bus.sram[RNGB] = mode | PF
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        check("RNG tables %s with Rebellious Princess on: the reference's" % ("Shuffle" if mode else "Off"),
+              rng_cache(bus) == R.build_rng(0x600DCAFE, mode), True)
+
+    #  The spots: the world graph's (romdata.PRINCESS_SPOTS, through
+    #  gengraph.py), each where the map has a free slot, Garland's hers.
+    at = [(tbl("lut_SaraMap", k), tbl("lut_SaraXF", k) & 0x3F, tbl("lut_SaraY", k), tbl("lut_SaraXF", k) & 0xC0)
+          for k in range(SPOTS)]
+    check("lut_SaraMap/XF/Y: graphdata.SARA_AT's (worldgraph/romdata.PRINCESS_SPOTS)",
+          [list(a) for a in at], GD.SARA_AT)
+    objs = lambda m: ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xB400 + m * 0x30:][:0x30]
+    slot = [tbl("lut_SaraSlot", k) for k in range(SPOTS)]
+    check("...Garland's slot hers in the Temple of Fiends' list", objs(at[0][0])[slot[0] * 3], P1)
+    check("...every other spot's slot empty on its map",
+          [k for k in range(1, SPOTS) if objs(at[k][0])[slot[k] * 3] != 0], [])
+    check("...and on no other object's tile",
+          [k for k in range(1, SPOTS) for o in range(15)
+           if objs(at[k][0])[o * 3] and (objs(at[k][0])[o * 3 + 1] & 0x3F, objs(at[k][0])[o * 3 + 2]) == at[k][1:3]], [])
+    #  FFR's ConfusedOldMen moves Crescent Lake's sages 0-10 and 12.
+    sage = [tbl("lut_SaraSage", o) for o in range(15)]
+    check("Crescent Lake's sages: FFR's ConfusedOldMen's slots, each a standing object",
+          ([o for o in range(15) if sage[o]], [o for o in range(15) if sage[o] and not (objs(4)[o * 3] and
+                                                                                       objs(4)[o * 3 + 1] & 0x40)]),
+          (list(range(11)) + [12], []))
+
+    #  Her masks.  The vanilla tables: each spot's past the locations' (in
+    #  logicdata.SARA), her place SARA_SLOT long, padded with masks no one
+    #  meets, and asked after on every bit any spot names.
+    def logic_masks(lo, hi, i):
+        a = tbl(lo, i) | tbl(hi, i) << 8
+        b = tbl(lo, i + 1) | tbl(hi, i + 1) << 8
+        return [int.from_bytes(ROMDATA[rom_at("lut_LogicMasks") + 4 * j:][:4], "little") for j in range(a, b)]
+    check("lut_LogicSaraLo/Hi: each spot's masks, logicdata.SARA's",
+          [sorted(logic_masks("lut_LogicSaraLo", "lut_LogicSaraHi", k)) for k in range(SPOTS)],
+          [sorted(m) for m in L.SARA])
+    PL = R.PRINCESS_LOC
+    check("...her place in lut_LogicMasks: Garland's, then SARA_NEVER to SARA_SLOT",
+          logic_masks("lut_LogicMaskLo", "lut_LogicMaskHi", PL),
+          L.LOCS[PL][4] + [K["SARA_NEVER"]] * (SLOT - len(L.LOCS[PL][4])))
+    check("...and every spot's fewer, so a SARA_NEVER is always there", max(len(m) for m in L.SARA) < SLOT, True)
+    byoff = [tbl("lut_LogicByBitLo", b) | tbl("lut_LogicByBitHi", b) << 8 for b in range(33)]
+    under = {b for b in range(32) if PL in ROMDATA[rom_at("lut_LogicByBit") + byoff[b]:][:byoff[b + 1] - byoff[b]]}
+    check("lut_LogicByBit: the princess's event under exactly the bits a spot names",
+          under, {b for ms in L.SARA for m in ms for b in range(32) if m >> b & 1})
+    off = [int.from_bytes(ROMDATA[rom_at("lut_GrSaraOff") + 2 * k:][:2], "little") for k in range(SPOTS + 1)]
+    nodes = ROMDATA[rom_at("lut_GrLocNodes"):]
+    check("lut_GrSaraOff: each spot's region, graphdata.SARA_NODES's, Garland's hers",
+          ([list(nodes[off[k]:off[k + 1]]) for k in range(SPOTS)], GD.SARA_NODES[0] == GD.LOC_NODES[PL]),
+          (GD.SARA_NODES, True))
+    check("...each spot one region, so its masks fit the slot (es_saraspots)",
+          {len(n) for n in GD.SARA_NODES}, {1})
+
+    #  The build: the cartridge's spot and world against randoref.sara_world,
+    #  the save untouched, RW_SARALOG and RW_SARAON left 0.
+    C = PLACE_CONFIGS
+    std_e0 = (1, [0, 0, 0], [0x81, 0], 0x00)       # no Early King, nothing free
+    ship_air = (1, [0x0A, 0, 0], [0x81, 0], 0x0F)  # the SHIP and the airship free
+    van_e0, van_ek = (0, [0, 0, 0], [0, 0], 0x00), (0, [0, 0, 0], [0, 0], 0x0F)
+    OFF, ONLY, FLOORS = R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS
+    SAFE, FLAGS = K["OWEDIT_SAFE"], K["OWEDIT_FLAGS"]
+    #  Beginner without Map shuffle places at the seed's first spot: a seed
+    #  for each.
+    firsts = [next(s for s in range(1000) if R.sara_order(s)[0] == k) for k in range(SPOTS)]
+    jobs = [(s, C["beginner"], OFF, 0, PF) for s in firsts]
+    jobs += [(s * 7919 + 13, cfg, OFF, 0, PF | 1) for cfg in (std_e0, ship_air, C["all-loose"], C["free-ent"])
+             for s in range(3)]
+    jobs += [(s * 104729 + 7, C["wide-bare"], OFF, 0, PF) for s in range(2)]
+    jobs += [(s * 104729 + 7, C["beginner"], mode, 0, PF) for mode in (ONLY, FLOORS) for s in range(3)]
+    jobs += [(5, std_e0, ONLY, 0, PF), (3, C["wide-bare"], ONLY, 0, PF)]
+    #  ...worlds whose Garland's places only unchecked: no spot can start
+    #  there, Garland's included, but Garland's does by sending one loose.
+    jobs += [(0, C["bridge"], ONLY, 0, PF), (6, C["bridge"], ONLY, 0, PF), (1, C["bridge"], FLOORS, 0, PF)]
+    jobs += [(s * 31 + 1, C["beginner"], mode, f, PF) for f in (SAFE, 0x0041) for mode in (OFF, ONLY)
+             for s in range(2)]
+    jobs += [(s * 7 + 2, cfg, OFF, f, PF) for cfg in (van_e0, van_ek) for f in (0, FLAGS) for s in range(3)]
+    jobs += [(s, (0, [0x02, 0, 0], [0, 0], 0x00), OFF, 0, PF) for s in range(3)]   # Vanilla, the SHIP free
+    jobs += [(s * 7919 + 13, C["beginner"], OFF, 0, 1) for s in range(2)]           # Off: RNG tables alone
+    got = pmap(princess_cart, jobs)
+    flagoff = pmap(princess_cart, [j[:4] + (j[4] & ~PF,) for j in jobs])
+    bad, sums, seen, slow = [], [], set(), []
+    for job, cart, plain in zip(jobs, got, flagoff):
+        seed, cfg, mode, f, rngbyte = job
+        if isinstance(cart, str) or isinstance(plain, str):
+            bad.append((seed, cart, plain))
+            continue
+        spot, (mode_after, k, out, dock) = R.sara_world(seed, *cfg, mode, f, rebel=bool(rngbyte & PF))
+        want = (spot, 0, 0, 1 if out else 0, out if out else None, k, dock, mode_after)
+        mine = cart[:4] + ((cart[4] if cart[3] else None),) + cart[5:8]
+        if mine != want:
+            bad.append((seed, cfg[0], mode, f, mine[:4] + mine[5:], want[:4] + want[5:]))
+        if out:
+            n, _, r, reached = R.seed_summary(seed, *cfg, mode, f, rebel=bool(rngbyte & PF))
+            if cart[8] != (n, r, reached):
+                sums.append((seed, cfg[0], mode, f, cart[8][:2], (n, r)))
+        seen.add(cart[0])
+        #  Map shuffle's presets are all Beginner's: there the flag costs a
+        #  New Game little (it cost 5.7 times once, a wiring built per spot).
+        if cfg == C["beginner"] and cart[9] > 1.25 * plain[9] + 500_000:
+            slow.append((seed, mode, f, plain[9], cart[9]))
+    check("rando_place under Rebellious Princess: randoref.sara_world's spot and world, the save untouched, "
+          "RW_SARALOG and RW_SARAON 0", bad[:3], [])
+    check("...the Seed Summary's, her spot's", sums[:3], [])
+    check("...her spots, among them every one", seen, set(range(SPOTS)))
+    check("...Beginner's New Game, Map shuffle and map edits too: not much longer for the flag", slow[:3], [])
+    #  ...and the cache build is the same choice (build: pl_sara).
+    seed = firsts[5]
+    bus, cpu = machine()
+    setsave(bus, seed, 0)
+    cfg = C["beginner"]
+    bus.sram[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+    bus.sram[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+    bus.sram[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+    bus.sram[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+    bus.sram[RNGB] = PF
+    call(cpu, "rando_ensure", bank=RANDO_BANK)
+    check("the cache build: the same spot and placement",
+          (bus.wram[rw("RW_SARA")], bus.wram[rw("RW_SARALOG")], bus.wram[rw("RW_SARAON")]) + placement(bus),
+          (5, 0, 0, 1, R.sara_world(seed, *cfg, OFF, rebel=True)[1][2]))
+
+    #  The reference's rules, over more seeds than the cartridge can run.
+    #  Garland's is tried on every world as it is without the flag, so the
+    #  flag never costs one: a world flag-off places, flag-on places too, on
+    #  that wiring or one before it; and at Garland's, the very placement.
+    bad, dist = [], {}
+    for name, cfg, mode in (("beginner", C["beginner"], OFF), ("beginner", C["beginner"], ONLY),
+                            ("std_e0", std_e0, OFF), ("wide-bare", C["wide-bare"], ONLY),
+                            ("ship_air", ship_air, OFF)):
+        n = 40 if mode == OFF else 12
+        for seed in range(n):
+            spot, w_on = R.sara_world(seed, *cfg, mode, rebel=True)
+            w_off = R.new_world(seed, *cfg, mode)
+            dist.setdefault((name, mode), []).append(spot)
+            if w_off[2] is None:
+                continue                        # (a moved spot may place where Garland's cannot)
+            if w_on[2] is None or (w_off[0] != OFF and (w_on[0], w_on[1]) != (w_off[0], min(w_on[1], w_off[1]))) \
+                    or (spot == 0 and w_on != w_off):
+                bad.append((name, mode, seed, spot, w_on[:2], w_off[:2]))
+    check("randoref: the flag never costs a world, and at Garland's changes none", bad[:3], [])
+    check("...Beginner without Map shuffle: the seed's first spot, every seed",
+          dist[("beginner", OFF)], [R.sara_order(s)[0] for s in range(40)])
+    check("...no Early King and nothing free: Garland's, the King waiting on her",
+          set(dist[("std_e0", OFF)]), {0})
+    check("...the SHIP and the airship free: the seed's first spot",
+          dist[("ship_air", OFF)], [R.sara_order(s)[0] for s in range(40)])
+    check("...under Map shuffle she moves too", len(set(dist[("wide-bare", ONLY)])) > 2, True)
+    check("the seed's order: a Fisher-Yates of the eight, each spot first for some seed",
+          ({tuple(sorted(R.sara_order(s))) for s in range(64)}, {R.sara_order(s)[0] for s in range(64)}),
+          ({tuple(range(SPOTS))}, set(range(SPOTS))))
+
+    #  The maps as they load: hers in her slot on her spot's map, the
+    #  Temple's emptied, Crescent Lake's sages loose when she is there --
+    #  and nothing else, nor anything with the flag off.
+    MAPOBJ_S = MAPOBJ - 0x6000
+    def load(mapid, flag, sara, seen=True):
+        bus, cpu = machine()
+        bus.sram[RNGB] = (PF if flag else 0) | 1        # RNG tables a decoy
+        bus.wram[rw("RW_SARA")] = sara
+        bus.wram[0x48] = mapid                          # cur_map
+        for o in range(0x100):
+            bus.sram[0x200 + o] = 1                     # every object visible
+        bus.sram[0x200 + P1] = 1 if seen else 0
+        bus.sram[MAPOBJ_S:MAPOBJ_S + 0x100] = bytes([0xA5]) * 0x100
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return bytes(bus.sram[MAPOBJ_S:MAPOBJ_S + 0x100])
+    bad = []
+    for k in range(1, SPOTS):
+        m, x, y, fl = at[k]
+        plain, mine = load(m, False, 0), load(m, True, k)
+        s0 = slot[k] * 16
+        if [i for i in range(0x100) if mine[i] != plain[i] and not s0 <= i < s0 + 16
+                and not (k == 3 and i % 16 == 1 and sage[i // 16])]:
+            bad.append((k, "other slots"))
+        if (mine[s0], mine[s0 + 1], mine[s0 + 2:s0 + 6], mine[s0 + 0x0A]) != (P1, fl, bytes([x, y, x, y]), P1):
+            bad.append((k, "her slot", mine[s0:s0 + 16].hex()))
+        found = load(m, True, k, seen=False)
+        if (found[s0], found[s0 + 0x0A]) != (0, P1):
+            bad.append((k, "found: still there"))
+    check("on each spot's map: her in her slot, standing, in a room where it is one, nothing else moved; "
+          "found, gone", bad, [])
+    tof = at[0][0]
+    t_plain, t_moved = load(tof, False, 0), load(tof, True, 6)
+    s0 = slot[0] * 16
+    check("the Temple of Fiends with her moved: her slot empty, every other byte as without",
+          ([i for i in range(0x100) if t_moved[i] != t_plain[i]], t_moved[s0], t_plain[s0]),
+          ([s0], 0, P1))
+    check("...with her at Garland's, or the flag off, as it ships",
+          (load(tof, True, 0), load(tof, False, 6)), (t_plain, t_plain))
+    c_plain, c_hers = load(4, False, 0), load(4, True, 3)
+    check("Crescent Lake with her there: the sages stand no more, nothing else of theirs changed",
+          sorted({i // 16 for i in range(0x100) if c_hers[i] != c_plain[i] and i // 16 != slot[3]}),
+          [o for o in range(15) if sage[o]])
+    check("...each sage's flags but standing kept",
+          [o for o in range(15) if sage[o] and c_hers[o * 16 + 1] != c_plain[o * 16 + 1] & ~0x40], [])
+    check("...with her elsewhere, as it ships", load(4, True, 6), c_plain)
+    check("another map, her moved: as it ships", load(8, True, 6), load(8, False, 0))
+
+    #  Her graphic: LoadMapObjCHR reads the ROM's object table, where her
+    #  slot is empty -- and object 0's graphic is the kidnapped princess's,
+    #  so it is hers with nothing done.
+    def objchr(mapid, flag, sara):
+        bus, cpu = machine()
+        bus.sram[RNGB] = (PF if flag else 0) | 1
+        bus.wram[rw("RW_SARA")] = sara
+        bus.wram[0x48] = mapid
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadMapObjCHR"])
+        return bytes(bus.wram[0x8000 + 0x110 * 32:0x8000 + 0x200 * 32])
+    gfx = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xAE00:][:256]
+    check("lut_MapObjGfx: an empty slot's graphic, object 0's, is the kidnapped princess's", gfx[0], gfx[P1])
+    def snes(g):
+        nes = ROMDATA[(0xA1 + 2 & 0x1F) * 0x10000 + 0xA200 + g * 0x100:][:0x100]
+        out = bytearray()
+        for t in range(16):
+            for r in range(8):
+                out += bytes([nes[t * 16 + r], nes[t * 16 + 8 + r]])
+            out += bytes(16)
+        return bytes(out)
+    bad = []
+    for k in range(1, SPOTS):
+        m = at[k][0]
+        mine, plain = objchr(m, True, k), objchr(m, False, 0)
+        if mine[slot[k] * 512:slot[k] * 512 + 512] != snes(gfx[P1]):
+            bad.append((k, "her slot"))
+        if [o for o in range(15) if o != slot[k] and mine[o * 512:o * 512 + 512] != plain[o * 512:o * 512 + 512]]:
+            bad.append((k, "other slots"))
+        if objchr(m, False, k) != plain or objchr(m, True, 0) != plain:
+            bad.append((k, "flag off or Garland's"))
+    check("her object CHR on each spot's map: the kidnapped princess's graphic in her slot, nothing else",
+          bad, [])
+    check("...and the Temple's as it ships", objchr(tof, True, 6), objchr(tof, False, 0))
+
+    #  Her lines and Garland's: the dialogue the game's Talk_Princess1 and
+    #  Talk_Garland print, swapped as the drawer loads it (rando_dlgtext),
+    #  the user's words, each row within FFR's 24 and the box's six.
+    def talk(obj):
+        bus, cpu = machine()
+        bus.sram[RNGB] = PF
+        bus.wram[rw("RW_SARA")] = 3
+        bus.sram[MAPOBJ_S + 0x10] = obj
+        bus.sram[0x200 + obj] = 1
+        bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1] = 0x11, 0x22      # decoys
+        cpu.x = 0x10
+        call(cpu, "TalkToObject", bank=BANK_0E, dbr=BANK_0E)
+        return cpu.a & 0xFF, bus
+    p_id, bus = talk(P1)
+    check("talking to her: Talk_Princess1's line $05, her found, and no teleport home",
+          (p_id, bus.sram[0x200 + P1] & 1, bus.sram[0x200 + K["OBJID_PRINCESS_2"]] & 1,
+           bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1]), (0x05, 0, 1, 0x11, 0x22))
+    g_id, _ = talk(K["OBJID_GARLAND"])
+    check("...talking to Garland: his line $04", g_id, 0x04)
+    gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
+    check("...no other dialogue shares their text",
+          [i for i in range(256) if i not in (4, 5) and gameptr(i) in (gameptr(4), gameptr(5))], [])
+    LINES = ["Aww, daddy doesn't let me have any fun!",
+             "I came to care for the Elven prince. Must I return home?",
+             "That old castle is so boring! Let's dance!",
+             "Uncle Sarda tells the best stories!",
+             "Please, I don't want to go home! I like it here!",
+             "Mr. Bikke was teaching me to play the LUTE!",
+             "Am I needed at home? I came to help the people of Melmond rebuild."]
+    GARLAND = "The king is a fool! I would never lay a hand upon the young lady. How dare you besmirch my honor!"
+    OPT, MAXD = K["OPTDESC"], K["OPTDLG_MAX"]
+    def line(ptr, flag=True, sara=3, keyitems=0, entrances=0):
+        bus, cpu = machine()
+        bus.sram[RNGB] = (PF if flag else 0) | 1
+        bus.sram[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+        bus.sram[K["RANDO_ENTRANCES"] - 0x6000] = entrances
+        bus.wram[rw("RW_SARA")] = sara
+        bus.wram[OPT:OPT + MAXD + 8] = bytes([0xEE]) * (MAXD + 8)
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
+        cpu.y = 0x5A
+        dbr = cpu.dbr
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        buf = bytes(bus.wram[OPT:OPT + MAXD + 8])
+        now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        z = buf.find(0)
+        text = ff_decode(buf[:z]) if now == OPT and 0 <= z < MAXD else None
+        clean = set(buf[z + 1:]) <= {0xEE} if z >= 0 else set(buf) <= {0xEE}
+        return now, text, cpu.y & 0xFF, cpu.dbr == dbr, clean
+    bad = []
+    for k in range(1, SPOTS):
+        for ptr, words in ((gameptr(5), LINES[k - 1]), (gameptr(4), GARLAND)):
+            now, text, y, dbr, clean = line(ptr, sara=k)
+            if (now, y, dbr, clean) != (OPT, 0x5A, True, True) or text is None:
+                bad.append((k, hex(ptr), "drawn", now == OPT, y, dbr, clean))
+                continue
+            rows_ = text.split("\n")
+            if " ".join(rows_) != words or max(map(len, rows_)) > 24 or len(rows_) > 6:
+                bad.append((k, text))
+    check("her line at each spot, Garland's with her away: the user's words, within the box, "
+          "from OPTDESC, nothing past them written, Y and DBR kept", bad, [])
+    glen = ROMDATA[rom_at("lut_GarlandLine"):].index(0) + 1
+    check("...Garland's runs past OPTDESC_MAX, within OPTDLG_MAX", K["OPTDESC_MAX"] < glen <= MAXD, True)
+    untouched = lambda r: r[0] in (gameptr(4), gameptr(5), gameptr(6)) and r[1] is None
+    check("...at Garland's, or with the flag off, the game's lines",
+          [untouched(line(p, flag=f, sara=s)) for p in (gameptr(4), gameptr(5)) for f, s in ((True, 0), (False, 3))],
+          [True] * 4)
+    check("...and other lines the game's", untouched(line(gameptr(6), sara=3)), True)
+    #  A dungeon's whereabouts under Map shuffle: swapped as ever with her
+    #  moved (dialogue $5B, the Cave of Dwarf).
+    check("a hint line under Map shuffle: the same with her moved as without",
+          line(gameptr(0x5B), sara=3, keyitems=1, entrances=1)[:2],
+          line(gameptr(0x5B), flag=False, keyitems=1, entrances=1)[:2])
+
+    #  The teleport home: none with the flag on, whatever the mode the game
+    #  has (test_rando_princess has it without).
+    got = []
+    for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY):
+        bus, cpu = machine()
+        bus.sram[RNGB] = PF
+        bus.wram[rw("RW_ENTRANCES")] = mode
+        bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1] = 0x11, 0x22
+        cpu.x, cpu.y = 0x5A, 0xA5
+        call(cpu, "rando_princesswarp", bank=RANDO_BANK)
+        got.append((bus.wram[K["tileprop"]], bus.wram[K["tileprop"] + 1], cpu.x & 0xFF, cpu.y & 0xFF))
+    check("rando_princesswarp with the flag: no teleport home (user), X and Y kept",
+          got, [(0x11, 0x22, 0x5A, 0xA5)] * 2)
+
+    #  The spoiler's wiring line names her spot.
+    srm = bytearray(0x2000)
+    a = R.SRAM_SAVE - 0x6000 + (R.RANDO_SAVE - 0x6000)
+    seed = next(s for s in range(64) if R.sara_order(s)[0] == 5)
+    srm[a:a + 4] = seed.to_bytes(4, "little")
+    srm[a + 0x11] = PF
+    srm[a + 0x13], srm[a + 0x14], srm[a + 0x17], srm[a + 0x19] = 1, 0x20, 0x81, 0x0F     # Beginner's
+    check("randoref's wiring line: where she is", R.srm_wiring_text(bytes(srm))[0].endswith("the princess at Cardia"),
+          True)
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -16961,7 +17389,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

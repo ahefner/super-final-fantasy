@@ -2106,6 +2106,78 @@ records in `CHUNK_OPTTEXT2`.  The tavern's own words, in seven-column shop
 boxes: TAVERN; "Hire a" and the class; Revive, Hire; "Who makes room?";
 "Your party is full."; "Welcome aboard!".
 
+**Rebellious Princess** (user, 2026-11-02, `rebellious-princess.txt`: a
+flag of our own, not FFR's; built, not yet played), after Taverns, Off and
+On, Off in every preset (user).  On, the kidnapped princess is at one of
+eight spots, the seed's: Garland's; the Dwarf Cave beside the blacksmith
+(8,2); Elfland Castle with the sleeping prince; Crescent Lake in the circle
+of sages; Sarda's Cave on the chair (8,2); the empty cave beside Bahamut's
+at Cardia; Pravoka near Bikke; the middle of Melmond (the user placed the
+Dwarf Cave, Sarda's and Cardia; `worldgraph/romdata.PRINCESS_SPOTS`,
+gengraph.py's `SARA_AT`).
+
+  - **Talking to her is the rescue** (user: yes): Talk_Princess1 as ever, she
+    disappears and the rescued princess appears in Coneria Castle, and the
+    King's and the castle princess's rewards wait on it as before -- but
+    **no teleport home** (`rando_princesswarp`; the user's note).  Garland
+    still fights (user: "yes, but not really, since you have to get to the
+    black orb eventually").
+  - **Her lines**, the user's, swapped in for dialogue $05 at each spot, and
+    Garland's $04 with her away (`rando_dlgtext`, `dlgsara.inc`, the world
+    chunk's): "The king is a fool! I would never lay a hand upon the young
+    lady. How dare you besmirch my honor!" (user: "I would never", an
+    edit-induced error fixed).  It is 98 bytes, past OPTDESC's $50, into the
+    shop and description screens' scratch after it, which nothing on a map
+    uses (`OPTDLG_MAX`, $68).  The lines that call it a kidnapping stay (user:
+    "the joke is that everyone thinks Garland kidnapped the princess, but
+    it's usually a false accusation").
+  - **On the maps** (`sara.inc`'s `rando_saraobjects`, from
+    `rando_tofrplate` after the map's objects): the Temple's slot for her
+    emptied; on her spot's map she is loaded into a slot it leaves empty
+    through the game's `LoadSingleMapObject`, standing, so her game flag
+    hides her once found.  Her graphic needs nothing: the empty slot loads
+    object 0's, which is the kidnapped princess's (`lut_MapObjGfx`).  At
+    Crescent Lake the sages are set loose (user: "just set
+    them loose, they'll wander around a little before the player can walk
+    there"), FFR's ConfusedOldMen's twelve, where they stand.
+  - **Her spot** (`pl_sara`, `randoref.sara_world`): the seed orders the
+    eight (`STREAM_SARA`, a Fisher-Yates), and a spot that cannot be won is
+    passed over (user: "correct").  Under Key items Vanilla, the first
+    `rando_winnable` passes with her there (`RW_SARALOG`) -- so without
+    Early King, which lets the King give the BRIDGE before her rescue, she
+    stays with Garland unless something free reaches her.  Under Standard or
+    Wide, **placement tries her spots on each world it builds**
+    (`pl_trysara`): in the seed's order, each with her masks there and the
+    world's tries of its own, every spot whose placement can start --
+    reaches an incentive spot with what is free and the Loose key items
+    (`pl_sarago`); and if none places, Garland's unchecked, as without the
+    flag (it can start by sending an incentive loose).  Garland's tries are
+    the flag-off tries, so the flag never costs a world (`test_princess`
+    holds the reference to that).  So with Early King, or the SHIP and
+    airship free, she is at the seed's first spot; with neither and nothing
+    free, the King waits on her and nothing can start: Garland's.  Under Map
+    shuffle the start region varies, and she is at Garland's more often
+    than one in eight.
+  - **Her masks**: the vanilla tables' (genlogic.py's `SARA`, past the
+    locations' in `lut_LogicMasks`, `lut_LogicSaraLo/Hi`), and under Map
+    shuffle or map edits es_build's -- all eight worked out with the wiring
+    (`es_saraspots`, while `RW_SARAON`), so a wiring is built once, not once
+    per spot (the first build did, and a Map shuffle New Game took 5.7
+    times as long).  Her place in `RP_MASK` is `SARA_SLOT` long, one more
+    than a spot's masks can be, padded with `SARA_NEVER`, and placement
+    copies the spot it tries there (`pl_sarause`); `SARA_NEVER` is never met
+    and names every bit, so es_build's by-bit index asks after her on all of
+    them (the vanilla tables' names her under every bit a spot does).
+    Moving her moves no other location's masks (genlogic.py checks, with
+    Early Ordeals and without).
+  - **Stored** in the RNG tables' byte, bit 4 (`PRINCESS_FIELD`); RNG tables
+    is bits 0-3 (`RNG_FIELD`), which the build masks (it once read the whole
+    byte, and the flag turned the RNG shuffle off).
+
+The descriptions, by value, drafts: Off "Garland holds the princess in the
+Temple of Fiends."  On "The princess has run away from home. She may be
+found in one of several places."
+
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
 New Game's build copies them into the save, beside a seed, as the game
@@ -2649,6 +2721,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Party | Free, Balanced, 4 Forced ... RWB | -- | 16 | Free |
 | Taverns | Off, Recruit, Replace | -- | 3 | Off |
+| Rebellious Princess | Off, On | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -4071,13 +4144,19 @@ text region in the game references.
                              edits' three 348 (freed 2026-10-24), Short
                              ToFR's 143, Party's sixteen 1003 (2026-11-02:
                              nearly full; later rows' descriptions go to
-                             BANK_OPTTEXT2, Taverns' first)
+                             BANK_OPTTEXT2, Taverns' first; Rebellious
+                             Princess's pointers 2, 2026-11-02)
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO    635 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31; Party 259, Taverns 178, 2026-11-02); the Ordeals pillars took 622,
+    BANK_RANDO     57 free  the randomizer: FULL -- the next feature moves something out
+                             (measured with ld65's map, 2026-11-03: Rebellious
+                             Princess 576 -- pl_sara, pl_trysara and its
+                             helpers, the dialogue swap; its map loading
+                             went to BANK_WORLD to fit; 2026-10-28;
+                             rando_dice 59, 2026-10-31; Party 259, Taverns 178, 2026-11-02); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -4110,11 +4189,15 @@ text region in the game references.
                              259 (lut_PartySlots 64, rando_party,
                              party_pick, rando_partyseeded, the surprise
                              mask; 2026-11-02)
-    BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
+    BANK_LOGIC   6011 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
-                             graph (5440), generated; data only
-    BANK_WORLD   5337 free  (measured 2026-10-28) entrance shuffle's code
+                             graph (5440), generated; data only; Rebellious
+                             Princess's spots 138 (2026-11-03)
+    BANK_WORLD   4518 free  (measured 2026-11-03; 5337 on 2026-10-28)
+                             Rebellious Princess 819: her lines (dlgsara.inc),
+                             her map loading (sara.inc), es_saraspots;
+                             entrance shuffle's code
                              (4430): the wiring, the seed's logic, roots,
                              groups, the dock, and the landing tables; the
                              roll screen's yields 40;
@@ -4134,7 +4217,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3303 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3266 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -4149,11 +4232,13 @@ text region in the game references.
                              listing's count, 2026-11-01); Party 179 (its
                              row, readouts, scalar and opt_needseed's ask,
                              2026-11-02); Taverns' row 86, the second
-                             descriptions bank's choice in it (2026-11-02)
+                             descriptions bank's choice in it (2026-11-02);
+                             Rebellious Princess's row 39 (2026-11-03)
     BANK_TAVERN  ~14840 free Taverns' visit, hire, level up and look
                              (tavern.asm, ~1540; 2026-11-02)
-    BANK_OPTTEXT2 ~16080 free the descriptions past the first bank's:
-                             Taverns' three (~300; 2026-11-02)
+    BANK_OPTTEXT2 16031 free the descriptions past the first bank's:
+                             Taverns' three (~300; 2026-11-02), Rebellious
+                             Princess's two (147; 2026-11-03)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

@@ -89,6 +89,8 @@ def strip(early=()):
 
     def land(m, x, y):
         return maps[m].node_at(x, y)
+    global STRIP_MAPS
+    STRIP_MAPS = maps                   # Rebellious Princess's spots' regions
     return g, ow, edges, ent, tele, exits, land, exit_to
 
 
@@ -159,6 +161,15 @@ def main():
     named |= roots
     for k in idx + [chaos]:
         named |= set(g.locations[k].nodes)
+    #  Rebellious Princess: where the party talks to the princess at each of
+    #  her spots (romdata.PRINCESS_SPOTS), the vanilla first -- her event's
+    #  regions when she is there.  On this graph her spots are open floor.
+    princess = G.EVENT_ORDER.index("Talk_Princess1") + 248
+    sara_nodes = [list(g.locations[idx[princess]].nodes)]
+    for _, m_, x_, y_, _ in rd.PRINCESS_SPOTS[1:]:
+        sara_nodes.append(STRIP_MAPS[m_].object_nodes(x_, y_))
+    for ns in sara_nodes:
+        named |= set(ns)
     fwd, back = defaultdict(set), defaultdict(set)
     for s, d, _, _ in edges:
         fwd[s].add(d)
@@ -199,6 +210,9 @@ def main():
     for k in idx + [chaos]:
         for n in g.locations[k].nodes:
             keep(n)
+    for ns in sara_nodes:
+        for n in ns:
+            keep(n)
     assert len(used) < 256, len(used)
     num = {n: i for i, n in enumerate(used)}
 
@@ -233,6 +247,8 @@ def main():
         "LOC_REQ": [mi(g.locations[k].req) for k in idx],
         "CHAOS_NODES": [num[n] for n in g.locations[chaos].nodes],
         "CHAOS_REQ": mi(g.locations[chaos].req),
+        "SARA_NODES": [[num[n] for n in ns] for ns in sara_nodes],
+        "SARA_AT": [[m_, x_, y_, f_] for _, m_, x_, y_, f_ in rd.PRINCESS_SPOTS],
     }
     out["MASKS"] = [m for m, _ in masks]
     out["CONDS"] = [c for _, c in masks]
@@ -347,6 +363,7 @@ def main():
     out["ENT_DOCK"] = ent_dock
 
     check(out, idx)
+    check_sara(out)
     n = check_edits(out)
     write_py(out)
     write_inc(out)
@@ -439,6 +456,21 @@ def check(D, idx):
             npc = clear if e != 4 else 0
             mine = analysis._minimise([mm & ~npc for mm in got[c]])
             assert sorted(want) == sorted(mine), ("Early %s, location %d %s" % (names, c, label), mine, want)
+
+
+def check_sara(D):
+    """At each of Rebellious Princess's spots, her event's regions give the
+    masks genlogic found there with the princess moved."""
+    import logicdata as L
+    princess = G.EVENT_ORDER.index("Talk_Princess1") + 248
+    assert D["SARA_NODES"][0] == D["LOC_NODES"][princess]
+    #  One region each, so a spot's masks are at most a region's (ES_NODEMAX),
+    #  the room the cartridge keeps for them (snesmap.inc's SARA_SPOTMAX).
+    assert all(len(ns) == 1 for ns in D["SARA_NODES"]), D["SARA_NODES"]
+    for s, nodes in enumerate(D["SARA_NODES"]):
+        moved = dict(D, LOC_NODES=D["LOC_NODES"][:princess] + [nodes] + D["LOC_NODES"][princess + 1:])
+        got = masks_for(moved, D["VANILLA_ENTRANCE"], D["VANILLA_NORMAL"], D["VANILLA_EXIT"], 0)[princess]
+        assert sorted(got) == sorted(L.SARA[s]), ("Sara at spot %d" % s, got, L.SARA[s])
 
 
 def write_py(out):
@@ -538,8 +570,17 @@ def write_inc(D):
     table("lut_GrExitX", [c[0] for c in exits])
     table("lut_GrExitY", [c[1] for c in exits])
     table("lut_GrExitNodes", csr("lut_GrExit", [D["EXIT_TO"][c] for c in exits]))
-    lines.append(";  The cartridge's locations, then Chaos: their regions and requirement.")
-    table("lut_GrLocNodes", csr("lut_GrLoc", D["LOC_NODES"] + [D["CHAOS_NODES"]]))
+    lines.append(";  The cartridge's locations, then Chaos: their regions and requirement --")
+    lines.append(";  and past Chaos's, the princess's event's at each of Rebellious")
+    lines.append(";  Princess's spots, where each starts in lut_GrLocNodes in lut_GrSaraOff.")
+    flat = csr("lut_GrLoc", D["LOC_NODES"] + [D["CHAOS_NODES"]])
+    soff = []
+    for ns in D["SARA_NODES"]:
+        soff.append(len(flat))
+        flat = flat + ns
+    soff.append(len(flat))
+    table("lut_GrLocNodes", flat)
+    table("lut_GrSaraOff", soff, word=True)
     table("lut_GrLocReq", D["LOC_REQ"] + [D["CHAOS_REQ"]])
     ents = sorted({e for e, _, _ in D["ENT_SRC"]})
     const("GR_ENTIDS", len(ents))
