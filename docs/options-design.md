@@ -1032,7 +1032,8 @@ the helper answering the held or not keeping them.
 
 **Decision (user, 2026-10-09): unconditional, with no menu row.**  On the
 party creation screen, slots 2-4 cycle Fighter to Black Mage, then None, then
-round again; slot 1 never offers it.  It is for solo and small-party runs,
+round again; slot 1 never offers it.  (Since the Party row, 2026-11-02,
+that is Free's; the cycle follows the row's mode, `lut_PartySlots`.)  It is for solo and small-party runs,
 which before meant making four characters and killing three.  A on a None
 confirms it with a blank name, without name input.
 
@@ -1753,7 +1754,7 @@ no death alongside another status), deals under both, and runs New Game
 under each mode, the step past Any among them.  Ten mutations of the AoE
 code, all caught.
 
-### New game (16)
+### New game (17)
 
 **Decision (user, 2026-10-09): the section is headed RANDOMIZATION, and each
 row's first value reads "Off".**  Under the old NEW GAME heading, "Trap tiles:
@@ -1965,6 +1966,70 @@ cache's table, as `rando_entrdest` and `rando_exitdest` do for the overworld
 entrances and the exits (`randomization-notes.md` §9.3).  The room table and pads are FFR's,
 held to this ROM by the test.  When incentive placement comes, its logic has
 to see 2F through the deal.
+
+**Party** (user, 2026-11-02, the design in `forced-party.txt` beside the
+tree; built, not yet played), the section's last row: sixteen values in
+four bits -- FFR's whole forced-party screen "reduced to a single line"
+(the user) of the common cases.  Free (the screen as it was), Balanced, 4
+Forced, 3 Forced, 2 Forced, 1 Forced, 2 Nones, Solo, Th + Wm, Fi + 3, Th +
+3, 4 WM, 4 BM, 4 RM, 4 Th, RWB: the user's names, and the readouts.
+
+  - **The model is FFR's** (`Party.cs`, `UpdateCharacterFromOptions`): each
+    slot a set of the classes it allows and whether it is forced.
+    `lut_PartySlots` (`rando.asm`) is a row of four slot bytes per mode:
+    bits 0-5 Fighter to Black Mage, bit 6 the None, bit 7 forced.  A forced
+    slot is the seed's pick of what it allows, which the party creation
+    screen will not change; the player still names it, and confirms a forced
+    None with A, as any None (user: no skipping).  An unforced slot cycles
+    through what it allows, from its default.  `randoref.PARTY_MODES` is the
+    design written out apart from the ROM, and `test_forcedparty` holds the
+    table to it.
+  - **Nones go in the later slots** (user), and slot 1 never has one, as the
+    screen never offered it there: 3 Forced is three and a None, 2 Forced
+    two and two Nones, 1 Forced one and three; 2 Nones is two of the
+    player's choosing and two Nones, Solo one and three; Th + Wm a Thief, a
+    White Mage and two Nones; RWB a Red Mage, a White Mage, a Black Mage and
+    a None.  Balanced is the seed's two of Fighter, Thief, Black Belt and Red
+    Mage, then a White Mage and a Black Mage.  Fi + 3 and Th + 3 are the
+    class and then three slots of any class or a None.
+  - **Repeats are allowed** (user), as FFR picks each slot alone: 4 Forced
+    can be two Fighters.  The free slots of 2 Nones and Solo offer the six
+    classes only (user): their descriptions are "Choose two party members"
+    and "Choose a single adventurer".
+  - **The picks.**  `rando_party`, by JSL from `NewGamePartyUI` where the
+    game ended the screen's setup (`party_forced.patch`, the four bytes that
+    terminated `$60`'s draw buffer, which it does too), right after the copy
+    of `lut_PtyGenBuf`: a stream of its own (`STREAM_PARTY`, "PRTY") from
+    the save's seed, every slot drawing one below the count it allows,
+    forced or not, so each mode reads the stream the same way.  Party
+    creation runs after `rando_build` has written the seed, so B back into
+    the screen forces the same party again.  `none_nextclass` steps an
+    unforced slot to the next class it allows, and leaves a forced one.
+  - **The seed screen** only for a mode the seed picks in (user: "some of
+    the values ... don't depend on the seed"): Balanced, the four Forced,
+    Fi + 3 and Th + 3.  `opt_needseed` asks `rando_partyseeded` -- a forced
+    slot with more than one choice -- and `genpresets.PARTY_SEEDED` is the
+    same list for a preset's way past the screens.
+  - **Stored** in the high half of Surprise rates' byte (`PARTY_FIELD`),
+    which the build masks to its own half (`SURPRISE_FIELD`), as Pirates
+    shares Status attacks'.  Zero in every save and settings block before
+    it: Free.  The save view shows it with the other rows.
+  - **Presets** (user): Chaos Rush 4 Forced, FFR's four forced random slots;
+    Free Enterprise 2 Nones, in place of the party FFR recruits from NPCs,
+    which is not being ported; every other preset Free.
+
+The descriptions, by value: Free "Choose all four party members, Nones
+included, as usual."  Balanced "The seed chooses two of Fighter, Thief,
+Black Belt and Red Mage. A White Mage and a Black Mage join them."  4
+Forced "The seed chooses all four party members."  3 Forced "The seed
+chooses three party members. The fourth is a None."  2 Forced and 1 Forced
+the same for two and one.  2 Nones "Choose two party members."  Solo
+"Choose a single adventurer."  Th + Wm "The classic Thief + White Mage
+duo."  Fi + 3 "A Fighter, then three more that the seed chooses. Any of
+them may be a None.", Th + 3 the same for a Thief.  4 WM "Four White
+Mages.", and so on.  RWB "A Red Mage, a White Mage, a Black Mage and a
+None."  (The user's words where they gave them, 2026-11-02; the rest the
+drafts they kept.)
 
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
@@ -2507,6 +2572,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Enemy skills | Off, Enemies, Bosses, Both | -- | 4 | Off |
 | Pirates | Off, Buffed, Nasty | -- | 3 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
+| Party | Free, Balanced, 4 Forced ... RWB | -- | 16 | Free |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -3868,7 +3934,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    5710 free   the settings screen's engine and rows (6695)
+    BANK_OPT    5658 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -3904,10 +3970,11 @@ text region in the game references.
                              and the scaling's ranges (739: opt_scalestat,
                              its log and exponential tables, 552 of it,
                              opt_statrange; ld65's map read 6449 before
-                             them, 2026-10-31) -- the next feature with
-                             much code goes to a chunk of its own, as Boss
-                             tactics did
-    BANK_OPTTEXT  1172 free  the settings screen's descriptions (measured
+                             them, 2026-10-31), and Party's class cycle
+                             (52 more than the None's, 2026-11-02) -- the
+                             next feature with much code goes to a chunk
+                             of its own, as Boss tactics did
+    BANK_OPTTEXT   169 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -3920,13 +3987,15 @@ text region in the game references.
                              max rows' text lost a line, 2026-11-01), Thief
                              lockpicking's 115, Item magic's 115, Map
                              edits' three 348 (freed 2026-10-24), Short
-                             ToFR's 143
+                             ToFR's 143, Party's sixteen 1003 (2026-11-02:
+                             nearly full; the next descriptions want room
+                             found or a bank of their own)
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO   1072 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31); the Ordeals pillars took 622,
+    BANK_RANDO    813 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31; Party 259, 2026-11-02); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -3955,7 +4024,10 @@ text region in the game references.
                              BANK_WORLD's); the enemy records, Pirates
                              Buffed and Nasty, and the battle's copies
                              352 (2026-10-30), 68 of it back when the
-                             RAM-stat copy moved to opt_scaleenemies
+                             RAM-stat copy moved to opt_scaleenemies; Party
+                             259 (lut_PartySlots 64, rando_party,
+                             party_pick, rando_partyseeded, the surprise
+                             mask; 2026-11-02)
     BANK_LOGIC   6911 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
@@ -3980,7 +4052,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3568 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3389 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -3992,7 +4064,9 @@ text region in the game references.
                              (ld65's map read 3904 before them,
                              2026-10-31); min and max held together 102
                              (opt_range_floor and opt_range_push, a
-                             listing's count, 2026-11-01)
+                             listing's count, 2026-11-01); Party 179 (its
+                             row, readouts, scalar and opt_needseed's ask,
+                             2026-11-02)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

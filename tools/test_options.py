@@ -15828,6 +15828,203 @@ def test_saveview():
         check("TitleScreen_Music, A %d Select %d" % (a_, sel), cpu.a & 0xFF, want)
 
 
+# --- Party: forced party members ----------------------------------------------
+def test_forcedparty():
+    """The Party row (user, 2026-11-02, forced-party.txt).  Its sixteen modes'
+    slots are the design's (randoref.PARTY_MODES): Nones last, never in slot
+    1, and a slot the player picks allowing its default.  rando_party gives
+    each forced slot the seed's pick and leaves the rest, as
+    randoref.party_classes; the class cycle steps a free slot through what it
+    allows and leaves a forced one.  opt_needseed asks for a seed only for a
+    mode that draws on it, and genpresets agrees.  The row shares Surprise
+    rates' byte, which the build masks.  Chaos Rush is 4 Forced and Free
+    Enterprise 2 Nones (user).  And the party creation screen, end to end."""
+    import presetdefs as P, genpresets as G
+    NONE, PG = K["CLS_NONE"], K["ptygen_class"]
+    SURP = K["RANDO_SURPRISE"] - 0x6000
+    img = (RANDO_BANK & 0x1F) * 0x10000
+    tab = ROMDATA[img + SYM["lut_PartySlots"]:][:64]
+    slots = [tuple(tab[m * 4:m * 4 + 4]) for m in range(16)]
+    check("lut_PartySlots: the design's, mode by mode", slots, [s for _, s in R.PARTY_MODES])
+    check("...no None in slot 1", [m for m in range(16) if slots[m][0] & 0x40], [])
+    check("...Nones last: a forced None only before another",
+          [m for m in range(16) for i in range(3) if slots[m][i] == 0xC0 and slots[m][i + 1] != 0xC0], [])
+    check("...a slot the player picks allows its default",
+          [(m, i) for m in range(16) for i in range(4)
+           if not slots[m][i] & 0x80 and not slots[m][i] & (1 << R.PARTY_DEFAULTS[i])], [])
+    #  ...and the defaults are lut_PtyGenBuf's, the table the copy before
+    #  rando_party's JSL reads: LDX #$3F, LDA lut_PtyGenBuf,X, STA ptygen,X,
+    #  DEX, BPL.
+    lo = (BANK_0E & 0x1F) * 0x10000 + 0x8000
+    op = bytes([0x22, SYM["rando_party"] & 0xFF, SYM["rando_party"] >> 8, RANDO_BANK])
+    at = ROMDATA[lo:lo + 0x8000].find(op)
+    copy = ROMDATA[lo + at - 11:lo + at]
+    buf = (BANK_0E & 0x1F) * 0x10000 + (copy[3] | copy[4] << 8)
+    check("bank $0E calls rando_party once, right after the ptygen copy",
+          (jsl_count((BANK_0E & 0x1F), "rando_party"), copy[0:3], copy[5:]),
+          (1, bytes([0xA2, 0x3F, 0xBD]), bytes([0x9D, PG & 0xFF, PG >> 8, 0xCA, 0x10, 0xF7])))
+    check("...and the defaults are that table's", [ROMDATA[buf + 0x10 * i] for i in range(4)],
+          list(R.PARTY_DEFAULTS))
+
+    #  The row: last of RANDOMIZATION, its readouts the design's names, its
+    #  field the surprise byte's high half, Surprise rates' the low.
+    rows = P.rows()
+    rando = [r for r in rows if r.section == "RANDOMIZATION"]
+    party = rando[-1]
+    check("Party: the last randomization row, its readouts the names",
+          (party.label, party.kind, party.values), ("Party", "val", [n for n, _ in R.PARTY_MODES]))
+    surprise = next(r for r in rows if r.label == "Surprise rates")
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    field = lambda r: (tbl("lut_ValOff", r.arg), tbl("lut_ValBit", r.arg), tbl("lut_ValMask", r.arg))
+    check("...its field the surprise byte's bits 4-7, Surprise rates' 0-3",
+          (field(party), field(surprise)),
+          (((K["OPT_NG_SURPRISE"] - OPTBLOCK), 4, 0xF0), ((K["OPT_NG_SURPRISE"] - OPTBLOCK), 0, 0x0F)))
+    check("...and the save's byte the settings' (a straight copy)",
+          K["RANDO_SURPRISE"] - K["RANDO_TRAPS"], K["OPT_NG_SURPRISE"] - K["OPT_NG_TRAPS"])
+
+    #  rando_party, every mode over seeds, the low half of the byte a decoy:
+    #  the forced slots the seed's picks, the rest and the names untouched,
+    #  and $60 zeroed as the four bytes it replaced did.
+    def setup(seed, mode, low=0):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)
+        bus.sram[SURP] = mode << 4 | low
+        for i in range(4):
+            bus.wram[PG + 0x10 * i:PG + 0x10 * i + 0x10] = bytes([R.PARTY_DEFAULTS[i]] + [0x40 + i] * 15)
+        bus.wram[0x60] = 0x55
+        return bus, cpu
+    bad, seen = [], {}
+    for mode in range(16):
+        for k, seed in enumerate(SEEDS + tuple(range(100, 300))):
+            bus, cpu = setup(seed, mode, k & 0x0F)
+            call(cpu, "rando_party", bank=RANDO_BANK)
+            got = [bus.wram[PG + 0x10 * i] for i in range(4)]
+            rest = [bytes(bus.wram[PG + 0x10 * i + 1:PG + 0x10 * i + 0x10]) for i in range(4)]
+            want = R.party_classes(seed, mode)
+            if (got, rest, bus.wram[0x60]) != (want, [bytes([0x40 + i] * 15) for i in range(4)], 0):
+                bad.append("mode %d seed %08X: %s, want %s" % (mode, seed, got, want))
+            for i, c in enumerate(got):
+                seen.setdefault((mode, i), set()).add(c)
+    check("rando_party: randoref's party, every mode, 207 seeds", bad[:3], [])
+    allowed = lambda e: {NONE if c == 6 else c for c in range(7) if e & (1 << c)}
+    check("...over them every slot forced shows all it allows, a free one its default",
+          [(m, i) for m in range(16) for i in range(4)
+           if seen[m, i] != (allowed(slots[m][i]) if slots[m][i] & 0x80 else {R.PARTY_DEFAULTS[i]})], [])
+    check("...and repeats come up: some seeds give 4 Forced two of a class",
+          any(len(set(R.party_classes(s, 2))) < 4 for s in range(100, 300)), True)
+
+    #  The cycle, from where rando_party leaves each slot: a free slot steps
+    #  through what it allows, Fighter to Black Mage, then None, round again;
+    #  a forced slot stays.
+    def nxt(c, e):
+        i = 6 if c == NONE else c
+        while True:
+            i = (i + 1) % 7
+            if e & (1 << i):
+                return NONE if i == 6 else i
+    bad = []
+    for mode in range(16):
+        bus, cpu = setup(0x600DCAFE, mode)
+        call(cpu, "rando_party", bank=RANDO_BANK)
+        for i in range(4):
+            c, got, want = bus.wram[PG + 0x10 * i], [], []
+            w = c
+            for _ in range(8):
+                cpu.x = 0x10 * i
+                call(cpu, "none_nextclass")
+                got.append((bus.wram[PG + 0x10 * i], cpu.x & 0xFF))
+                w = w if slots[mode][i] & 0x80 else nxt(w, slots[mode][i])
+                want.append((w, 0x10 * i))
+            if got != want:
+                bad.append("mode %d slot %d: %s, want %s" % (mode, i + 1, got, want))
+    check("the class cycle: a free slot through what it allows, a forced one kept, X kept", bad[:3], [])
+
+    #  The seed screen: Party alone, only for a mode that draws on the seed;
+    #  genpresets' rule the same, by readout.
+    def needs(mode):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        for a in range(K["OPT_FLAGS"], K["OPT_FLAGS"] + 6):
+            bus.sram[a - 0x6000] = 0
+        for a in range(K["OPT_NG"], K["OPT_NG"] + K["OPT_NG_SIZE"]):
+            bus.sram[a - 0x6000] = 0
+        bus.sram[K["OPT_NG_SURPRISE"] - 0x6000] = mode << 4
+        call(cpu, "opt_needseed")
+        return bool(cpu.p & 1)
+    seeded = [m for m in range(16) if R.party_seeded(m)]
+    check("the seeded modes: Balanced, the four Forced, Fi + 3 and Th + 3",
+          [R.PARTY_MODES[m][0] for m in seeded],
+          ["Balanced", "4 Forced", "3 Forced", "2 Forced", "1 Forced", "Fi + 3", "Th + 3"])
+    check("opt_needseed: Party alone needs a seed only in those", [m for m in range(16) if needs(m)], seeded)
+    check("...and genpresets' list is theirs", G.PARTY_SEEDED, {R.PARTY_MODES[m][0] for m in seeded})
+
+    #  The byte's other half: Surprise rates deals the same with any Party
+    #  mode beside it, and Off stays off.
+    def rates(seed, surprise, mode):
+        bus, cpu = machine()
+        setruns(bus, seed, 0, surprise | mode << 4)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        return runs_cache(bus)[1]
+    for seed in (0x600DCAFE, 7):
+        on, off = rates(seed, 1, 0), rates(seed, 0, 0)
+        check("seed %08X: Surprise rates shuffles them" % seed, on != off, True)
+        check("...the same beside every Party mode, and Off stays off",
+              [m for m in (1, 6, 9, 15) if (rates(seed, 1, m), rates(seed, 0, m)) != (on, off)], [])
+
+    #  The presets (user): Chaos Rush 4 Forced, Free Enterprise 2 Nones, the
+    #  rest Free.
+    presets = G.resolve(G.load(), rows)
+    check("the presets' Party", {name: party.values[s["Party"]] for name, _, _, s in presets},
+          {name: {"Chaos Rush": "4 Forced", "Free Enterprise": "2 Nones"}.get(name, "Free")
+           for name, _, _, _ in presets})
+
+    #  The screen itself, from the flow's trampoline as test_ngparty drives
+    #  it: each mode's party as the player meets it.
+    UJ = SYM["UpdateJoy"]
+    A_, DOWN = 0x80, 0x04
+    V = K["OPTCALLV"]
+    CLASS, NAME = K["ch_class"] - 0x6000, K["ch_name"] - 0x6000
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    def made(seed, mode, presses):
+        bus, cpu = machine()
+        in_vblank(bus)
+        setsave(bus, seed, 0)
+        bus.sram[SURP] = mode << 4
+        bus.wram[V], bus.wram[V + 1] = SYM["NewGamePartyUI"] & 0xFF, SYM["NewGamePartyUI"] >> 8
+        bus.wram[K["cur_bank"]] = 0x0E
+        pad(bus, 0)
+        cpu.dbr = BANK_0E
+        if not cpu.run(BANK_0E, SYM["OptCallFar"], stop=UJ, limit=40_000_000):
+            return "never up"
+        for nes in presses:
+            for b in (nes, 0):
+                pad(bus, b)
+                cpu.step()
+                for _ in range(5_000_000):
+                    if cpu.pc in (UJ, 0xFFFE):
+                        break
+                    cpu.step()
+                if cpu.pc != UJ:
+                    return ([bus.sram[CLASS + 0x40 * e] for e in range(4)],
+                            [bytes(bus.sram[NAME + 0x40 * e:][:4]) for e in range(4)])
+        return "still up"
+    named = lambda extra: extra + [A_] + [A_] * 5     # (a class) A, four letters, end
+    AAAA, BLANK = bytes([0x8A] * 4), bytes([0xFF] * 4)
+    check("Th + Wm: a Thief and a White Mage whatever the d-pad, then two Nones on A",
+          made(5, 8, named([DOWN]) + named([DOWN, DOWN]) + [DOWN, A_, A_, A_]),
+          ([1, 4, NONE, NONE], [AAAA, AAAA, BLANK, BLANK]))
+    check("2 Nones: the first two chosen, six classes round, the last two Nones",
+          made(5, 6, named([DOWN] * 5) + named([DOWN] * 5) + [A_, A_, A_]),
+          ([5, 0, NONE, NONE], [AAAA, AAAA, BLANK, BLANK]))
+    seed = 0x0BADF00D
+    want = R.party_classes(seed, 2)
+    check("4 Forced: the seed's four, named, the d-pad changing none",
+          made(seed, 2, named([DOWN]) * 4 + [A_]),
+          (want, [AAAA] * 4))
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -16358,7 +16555,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

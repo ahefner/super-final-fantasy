@@ -95,6 +95,7 @@ double gold and XP. Nothing is randomized.
 "Pirates" = "Off"
 "RNG tables" = "Off"
 "Ordeals pillars" = "Off"
+"Party" = "Free"
 
 # Key items
 "Key items" = "Vanilla"

@@ -55,6 +55,7 @@ STREAM_KEYS = 0x4B455953        # "KEYS"
 STREAM_CASTER = 0x43415354      # "CAST"
 STREAM_ITEMMAGIC = 0x494D4147   # "IMAG"
 STREAM_DICE = 0x44494345        # "DICE": each enemy's, the id XORed in
+STREAM_PARTY = 0x50525459       # "PRTY": the forced party's picks
 WARMUP = 8
 
 
@@ -521,6 +522,8 @@ RUNS_NAMES = {"off": RUNS_OFF, "shuffle": RUNS_SHUFFLE}
 RUNS_COUNT = 26                 # vanilla's 13 unrunnable normal formations, both sides
 SURPRISE_OFF, SURPRISE_SHUFFLE = 0, 1
 SURPRISE_MODES = 2
+SURPRISE_FIELD = 0x0F                           # RANDO_SURPRISE's bits 0-3...
+PARTY_FIELD, PARTY_SHIFT = 0xF0, 4              # ...and Party in bits 4-7
 SURPRISE_NAMES = {"off": SURPRISE_OFF, "shuffle": SURPRISE_SHUFFLE}
 NORMAL_FORMS, CHAOS_FORM = 115, 123
 
@@ -732,6 +735,55 @@ def enemy_dice(seed, enemy):
         rng.s = xs32(rng.s)
         out.append(rng.s & 0xFF)
     return out
+
+
+#  The Party row (user, 2026-11-02, forced-party.txt), written from the design
+#  rather than read from rando.asm's lut_PartySlots, which test_forcedparty
+#  holds to it.  Each slot: the classes it allows, bits 0-5 Fighter to Black
+#  Mage and bit 6 the None, and bit 7 if it is forced -- picked by the seed
+#  from those, where the player cannot change it.  Nones last; slot 1 never.
+PS_FI, PS_TH, PS_BB, PS_RM, PS_WM, PS_BM, PS_NONE = 1, 2, 4, 8, 16, 32, 64
+PS_SIX, PS_ANY, PS_SEED = 0x3F, 0x7F, 0x80
+CLS_NONE = 0xFF
+_F = PS_SEED
+PARTY_MODES = [
+    ("Free",     (PS_SIX, PS_ANY, PS_ANY, PS_ANY)),
+    ("Balanced", (_F | PS_FI | PS_TH | PS_BB | PS_RM,) * 2 + (_F | PS_WM, _F | PS_BM)),
+    ("4 Forced", (_F | PS_SIX,) * 4),
+    ("3 Forced", (_F | PS_SIX,) * 3 + (_F | PS_NONE,)),
+    ("2 Forced", (_F | PS_SIX,) * 2 + (_F | PS_NONE,) * 2),
+    ("1 Forced", (_F | PS_SIX,) + (_F | PS_NONE,) * 3),
+    ("2 Nones",  (PS_SIX, PS_SIX) + (_F | PS_NONE,) * 2),
+    ("Solo",     (PS_SIX,) + (_F | PS_NONE,) * 3),
+    ("Th + Wm",  (_F | PS_TH, _F | PS_WM) + (_F | PS_NONE,) * 2),
+    ("Fi + 3",   (_F | PS_FI,) + (_F | PS_ANY,) * 3),
+    ("Th + 3",   (_F | PS_TH,) + (_F | PS_ANY,) * 3),
+    ("4 WM",     (_F | PS_WM,) * 4),
+    ("4 BM",     (_F | PS_BM,) * 4),
+    ("4 RM",     (_F | PS_RM,) * 4),
+    ("4 Th",     (_F | PS_TH,) * 4),
+    ("RWB",      (_F | PS_RM, _F | PS_WM, _F | PS_BM, _F | PS_NONE)),
+]
+PARTY_DEFAULTS = (0, 1, 2, 3)   # lut_PtyGenBuf's: Fighter, Thief, Black Belt, Red Mage
+
+
+def party_classes(seed, mode, defaults=PARTY_DEFAULTS):
+    """The party creation screen's four classes as rando_party leaves them:
+    each forced slot the seed's pick of what it allows, the rest their
+    defaults.  Every slot draws, forced or not, one below the count it
+    allows."""
+    st = Stream(seed, STREAM_PARTY)
+    out = []
+    for slot, e in enumerate(PARTY_MODES[mode][1]):
+        allowed = [c for c in range(7) if e & (1 << c)]
+        c = allowed[st.below(len(allowed))]
+        out.append((CLS_NONE if c == 6 else c) if e & PS_SEED else defaults[slot])
+    return out
+
+
+def party_seeded(mode):
+    """Whether the mode draws on the seed: a forced slot with a choice."""
+    return any(e & PS_SEED and bin(e & 0x7F).count("1") > 1 for e in PARTY_MODES[mode][1])
 
 
 def stat_factor(lo, hi, u):
@@ -2238,6 +2290,7 @@ def main():
     if a.srm:
         pirates = (status & PIRATES_FIELD) >> PIRATES_SHIFT
         status &= STATUS_FIELD
+        surprise &= SURPRISE_FIELD
     else:
         pirates = PIRATES_NAMES[a.pirates]
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"

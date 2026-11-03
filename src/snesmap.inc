@@ -1893,6 +1893,16 @@ RUNS_COUNT      = 26
 SURPRISE_OFF    = 0
 SURPRISE_SHUFFLE = 1
 SURPRISE_MODES  = 2
+SURPRISE_FIELD  = $0F           ; RANDO_SURPRISE: the mode in bits 0-3...
+
+;  ...and Party (user, 2026-11-02, forced-party.txt) in bits 4-7, zero in
+;  every save made before it: Free, the party creation screen as it was.
+;  Sixteen modes, a row of rando.asm's lut_PartySlots each; what each slot
+;  allows, and whether the seed picks it, is that table's.  The byte because
+;  its one other reader masks it as Pirates' does Status attacks'.
+PARTY_FIELD     = $F0
+PARTY_SHIFT     = 4
+PARTY_MODES     = 16
 
 ;  Status attacks: FFR's Enemy Status Attacks in Shuffle mode.  Every enemy's
 ;  touch -- the ailment (record byte $0F) and its element ($0E), together --

@@ -13,7 +13,8 @@
 ;  does.  What is left is what the class byte would index out of range, and
 ;  what could bring it back:
 ;
-;    - party creation: the class cycle, its name, its sprite, its name input
+;    - party creation: the class cycle (the Party row's, since 2026-11-02),
+;      its name, its sprite, its name input
 ;    - a class name of "None" in the menus           (fixed bank)
 ;    - no sprite in battle (DrawCharacter); menus already draw no dead one
 ;    - a spell on the whole party passes over it, where the dead and stoned
@@ -41,6 +42,7 @@
 .export none_obailment, none_drawchar, none_nametext, none_aoetarget
 
 .import lutClassBatSprPalette, lut_MagicPermisPtr
+.import lut_PartySlots                  ; rando.asm's, through RANDOFAR
 
 .segment "BANK_OPT"
 
@@ -48,24 +50,59 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  none_nextclass -- the next choice on the party creation screen
 ;;
-;;  Fighter through Black Mage, then None for every slot but the first, then
-;;  round to Fighter.  The game went 0-5 and wrapped.
+;;  The next class the slot allows under the save's Party mode (rando.asm's
+;;  lut_PartySlots), in the order Fighter to Black Mage, then None, then
+;;  round again.  Under Free that is Fighter through Black Mage, then None
+;;  for every slot but the first, as before the row.  A forced slot does not
+;;  move (user, 2026-11-02).  The game went 0-5 and wrapped.
 ;;
-;;  In: X = char_index ($00, $10, $20, $30).  Out: ptygen_class, X stepped.
+;;  In: X = char_index ($00, $10, $20, $30).  Out: ptygen_class; X kept.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+lut_ClassBit:  .BYTE $01, $02, $04, $08, $10, $20, $40  ; Fighter .. Black Mage, None
+
 none_nextclass:
-    LDA ptygen_class, X
-    CLC
-    ADC #1                      ; CLS_NONE + 1 is Fighter
+    TXY                         ; Y = char_index; X for the tables
+    TXA
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    PHA                         ; the slot
+    LDA f:RANDO_SAVEFAR + (RANDO_SURPRISE - RANDO_SAVE)
+    AND #PARTY_FIELD
+    LSR A
+    LSR A                       ; the mode's four...
+    ORA $01, S                  ; ...and the slot's of them
+    TAX
+    PLA
+    LDA f:RANDOFAR + lut_PartySlots, X
+    BMI @out                    ; forced: it stays
+    PHA                         ; the classes it allows
+    LDA ptygen_class, Y
+    CMP #CLS_NONE
+    BNE @step
+    LDA #6                      ; a None is the seventh
+  @step:
+    INC A
+    CMP #7
+    BCC :+
+    LDA #0
+:   TAX
+    LDA f:OPTFAR + lut_ClassBit, X
+    AND $01, S
+    BNE @found
+    TXA
+    BRA @step
+  @found:
+    PLA
+    TXA
     CMP #6
-    BCC @store
+    BNE :+
     LDA #CLS_NONE
-    CPX #$00
-    BNE @store                  ; slots 2-4: None after Black Mage
-    LDA #0                      ; the first: back to Fighter
-  @store:
-    STA ptygen_class, X
+:   STA ptygen_class, Y
+  @out:
+    TYX
     RTL
 
 

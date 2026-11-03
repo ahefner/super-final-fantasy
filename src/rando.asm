@@ -51,6 +51,7 @@
 .export rando_nameptr, rando_battlesubsrc
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_btlenemies, rando_dice
+.export rando_party, rando_partyseeded, lut_PartySlots
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
@@ -234,6 +235,7 @@ STREAM_KEYS     = $4B455953     ; "KEYS"
 STREAM_CASTER   = $43415354     ; "CAST": the starting caster item's one draw
 STREAM_ITEMMAGIC = $494D4147    ; "IMAG"
 STREAM_DICE     = $44494345     ; "DICE": each enemy's, the id XORed in (rando_dice)
+STREAM_PARTY    = $50525459     ; "PRTY": the forced party's picks (rando_party)
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -452,6 +454,190 @@ rando_caster:
     PLY
     PLX
     JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  The Party row's modes (user, 2026-11-02, forced-party.txt): one row of
+;;  four slots each, FFR's model -- which classes a slot allows, and whether
+;;  it is forced.  Bits 0-5 are Fighter to Black Mage, bit 6 the None; bit 7
+;;  set, the seed picks the slot from those (one allowed: that class), and
+;;  the party creation screen will not change it.  Clear, the player cycles
+;;  through them (none_nextclass) from the slot's own default in
+;;  lut_PtyGenBuf, which every such slot allows.  Repeats are allowed, as
+;;  FFR's slots are each picked alone (user).  Nones come last (user), and
+;;  slot 1 never allows one, as the screen never offered it there.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+PS_FI   = $01
+PS_TH   = $02
+PS_BB   = $04
+PS_RM   = $08
+PS_WM   = $10
+PS_BM   = $20
+PS_NONE = $40
+PS_SIX  = $3F                   ; the six classes
+PS_ANY  = $7F                   ; ...or a None
+PS_SEED = $80                   ; forced
+
+lut_PartySlots:
+  .BYTE PS_SIX, PS_ANY, PS_ANY, PS_ANY                          ; Free
+  .BYTE PS_SEED | PS_FI | PS_TH | PS_BB | PS_RM                 ; Balanced
+  .BYTE PS_SEED | PS_FI | PS_TH | PS_BB | PS_RM
+  .BYTE PS_SEED | PS_WM, PS_SEED | PS_BM
+  .BYTE PS_SEED | PS_SIX, PS_SEED | PS_SIX, PS_SEED | PS_SIX, PS_SEED | PS_SIX   ; 4 Forced
+  .BYTE PS_SEED | PS_SIX, PS_SEED | PS_SIX, PS_SEED | PS_SIX, PS_SEED | PS_NONE  ; 3 Forced
+  .BYTE PS_SEED | PS_SIX, PS_SEED | PS_SIX, PS_SEED | PS_NONE, PS_SEED | PS_NONE ; 2 Forced
+  .BYTE PS_SEED | PS_SIX, PS_SEED | PS_NONE, PS_SEED | PS_NONE, PS_SEED | PS_NONE ; 1 Forced
+  .BYTE PS_SIX, PS_SIX, PS_SEED | PS_NONE, PS_SEED | PS_NONE    ; 2 Nones
+  .BYTE PS_SIX, PS_SEED | PS_NONE, PS_SEED | PS_NONE, PS_SEED | PS_NONE  ; Solo
+  .BYTE PS_SEED | PS_TH, PS_SEED | PS_WM, PS_SEED | PS_NONE, PS_SEED | PS_NONE  ; Th + Wm
+  .BYTE PS_SEED | PS_FI, PS_SEED | PS_ANY, PS_SEED | PS_ANY, PS_SEED | PS_ANY  ; Fi + 3
+  .BYTE PS_SEED | PS_TH, PS_SEED | PS_ANY, PS_SEED | PS_ANY, PS_SEED | PS_ANY  ; Th + 3
+  .BYTE PS_SEED | PS_WM, PS_SEED | PS_WM, PS_SEED | PS_WM, PS_SEED | PS_WM      ; 4 WM
+  .BYTE PS_SEED | PS_BM, PS_SEED | PS_BM, PS_SEED | PS_BM, PS_SEED | PS_BM      ; 4 BM
+  .BYTE PS_SEED | PS_RM, PS_SEED | PS_RM, PS_SEED | PS_RM, PS_SEED | PS_RM      ; 4 RM
+  .BYTE PS_SEED | PS_TH, PS_SEED | PS_TH, PS_SEED | PS_TH, PS_SEED | PS_TH      ; 4 Th
+  .BYTE PS_SEED | PS_RM, PS_SEED | PS_WM, PS_SEED | PS_BM, PS_SEED | PS_NONE    ; RWB
+.assert * - lut_PartySlots = 4 * PARTY_MODES, error, "four slots per Party mode"
+
+;;  rando_party -- the forced slots, onto the party creation screen
+;;
+;;  The game copies lut_PtyGenBuf into ptygen, every class its default, and
+;;  then this: each forced slot of the save's Party mode gets the seed's pick
+;;  of what it allows, one draw below the count of them, from a stream of
+;;  its own -- so a seed always forces the same party, and B back into the
+;;  screen forces it again.  Every slot draws in turn, forced or not, so
+;;  each mode reads the stream the same way.  Then the instruction this
+;;  replaced: the draw buffer's terminator at $60.
+;;
+;;  By JSL from NewGamePartyUI (bank $0E), emulation mode, after rando_build
+;;  has written the seed and the settings into the save.  A, X, Y not kept.
+rando_party:
+    .a8
+    .i8
+    PHB
+    JSR enter
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_PARTY)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_PARTY)
+    STA a:wRNG+2
+    JSR rando_warm
+    SEP #$20
+    .a8
+    LDA f:RANDO_SAVEFAR + (RANDO_SURPRISE - RANDO_SAVE)
+    AND #PARTY_FIELD
+    LSR A
+    LSR A                       ; the mode times four: its first slot
+    TAX
+    LDY #$00
+  @copy:
+    LDA f:RANDOFAR + lut_PartySlots, X
+    STA a:wLIST, Y              ; the mode's four, where DBR = $7F reads them
+    INX
+    INY
+    CPY #4
+    BCC @copy
+    LDX #$00                    ; X = the slot's ptygen record
+    LDY #$00                    ; Y = the slot
+  @slot:
+    LDA a:wLIST, Y
+    JSR party_pick
+    BCC @next                   ; the player's
+    STA f:ptygen_class, X
+  @next:
+    TXA
+    CLC
+    ADC #$10
+    TAX
+    INY
+    CPY #4
+    BCC @slot
+    LDA #$00
+    STA z:$60
+    JMP leave
+
+;;  One slot's pick.  In: A = its lut_PartySlots byte.  Out: C set and A =
+;;  the class (CLS_NONE for a None) if it is forced; C clear if not.  A draw
+;;  either way.  X and Y kept.
+party_pick:
+    .a8
+    STA a:wE
+    LDA #$00
+    STA a:wP                    ; how many it allows
+    LDA a:wE
+    AND #<~PS_SEED
+  @count:
+    LSR A
+    BCC :+
+    INC a:wP
+:   CMP #$00
+    BNE @count
+    LDA a:wP
+    JSR rando_below             ; which of them
+    STA a:wP
+    LDA a:wE
+    BPL @free
+    LDA #$FF
+    STA a:wQ                    ; the class: the wP-th allowed, from Fighter
+    LDA a:wE
+  @walk:
+    INC a:wQ
+    LSR A
+    BCC @walk
+    DEC a:wP
+    BPL @walk
+    LDA a:wQ
+    CMP #6
+    BNE :+
+    LDA #CLS_NONE
+:   SEC
+    RTS
+  @free:
+    CLC
+    RTS
+
+;;  rando_partyseeded -- does a Party mode draw on the seed?  Only if one of
+;;  its forced slots has a choice; Th + Wm, RWB and the like are the same in
+;;  every game (user, 2026-11-02), and need no seed screen (opt_needseed).
+;;
+;;  In: A = the mode.  Out: C set if it does.  By JSL, emulation mode, any
+;;  data bank.  A not kept; X and Y kept.
+rando_partyseeded:
+    .a8
+    .i8
+    PHX
+    PHY
+    ASL A
+    ASL A
+    TAX
+    LDY #4
+  @slot:
+    LDA f:RANDOFAR + lut_PartySlots, X
+    BPL @next                   ; the player's
+    AND #<~PS_SEED
+    PHA
+    DEC A
+    AND $01, S                  ; more than one allowed: a bit left
+    STA $01, S
+    PLA
+    BNE @yes
+  @next:
+    INX
+    DEY
+    BNE @slot
+    PLY
+    PLX
+    CLC
+    RTL
+  @yes:
+    PLY
+    PLX
+    SEC
+    RTL
 
 
 ;;  The PRNG for entrance shuffle's chunk (world.asm), as long calls: the
@@ -1014,6 +1200,7 @@ build:
     JSR deal_runs
   @surprise:
     LDA f:RANDO_SAVEFAR + (RANDO_SURPRISE - RANDO_SAVE)
+    AND #SURPRISE_FIELD         ; Party shares the byte
     BEQ @touch                  ; SURPRISE_OFF
     CMP #SURPRISE_MODES
     BCS @touch

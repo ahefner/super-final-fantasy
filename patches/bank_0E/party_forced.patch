@@ -1,0 +1,10 @@
+--- OLD
+    LDA #$00        ; This null-terminates the draw buffer for when the character's
+    STA $60         ;   name is drawn on the name input screen.  Why this is done here
+                    ;   and not with the actual drawing makes no sense to me.
+--- NEW
+.import rando_party
+    ;  The Party row's forced slots onto the screen (rando_party), which
+    ;  then null-terminates the draw buffer at $60 for the name input
+    ;  screen, as the four bytes this was did.
+    JSL rando_party + RANDOFAR

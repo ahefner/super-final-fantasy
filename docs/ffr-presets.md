@@ -262,7 +262,9 @@ HARM.
     Zero orbs is the Goal row's (built 2026-10-25, options-design.md "Goal"),
     which Chaos Rush now sets; the unlocked ToFR is still to come.
   - **A forced random party**: all four slots rolled, no Nones, and FFR's
-    slot allow-lists.  This is a party-creation feature.
+    slot allow-lists.  The Party row's 4 Forced (built 2026-11-02,
+    options-design.md "Party"), which Chaos Rush now sets, without FFR's
+    per-slot allow-lists: any of the six classes in every slot.
   - Red Mage hit growth (`RedMageHitBuff`), which is minor.
   - Its free vehicles, 500% XP and 30% encounters are already in §2.
 
@@ -281,10 +283,12 @@ HARM.
   - A random AoE-casting item at the start: Starting caster item's AoE
     (built 2026-10-29), which the preset sets.  It had stood in with the
     any-spell item until then.
-  - **Its party is a problem.**  Slots 1 and 2 are forced random, and slots
-    3 and 4 allow only None, because FFR fills them by recruiting classes
-    from NPCs.  We're not porting recruitment (user), and taken literally
-    that leaves a party of two.  The cartridge needs its own rule here.
+  - **Its party.**  Slots 1 and 2 are forced random, and slots 3 and 4
+    allow only None, because FFR fills them by recruiting classes from
+    NPCs.  We're not porting recruitment (user), and taken literally that
+    leaves a party of two.  The cartridge's rule (user, 2026-11-02): the
+    Party row's 2 Nones, two of the player's choosing and two Nones, which
+    the preset sets (built, options-design.md "Party").
 
 ### 3.6 Not porting
 
@@ -325,7 +329,8 @@ HARM.
       6. random prices and hints (lockpicking built 2026-10-15).
   - **ES and EFS** are Beginner plus the wiring and the Short ToFR.
   - **Chaos Rush** is Beginner's list plus the unlocked ToFR, the orb count
-    and the forced party.  It is otherwise the most complete already.
+    and the forced party -- the last two built (the Goal, 2026-10-25; Party
+    4 Forced, 2026-11-02).  It is otherwise the most complete already.
   - **Free Enterprise** is the most expensive and the least faithful,
     because it lacks recruitment.
 
@@ -334,7 +339,8 @@ A suggested order:
   1. The cheap batch of §3.2.  Every randomized preset gains, and none of
      it needs the new UI.
   2. Incentive placement.
-  3. Chaos Rush's unlocked ToFR, orb count and forced party.
+  3. Chaos Rush's unlocked ToFR, orb count and forced party (the last two
+     built).
   4. Map edits and the wiring.
   5. Class blursings.
   6. Free Enterprise last, if at all: without recruitment, its difference

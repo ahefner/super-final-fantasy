@@ -59,9 +59,20 @@ TITLE_CUSTOM = 3
 RANDO_SECTIONS = ("TREASURES", "RANDOMIZATION", "KEY ITEMS")
 
 
+#  The Party modes that draw on the seed, by readout: rando.asm's
+#  rando_partyseeded, which test_forcedparty holds this to.  The others are
+#  the same party every game and need no seed (user, 2026-11-02).
+PARTY_SEEDED = {"Balanced", "4 Forced", "3 Forced", "2 Forced", "1 Forced", "Fi + 3", "Th + 3"}
+
+
 def randomizes(settings, rows):
-    """Whether a preset sets anything on the randomization screen."""
-    return any(settings[r.label] for r in rows if r.section in RANDO_SECTIONS)
+    """Whether a preset sets anything on the randomization screen -- Party
+    only in a mode that draws on the seed."""
+    for r in rows:
+        if r.section in RANDO_SECTIONS and settings[r.label]:
+            if r.label != "Party" or r.values[settings[r.label]] in PARTY_SEEDED:
+                return True
+    return False
 TEXT_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ',.-!?%+")
 
 

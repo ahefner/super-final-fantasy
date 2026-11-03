@@ -829,6 +829,94 @@ lut_Desc_104_2:  ; Nasty
   FFPAD {"Pirates may gain new"}, 28
   FFPAD {"abilities."}, 28
 
+lut_Desc_108:  ; Party, by value (user, 2026-11-02: theirs, and the drafts they kept)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_108_0, lut_Desc_108_1, lut_Desc_108_2, lut_Desc_108_3, lut_Desc_108_4, lut_Desc_108_5, lut_Desc_108_6, lut_Desc_108_7
+  .WORD lut_Desc_108_8, lut_Desc_108_9, lut_Desc_108_10, lut_Desc_108_11, lut_Desc_108_12, lut_Desc_108_13, lut_Desc_108_14, lut_Desc_108_15
+  .assert * - lut_Desc_108 = 1 + 2 * PARTY_MODES, error, "one description per Party mode"
+
+lut_Desc_108_0:  ; Party: Free
+  FFLINES 3
+  FFPAD {"Choose all four party"}, 28
+  FFPAD {"members, Nones included, as"}, 28
+  FFPAD {"usual."}, 28
+
+lut_Desc_108_1:  ; Balanced
+  FFLINES 4
+  FFPAD {"The seed chooses two of"}, 28
+  FFPAD {"Fighter, Thief, Black Belt"}, 28
+  FFPAD {"and Red Mage. A White Mage"}, 28
+  FFPAD {"and a Black Mage join them."}, 28
+
+lut_Desc_108_2:  ; 4 Forced
+  FFLINES 2
+  FFPAD {"The seed chooses all four"}, 28
+  FFPAD {"party members."}, 28
+
+lut_Desc_108_3:  ; 3 Forced
+  FFLINES 3
+  FFPAD {"The seed chooses three party"}, 28
+  FFPAD {"members. The fourth is a"}, 28
+  FFPAD {"None."}, 28
+
+lut_Desc_108_4:  ; 2 Forced
+  FFLINES 3
+  FFPAD {"The seed chooses two party"}, 28
+  FFPAD {"members. The other two are"}, 28
+  FFPAD {"Nones."}, 28
+
+lut_Desc_108_5:  ; 1 Forced
+  FFLINES 3
+  FFPAD {"The seed chooses one party"}, 28
+  FFPAD {"member. The other three are"}, 28
+  FFPAD {"Nones."}, 28
+
+lut_Desc_108_6:  ; 2 Nones
+  FFLINES 1
+  FFPAD {"Choose two party members."}, 28
+
+lut_Desc_108_7:  ; Solo
+  FFLINES 1
+  FFPAD {"Choose a single adventurer."}, 28
+
+lut_Desc_108_8:  ; Th + Wm
+  FFLINES 2
+  FFPAD {"The classic Thief + White"}, 28
+  FFPAD {"Mage duo."}, 28
+
+lut_Desc_108_9:  ; Fi + 3
+  FFLINES 3
+  FFPAD {"A Fighter, then three more"}, 28
+  FFPAD {"that the seed chooses. Any"}, 28
+  FFPAD {"of them may be a None."}, 28
+
+lut_Desc_108_10:  ; Th + 3
+  FFLINES 3
+  FFPAD {"A Thief, then three more"}, 28
+  FFPAD {"that the seed chooses. Any"}, 28
+  FFPAD {"of them may be a None."}, 28
+
+lut_Desc_108_11:  ; 4 WM
+  FFLINES 1
+  FFPAD {"Four White Mages."}, 28
+
+lut_Desc_108_12:  ; 4 BM
+  FFLINES 1
+  FFPAD {"Four Black Mages."}, 28
+
+lut_Desc_108_13:  ; 4 RM
+  FFLINES 1
+  FFPAD {"Four Red Mages."}, 28
+
+lut_Desc_108_14:  ; 4 Th
+  FFLINES 1
+  FFPAD {"Four Thieves."}, 28
+
+lut_Desc_108_15:  ; RWB
+  FFLINES 2
+  FFPAD {"A Red Mage, a White Mage, a"}, 28
+  FFPAD {"Black Mage and a None."}, 28
+
 lut_Desc_71:  ; Ordeals pillars, by value
   .BYTE DESC_BYVALUE
   .WORD lut_Desc_71_0, lut_Desc_71_1
@@ -1117,7 +1205,7 @@ lut_DescLo:
   .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
-  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71
+  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71, <lut_Desc_108
   .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_93, <lut_Desc_103, <lut_Desc_74, <lut_Desc_75
   .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
   .BYTE <lut_Desc_82, <lut_Desc_83, <lut_Desc_84, <lut_Desc_85, <lut_DescBlank, <lut_Desc_86
@@ -1141,7 +1229,7 @@ lut_DescHi:
   .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
-  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71
+  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108
   .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_103, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
   .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86

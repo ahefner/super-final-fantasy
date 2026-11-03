@@ -1,6 +1,6 @@
 # Chaos Rush: FFR's Chaos_Rush.json.  Not yet on the cartridge: the
-# unlocked Temple of Fiends Revisited (ChaosRush), the forced random party
-# and the Red Mage hit buff (docs/ffr-presets.md, 3.5).
+# unlocked Temple of Fiends Revisited (ChaosRush) and the Red Mage hit buff
+# (docs/ffr-presets.md, 3.5).
 name = "Chaos Rush"
 inherit = "Beginner"
 description = """
@@ -13,6 +13,7 @@ free, gold and XP are 500%, and fights are few.
 "Encounter rate" = "30%"
 "Short ToFR" = true
 "Goal" = "0 orbs"                       # FFR's OrbsRequiredCount 0
+"Party" = "4 Forced"                    # FFR's four forced random slots (user)
 
 "SHIP" = "Free"
 "AIRSHIP" = "Free"                      # the FLOATER

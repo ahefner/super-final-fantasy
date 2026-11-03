@@ -45,6 +45,7 @@
 .export lut_ValTabLo, lut_ValTabHi, lut_ValCount, lut_ValOff, lut_ValShift, lut_ValBit, lut_ValMask
 .export lut_RangeMin, lut_RangeMax              ; for test_rangerows
 .import opt_commit            ; the options bank's, by JSL (this is a chunk apart)
+.import rando_partyseeded     ; the randomizer's, by JSL: does a Party mode need the seed
 
 .import DrawBox, DrawCursor, ClearOAM, CallMusicPlay, UpdateJoy
 ;  The descriptions, in CHUNK_OPTTEXT; see opt_menu_desc.
@@ -1770,7 +1771,8 @@ opt_menu_rowppu:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  opt_needseed -- does New Game need a seed?  When anything on the
 ;;  randomization screen is away from its first value: a box ticked, a value
-;;  row past its first step.  genpresets' rule for a preset's way past that
+;;  row past its first step -- but Party only for a mode that draws on the
+;;  seed (rando_partyseeded; user, 2026-11-02).  genpresets' rule for a preset's way past that
 ;;  screen (lut_NgpFlow), at run time, where Custom Game is whatever the
 ;;  options hold; map edits, on a screen of their own, randomize nothing.
 ;;  By JSL, emulation mode.  Out: C set if so.
@@ -1797,6 +1799,12 @@ opt_needseed:
     LDY lut_ValOff, X
     LDA OPTBLOCK, Y
     JSR opt_field_get
+    CPX #VAL_PARTY
+    BNE @plain
+    JSL rando_partyseeded + RANDOFAR    ; Party: only a mode the seed picks in
+    BCS @yes
+    BCC @next                   ; always
+  @plain:
     CMP #$00                    ; (its flags are its shift's, not the value's)
     BNE @yes
     BEQ @next                   ; always
@@ -2103,6 +2111,8 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"RNG tables"}
   .BYTE $02, $15   ; Ordeals pillars   (scalar 21)
   OPTLABEL {"Ordeals pillars"}
+  .BYTE $02, 61    ; Party   (scalar 61, VAL_PARTY: OPT_NG_SURPRISE bits 4-7)
+  OPTLABEL {"Party"}
   ;  The key item rows (randomization-notes.md section 12), saved with the
   ;  game like the rows above, and shown by the save view with them.  The
   ;  item and gear rows read "Incentive", nine columns, so their readouts are
@@ -2465,6 +2475,27 @@ lut_ValPirates:
   FFPAD "   Nasty", 8           ; PIRATES_NASTY
 .assert * - lut_ValPirates = 8 * PIRATES_MODES, error, "a readout per pirates mode"
 
+;  Party: the user's names for its modes (forced-party.txt), in
+;  lut_PartySlots' order.
+lut_ValParty:
+  FFPAD "    Free", 8
+  FFPAD "Balanced", 8
+  FFPAD "4 Forced", 8
+  FFPAD "3 Forced", 8
+  FFPAD "2 Forced", 8
+  FFPAD "1 Forced", 8
+  FFPAD " 2 Nones", 8
+  FFPAD "    Solo", 8
+  FFPAD " Th + Wm", 8
+  FFPAD "  Fi + 3", 8
+  FFPAD "  Th + 3", 8
+  FFPAD "    4 WM", 8
+  FFPAD "    4 BM", 8
+  FFPAD "    4 RM", 8
+  FFPAD "    4 Th", 8
+  FFPAD "     RWB", 8
+.assert * - lut_ValParty = 8 * PARTY_MODES, error, "a readout per Party mode"
+
 ;  Thief lockpicking: Off, then the level a Thief or Ninja needs.
 lut_ValLockpick:
   FFPAD " Off", 4
@@ -2522,6 +2553,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .REPEAT 6                                       ; the scaling's ranges
               .BYTE <lut_ValStat
               .ENDREP
+              .BYTE <lut_ValParty
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2548,6 +2580,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .REPEAT 6
               .BYTE >lut_ValStat
               .ENDREP
+              .BYTE >lut_ValParty
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2573,6 +2606,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE GOAL_MODES
               .BYTE PIRATES_MODES
               .RES 6, 20                                      ; the scaling's ranges
+              .BYTE PARTY_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2586,6 +2620,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 3                                         ; Goal
               .BYTE 3                                         ; Pirates
               .RES 6, 2                                       ; the scaling's ranges
+              .BYTE 3                                         ; Party
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2616,6 +2651,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_STATUS                            ; above Status attacks
               .BYTE <OPT_ENEMYTO, <OPT_ENEMYHP, <OPT_ENEMYHPTO
               .BYTE <OPT_BOSSTO, <OPT_BOSSHP, <OPT_BOSSHPTO
+              .BYTE <OPT_NG_SURPRISE                          ; above Surprise rates
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2635,9 +2671,11 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE 0                                         ; Goal
               .BYTE PIRATES_SHIFT                             ; Pirates
               .RES 6, 0                                       ; the scaling's ranges
+              .BYTE PARTY_SHIFT                               ; Party
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
-              .RES 6, $FF
+              .RES 5, $FF
+              .BYTE SURPRISE_FIELD                            ; Surprise rates
               .BYTE STATUS_FIELD                              ; Status attacks
               .RES 3, $FF
               .BYTE THIEFHIT_FIELD                            ; Thief and Ninja hit%
@@ -2658,7 +2696,9 @@ lut_ValMask:  .RES 8, $FF
               .BYTE $FF                                       ; Goal
               .BYTE PIRATES_FIELD                             ; Pirates
               .RES 6, $FF                                     ; the scaling's ranges
-VALSCALARS = 61
+              .BYTE PARTY_FIELD                               ; Party
+VALSCALARS = 62
+VAL_PARTY  = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"
 .assert lut_ValShift - lut_ValCount = VALSCALARS, error, "lut_ValCount: one per scalar"

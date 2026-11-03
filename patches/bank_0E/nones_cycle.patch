@@ -11,6 +11,7 @@
 .import none_nextclass
   @NextClass:
       LDX char_index
-      ;  Fighter to Black Mage, then None for slots 2-4, then round again.
+      ;  The next class the Party row lets the slot have: Fighter to Black
+      ;  Mage, then None, then round again, past what it does not allow.
       JSL none_nextclass + OPTFAR
       .res 17 - (* - @NextClass), $EA
