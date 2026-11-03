@@ -204,23 +204,41 @@ def overlay_pubsign(data):
     return bytes(out)
 
 
-#  ...and its B (user, 2026-11-02: "I don't like the letter 'B'"): the sign
-#  art's B had its right-hand corners filled, a box with a notch; clearing
-#  them gives it two bowls.  The letters are colour 0 on a colour-3 board,
-#  so "clearing" is painting those two pixels the board's colour: tile $77,
-#  column 5, rows 1 and 5 -- the town tileset's copy only.
-PUBSIGN_B_TILE, PUBSIGN_B_COL, PUBSIGN_B_ROWS = 0x77, 5, (1, 5)
+#  ...and its B redrawn (user, 2026-11-02: "I don't like the letter 'B'",
+#  and after a wider U was tried, "revert the 'U' back to its previous width
+#  and shift the 'B' to match"): the vanilla P and U, and a B three wide with
+#  two bowls one column in, where vanilla's was four with its right-hand
+#  corners filled.
+#  The letters are colour 0 on the board's colour 3, in rows 1-5 and columns
+#  2-13 of the sign's sixteen (tiles $76 and $77) -- the town tileset's copy
+#  only.  The build refuses if the vanilla letters are not what it expects.
+PUBSIGN_LETTERS_WAS = ("XXX.X.X.XXXX",
+                       "X.X.X.X.X..X",
+                       "XXX.X.X.XXX.",
+                       "X...X.X.X..X",
+                       "X...XXX.XXXX")
+PUBSIGN_LETTERS = ("XXX.X.X.XX..",
+                   "X.X.X.X.X.X.",
+                   "XXX.X.X.XX..",
+                   "X...X.X.X.X.",
+                   "X...XXX.XX..")
 
 
-def overlay_pubsign_b(data):
+def overlay_pubsign_letters(data):
     out = bytearray(data)
-    at = 0 * TILESET_CHR_SIZE + PUBSIGN_B_TILE * 16
-    bit = 0x80 >> PUBSIGN_B_COL
-    for y in PUBSIGN_B_ROWS:
-        if out[at + y] & bit or out[at + 8 + y] & bit:
-            sys.exit("bank_03: the pub sign's B is not the one it was")
-        out[at + y] |= bit
-        out[at + 8 + y] |= bit
+    base = 0 * TILESET_CHR_SIZE + PUBSIGN_CHR[2] * 16       # tile $76, then $77
+    def pixel(y, x, colour=None):
+        at, bit = base + (x // 8) * 16 + y, 0x80 >> (x % 8)
+        if colour is None:
+            return (out[at] & bit and 1) | (out[at + 8] & bit and 2)
+        out[at] = out[at] | bit if colour & 1 else out[at] & ~bit
+        out[at + 8] = out[at + 8] | bit if colour & 2 else out[at + 8] & ~bit
+    for row, (was, now) in enumerate(zip(PUBSIGN_LETTERS_WAS, PUBSIGN_LETTERS)):
+        for col, (w, n) in enumerate(zip(was, now)):
+            y, x = 1 + row, 2 + col
+            if pixel(y, x) != (0 if w == "X" else 3):
+                sys.exit("bank_03: the pub sign's letters are not the ones they were")
+            pixel(y, x, 0 if n == "X" else 3)
     return bytes(out)
 
 
@@ -233,7 +251,7 @@ def nesbank(name):
     data = read(os.path.join(NES, "bank_%s.dat" % name), 0x4000)
     if name == TILESET_CHR_BANK:
         data = overlay_openchest(data)
-        data = overlay_pubsign_b(data)
+        data = overlay_pubsign_letters(data)
     if name == ITEMS_BANK:
         data = overlay_ribbon(data)
     if name == OBJINFO_BANK:

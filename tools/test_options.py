@@ -15967,14 +15967,13 @@ def test_taverns():
         return ["".join(".X"[px(tile(0x76 + x // 8), y, x % 8) == 0] for x in range(2, 14)) for y in range(1, 6)]
     vendored = open(os.path.join(ROOT, "game", "bank_03.dat"), "rb").read()
     cart = ROMDATA[(1 + 0x03) * 0x10000 + 0x8000:][:0x4000]
-    check("the sign art: PUB, its B two bowls (user), the vanilla P and U",
+    check("the sign art: PUB, the vanilla P and U, a B a pixel narrower with two bowls (user)",
           (sign(vendored), sign(cart)),
           (["XXX.X.X.XXXX", "X.X.X.X.X..X", "XXX.X.X.XXX.", "X...X.X.X..X", "X...XXX.XXXX"],
-           ["XXX.X.X.XXX.", "X.X.X.X.X..X", "XXX.X.X.XXX.", "X...X.X.X..X", "X...XXX.XXX."]))
+           ["XXX.X.X.XX..", "X.X.X.X.X.X.", "XXX.X.X.XX..", "X...X.X.X.X.", "X...XXX.XX.."]))
     check("...and the tileset's CHR otherwise as the cart had it",
-          [o for o in range(0x800) if cart[o] != vendored[o]
-           if not (0x7E * 16 <= o < 0x80 * 16)],
-          [0x77 * 16 + 1, 0x77 * 16 + 5, 0x77 * 16 + 9, 0x77 * 16 + 13])
+          sorted({o // 16 for o in range(0x800) if cart[o] != vendored[o]} - {0x7E, 0x7F}),
+          [0x77])                                   # the B: all in the right half
     check("tile $34: a roof over the sign art, the clinic sign's palette",
           ([ROMDATA[sm + 0x1000 + 0x80 * q + 0x34] for q in range(4)], ROMDATA[sm + 0x400 + 0x34]),
           ([0x45, 0x46, 0x76, 0x77], ROMDATA[sm + 0x400 + 0x1A]))
