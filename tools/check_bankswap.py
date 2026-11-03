@@ -43,7 +43,8 @@ OPT = [(os.path.join(ROOT, "src", "optbank.asm"), "CHUNK_OPT"),
        (os.path.join(ROOT, "src", "optshop.asm"), "CHUNK_OPT"),
        (os.path.join(ROOT, "src", "nones.asm"), "CHUNK_OPT"),
        (os.path.join(ROOT, "src", "credits.asm"), "CHUNK_CREDITS"),
-       (os.path.join(ROOT, "src", "rando.asm"), "CHUNK_RANDO")]
+       (os.path.join(ROOT, "src", "rando.asm"), "CHUNK_RANDO"),
+       (os.path.join(ROOT, "src", "tavern.asm"), "CHUNK_TAVERN")]
 
 SWAPPERS = ("SwapPRG", "CallMusicPlay", "MusicPlay_L")
 

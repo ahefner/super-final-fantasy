@@ -23,6 +23,7 @@ battles, and a casting item to start.
 "Enemy skills" = "Enemies"
 "Pirates" = "Nasty"                    # FFR's SwolePirates and AllowUnsafePirates
 "Party" = "2 Nones"                     # in place of FFR's recruitment (user)
+"Taverns" = "Recruit"                   # so its two Nones can be filled (user)
 "Key items" = "Wide"
 
 "SHIP" = "Free"

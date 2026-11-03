@@ -1,0 +1,8 @@
+--- OLD
+    LDA shop_type                ; get the shop type
+    JSR DrawShopString           ; and draw that string (the shop title string)
+--- NEW
+.import tavern_title
+    ;  The shop title string: TAVERN over a tavern (tavern.asm).
+    JSL tavern_title + TAVERNFAR
+    NOP

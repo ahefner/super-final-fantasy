@@ -10696,13 +10696,15 @@ def test_chrflush():
 def test_strayobjects():
     """The two stray map objects are gone from the cart, and nothing else in
     bank $00 moved: the fairy ($13) only in Gaia, the rod plate ($16) only in
-    Earth Cave B3, as the game uses them."""
+    Earth Cave B3, as the game uses them -- but Taverns' pub sign, the town
+    tileset's tile $34, its four TSA bytes and its palette (test_taverns)."""
     vendored = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()
     cart = ROMDATA[(1 + 0x00) * 0x10000 + 0x8000:][:0x4000]
     changed = [o for o in range(0x4000) if cart[o] != vendored[o]]
-    want = list(range(0x3400 + 15 * 0x30, 0x3400 + 15 * 0x30 + 3)) \
+    want = [0x0400 + 0x34] + [0x1000 + 0x80 * q + 0x34 for q in range(4)] \
+        + list(range(0x3400 + 15 * 0x30, 0x3400 + 15 * 0x30 + 3)) \
         + list(range(0x3400 + 48 * 0x30, 0x3400 + 48 * 0x30 + 3))
-    check("bank $00: only the two strays' six bytes", changed, want)
+    check("bank $00: only the two strays' six bytes and the pub sign's five", changed, want)
     where = lambda oid: [m for m in range(61) for s in range(15)
                          if cart[0x3400 + m * 0x30 + s * 3] == oid]
     check("the fairy: Gaia only", where(0x13), [5])
@@ -15828,6 +15830,396 @@ def test_saveview():
         check("TitleScreen_Music, A %d Select %d" % (a_, sel), cpu.a & 0xFF, want)
 
 
+# --- Taverns: the clinic as a tavern, and its hire ---------------------------
+def test_taverns():
+    """Taverns (user, 2026-11-02: Off / Recruit / Replace; FFR's Tavern
+    Recruitment).  The row and its field, its descriptions from the second
+    descriptions bank, the presets; each town's class as randoref deals it,
+    and the byte's other half untouched; the shop's palette and tiles, and
+    its title; the level up held to the cartridge's own LvlUp_LevelUp, and
+    the hire to New Game's starting stats and that level up; and a visit to
+    a tavern, end to end."""
+    import presetdefs as P, genpresets as G
+    NONE = K["CLS_NONE"]
+    NORUN = K["RANDO_NORUN"] - 0x6000
+    TAVERN_BANK = 0xA1 + K["CHUNK_TAVERN"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    tav = rows[names.index("Taverns")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    field = lambda r: (tbl("lut_ValOff", r.arg), tbl("lut_ValBit", r.arg), tbl("lut_ValMask", r.arg))
+    check("Taverns: after Party, in RANDOMIZATION, its readouts the user's",
+          (tav.section, names[names.index("Taverns") - 1], tav.values),
+          ("RANDOMIZATION", "Party", ["Off", "Recruit", "Replace"]))
+    runs = rows[names.index("Unrunnable fights")]
+    check("...its field the unrunnable byte's bits 4-5, Unrunnable fights' 0-3",
+          (field(tav), field(runs)),
+          ((K["OPT_NG_NORUN"] - OPTBLOCK, 4, 0x30), (K["OPT_NG_NORUN"] - OPTBLOCK, 0, 0x0F)))
+    presets = G.resolve(G.load(), rows)
+    check("the presets' Taverns: Free Enterprise Recruit (user), the rest Off",
+          {n: tav.values[s["Taverns"]] for n, _, _, s in presets},
+          {n: "Recruit" if n == "Free Enterprise" else "Off" for n, _, _, _ in presets})
+
+    #  Its descriptions are the second bank's; Party's, beside it, the first's.
+    SEL, TOP = 0x6E, 0x6F
+    def desc(row, value_byte):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.sram[K["OPT_NG_NORUN"] - 0x6000] = value_byte
+        bus.wram[SEL], bus.wram[TOP] = row, row - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    import textwrap
+    want = ["Clinics revive fallen party members.",              # the user's words
+            "Clinics become pubs, where new party members can be recruited.",
+            "Recruits may replace existing party members."]
+    trow = optrow("Taverns")
+    check("the Taverns pane, each value, from the second bank",
+          [desc(trow, v << 4 | 1) for v in range(3)], [textwrap.wrap(t, 28) for t in want])
+    check("...and Party's beside it from the first",
+          desc(optrow("Party"), 0), textwrap.wrap("Choose all four party members, Nones included, as usual.", 28))
+
+    #  Each town's class: randoref's, every seed, the low half a decoy; the
+    #  first six clinic towns each class once, Melmond none.
+    def taverns(seed, byte):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)
+        bus.sram[NORUN] = byte
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        at = rw("RW_TAVERNS")
+        return list(bus.wram[at:at + 8]), bus, cpu
+    bad = []
+    for k, seed in enumerate(SEEDS + tuple(range(40))):
+        got, _, _ = taverns(seed, 1 << 4 | (k & 1))
+        if got != R.build_taverns(seed):
+            bad.append((hex(seed), got, R.build_taverns(seed)))
+    check("RW_TAVERNS: randoref's deal, 47 seeds", bad[:3], [])
+    deals = [R.build_taverns(s) for s in range(200)]
+    check("...the six towns before Lefein each class once, Melmond none, Lefein a class",
+          [d for d in deals if sorted(d[:3] + d[4:7]) != list(range(6)) or d[3] != 0xFF or not 0 <= d[7] < 6], [])
+    check("...and every class comes up at Lefein", {d[7] for d in deals}, set(range(6)))
+    def norun(seed, byte):
+        bus, cpu = machine()
+        setruns(bus, seed, byte, 0)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        return runs_cache(bus)[0]
+    for seed in (0x600DCAFE, 7):
+        check("seed %08X: Unrunnable fights the same beside Taverns, and Off off" % seed,
+              [m for m in (1, 2) if (norun(seed, 1 | m << 4), norun(seed, m << 4)) != (norun(seed, 1), norun(seed, 0))], [])
+        check("...and shuffled at all", norun(seed, 1) != norun(seed, 0), True)
+    _, bus, cpu = taverns(0x600DCAFE, 2 << 4)
+    deal = R.build_taverns(0x600DCAFE)
+    got = []
+    for m in range(10):
+        cpu.a, cpu.x, cpu.y = m, 0x5A, 0xA5
+        call(cpu, "rando_tavern", bank=RANDO_BANK)
+        got.append((cpu.a & 0xFF, cpu.x & 0xFF, cpu.y & 0xFF))
+    check("rando_tavern: the map's, $FF past the towns, X and Y kept",
+          got, [(deal[m] if m < 8 else 0xFF, 0x5A, 0xA5) for m in range(10)])
+
+    #  The shop: a tavern's palette is the item shop's, and its tiles the
+    #  caravan's, the item shop's and the armour shop's over the clinic's.
+    SHADOW = K["CHRSHADOW"] - 0x7E0000
+    def tile(bus, t):
+        src = bus.wram[SHADOW + t * 32:SHADOW + t * 32 + 16]
+        return bytes(src[2 * y] for y in range(8)) + bytes(src[2 * y + 1] for y in range(8))
+    shopchr = (0xA1 + 9 & 0x1F) * 0x10000 + 0x8000
+    rom_tile = lambda t: bytes(ROMDATA[shopchr + t * 16:][:16])
+    clinic_id = next(i for i in range(128) if tbl("lut_ShopTypes", i) == 4)
+    backdrop = (0xA1 & 0x1F) * 0x10000 + 0xB200
+    for on in (0, 1):
+        bus, cpu = machine()
+        in_vblank(bus)
+        bus.sram[NORUN] = on << 4
+        bus.wram[K["shop_id"]] = clinic_id
+        call(cpu, "LoadShopCHRPal")
+        want_t = [rom_tile(t) for t in range(128)]
+        if on:
+            for i in range(4):
+                want_t[56 + i] = rom_tile(98 + i)
+                want_t[60 + i] = rom_tile(88 + i)
+            for i in range(6):
+                want_t[64 + i] = rom_tile(22 + i)
+        check("the clinic's shop CHR, Taverns %s" % ("on" if on else "off"),
+              [t for t in range(128) if tile(bus, t) != want_t[t]], [])
+        check("...its backdrop palette the %s's" % ("item shop" if on else "clinic"),
+              list(bus.wram[K["cur_pal"]:K["cur_pal"] + 4]),
+              list(ROMDATA[backdrop + (0x58 if on else 0x50):][:4]))
+    got = []
+    for t in range(8):
+        for on in (0, 1):
+            bus, cpu = machine()
+            bus.sram[NORUN] = on << 4
+            cpu.a = t
+            call(cpu, "tavern_shoppal", bank=TAVERN_BANK, dbr=0xA1)
+            got.append(cpu.a & 0xFF)
+    check("tavern_shoppal: type * 4 + $40, a tavern the item shop's",
+          got, [0x58 if (t, on) == (4, 1) else t * 4 | 0x40 for t in range(8) for on in (0, 1)])
+
+    #  The pub sign: the town tileset's palm tree, which no town places,
+    #  pointed at a roof and the sign art with the clinic sign's palette; and
+    #  under Taverns every town's clinic signs become it as the map loads.
+    sm = (0xA1 & 0x1F) * 0x10000 + 0x8000
+    check("tile $34: a roof over the sign art, the clinic sign's palette",
+          ([ROMDATA[sm + 0x1000 + 0x80 * q + 0x34] for q in range(4)], ROMDATA[sm + 0x400 + 0x34]),
+          ([0x45, 0x46, 0x76, 0x77], ROMDATA[sm + 0x400 + 0x1A]))
+    def town(mapid, on):
+        bus, cpu = machine()
+        bus.sram[NORUN] = on << 4
+        bus.wram[0x48] = mapid
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        return bytes(bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000])
+    bad = []
+    for m in range(8):
+        off, on = town(m, 0), town(m, 1)
+        signs = off.count(0x1A)
+        if 0x34 in off or (signs == 0) != (m == 3) or on != off.replace(b"\x1a", b"\x34"):
+            bad.append((m, signs, off.count(0x34), on.count(0x34)))
+    check("every town: no palm tree; a clinic sign but in Melmond; under Taverns pub signs, "
+          "nothing else changed", bad, [])
+    check("...and a map that is not a town is left alone",
+          town(K["MAP_ORDEALS2F"], 1) == town(K["MAP_ORDEALS2F"], 0), True)
+    bus, cpu = machine()
+    bus.sram[NORUN] = 1 << 4
+    rnd = random.Random(5)
+    planted = bytes(rnd.choice((0x1A, 0x1A, 0x00, 0x34, 0x19, 0x1B, 0xFF)) for _ in range(0x1000))
+    bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000] = planted
+    bus.wram[0x48] = 0
+    call(cpu, "rando_mapedits", bank=RANDO_BANK)
+    check("...a sign anywhere in the 64 x 64, its last row too",
+          (planted[0xFC0:].count(0x1A) > 0,
+           bytes(bus.sram[MAPDATA - 0x6000:MAPDATA - 0x6000 + 0x1000]) == planted.replace(b"\x1a", b"\x34")),
+          (True, True))
+
+    #  The level up: the cartridge's own LvlUp_LevelUp, stopped at its report,
+    #  and tav_levelup, from the same character and the same rolls -- every
+    #  class, low and high levels, a Black Belt armed and not, Better Thief
+    #  and Thief hit on and off.
+    PAGE, MAGIC = 0x0100, 0x0300                 # ch_stats, ch_magicdata in SRAM
+    def charpage(bus):
+        return bytes(bus.sram[PAGE:PAGE + 0x40]), bytes(bus.sram[MAGIC:MAGIC + 0x40])
+    def setup(cls, level, rng, weapon, flags):
+        bus, cpu = machine()
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        rnd = random.Random(cls * 1000 + level * 10 + rng)
+        rec = bytearray(rnd.randrange(256) for _ in range(0x40))
+        rec[0], rec[1], rec[0x26] = cls, 0, level
+        for i in range(0x10, 0x15):
+            rec[i] = 99 if rng == 2 else rnd.randrange(5, 99)   # the base stats, at the cap too
+        rec[0x0C], rec[0x0D] = rnd.randrange(256), rnd.randrange(4)    # max HP under 1024
+        rec[0x18:0x20] = bytes((rnd.randrange(1, 40) | (0x80 if weapon and i == 0 else 0)) for i in range(8))
+        for i in (0x20, 0x21, 0x23, 0x25):
+            rec[i] = rnd.randrange(150, 201)            # near the caps
+        bus.sram[PAGE:PAGE + 0x40] = bytes(rec)
+        mag = bytearray(rnd.randrange(256) for _ in range(0x40))
+        for i in range(8):
+            mag[0x28 + i] = rnd.randrange(0, 10)        # max MP within the caps
+        bus.sram[MAGIC:MAGIC + 0x40] = bytes(mag)
+        bus.sram[K["btl_rngstate"] - 0x6000] = rng * 37
+        setblk(bus, OPT_THIEFHIT, flags & 3)
+        if flags & 4:
+            setblk(bus, OPT_FLAGS + OPTF_THIEFNINJA_BIT // 8, 1 << (OPTF_THIEFNINJA_BIT % 8))
+        bus.wram[LVLUP_CHSTATS], bus.wram[LVLUP_CHSTATS + 1] = 0x00, 0x61
+        bus.wram[LVLUP_CHMAGIC], bus.wram[LVLUP_CHMAGIC + 1] = 0x00, 0x63
+        return bus, cpu
+    bad = []
+    cases = 0
+    for cls in range(12):
+        for level in (0, 1, 9, 30, 47, 48, 49):
+            for rng in range(3):
+                for weapon in ((False, True) if cls in (2, 8) else (False,)):
+                    flags = (rng % 3) | (4 if rng == 1 else 0)
+                    a, _ = setup(cls, level, rng, weapon, flags)
+                    c = CPU(a); c.dbr = BANK_0B
+                    c.run(BANK_0B, SYM["LvlUp_LevelUp"], stop=SYM["Draw4EobBoxes"])
+                    reached = c.pc == SYM["Draw4EobBoxes"] or level == 49
+                    b, cb = setup(cls, level, rng, weapon, flags)
+                    cb.x = 0x40
+                    call(cb, "tav_levelup", bank=TAVERN_BANK, dbr=TAVERN_BANK)
+                    cases += 1
+                    if not reached or charpage(a) != charpage(b) or cb.x & 0xFF != 0x40 or \
+                            a.sram[K["btl_rngstate"] - 0x6000] != b.sram[K["btl_rngstate"] - 0x6000]:
+                        bad.append((cls, level, rng, weapon))
+    check("tav_levelup: LvlUp_LevelUp's every stat and roll, %d cases" % cases, bad[:4], [])
+
+    #  The hire: New Game's starting stats for the class, then that level up
+    #  to the party's lowest level (Nones aside), the experience the level
+    #  takes, gear kept but none of it equipped, no spells, 1 HP; promoted
+    #  once Bahamut has.
+    EXP = (BANK_0B & 0x1F) * 0x10000 + SYM["lut_ExpToAdvance"]     # bank $0B's
+    exp_at = lambda lv: int.from_bytes(ROMDATA[EXP + 3 * lv:][:3], "little")
+    def party(bus, members):
+        for slot, (cls, level) in enumerate(members):
+            at = PAGE + slot * 0x40
+            bus.sram[at:at + 0x40] = bytes(random.Random(slot).randrange(256) for _ in range(0x40))
+            bus.sram[at], bus.sram[at + 1], bus.sram[at + 0x26] = cls, 1 if cls == NONE else 0, level
+            bus.sram[at + 0x18:at + 0x20] = bytes([0x85, 0x03, 0x00, 0x00, 0x91, 0x12, 0x00, 0x00])
+            bus.sram[MAGIC + slot * 0x40:MAGIC + slot * 0x40 + 0x40] = bytes(range(0x40))
+    bad = []
+    for members, slot, cls, bahamut in (
+            (((0, 12), (1, 3), (NONE, 0), (NONE, 0)), 2, 4, False),
+            (((0, 12), (1, 3), (NONE, 0), (NONE, 0)), 3, 2, True),
+            (((3, 0), (NONE, 0), (NONE, 0), (NONE, 0)), 1, 5, False),
+            (((5, 40), (4, 41), (2, 39), (0, 45)), 0, 1, True),     # Replace: the lowest is the replaced's own
+            (((0, 49), (1, 49), (NONE, 0), (2, 49)), 2, 3, False)):
+        a, ca = machine()
+        call(ca, "rando_ensure", bank=RANDO_BANK)
+        party(a, members)
+        if bahamut:
+            a.sram[0x0200 + 0x0E] |= 0x02
+        a.wram[K["TAVSLOT"]] = slot
+        a.wram[K["TAVCLS"]] = cls
+        rng0 = a.sram[K["btl_rngstate"] - 0x6000]
+        call(ca, "tav_make", bank=TAVERN_BANK, dbr=TAVERN_BANK)
+        at = PAGE + slot * 0x40
+        page = bytes(a.sram[at:at + 0x40])
+        low = min(lv for c, lv in members if c != NONE)
+        #  The reference: a machine as the hire began, its record cleared as
+        #  tav_make's description says, New Game's own loader, the original
+        #  level up low times from the same rolls.
+        r, cr = machine()
+        call(cr, "rando_ensure", bank=RANDO_BANK)
+        party(r, members)
+        r.sram[K["btl_rngstate"] - 0x6000] = rng0
+        rec = bytearray(r.sram[at:at + 0x40])
+        rec[0], rec[1] = cls, 0
+        for i in range(0x18, 0x20):
+            rec[i] &= 0x7F
+        for i in range(0x20, 0x26):
+            rec[i] = 0
+        rec[7:10] = bytes(3)
+        rec[0x26] = 0
+        r.sram[at:at + 0x40] = bytes(rec)
+        r.sram[MAGIC + slot * 0x40:MAGIC + slot * 0x40 + 0x40] = bytes(0x40)
+        c = CPU(r); c.dbr = 0xA1; c.x = slot * 0x40
+        call(c, "StartingStatsOne", bank=0xA1, dbr=0xA1)
+        if bahamut:
+            r.sram[at] += 6
+        r.wram[LVLUP_CHSTATS], r.wram[LVLUP_CHSTATS + 1] = slot * 0x40, 0x61
+        r.wram[LVLUP_CHMAGIC], r.wram[LVLUP_CHMAGIC + 1] = slot * 0x40, 0x63
+        for _ in range(low):
+            c = CPU(r); c.dbr = BANK_0B
+            c.run(BANK_0B, SYM["LvlUp_LevelUp"], stop=SYM["Draw4EobBoxes"])
+        ref = bytearray(r.sram[at:at + 0x40])
+        ref[7:10] = exp_at(low - 1).to_bytes(3, "little") if low else bytes(3)
+        nxt = exp_at(low) - (exp_at(low - 1) if low else 0) if low < 49 else 0
+        ref[0x16], ref[0x17] = nxt & 0xFF, nxt >> 8 & 0xFF
+        ref[0x0A], ref[0x0B] = 1, 0
+        want_page = (bytes(ref), bytes(r.sram[MAGIC + slot * 0x40:MAGIC + slot * 0x40 + 0x40]))
+        got_page = (page, bytes(a.sram[MAGIC + slot * 0x40:MAGIC + slot * 0x40 + 0x40]))
+        if got_page != want_page or page[0x26] != low:
+            bad.append((members, slot, cls, bahamut, page[0x26], low,
+                        [hex(i) for i in range(0x40) if page[i] != ref[i]]))
+        check("the hire leaves the other members alone",
+              [i for i in range(4) if i != slot and
+               bytes(a.sram[PAGE + i * 0x40:PAGE + i * 0x40 + 0x40]) !=
+               bytes(r.sram[PAGE + i * 0x40:PAGE + i * 0x40 + 0x40])], [])
+    check("tav_make: New Game's stats, the level up to the lowest level, the experience, 1 HP",
+          bad[:2], [])
+
+    #  A visit, end to end, as test_ngparty drives party creation: EnterShop
+    #  for a clinic in Coneria, through the flow's trampoline, the pad pressed
+    #  and let go, the screen read after each press.
+    UJ = SYM["UpdateJoy"]
+    A_, B_, DOWN = 0x80, 0x40, 0x04
+    V = K["OPTCALLV"]
+    nt = K["NESNT"] - 0x7E0000
+    def screen(bus):
+        return [" ".join("".join(_decode(b) or "?" for b in bus.wram[nt + r * 32:nt + r * 32 + 32]).split())
+                for r in range(30)]
+    def pad(bus, nes):
+        bus.io[0x4218] = nes & 0x80
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+    SEED = 0x600DCAFE
+    def visit(mode, members, gold, presses, before=None):
+        bus, cpu = machine()
+        in_vblank(bus)
+        setsave(bus, SEED, 0)
+        bus.sram[NORUN] = mode << 4
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        party(bus, members)
+        for slot, (c, _) in enumerate(members):
+            bus.sram[PAGE + slot * 0x40 + 2:PAGE + slot * 0x40 + 6] = \
+                bytes([0xFF] * 4) if c == NONE else bytes([0x8B + slot] * 4)
+        bus.sram[K["gold"] - 0x6000:K["gold"] - 0x6000 + 3] = gold.to_bytes(3, "little")
+        if before:
+            before(bus)
+        bus.wram[K["cur_map"]] = 0
+        bus.wram[K["shop_id"]] = clinic_id
+        bus.wram[V], bus.wram[V + 1] = SYM["EnterShop"] & 0xFF, SYM["EnterShop"] >> 8
+        bus.wram[K["cur_bank"]] = 0x0E
+        pad(bus, 0)
+        cpu.dbr = BANK_0E
+        if not cpu.run(BANK_0E, SYM["OptCallFar"], stop=UJ, limit=40_000_000):
+            return None
+        seen = [screen(bus)]
+        for nes in presses:
+            for b in (nes, 0):
+                pad(bus, b)
+                cpu.step()
+                for _ in range(5_000_000):
+                    if cpu.pc in (UJ, 0xFFFE):
+                        break
+                    cpu.step()
+                if cpu.pc != UJ:
+                    return bus, seen, True
+            seen.append(screen(bus))
+        return bus, seen, False
+    has = lambda seen, text: any(text in line for s in seen for line in s)
+    price = lambda bus: bus.wram[K["item_box"]] | bus.wram[K["item_box"] + 1] << 8
+    deal = R.build_taverns(SEED)
+    names = {0: "Fighter", 1: "Thief", 2: "Bl.belt", 3: "RedMage", 4: "Wh.Mage", 5: "Bl.Mage"}
+
+    #  Recruit: Hire, the first None, Yes, a name of four A's, and out.
+    r = visit(1, ((0, 12), (1, 3), (NONE, 0), (NONE, 0)), 5000,
+              [DOWN, A_, A_, A_] + [A_] * 5 + [A_, B_])
+    check("a visit under Recruit comes up and is left", r is not None and r[2], True)
+    bus, seen, _ = r
+    check("...TAVERN over it, the greeting, Revive and Hire",
+          [has(seen[:1], t) for t in ("TAVERN", "Hire a", "Revive", "Hire")], [True] * 4)
+    check("...Hire asks who makes room, the two Nones listed",
+          (has(seen[2:3], "makes"), sum(line.count("None") for line in seen[2])), (True, 2))
+    slot2 = PAGE + 2 * 0x40
+    check("...the hire: the town's class in the first None's place, at the party's lowest "
+          "level, named, alive",
+          (bus.sram[slot2], bus.sram[slot2 + 0x26], bytes(bus.sram[slot2 + 2:slot2 + 6]), bus.sram[slot2 + 1]),
+          (deal[0], 3, bytes([0x8A] * 4), 0))
+    check("...the fourth slot still a None", bus.sram[PAGE + 3 * 0x40], NONE)
+    check("...the price paid", int.from_bytes(bus.sram[K["gold"] - 0x6000:][:3], "little"),
+          5000 - price(bus))
+    check("...and welcomed", has(seen, "Welcome"), True)
+
+    #  Recruit with no None: no room.  Replace: anyone, the first member here.
+    r = visit(1, ((0, 12), (1, 3), (2, 5), (3, 7)), 5000, [DOWN, A_, A_, B_])
+    check("Recruit, no None: the party is full, and nothing changes",
+          (has(r[1], "full."), [r[0].sram[PAGE + i * 0x40] for i in range(4)]), (True, [0, 1, 2, 3]))
+    r = visit(2, ((0, 12), (1, 3), (2, 5), (3, 7)), 5000, [DOWN, A_, A_, A_] + [A_] * 5 + [A_, B_])
+    bus = r[0]
+    check("Replace: the first member replaced, at the lowest level, the rest kept",
+          ([bus.sram[PAGE + i * 0x40] for i in range(4)], bus.sram[PAGE + 0x26]),
+          ([deal[0], 1, 2, 3], 3))
+    r = visit(2, ((0, 12), (1, 3), (2, 5), (3, 7)), 10, [DOWN, A_, A_, A_, A_, B_])
+    check("Replace, too poor: the shop's own refusal, nothing changes, nothing paid",
+          (has(r[1], "aff"), r[0].sram[PAGE], int.from_bytes(r[0].sram[K["gold"] - 0x6000:][:3], "little")),
+          (True, 0, 10))
+
+    #  Revive is the clinic's: a dead Thief back with 1 HP, the price paid,
+    #  and the tavern again after.
+    def dead(bus):
+        bus.sram[PAGE + 0x40 + 1] = 1
+    r = visit(1, ((0, 12), (1, 3), (NONE, 0), (NONE, 0)), 5000, [A_, A_, A_, A_, B_], before=dead)
+    check("Revive under Taverns: the clinic's, the Thief alive with 1 HP, back to the tavern",
+          (r[2], r[0].sram[PAGE + 0x40 + 1], r[0].sram[PAGE + 0x40 + 0x0A], has(r[1][-2:], "Hire a")),
+          (True, 0, 1, True))
+
+    #  Off: the clinic, as it was.
+    r = visit(0, ((0, 12), (1, 3), (NONE, 0), (NONE, 0)), 5000, [A_])
+    check("Off: CLINIC, and nobody needs its help", (has(r[1][:1], "CLINIC"), has(r[1][:1], "TAVERN"), has(r[1], "help")),
+          (True, False, True))
+
+
 # --- Party: forced party members ----------------------------------------------
 def test_forcedparty():
     """The Party row (user, 2026-11-02, forced-party.txt).  Its sixteen modes'
@@ -15870,9 +16262,10 @@ def test_forcedparty():
     #  field the surprise byte's high half, Surprise rates' the low.
     rows = P.rows()
     rando = [r for r in rows if r.section == "RANDOMIZATION"]
-    party = rando[-1]
-    check("Party: the last randomization row, its readouts the names",
-          (party.label, party.kind, party.values), ("Party", "val", [n for n, _ in R.PARTY_MODES]))
+    party = next(r for r in rando if r.label == "Party")
+    check("Party: a randomization row, after Ordeals pillars, its readouts the names",
+          (rando[rando.index(party) - 1].label, party.kind, party.values),
+          ("Ordeals pillars", "val", [n for n, _ in R.PARTY_MODES]))
     surprise = next(r for r in rows if r.label == "Surprise rates")
     tbl = lambda name, i: ROMDATA[rom_at(name) + i]
     field = lambda r: (tbl("lut_ValOff", r.arg), tbl("lut_ValBit", r.arg), tbl("lut_ValMask", r.arg))
@@ -16555,7 +16948,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

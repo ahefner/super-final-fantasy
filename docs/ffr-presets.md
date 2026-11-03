@@ -288,12 +288,15 @@ HARM.
     NPCs.  We're not porting recruitment (user), and taken literally that
     leaves a party of two.  The cartridge's rule (user, 2026-11-02): the
     Party row's 2 Nones, two of the player's choosing and two Nones, which
-    the preset sets (built, options-design.md "Party").
+    the preset sets (built, options-design.md "Party"), and Taverns
+    Recruit, FFR's tavern recruitment filling them (user: "since we don't
+    have NPC Recruits"; options-design.md "Taverns").
 
 ### 3.6 Not porting
 
   - Random Wares (CR and FE): declined (user, 2026-10-08).
-  - Recruitment (FE): declined (user).
+  - Recruitment from NPCs (FE's ClassAsNPC): declined (user).  FFR's
+    tavern recruitment is built instead (Taverns, 2026-11-02).
   - Dormant in all five, because their parent flag is off:
       - the guaranteed defense item -- *wrong:* FFR crafts it unless item
         magic is None, Vanilla included; it is the RUSE Staff here, and

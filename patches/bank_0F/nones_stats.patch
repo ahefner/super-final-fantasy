@@ -8,6 +8,9 @@
     TAY                     ; source index in Y
 --- NEW
   @LoadStats:
+;  One character's, X its offset: Taverns' hire (tavern.asm) is loaded so.
+StartingStatsOne = @LoadStats
+.export StartingStatsOne
     LDA ch_class, X         ; get the class
 .export NewGame_LoadStartingStats   ; for tools/test_options.py
     CMP #CLS_NONE

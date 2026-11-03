@@ -1754,7 +1754,7 @@ no death alongside another status), deals under both, and runs New Game
 under each mode, the step past Any among them.  Ten mutations of the AoE
 code, all caught.
 
-### New game (17)
+### New game (18)
 
 **Decision (user, 2026-10-09): the section is headed RANDOMIZATION, and each
 row's first value reads "Off".**  Under the old NEW GAME heading, "Trap tiles:
@@ -1968,7 +1968,7 @@ held to this ROM by the test.  When incentive placement comes, its logic has
 to see 2F through the deal.
 
 **Party** (user, 2026-11-02, the design in `forced-party.txt` beside the
-tree; built, and played the same day: "Tested"), the section's last row: sixteen values in
+tree; built, and played the same day: "Tested"), after Ordeals pillars: sixteen values in
 four bits -- FFR's whole forced-party screen "reduced to a single line"
 (the user) of the common cases.  Free (the screen as it was), Balanced, 4
 Forced, 3 Forced, 2 Forced, 1 Forced, 2 Nones, Solo, Th + Wm, Fi + 3, Th +
@@ -2032,6 +2032,74 @@ them may be a None.", Th + 3 the same for a Thief.  4 WM "Four White
 Mages.", and so on.  RWB "A Red Mage, a White Mage, a Black Mage and a
 None."  (The user's words where they gave them, 2026-11-02; the rest the
 drafts they kept.)
+
+**Taverns** (user, 2026-11-02: "Off / Recruit / Replace"; built, not yet
+played), after Party: FFR's Tavern Recruitment (`Party.cs` PubReplaceClinic,
+`asm/0E Tavern Mode.asm`), every clinic a tavern.  Recruit's hire takes a
+None's place; Replace's a None's or a party member's (user: "Replace means
+you can fill a NONE slot or replace an existing party member").  Free
+Enterprise sets Recruit (user: "since we don't have NPC Recruits"); every
+other preset Off.
+
+  - **Each town hires out one class**, the seed's (`deal_taverns`,
+    `randoref.build_taverns`): FFR's deal, the six classes shuffled and
+    shuffled again, the clinic towns taking them in turn -- Coneria,
+    Pravoka, Elfland, Crescent Lake, Onrac and Gaia one each, Lefein the
+    second shuffle's first.  Melmond has no clinic.  `RW_TAVERNS`, by map;
+    `rando_tavern` reads it for the visit.
+  - **The visit** (`tavern.asm`, `CHUNK_TAVERN = $1C`, by JSL from
+    `EnterShop_Clinic`'s first six bytes): "Hire a <class>", and Revive or
+    Hire.  Revive is the clinic, from its first instruction on, as FFR keeps
+    it (user: keep revive).  Hire lists the slots it may take -- a None by
+    its class, which reads "None" -- asks the clinic's price with the
+    clinic's own confirm, and takes it (`tav_afford`: the clinic's
+    `InnClinic_CanAfford` leaves its caller's caller on a no, so it is not
+    called through the trampoline).  Recruit with no None says the party is
+    full.  The shop's routines are reached through `OptCallFar`, the CHR
+    loaders too: they end by swapping to bank $0E whatever called them.
+  - **The hire** (`tav_make`): the class's starting stats as New Game loads
+    them (`StartingStatsOne`, Better Thief and Ninja's agility included),
+    then a level up at a time to **the party's lowest level** (user: "fun
+    arbitrary divergence from FFR behavior, and slightly exploitable in an
+    interesting way") -- the members that are not Nones, the one replaced
+    counting -- and the experience that level takes.  **Deviation from
+    FFR,** whose hire levels to the replaced member's experience, so a
+    None's hire starts at level 1.  As FFR's: the slot's gear stays,
+    unequipped; its spells and MP go; the class is promoted once Bahamut has
+    promoted the party; it arrives with 1 HP, as a revive does.
+  - **The level up** (`tav_levelup`) is bank $0B's `LvlUp_LevelUp` line for
+    line up to its report (`Draw4EobBoxes`, which has nothing to draw on
+    outside a battle and waits for the pad), its tables read from bank $0B
+    and the cartridge's two hooks into it called the same way (Thief and
+    Ninja hit%, Better Thief's agility).  `test_taverns` holds it to the
+    original over every class, low and high levels, the caps and the
+    armed and unarmed Black Belt, roll for roll.
+  - **The name** (user: "Bring up the name screen, since we can't name NONEs
+    presently"): party creation's own `DoNameInput`, on ptygen's fourth
+    record, then the shop drawn again.
+  - **The look** (user: "Full redecoration"): TAVERN over the shop
+    (`tavern_title`), and FFR's three borrowings over the clinic's tiles as
+    the shop's CHR loads (`tavern_shoppal`): the caravan's first four (a
+    tablecloth), the item shop's next four (barrels) and the armour shop's
+    last six (its armourer, tending bar), with the item shop's backdrop
+    colours.  **The pub sign** is the town tileset's palm tree, tile $34,
+    which no town places (user: "We don't need the palm tree"), as FFR's
+    `MakePubSign` has it: mkrom.py (`overlay_pubsign`) points it at a roof
+    (CHR $45-$46) over the sign art the tileset has and never used ($76-$77),
+    with the clinic sign's palette -- FFR copies that art over the palm
+    tree's CHR; pointing the tile at it is the same picture.  Under Taverns
+    a town's clinic signs become it as the map loads (`tav_signs`, from
+    `rando_mapedits`).
+  - **Stored** in Unrunnable fights' byte, bits 4-5 (`TAVERNS_FIELD`), which
+    the build masks to its own half (`RUNS_FIELD`).
+
+The descriptions, by value, the user's words (2026-11-02, the first drafts
+"read like Claude-ese"): Off "Clinics revive fallen party members."
+Recruit "Clinics become pubs, where new party members can be recruited."
+Replace "Recruits may replace existing party members."  They are the first
+records in `CHUNK_OPTTEXT2`.  The tavern's own words, in seven-column shop
+boxes: TAVERN; "Hire a" and the class; Revive, Hire; "Who makes room?";
+"Your party is full."; "Welcome aboard!".
 
 This section is the start of the randomizer, and its rows are a different
 kind of setting from everything above.  They describe the *next* new game:
@@ -2575,6 +2643,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Pirates | Off, Buffed, Nasty | -- | 3 | Off |
 | RNG tables | Off, Shuffle | -- | 2 | Off |
 | Party | Free, Balanced, 4 Forced ... RWB | -- | 16 | Free |
+| Taverns | Off, Recruit, Replace | -- | 3 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -3238,7 +3307,13 @@ covered part of it.  Nothing built is waiting on a playtest.
     `opt_menu_desc` and `opt_menu_descptr` point the data bank there while
     they read, which is safe because nothing else they touch is in either
     chunk's ROM.  `src/optmenu.inc` holds what both files need: the row
-    kinds, the pane's size and the record format.
+    kinds, the pane's size and the record format.  **A second chunk,
+    `CHUNK_OPTTEXT2 = $1D`** (`src/opttext2.asm`, 2026-11-02), when the
+    first filled with Party's sixteen: a row's `lut_DescHi` byte is
+    `DESC_SECOND` ($40) over its record's, $C0-$FF where every record's is
+    $80-$BF, and `opt_menu_descptr` leaves the record's bank in
+    `OPTMENU_DESCBANK` for `opt_menu_desc`.  A DESC_BYVALUE table's records
+    are in its own bank.  `check_tables.py` reads both files.
   - **Shop shuffle**, FFR's ShuffleShops.  Weapons, armor and items are each
     pooled and dealt back out: every shop gets at least one, none more than
     five, and none sells the same thing twice.  If an entry fits nowhere, the
@@ -3976,7 +4051,7 @@ text region in the game references.
                              (52 more than the None's, 2026-11-02) -- the
                              next feature with much code goes to a chunk
                              of its own, as Boss tactics did
-    BANK_OPTTEXT   169 free  the settings screen's descriptions (measured
+    BANK_OPTTEXT   167 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -3990,14 +4065,14 @@ text region in the game references.
                              lockpicking's 115, Item magic's 115, Map
                              edits' three 348 (freed 2026-10-24), Short
                              ToFR's 143, Party's sixteen 1003 (2026-11-02:
-                             nearly full; the next descriptions want room
-                             found or a bank of their own)
+                             nearly full; later rows' descriptions go to
+                             BANK_OPTTEXT2, Taverns' first)
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO    813 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31; Party 259, 2026-11-02); the Ordeals pillars took 622,
+    BANK_RANDO    635 free  the randomizer (measured 2026-10-28; rando_dice 59, 2026-10-31; Party 259, Taverns 178, 2026-11-02); the Ordeals pillars took 622,
                              the reward NPCs' table and routine 673, the
                              Early flags 58, placement's code 2791, the
                              rewards and their giving 1232, the reward
@@ -4054,7 +4129,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3389 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3303 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -4068,7 +4143,12 @@ text region in the game references.
                              (opt_range_floor and opt_range_push, a
                              listing's count, 2026-11-01); Party 179 (its
                              row, readouts, scalar and opt_needseed's ask,
-                             2026-11-02)
+                             2026-11-02); Taverns' row 86, the second
+                             descriptions bank's choice in it (2026-11-02)
+    BANK_TAVERN  ~14840 free Taverns' visit, hire, level up and look
+                             (tavern.asm, ~1540; 2026-11-02)
+    BANK_OPTTEXT2 ~16080 free the descriptions past the first bank's:
+                             Taverns' three (~300; 2026-11-02)
     HALCODE     ~6200 free   not available; see below
 
 **Measure with a listing that counts each line's bytes**, not the address the

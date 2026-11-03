@@ -52,6 +52,7 @@
 .export rando_formation, rando_formdata, rando_touch, rando_enemyai
 .export rando_btlenemies, rando_dice
 .export rando_party, rando_partyseeded, lut_PartySlots
+.export rando_tavern
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
@@ -134,6 +135,7 @@ wNORUN   = .LOWORD(RW_NORUN)
 wSURPRISE = .LOWORD(RW_SURPRISE)
 wTOUCH   = .LOWORD(RW_TOUCH)
 wENEMIES = .LOWORD(RW_ENEMIES)
+wTAVERNS = .LOWORD(RW_TAVERNS)
 wESCRIPT = .LOWORD(RW_ESCRIPT)
 wSCRIPTS = .LOWORD(RW_SCRIPTS)
 wSPL     = .LOWORD(RW_SPL)
@@ -236,6 +238,7 @@ STREAM_CASTER   = $43415354     ; "CAST": the starting caster item's one draw
 STREAM_ITEMMAGIC = $494D4147    ; "IMAG"
 STREAM_DICE     = $44494345     ; "DICE": each enemy's, the id XORed in (rando_dice)
 STREAM_PARTY    = $50525459     ; "PRTY": the forced party's picks (rando_party)
+STREAM_TAVERNS  = $5441564E     ; "TAVN": each town's tavern's class (deal_taverns)
 
 ;  The battle table moved to the options chunk; the encounter table is in the
 ;  fixed bank, and so in this chunk too.
@@ -638,6 +641,125 @@ rando_partyseeded:
     PLX
     SEC
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  deal_taverns -- each town's tavern's class (Taverns, user, 2026-11-02)
+;;
+;;  FFR's PubReplaceClinic deal: the six classes shuffled, and shuffled
+;;  again, one after the other, and the towns that have a clinic take them
+;;  in turn -- so the first six (Coneria, Pravoka, Elfland, Crescent Lake,
+;;  Onrac, Gaia) have one each, and Lefein the second shuffle's first.
+;;  Melmond, which has no clinic, gets $FF.  RW_TAVERNS is by map, towns
+;;  being maps 0-7.  A stream of its own; randoref.build_taverns.
+;;
+;;  In: .a8 .i16, DBR = $7F, as the build's deals are.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+lut_TavernTowns: .BYTE 0, 1, 2, 4, 5, 6         ; the first shuffle's towns
+
+deal_taverns:
+    .a8
+    .i16
+    REP #$20
+    .a16
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
+    EOR #.LOWORD(STREAM_TAVERNS)
+    STA a:wRNG
+    LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE) + 2
+    EOR #.HIWORD(STREAM_TAVERNS)
+    STA a:wRNG+2
+    JSR rando_warm
+    LDA #wLIST
+    STA a:wFK
+    SEP #$20
+    .a8
+    LDX #$0000
+  @fill:
+    TXA
+    STA a:wLIST, X              ; Fighter .. Black Mage
+    INX
+    CPX #6
+    BCC @fill
+    LDA #6
+    JSR fy_bytes
+    SEP #$10                    ; eight-bit indices, so TAY carries no stray
+    .i8                         ;   high byte
+    LDX #$00
+  @first:
+    LDA f:RANDOFAR + lut_TavernTowns, X
+    TAY
+    LDA a:wLIST, X
+    STA a:wTAVERNS, Y
+    INX
+    CPX #6
+    BCC @first
+    REP #$10
+    .i16
+    LDA #6
+    JSR fy_bytes                ; the six shuffled again, as FFR does
+    LDA a:wLIST
+    STA a:wTAVERNS + MAP_LEFEIN
+    LDA #$FF
+    STA a:wTAVERNS + MAP_MELMOND
+    RTS
+
+;;  rando_tavern -- this town's tavern's class, for the tavern (tavern.asm)
+;;
+;;  In: A = the map.  Out: A = the class, $FF for none.  X and Y kept.  By
+;;  JSL, emulation mode.
+rando_tavern:
+    .a8
+    .i8
+    PHB
+    PHX
+    PHY
+    PHA
+    JSR enter
+    JSR ensure                  ; leaves eight-bit registers
+    PLX                         ; the map
+    LDA #$FF
+    CPX #8
+    BCS :+
+    LDA a:wTAVERNS, X
+:   PLY
+    PLX
+    JMP leave
+
+
+;;  Taverns: in a town (maps 0-7) every clinic sign becomes a pub sign, as
+;;  FFR's PubReplaceClinic has it -- the tileset's palm tree, which no town
+;;  places and mkrom.py points at a roof and the sign art the tileset has
+;;  but never used (overlay_pubsign).  The whole map, as it loads.
+;;  Emulation mode in and out; A, X and P not kept.
+tav_signs:
+    .a8
+    .i8
+    LDA cur_map
+    CMP #8
+    BCS @out
+    LDA f:RANDO_SAVEFAR + (RANDO_NORUN - RANDO_SAVE)
+    AND #TAVERNS_FIELD
+    BEQ @out
+    CLC
+    XCE                         ; native, for a sixteen-bit index
+    REP #$10
+    .i16
+    LDX #$0FFF
+  @tile:
+    LDA f:SRAMFAR + mapdata, X
+    CMP #TOWN_CLINICSIGN
+    BNE :+
+    LDA #TOWN_PUBSIGN
+    STA f:SRAMFAR + mapdata, X
+:   DEX
+    BPL @tile
+    SEP #$10
+    .i8
+    SEC
+    XCE
+  @out:
+    RTS
 
 
 ;;  The PRNG for entrance shuffle's chunk (world.asm), as long calls: the
@@ -1194,6 +1316,7 @@ build:
   @runs:
     JSR copy_runs
     LDA f:RANDO_SAVEFAR + (RANDO_NORUN - RANDO_SAVE)
+    AND #RUNS_FIELD             ; Taverns shares the byte
     BEQ @surprise               ; RUNS_OFF
     CMP #RUNS_MODES
     BCS @surprise
@@ -1250,10 +1373,15 @@ build:
     JSR deal_rng
   @ordeals:
     LDA f:RANDO_SAVEFAR + (RANDO_ORDEALS - RANDO_SAVE)
-    BEQ @wiring                 ; ORDEALS_OFF
+    BEQ @taverns                ; ORDEALS_OFF
     CMP #ORDEALS_MODES
-    BCS @wiring
+    BCS @taverns
     JSR deal_ordeals
+  @taverns:
+    LDA f:RANDO_SAVEFAR + (RANDO_NORUN - RANDO_SAVE)
+    AND #TAVERNS_FIELD
+    BEQ @wiring                 ; TAVERNS_OFF
+    JSR deal_taverns
   @wiring:
     ;  The teleport tables the game reads: placement's wiring under entrance
     ;  shuffle, else vanilla's (entrance shuffle's chunk).
@@ -1546,6 +1674,7 @@ rando_mapedits:
     .a8
     .i8
     JSR tofr_land               ; Short ToFR's room, on its own map
+    JSR tav_signs               ; Taverns: a town's clinic signs, pub signs
     LDA cur_map
     CMP #MAP_ORDEALS2F
     BNE @none

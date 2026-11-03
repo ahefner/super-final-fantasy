@@ -77,7 +77,8 @@ def descriptions():
     Both are quiet -- the menu still works, the text is just wrong -- and only
     on the row that has the bad count.
     """
-    src = open(os.path.join(ROOT, "src", "opttext.asm"), encoding="latin-1").read()
+    src = "".join(open(os.path.join(ROOT, "src", f), encoding="latin-1").read()
+                  for f in ("opttext.asm", "opttext2.asm"))     # the second bank's too
     bad = []
     n = 0
     for m in re.finditer(r"^(lut_Desc\w*):[^\n]*\n"

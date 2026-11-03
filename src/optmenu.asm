@@ -760,13 +760,18 @@ DESC_ROW = OPTDESC_Y + 2
 ;;  The text is in its own chunk.  opt_menu_desc and opt_menu_descptr point the
 ;;  data bank there while they read it and put this bank back after.  Nothing
 ;;  between reads this chunk's own tables, and RAM, SRAM and the HAL look the
-;;  same from either bank.
+;;  same from either bank.  Since the first filled (2026-11-02), a record can
+;;  be in a second chunk: its pointer's high byte is $40 over the record's,
+;;  $C0-$FF where every record's is $80-$BF, and opt_menu_descptr leaves the
+;;  bank it is in in OPTMENU_DESCBANK.  A DESC_BYVALUE table's records are in
+;;  the table's bank.
 OPTTEXT_BANK = CHUNK0 + CHUNK_OPTTEXT
+OPTTEXT2_BANK = CHUNK0 + CHUNK_OPTTEXT2
 
 opt_menu_desc:
     JSR opt_menu_descptr
     PHB
-    LDA #OPTTEXT_BANK
+    LDA f:OPTMENU_DESCBANK
     PHA
     PLB
 
@@ -858,6 +863,18 @@ opt_menu_descptr:
     LDA lut_DescLo, X
     STA OPTMENU_DESC
     LDA lut_DescHi, X
+    CMP #$80 | DESC_SECOND
+    BCC :+
+    AND #<~DESC_SECOND          ; in the second bank
+    PHA
+    LDA #OPTTEXT2_BANK
+    BRA :++
+:   PHA
+    LDA #OPTTEXT_BANK
+:   STA f:OPTMENU_DESCBANK
+    PHA
+    PLB                         ; the record's bank, for the table below
+    PLA
     STA OPTMENU_DESC + 1
     LDY #$00
     LDA (OPTMENU_DESC), Y
@@ -2113,6 +2130,8 @@ lut_OptRowRando:   ; the save view's rows are found from here
   OPTLABEL {"Ordeals pillars"}
   .BYTE $02, 61    ; Party   (scalar 61, VAL_PARTY: OPT_NG_SURPRISE bits 4-7)
   OPTLABEL {"Party"}
+  .BYTE $02, 62    ; Taverns   (scalar 62: OPT_NG_NORUN bits 4-5)
+  OPTLABEL {"Taverns"}
   ;  The key item rows (randomization-notes.md section 12), saved with the
   ;  game like the rows above, and shown by the save view with them.  The
   ;  item and gear rows read "Incentive", nine columns, so their readouts are
@@ -2496,6 +2515,13 @@ lut_ValParty:
   FFPAD "     RWB", 8
 .assert * - lut_ValParty = 8 * PARTY_MODES, error, "a readout per Party mode"
 
+;  Taverns (user, 2026-11-02: "Off / Recruit / Replace").
+lut_ValTaverns:
+  FFPAD "     Off", 8           ; TAVERNS_OFF
+  FFPAD " Recruit", 8           ; TAVERNS_RECRUIT
+  FFPAD " Replace", 8           ; TAVERNS_REPLACE
+.assert * - lut_ValTaverns = 8 * TAVERNS_MODES, error, "a readout per Taverns mode"
+
 ;  Thief lockpicking: Off, then the level a Thief or Ninja needs.
 lut_ValLockpick:
   FFPAD " Off", 4
@@ -2554,6 +2580,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValStat
               .ENDREP
               .BYTE <lut_ValParty
+              .BYTE <lut_ValTaverns
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2581,6 +2608,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValStat
               .ENDREP
               .BYTE >lut_ValParty
+              .BYTE >lut_ValTaverns
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2607,6 +2635,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE PIRATES_MODES
               .RES 6, 20                                      ; the scaling's ranges
               .BYTE PARTY_MODES
+              .BYTE TAVERNS_MODES
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2621,6 +2650,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 3                                         ; Pirates
               .RES 6, 2                                       ; the scaling's ranges
               .BYTE 3                                         ; Party
+              .BYTE 3                                         ; Taverns
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2652,6 +2682,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_ENEMYTO, <OPT_ENEMYHP, <OPT_ENEMYHPTO
               .BYTE <OPT_BOSSTO, <OPT_BOSSHP, <OPT_BOSSHPTO
               .BYTE <OPT_NG_SURPRISE                          ; above Surprise rates
+              .BYTE <OPT_NG_NORUN                             ; above Unrunnable fights
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2672,9 +2703,11 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE PIRATES_SHIFT                             ; Pirates
               .RES 6, 0                                       ; the scaling's ranges
               .BYTE PARTY_SHIFT                               ; Party
+              .BYTE TAVERNS_SHIFT                             ; Taverns
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
-              .RES 5, $FF
+              .RES 4, $FF
+              .BYTE RUNS_FIELD                                ; Unrunnable fights
               .BYTE SURPRISE_FIELD                            ; Surprise rates
               .BYTE STATUS_FIELD                              ; Status attacks
               .RES 3, $FF
@@ -2697,7 +2730,8 @@ lut_ValMask:  .RES 8, $FF
               .BYTE PIRATES_FIELD                             ; Pirates
               .RES 6, $FF                                     ; the scaling's ranges
               .BYTE PARTY_FIELD                               ; Party
-VALSCALARS = 62
+              .BYTE TAVERNS_FIELD                             ; Taverns
+VALSCALARS = 63
 VAL_PARTY  = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"

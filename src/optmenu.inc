@@ -22,10 +22,14 @@ OPTROW_STRIDE = 32
 OPTROW_LABEL  = 2
 OPTROW_LABELW = 22
 .include "presetcount.inc"      ; NGP_COUNT, from presets/*.toml
-OPTROW_SETTINGS = 121           ; the settings, the randomization and the key items
+OPTROW_SETTINGS = 122           ; the settings, the randomization and the key items
 NGROW_HEAD    = OPTROW_SETTINGS ; then the New Game list: two blanks,
 NGROW_CUSTOM  = NGROW_HEAD + 2  ;   Custom Game, and a row per preset
 OPTROW_COUNT  = NGROW_CUSTOM + 1 + NGP_COUNT
+
+;  A description pointer's high byte, $40 over: the record is in the second
+;  descriptions chunk, CHUNK_OPTTEXT2 (opt_menu_descptr).
+DESC_SECOND   = $40
 
 ;  The description pane: five lines of 28 columns.
 DESC_W     = 28
@@ -112,6 +116,7 @@ OPTMENU_BEGIN  = MENURAM + $06  ; the window onto lut_OptRows this screen shows:
 OPTMENU_END    = MENURAM + $07  ;   its first row, and one past its last
 OPTMENU_PICK   = MENURAM + $08  ; nonzero for a list of choices (the New Game
                                 ;   list): only pick rows, and A or START picks
+OPTMENU_DESCBANK = MENURAM + $09 ; the bank the selected row's description is in
 OPTMENU_VIEW   = OPTWORK + $31  ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.

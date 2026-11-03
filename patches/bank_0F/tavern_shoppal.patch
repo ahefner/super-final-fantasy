@@ -1,0 +1,12 @@
+--- OLD
+    STA shop_type        ; save shop type
+    ASL A
+    ASL A
+    ORA #$40             ; *4 and add $40 to get offset to required backdrop palette
+--- NEW
+.import tavern_shoppal
+    STA shop_type        ; save shop type
+    ;  *4 and add $40 to get offset to required backdrop palette -- a
+    ;  tavern's the item shop's, and its tiles laid over the clinic's
+    ;  (tavern.asm).  Four bytes, as the three instructions were.
+    JSL tavern_shoppal + TAVERNFAR

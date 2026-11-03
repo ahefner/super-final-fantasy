@@ -1,0 +1,13 @@
+--- OLD
+EnterShop_Clinic:
+    LDA #0
+    STA joy_a                  ; clear A and B button catchers
+    STA joy_b
+--- NEW
+.import tavern_clinic
+EnterShop_Clinic:
+    ;  Taverns: the clinic as a tavern (tavern.asm), which answers C set
+    ;  when the party leaves; else -- Off, or Revive chosen -- the clinic,
+    ;  A and B cleared as these six bytes did.
+    JSL tavern_clinic + TAVERNFAR
+    BCS ClinicShop_Exit

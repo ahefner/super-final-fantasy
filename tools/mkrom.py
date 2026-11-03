@@ -42,7 +42,7 @@ ORDER     = ["%02X" % n for n in range(16)]
 # up to the last of them when it is mirrored out to 2MB below.
 EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x15: "LOGIC",
                 0x16: "WORLD", 0x17: "ROLL", 0x18: "TACTICS", 0x19: "OWS", 0x1A: "NEWGAME",
-                0x1B: "OPTMENU"}
+                0x1B: "OPTMENU", 0x1C: "TAVERN", 0x1D: "OPTTEXT2"}
 
 
 def read(path, want):
@@ -182,6 +182,28 @@ def overlay_strays(data):
     return bytes(out)
 
 
+#  Taverns' pub sign (FFR's MakePubSign): the town tileset's palm tree, tile
+#  $34, which no town places, made a sign -- a roof over the sign art at CHR
+#  $76-$77 that the tileset has and never uses -- with the clinic sign's
+#  palette.  FFR copies the art over the palm tree's CHR; pointing the tile
+#  at it is the same picture without touching any CHR.  The towns' clinic
+#  signs become it at map load, under Taverns (rando.asm's tav_signs).
+SMINFO_BANK = "00"
+PUBSIGN_TILE, CLINICSIGN_TILE = 0x34, 0x1A
+PUBSIGN_CHR = (0x45, 0x46, 0x76, 0x77)          # upper left, upper right, lower left, lower right
+SM_TSA, SM_ATTR = 0x1000, 0x0400                # lut_SMTilesetTSA, lut_SMTilesetAttr, tileset 0
+
+
+def overlay_pubsign(data):
+    out = bytearray(data)
+    if out[SM_TSA + 0x80 * 0 + PUBSIGN_TILE] != 0x22:
+        sys.exit("bank_00: the town tileset's tile $34 is not the palm tree it was")
+    for q, chr_ in enumerate(PUBSIGN_CHR):
+        out[SM_TSA + 0x80 * q + PUBSIGN_TILE] = chr_
+    out[SM_ATTR + PUBSIGN_TILE] = out[SM_ATTR + CLINICSIGN_TILE]
+    return bytes(out)
+
+
 def nesbank(name):
     if name in ASSEMBLED:
         data = read(os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
@@ -195,6 +217,8 @@ def nesbank(name):
         data = overlay_ribbon(data)
     if name == OBJINFO_BANK:
         data = overlay_strays(data)
+    if name == SMINFO_BANK:
+        data = overlay_pubsign(data)
     return data
 
 

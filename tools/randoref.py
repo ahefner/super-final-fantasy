@@ -56,6 +56,7 @@ STREAM_CASTER = 0x43415354      # "CAST"
 STREAM_ITEMMAGIC = 0x494D4147   # "IMAG"
 STREAM_DICE = 0x44494345        # "DICE": each enemy's, the id XORed in
 STREAM_PARTY = 0x50525459       # "PRTY": the forced party's picks
+STREAM_TAVERNS = 0x5441564E     # "TAVN": each town's tavern's class
 WARMUP = 8
 
 
@@ -524,6 +525,9 @@ SURPRISE_OFF, SURPRISE_SHUFFLE = 0, 1
 SURPRISE_MODES = 2
 SURPRISE_FIELD = 0x0F                           # RANDO_SURPRISE's bits 0-3...
 PARTY_FIELD, PARTY_SHIFT = 0xF0, 4              # ...and Party in bits 4-7
+RUNS_FIELD = 0x0F                               # RANDO_NORUN's bits 0-3...
+TAVERNS_FIELD, TAVERNS_SHIFT = 0x30, 4          # ...and Taverns in bits 4-5
+TAVERNS_OFF, TAVERNS_RECRUIT, TAVERNS_REPLACE = 0, 1, 2
 SURPRISE_NAMES = {"off": SURPRISE_OFF, "shuffle": SURPRISE_SHUFFLE}
 NORMAL_FORMS, CHAOS_FORM = 115, 123
 
@@ -778,6 +782,23 @@ def party_classes(seed, mode, defaults=PARTY_DEFAULTS):
         allowed = [c for c in range(7) if e & (1 << c)]
         c = allowed[st.below(len(allowed))]
         out.append((CLS_NONE if c == 6 else c) if e & PS_SEED else defaults[slot])
+    return out
+
+
+def build_taverns(seed):
+    """Each town's tavern's class, by map (deal_taverns): FFR's
+    PubReplaceClinic deal -- the six classes shuffled, then shuffled again,
+    the clinic towns taking them in turn, so Coneria, Pravoka, Elfland,
+    Crescent Lake, Onrac and Gaia have one each and Lefein the second
+    shuffle's first.  Melmond, with no clinic, $FF."""
+    st = Stream(seed, STREAM_TAVERNS)
+    xs = list(range(6))
+    _fisher_yates(xs, st)
+    out = [0] * 8
+    for town, c in zip((0, 1, 2, 4, 5, 6), xs):
+        out[town] = c
+    _fisher_yates(xs, st)
+    out[7], out[3] = xs[0], 0xFF
     return out
 
 
@@ -2291,6 +2312,7 @@ def main():
         pirates = (status & PIRATES_FIELD) >> PIRATES_SHIFT
         status &= STATUS_FIELD
         surprise &= SURPRISE_FIELD
+        runs &= RUNS_FIELD
     else:
         pirates = PIRATES_NAMES[a.pirates]
     print("seed %08X, trap tiles mode %d, shops mode %d, chests mode %d, magic mode %d,"

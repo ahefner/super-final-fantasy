@@ -2,6 +2,7 @@
     ADC lut_LvlUpHitRateBonus, X
 --- NEW
 .export lut_LvlUpHitRateBonus
+.export lut_LvlUpMagDefBonus, lut_LevelUpDataPtrs, lut_ExpToAdvance   ; Taverns' level up (tavern.asm)
 .export LvlUp_LevelUp, Draw4EobBoxes    ; for the harness's level-up test
 .import opt_hitgrowth
     ;  Thief and Ninja hit-rate growth raises this for those two classes.

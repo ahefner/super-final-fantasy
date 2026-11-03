@@ -62,6 +62,9 @@ CHUNK_NEWGAME   = $1A           ; New Game's flow: its presets (presets/*.toml)
 NEWGAMEFAR      = (CHUNK0 + CHUNK_NEWGAME) * $10000
 CHUNK_OPTMENU   = $1B           ; the settings screen's engine and rows (optmenu.asm)
 OPTMENUFAR      = (CHUNK0 + CHUNK_OPTMENU) * $10000
+CHUNK_TAVERN    = $1C           ; Taverns: the clinic as a tavern, and its hire
+TAVERNFAR       = (CHUNK0 + CHUNK_TAVERN) * $10000
+CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the first bank's
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
 NGNAV_FORWARD   = 0             ; what a screen of the New Game flow answers:
@@ -606,6 +609,14 @@ OPTFM_LEFEINSHOPS = $02  ; bit 41
 OPTFB_SUPERSTORE  = OPT_FLAGS+5
 OPTFM_SUPERSTORE  = $04  ; bit 42
 MAP_LEFEIN        = 7
+MAP_MELMOND       = 3           ; the town with no clinic, so no tavern
+SHOPTYPE_ARMOR    = 1           ; shop types (lut_ShopTypes), as Taverns
+SHOPTYPE_CLINIC   = 4           ;   redecorates with them (tavern.asm)
+SHOPTYPE_ITEM     = 6
+SHOPTYPE_CARAVAN  = 7
+TOWN_CLINICSIGN   = $1A         ; the town tileset's clinic sign...
+TOWN_PUBSIGN      = $34         ;   ...and its palm tree, no town's, which
+                                ;   mkrom makes a pub sign (Taverns)
 DRINK_SEL       = $6B7D         ; vanilla's two temporaries for the DRINK
 DRINK_ID        = $6856         ;   choice, unnamed in variables.inc
 
@@ -1585,6 +1596,15 @@ OPTBTLRANGE     = OPTWORK+$D0   ; 4: its group's ranges' steps: stats from and
                                 ;   to, then HP from and to
 OPTSTATCAP      = OPTWORK+$D4   ; 2: the stat's clamp
 OPTSTATREC      = OPTWORK+$D6   ; the kind's record, an offset into OPTBTLENEMIES
+;  Taverns' visit (tavern.asm), out of battle: this town's class, the slot a
+;  hire takes, the slots it may take and how many, the level it comes up to
+;  and a count down to it.
+TAVCLS          = OPTWORK+$D7
+TAVSLOT         = OPTWORK+$D8
+TAVN            = OPTWORK+$D9
+TAVSLOTS        = OPTWORK+$DA   ; 4
+TAVLOW          = OPTWORK+$DE
+TAVK            = OPTWORK+$DF
 .assert BTL_KINDS * ENEMY_RECORD <= OPTDESC_MAX, error, "the battle's enemy records overflow OPTDESC"
 
 ;  Flags this file reads.  The bit numbers are the menu's row order, which is
@@ -1890,6 +1910,19 @@ RUNS_OFF        = 0
 RUNS_SHUFFLE    = 1
 RUNS_MODES      = 2
 RUNS_COUNT      = 26
+RUNS_FIELD      = $0F           ; RANDO_NORUN: the mode in bits 0-3...
+
+;  ...and Taverns (user, 2026-11-02: "Off / Recruit / Replace") in bits 4-5,
+;  zero in every save made before it.  Each clinic is a tavern hiring out one
+;  class (RW_TAVERNS, deal_taverns); Recruit's hire takes a None's place,
+;  Replace's a None's or a member's (tavern.asm).  The byte because its one
+;  other reader masks it, as Party shares Surprise rates'.
+TAVERNS_FIELD   = $30
+TAVERNS_SHIFT   = 4
+TAVERNS_OFF     = 0
+TAVERNS_RECRUIT = 1
+TAVERNS_REPLACE = 2
+TAVERNS_MODES   = 3
 SURPRISE_OFF    = 0
 SURPRISE_SHUFFLE = 1
 SURPRISE_MODES  = 2
@@ -2063,6 +2096,7 @@ RW_GRP          = RANDOWRAM+$2FC0 ; the group's script ids, in order
 RW_ENCRNG       = RANDOWRAM+$3000 ; the encounter table, as lut_RNG, 256
 RW_BATRNG       = RANDOWRAM+$3100 ; the battle table, as lut_BattleScramble, 256
 RW_ORDPADS      = RANDOWRAM+$3200 ; the Ordeals' fifteen pillar pads' tiles
+RW_TAVERNS      = RANDOWRAM+$3210 ; 8: each town's tavern's class, by map (deal_taverns); $FF Melmond's
 RW_TALKREW      = RANDOWRAM+$3220 ; 13: what each reward NPC gives, once placement is in
 RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)

@@ -15,6 +15,7 @@
 .include "optmenu.inc"
 
 .export lut_DescLo, lut_DescHi
+.import lut_Desc_109                    ; opttext2.asm's, in the second bank
 
 .segment "BANK_OPTTEXT"
 
@@ -1205,7 +1206,7 @@ lut_DescLo:
   .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
-  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71, <lut_Desc_108
+  .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71, <lut_Desc_108, <lut_Desc_109
   .BYTE <lut_DescBlank, <lut_Desc_72, <lut_DescBlank, <lut_Desc_73, <lut_Desc_93, <lut_Desc_103, <lut_Desc_74, <lut_Desc_75
   .BYTE <lut_Desc_76, <lut_Desc_77, <lut_Desc_78, <lut_Desc_79, <lut_Desc_80, <lut_Desc_81
   .BYTE <lut_Desc_82, <lut_Desc_83, <lut_Desc_84, <lut_Desc_85, <lut_DescBlank, <lut_Desc_86
@@ -1229,7 +1230,7 @@ lut_DescHi:
   .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
-  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108
+  .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108, >lut_Desc_109 | DESC_SECOND
   .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_103, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
   .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86

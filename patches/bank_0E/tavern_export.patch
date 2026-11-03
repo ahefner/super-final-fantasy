@@ -1,0 +1,8 @@
+--- OLD
+.export EnterMainMenu, EnterShop, EnterTitleScreen, EnterIntroStory
+--- NEW
+.export EnterMainMenu, EnterShop, EnterTitleScreen, EnterIntroStory
+;  Taverns' visit (tavern.asm) draws with the shop's own routines, called
+;  through OptCallFar; none of them change.
+.export CommonShopLoop_Cmd, DrawInnClinicConfirm, ShopLoop_YesNo
+.export DrawShopGoldBox, DrawShop, DrawShopString
