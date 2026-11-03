@@ -1165,7 +1165,7 @@ Value rows, and the first section in the list: Gold + XP Scaling, Encounter
 Rate, Enemy stats min and max, Enemy HP min and max, Boss stats min and
 max, Boss HP min and max, Elemental and Type Bonus.
 
-**The scaling's ranges (2026-10-31; built, not yet played).**  FFR's
+**The scaling's ranges (2026-10-31; the menu played 2026-11-02, the battles not yet).**  FFR's
 EnemyScaleStats, EnemyScaleHp, BossScaleStats and BossScaleHp are each a
 low and a high percentage, and so are the cart's four now: a row for the
 minimum and a maximum row under it, labelled min and max (user:
@@ -1193,7 +1193,8 @@ starting items (`OPT_ENEMYTO` .. `OPT_BOSSHPTO`), `OPT_FORMAT` 10.  A max
 below its min counts as the min where the scaling reads it
 (`opt_statrange`).  **How the two rows hold each other** (2026-11-01,
 built for the user to judge in play: "I can judge the min/max adjustment
-behavior once I can test it").  The max is stored, not an excess over the
+behavior once I can test it"; tested, no change asked, 2026-11-02: "I've
+tested the menu, not the gameplay").  The max is stored, not an excess over the
 min.  Left on a max stops at its min (`opt_range_floor`); right on a min
 that passes its max pushes the max up with it, and repaints the max's row,
 the one under it (`opt_range_push`).  Left on a min leaves its max where it
@@ -3514,7 +3515,8 @@ the worst flush ending at scanline 255 of 262.
     ROM is.  `opt_scaleatk` scaled hits, hit% and crit% at every attack
     until then; it keeps the touch and Weapon Stats.
 
-    **Ranges (2026-10-31; built, not yet played).**  Each stat of each kind
+    **Ranges (2026-10-31; built, not yet played in battle -- the menu
+    rows played 2026-11-02).**  Each stat of each kind
     is drawn between its group's range for it (`opt_statrange`: Boss stats
     and Boss HP for the thirteen, Enemy stats and Enemy HP for the rest),
     log-evenly as FFR draws (user: log-scale), by the enemy's roll for that
