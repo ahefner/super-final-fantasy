@@ -1866,22 +1866,24 @@ lut_OptRows:
   .BYTE $8E, $B1, $A6, $B2, $B8, $B1, $B7, $A8, $B5, $FF
   .BYTE $B5, $A4, $B7, $A8, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
+  ;  The scaling's ranges: each max row reads only "max", under its min's
+  ;  "min", the four in one column (user, 2026-11-02).
   .BYTE $02, $02    ; Enemy stats min
   OPTLABEL "Enemy stats min"
   .BYTE $02, 55     ; Enemy stats max          (scalar 55: OPT_ENEMYTO)
-  OPTLABEL "Enemy stats max"
+  OPTLABEL "            max"
   .BYTE $02, 56     ; Enemy HP min             (scalar 56: OPT_ENEMYHP)
-  OPTLABEL "Enemy HP min"
+  OPTLABEL "Enemy HP    min"
   .BYTE $02, 57     ; Enemy HP max             (scalar 57: OPT_ENEMYHPTO)
-  OPTLABEL "Enemy HP max"
+  OPTLABEL "            max"
   .BYTE $02, $03    ; Boss stats min
-  OPTLABEL "Boss stats min"
+  OPTLABEL "Boss stats  min"
   .BYTE $02, 58     ; Boss stats max           (scalar 58: OPT_BOSSTO)
-  OPTLABEL "Boss stats max"
+  OPTLABEL "            max"
   .BYTE $02, 59     ; Boss HP min              (scalar 59: OPT_BOSSHP)
-  OPTLABEL "Boss HP min"
+  OPTLABEL "Boss HP     min"
   .BYTE $02, 60     ; Boss HP max              (scalar 60: OPT_BOSSHPTO)
-  OPTLABEL "Boss HP max"
+  OPTLABEL "            max"
   .BYTE $02, $04   ; Elemental bonus
   FFPAD "Elemental bonus", 30
   .BYTE $03, $00   ; (blank)

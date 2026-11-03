@@ -12,6 +12,9 @@ holds this parse to the built ROM's tables (test_presets).
     rows()   -> [Row], every checkbox and value row, in screen order
     Row      -> section, label, kind ("chk"/"val"), arg (flag bit or scalar),
                 values (the readouts, stripped; None for a checkbox)
+
+A scaling range's max row reads only "max" on screen; it is named for the
+min row above it: "Enemy HP max" under "Enemy HP    min".
 """
 import os, re
 from collections import namedtuple
@@ -162,6 +165,8 @@ def rows():
                 k += 1
             label = "".join(_FONT.get(v, "") for v in vals)   # an item's icon: not text
         label = " ".join(label.split())
+        if label == "max" and out and out[-1].label.endswith(" min"):
+            label = out[-1].label[:-4] + " max"
         if kind == 0:
             section = label
         elif kind == 1:

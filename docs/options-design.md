@@ -1171,7 +1171,19 @@ low and a high percentage, and so are the cart's four now: a row for the
 minimum and a maximum row under it, labelled min and max (user:
 '"up to" (or min/max) is more clear'; drafted as "up to", renamed min
 and max on the user's word, 2026-11-01), every row an ordinary dial of
-`lut_ValStat`'s 25% steps.  HP has
+`lut_ValStat`'s 25% steps.  A max row reads only "max", under its min's
+"min", and the four pairs' min and max share one column (user, 2026-11-02:
+"removing 'Boss HP' on the max line ... keeping min and max aligned"):
+
+```
+Enemy stats min         75%
+            max        150%
+Enemy HP    min         75%
+            max        150%
+```
+
+`presetdefs` and the presets still name a max row for its min, "Enemy HP
+max", so the presets' files read as before.  HP has
 its own rows, with no "Stats" value to follow the stats range (user: it
 "just makes the min/max UI logic that much more complex"): FFR gives HP its
 own roll either way, so HP rows set to the stats rows' numbers are FFR's

@@ -8248,6 +8248,8 @@ def test_ngpresets():
         rec = tab("lut_OptRows", (r + 1) * 32)[r * 32:]
         if rec[0] in (1, 2):
             label = text(rec[2:24])
+            if label == "max":                  # a preset names it for the min above
+                label = rom_rows[-1][2][:-4] + " max"
             rom_rows.append(("chk" if rec[0] == 1 else "val", rec[1], label))
     check("presetdefs: the ROM's rows, kind, bit or scalar, and label",
           rom_rows, [(r.kind, r.arg, r.label) for r in rows])
@@ -13607,18 +13609,20 @@ def pane(bus):
 
 def optrow(label):
     """The row of lut_OptRows that carries this label.  Tests find rows this
-    way rather than by number, which every row added above them changed."""
+    way rather than by number, which every row added above them changed.
+    Runs of spaces count as one: "Enemy HP min" is "Enemy HP    min"."""
     base = rom_at("lut_OptRows")
     for r in range(128):
         raw = ROMDATA[base + r * K["OPTROW_STRIDE"] + 2:][:22]
-        if "".join(_decode(b) or "?" for b in raw).strip() == label:
+        if " ".join("".join(_decode(b) or "?" for b in raw).split()) == label:
             return r
     raise KeyError(label)
 
 
 def test_rangerows():
     """The scaling's ranges in the menu (user, 2026-11-01: rows read min and
-    max).  Each min row has its max right under it.  Left on a max stops at
+    max).  Each min row has its max right under it, which reads only "max",
+    in the min's column, the four pairs' in one (user, 2026-11-02).  Left on a max stops at
     its min; right on a min past its max pushes the max up with it and
     repaints that row when it is in the window, and nowhere else when it is
     not.  Nothing else in the block moves.  A preset with a max below its
@@ -13631,25 +13635,27 @@ def test_rangerows():
     mins = ROMDATA[img + SYM["lut_RangeMin"]:][:4]
     maxs = ROMDATA[img + SYM["lut_RangeMax"]:][:4]
     off = ROMDATA[img + SYM["lut_ValOff"]:][:64]
-    pairs = []
+    label = lambda r: "".join(_decode(b) or "?" for b in ROMDATA[base + r * 32 + 2:][:22])
+    pairs, cols = [], set()
     for name, lo, hi, (want_lo, want_hi) in zip(
             ("Enemy stats", "Enemy HP", "Boss stats", "Boss HP"), mins, maxs,
             ((OPT_ENEMY, OPT_ENEMYTO), (OPT_ENEMYHP, OPT_ENEMYHPTO),
              (OPT_BOSS, OPT_BOSSTO), (OPT_BOSSHP, OPT_BOSSHPTO))):
         row = optrow(name + " min")
-        check("%s: the max row right under the min" % name, optrow(name + " max"), row + 1)
+        check("%s: the max row right under the min, only \"max\"" % name,
+              label(row + 1).strip(), "max")
+        cols |= {label(row).index(" min") + 1, label(row + 1).index("max")}
         check("%s: the rows' scalars, the table's pair" % name,
               (ROMDATA[base + row * 32 + 1], ROMDATA[base + (row + 1) * 32 + 1]), (lo, hi))
         check("%s: the pair's bytes" % name, (off[lo], off[hi]), (want_lo, want_hi))
         pairs.append((name, row, want_lo, want_hi))
+    check("every min and max in one column", len(cols), 1)
 
+    #  The list row r on screen, the window at the top.
     nt = K["NESNT"] - 0x7E0000
-    def screen_row(bus, text):
-        for r in range(30):
-            line = "".join(_decode(b) or "?" for b in bus.wram[nt + r * 32 + 2:nt + r * 32 + 31])
-            if text in line:
-                return " ".join(line.split())
-        return ""
+    def screen_at(bus, r):
+        at = nt + (K["OPTLIST_TOP"] + r) * 32
+        return " ".join("".join(_decode(b) or "?" for b in bus.wram[at + 2:at + 31]).split())
     for name, row, lo, hi in pairs:
         bus, cpu = machine()
         in_vblank(bus)
@@ -13665,10 +13671,10 @@ def test_rangerows():
             return [press(r, d, top) for _ in range(n)]
         setblk(bus, lo, 3); setblk(bus, hi, 5)              # 100% up to 150%
         check("%s: right on the min below its max, the max row not drawn" % name,
-              (press(row, RIGHT, 0), screen_row(bus, name + " max")), ((4, 5), ""))
+              (press(row, RIGHT, 0), "max" in screen_at(bus, row + 1)), ((4, 5), False))
         check("%s: right on the min pushes the max" % name,
               run(row, RIGHT, 3, 0), [(5, 5), (6, 6), (7, 7)])
-        check("%s: ...and repaints its row" % name, screen_row(bus, name + " max"), name + " max 200%")
+        check("%s: ...and repaints its row" % name, screen_at(bus, row + 1), "max 200%")
         check("%s: left on the min leaves the max" % name,
               run(row, LEFT, 2, 0), [(6, 7), (5, 7)])
         check("%s: left on the max stops at the min" % name,
