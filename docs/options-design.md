@@ -2087,7 +2087,11 @@ other preset Off.
     `MakePubSign` has it: mkrom.py (`overlay_pubsign`) points it at a roof
     (CHR $45-$46) over the sign art the tileset has and never used ($76-$77),
     with the clinic sign's palette -- FFR copies that art over the palm
-    tree's CHR; pointing the tile at it is the same picture.  Under Taverns
+    tree's CHR; pointing the tile at it is the same picture.  The art is
+    the original ROM's, "PUB" on a board, but for its B (user, 2026-11-02:
+    "I don't like the letter 'B'"), whose right-hand corners were filled,
+    a box with a notch: `overlay_pubsign_b` clears them, two bowls, in the
+    town tileset's copy only.  Under Taverns
     a town's clinic signs become it as the map loads (`tav_signs`, from
     `rando_mapedits`).
   - **Stored** in Unrunnable fights' byte, bits 4-5 (`TAVERNS_FIELD`), which
