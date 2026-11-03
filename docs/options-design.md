@@ -1968,7 +1968,7 @@ held to this ROM by the test.  When incentive placement comes, its logic has
 to see 2F through the deal.
 
 **Party** (user, 2026-11-02, the design in `forced-party.txt` beside the
-tree; built, not yet played), the section's last row: sixteen values in
+tree; built, and played the same day: "Tested"), the section's last row: sixteen values in
 four bits -- FFR's whole forced-party screen "reduced to a single line"
 (the user) of the common cases.  Free (the screen as it was), Balanced, 4
 Forced, 3 Forced, 2 Forced, 1 Forced, 2 Nones, Solo, Th + Wm, Fi + 3, Th +
@@ -2016,7 +2016,9 @@ Forced, 3 Forced, 2 Forced, 1 Forced, 2 Nones, Solo, Th + Wm, Fi + 3, Th +
     it: Free.  The save view shows it with the other rows.
   - **Presets** (user): Chaos Rush 4 Forced, FFR's four forced random slots;
     Free Enterprise 2 Nones, in place of the party FFR recruits from NPCs,
-    which is not being ported; every other preset Free.
+    which is not being ported; every other preset Free.  The presets'
+    descriptions do not mention it, and stay as they are (user: "Don't
+    modify the descriptions").
 
 The descriptions, by value: Free "Choose all four party members, Nones
 included, as usual."  Balanced "The seed chooses two of Fighter, Thief,
