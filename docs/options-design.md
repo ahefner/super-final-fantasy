@@ -1770,8 +1770,9 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     `$10` to `$2x`, `$20` and `$30` to `$3x` -- so the ramp keeps its order
     and about its brightness.  Black and the dark greys (`$xD`-`$xF`) stay,
     and the ramped colours are neither tinted nor toned, nor count toward a
-    set's rows.  The dialogue box's palette, every map's fourth, stays, and
-    that limits it: Coneria Castle's walls and the floating castle's floors
+    set's rows.  The dialogue box's palette, every map's fourth, stays
+    (user, 2026-11-04, asked whether to ramp it too: "no, leave the dialogue
+    box palette alone"), and that limits it: Coneria Castle's walls and the floating castle's floors
     are drawn in that palette, so there a ramp reaches the white of a room
     seen from outside and little else, where the Temple of Fiends, grey in
     its own palettes, goes wholly blue or orange or green.  The odds a draft.
