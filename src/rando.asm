@@ -65,7 +65,7 @@
 .export rando_coldbuild, pl_place
 .export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar, rando_fyfar
-.import deal_palswap            ; fun.asm's, in Taverns' chunk
+.import deal_palswap, fun_dwarfline, fun_spared    ; fun.asm's, in Taverns' chunk
 ;  New Game's roll screen (roll.asm), up while rando_build works.
 .import roll_begin, roll_tick, roll_end, roll_fail
 .import ows_tick
@@ -2368,6 +2368,8 @@ rando_talk:
     LDA OPTFB_GUILLOTINE
     AND #OPTFM_GUILLOTINE
     BEQ @dispatch
+    JSL fun_spared + FUNFAR     ; FUN%'s Exploding Dwarf comes back every visit
+    BCS @dispatch
     LDA mapobj_id, X
     CMP #OBJID_RODPLATE
     BEQ @dispatch

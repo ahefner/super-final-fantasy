@@ -96,6 +96,8 @@ rando_dlgtext:
     ;  2026-11-02): the kidnapped princess's line, dialogue $05, is her
     ;  spot's, and Garland's, $04, protests (dlgsara.inc, the world chunk's).
   @sara:
+    JSL fun_dwarfline + FUNFAR  ; FUN%'s Exploding Dwarf: his last words?
+    BCS @worldline
     JSR sara_moved              ; X = her spot
     BCC @hint
     LDA f:DLGPTRFAR + DLG_PRINCESS1 * 2

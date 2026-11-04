@@ -46,6 +46,7 @@
 .export hal_flush, pal_prep, nespal_snes  ; for tools/test_options.py
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
+.export hal_chrdirty             ; for fun.asm's gibs
 .export hal_waitline9
 .export hal_vblaudio, hal_ppureclaim, hal_audioframe, hal_auxdetect
 
@@ -1569,6 +1570,7 @@ hal_flush:
 ;;  palette between them -- the game is waiting -- so the list holds one frame's
 ;;  changes and never more than 32 records.
 pal_prep:
+    jsr xpal_prep               ; the game's OBJ palettes 4 and 5, if it asked
     lda a:h_paldirty
     bne :+
     rts
@@ -1707,6 +1709,54 @@ pal_prep:
     stz a:h_palforce
     rep #$20
     .a16
+    LEAVE16
+    rts
+
+;;  OBJ palettes 4 and 5, which the NES has no use for: the eight NES colours
+;;  the game handed over in h_xpal (FUN%'s Exploding Dwarf), staged as records
+;;  beside the NES palette's for the same flush, once h_xpaldirty says -- CGRAM
+;;  192-195 and 208-211, without emphasis or greyscale.  From pal_prep, before
+;;  its own, in emulation mode: native for the sixteen-bit work, and back.
+xpal_prep:
+    lda a:h_xpaldirty
+    bne :+
+    rts
+:   stz a:h_xpaldirty
+    ENTER16
+    ldy #0
+@colour:
+    lda a:h_xpal,y              ; a byte: its neighbour comes too
+    and #$003F
+    asl a
+    tax
+    lda f:nespal_snes + HALFAR,x    ; emphasis block 0
+    sta a:h_t2
+    lda a:h_palsendn
+    and #$00FF
+    asl a
+    asl a                       ; four bytes a record
+    tax
+    lda a:h_t2
+    sta f:PALSTAGE + 2,x
+    tya                         ; CGRAM 192 + (Y / 4) * 16 + Y % 4
+    and #$0004
+    asl a
+    asl a
+    ora #$00C0
+    sta a:h_t1
+    tya
+    and #$0003
+    ora a:h_t1
+    sep #$20
+    .a8
+    sta f:PALSTAGE + 0,x        ; CGADD, twice: mode 3's pattern
+    sta f:PALSTAGE + 1,x
+    inc a:h_palsendn
+    rep #$20
+    .a16
+    iny
+    cpy #8
+    bcc @colour
     LEAVE16
     rts
 
@@ -3113,6 +3163,29 @@ framedue:
     plp
     clc
     rts
+
+;;  For the game's own SNES tiles, written straight into CHRSHADOW rather than
+;;  through $2007 (FUN%'s Exploding Dwarf's gibs, 4bpp of their own): bytes A
+;;  to X of the shadow are dirty -- the span widened, the word list given up
+;;  for it, as a run this long is the cheaper.  By JSL, native, A16 I16, a DBR
+;;  that decodes low WRAM.  A and X not kept.
+.a16
+.i16
+hal_chrdirty:
+    cmp a:h_chrlo
+    bcs :+
+    sta a:h_chrlo
+:   txa
+    cmp a:h_chrhi
+    bcc :+
+    sta a:h_chrhi
+:   sep #$20
+    .a8
+    lda #CHRQ_CAP + 1
+    sta a:h_chrqn
+    rep #$20
+    .a16
+    rtl
 
 .a8
 .i8
@@ -5025,6 +5098,7 @@ init_halvars:
     stz a:h_paldirty
     stz a:h_ntdirty
     stz a:h_oamdirty
+    stz a:h_xpaldirty           ; (read by every pal_prep)
     stz a:h_spr0hit
     stz a:h_scrollx
     stz a:h_scrolly

@@ -30,6 +30,7 @@
 .export lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi, DLG_NHINT
 ;  ...and Rebellious Princess's lines, for it too.
 .export lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine
+.export lut_DwarfLine           ; ...and the Exploding Dwarf's, for fun.asm
 ;  ...and where she is on the maps, for rando_tofrplate.
 .import LoadSingleMapObject
 .export rando_saraobjects, lut_SaraMap, lut_SaraXF, lut_SaraY, lut_SaraSlot, lut_SaraSage

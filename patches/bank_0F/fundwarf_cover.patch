@@ -1,0 +1,10 @@
+--- OLD
+    BNE @Loop          ; keep looping until all sprites examined
+
+    JMP WaitForVBlank_L   ; then wait for VBlank, and exit
+--- NEW
+.import fun_cover
+    BNE @Loop          ; keep looping until all sprites examined
+
+    JSL fun_cover + FUNFAR    ; FUN%'s Exploding Dwarf: the gibs behind the box too
+    JMP WaitForVBlank_L   ; then wait for VBlank, and exit

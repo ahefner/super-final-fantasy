@@ -27,6 +27,7 @@ python3 tools/genowedits.py
 python3 tools/genows.py
 python3 tools/genseedart.py
 python3 tools/genpresets.py
+python3 tools/dwarfref.py
 python3 tools/convert.py
 
 #  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged

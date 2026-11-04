@@ -1662,7 +1662,7 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### FUN% (2)
+### FUN% (3)
 
 **Built 2026-11-03, not yet played.**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
@@ -1675,9 +1675,8 @@ refused), `ngp_apply` never touches the byte, and the title's presets
 (`opt_loadpreset`) reset the rate as before but keep these; a block that
 fails its checks clears them.  The rate's two readers take its three bits
 alone (`optrespond.patch`, `opt_titleleftright`).  The heading's
-description is the user's file's wording.  Planned beside them (user,
-2026-11-03): the Exploding Dwarf -- the Hurray dwarf only, "Oh shit!" in
-place of his "Hurray!", back every visit.  Music Shuffle later.
+description is the user's file's wording.  Music Shuffle later (user,
+2026-11-03: "Let's do this later").
 
 **Stereo Sound** (user: "pan the two pulse channels hard left and right";
 "pulse 2 from center for sound effects"): Off and On; the description is
@@ -1737,6 +1736,61 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     and off; the tint, every colour by every tint; every standard map's
     palettes as they load, the overworld's, the backdrops' by the tile
     stood on, and every enemy palette -- each on and off.
+
+**Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
+watch him explode again and again"; "if the dwarf is going to explode, he
+should exclaim 'Oh shit!'"; "let him respawn"): Off and On; the description
+a draft ("The Hurray dwarf in the Dwarf Cave explodes when you talk to
+him.").  After tenes's 2021 hack (commit 72995c0), whose thousand-pixel
+overlay does not come to the SNES: here it is sprites.  `fun.asm`, in
+Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
+(`gen/dwarfgibs.inc`).
+
+  - **His line.**  Talk to him and dialogue $77, his alone, is "Oh shit!"
+    (`lut_DwarfLine`, the world chunk's), swapped as the drawer loads it
+    (`fun_dwarfline`, from `rando_dlgtext`); that arms the burst.  NPC
+    Guillotine leaves him in his slot (`fun_spared`, from `rando_talk`), or
+    there would be no one to burst.
+  - **The burst**, the first frame of the map loop after his box closes
+    (`fun_smframe`, after `DrawSMSprites`): he leaves the map's objects for
+    the visit -- his game flag as it is, so the next load of the map has
+    him back -- and 56 gibs start from his feet: 32 drops of blood, 8
+    chunks, 12 bones, the cranium, the jaw and two eyes, each drawn from a
+    16-bit xorshift seeded with the frame counter, so no two bursts are
+    alike.  They fly and fall (gravity 12/256 px a frame); bones and the
+    skull bounce back up at 5/8 the speed until they are too slow to, and
+    blood pools where it lands.  All of it lies still in about 4.5 seconds.
+  - **The sprites**: OAM entries 64-119, which the NES never uses, drawn
+    from map pixels with the scroll the map's objects use, so they keep to
+    the floor as the screen moves; their tiles go in object slot 14's row
+    of the shadow (NES $1F00, empty on that map), and their colours in OBJ
+    palettes 4 and 5 (the HAL's `h_xpal`).  A CHR load over them -- a
+    battle, the menu -- is mended the next map frame (the cranium's tile is
+    checked).
+  - **Hidden when they should be.**  A dialogue box covers those behind it
+    as the game covers its own sprites (`fun_cover`, from
+    `Dialogue_CoverSprites_VBl`), and they hold still while it is open;
+    with the sprites switched off -- every menu, shop and battle waits a
+    frame so before it shows -- they are put away until the map is back
+    (`fun_frame`, from `WaitForVBlank`, before the wait).  Leaving the map
+    takes them for good (user, 2026-11-04: "tied to the standard map
+    exit"): `fun_exit` from `StartScreenWipe`, where every way off a
+    standard map -- stairs, a teleport, WARP, EXIT, the way out to the
+    world -- starts and the game hides its own sprites.  Every boot, a soft
+    reset's too, clears them (`fun_init`, from `opt_init`).
+  - **The HAL** gained two services, hardware only: `xpal_prep`, which
+    stages OBJ palettes 4 and 5 beside the NES palette's records when the
+    game hands it colours (`PALSTAGE` is 160 bytes now), and
+    `hal_chrdirty`, a dirty span for tiles the game writes straight into
+    the shadow.
+  - `test_dwarf`: the row and no preset; his line on and off, and a decoy
+    one page from his pointer; the Guillotine with him and another dwarf;
+    every frame of three bursts against the model, the screen still and
+    walking, round the map's edge, at each of the screen's edges and far
+    off it; the tiles, the span and the colours, mended after a load and
+    sent back after hiding; every box size; the exit and the boot; the
+    hooks, each once in its place; the HAL's records.  47 mutations, all
+    caught.
 
 ### Treasures (2)
 
@@ -2802,6 +2856,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Rebellious Princess | Off, On | -- | 2 | Off |
 | Stereo Sound | Off, On | -- | 2 | Off |
 | Palette swap | Off, On | -- | 2 | Off |
+| Exploding Dwarf | Off, On | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -4125,7 +4180,7 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   206 free    the scarce one; stamped into every chunk.  7
+    BANK_FIXED   190 free    the scarce one; stamped into every chunk.  7
                              declared, and 231 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
@@ -4150,7 +4205,10 @@ text region in the game references.
                              JSR and JSL where it ran on into DecompressMap,
                              and CallMinimapDecompress's JSL; Short ToFR's
                              four hooks 14 (the plate, its graphic's id,
-                             Garland's outline, the palette)
+                             Garland's outline, the palette); Palette
+                             swap's three hooks 13 and the Exploding
+                             Dwarf's four 16 (the map loop, the box, the
+                             frame wait, the wipe; 2026-11-04)
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
@@ -4169,7 +4227,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    5623 free   the settings screen's engine and rows (6695)
+    BANK_OPT    5619 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -4210,8 +4268,8 @@ text region in the game references.
                              next feature with much code goes to a chunk
                              of its own, as Boss tactics did; the respond
                              rate's mask at boot 2 (FUN%, 2026-11-03);
-                             Palette swap's three hooks 13 (2026-11-03)
-    BANK_OPTTEXT   155 free  the settings screen's descriptions (measured
+                             the Exploding Dwarf's boot clear 4 (2026-11-04)
+    BANK_OPTTEXT   153 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -4227,15 +4285,17 @@ text region in the game references.
                              ToFR's 143, Party's sixteen 1003 (2026-11-02:
                              nearly full; later rows' descriptions go to
                              BANK_OPTTEXT2, Taverns' first; Rebellious
-                             Princess's pointers 2, 2026-11-02)
+                             Princess's pointers 2, 2026-11-02; the
+                             Exploding Dwarf's 2, 2026-11-04)
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO     49 free  the randomizer: FULL -- the next feature moves something out
+    BANK_RANDO     37 free  the randomizer: FULL -- the next feature moves something out
                              (Palette swap's deal call and rando_fyfar 8,
-                             2026-11-03)
+                             2026-11-03; the Exploding Dwarf's two hooks
+                             12, his line's and the Guillotine's, 2026-11-04)
                              (measured with ld65's map, 2026-11-03: Rebellious
                              Princess 576 -- pl_sara, pl_trysara and its
                              helpers, the dialogue swap; its map loading
@@ -4278,7 +4338,8 @@ text region in the game references.
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only; Rebellious
                              Princess's spots 138 (2026-11-03)
-    BANK_WORLD   4518 free  (measured 2026-11-03; 5337 on 2026-10-28)
+    BANK_WORLD   4509 free  (measured 2026-11-04; 5337 on 2026-10-28)
+                             the Exploding Dwarf's line 9 (2026-11-04)
                              Rebellious Princess 819: her lines (dlgsara.inc),
                              her map loading (sara.inc), es_saraspots;
                              entrance shuffle's code
@@ -4301,7 +4362,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3092 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3053 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -4319,19 +4380,26 @@ text region in the game references.
                              descriptions bank's choice in it (2026-11-02);
                              Rebellious Princess's row 39 (2026-11-03);
                              FUN% and Stereo Sound's rows 135, Palette
-                             swap's 39 (2026-11-03)
-    BANK_TAVERN  14584 free  Taverns' visit, hire, level up and look
+                             swap's 39 (2026-11-03); the Exploding Dwarf's
+                             39 (2026-11-04)
+    BANK_TAVERN  11493 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
-                             2026-11-03)
-    BANK_OPTTEXT2 15832 free the descriptions past the first bank's:
+                             2026-11-03; the Exploding Dwarf 3091 -- the
+                             gib set 512 and the particles' tables 1464,
+                             dwarfgibs.inc, and 1115 of code, 2026-11-04)
+    BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
                              Stereo Sound's (114), Palette swap's (85;
-                             2026-11-03)
-    HALCODE      6156 free   not available; see below (Stereo Sound's
+                             2026-11-03), the Exploding Dwarf's (85;
+                             2026-11-04)
+    HALCODE      6031 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
-                             register the game sets)
+                             register the game sets; the Exploding
+                             Dwarf's xpal_prep and hal_chrdirty 125,
+                             2026-11-04: OBJ palettes 4-5 and a dirty
+                             span, services the game asks for)
 
 **Measure with a listing that counts each line's bytes**, not the address the
 last line starts at, and not trailing zeros.  All three disagree.  And a bank

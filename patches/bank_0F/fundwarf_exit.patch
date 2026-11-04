@@ -1,0 +1,11 @@
+--- OLD
+StartScreenWipe:
+    LDA #$F8           ; clears OAM to hide sprites during the screen wipe
+--- NEW
+.import fun_exit
+StartScreenWipe:
+    ;  FUN%'s Exploding Dwarf: every way off a standard map -- stairs, a
+    ;  teleport, WARP, EXIT, the way out to the world -- starts here, and
+    ;  the gibs go with the game's own sprites.
+    JSL fun_exit + FUNFAR
+    LDA #$F8           ; clears OAM to hide sprites during the screen wipe

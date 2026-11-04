@@ -60,6 +60,13 @@ lut_GarlandLine:  ; Garland, with the princess elsewhere
   .BYTE $00
 lut_SaraLineEnd:
 
+;  FUN%'s Exploding Dwarf: the Hurray dwarf's last words (user, 2026-11-03),
+;  in place of his "Hurray!!" (fun.asm's fun_dwarfline).
+lut_DwarfLine:
+  FFTEXT "Oh shit!"
+  .BYTE $00
+.assert * - lut_DwarfLine <= OPTDLG_MAX, error, "the dwarf's line overflows OPTDESC"
+
 .assert lut_SaraLine2 - lut_SaraLine1 <= OPTDLG_MAX, error, "a princess's line overflows OPTDESC"
 .assert lut_GarlandLine - lut_SaraLine7 <= OPTDLG_MAX, error, "a princess's line overflows OPTDESC"
 .assert lut_SaraLineEnd - lut_GarlandLine <= OPTDLG_MAX, error, "Garland's line overflows OPTDESC"

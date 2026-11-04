@@ -263,6 +263,8 @@ FUN_STEREO      = $08           ; Stereo Sound: the pulses panned (apu_pan)
 FUN_STEREO_SHIFT = 3
 FUN_PALSWAP     = $10           ; Palette swap: maps tinted, enemies' palettes
 FUN_PALSWAP_SHIFT = 4           ;   shuffled (fun.asm)
+FUN_DWARF       = $20           ; Exploding Dwarf: the Hurray dwarf bursts (fun.asm)
+FUN_DWARF_SHIFT = 5
 .assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
@@ -1367,9 +1369,11 @@ h_vdst0         = HAL_VARS+$4B  ; 2 bytes: ...for the copy at row r
 h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30
 h_ntsrc2        = HAL_VARS+$4F  ; 2 bytes: source address of the span in flight
 NESPALPREV      = $7E4820       ; 32 bytes: palette as CGRAM last saw it
-PALSTAGE        = $7E4840       ; 128 bytes: the next flush's CGRAM writes,
+PALSTAGE        = $7E4840       ; 160 bytes: the next flush's CGRAM writes,
                                 ;   four bytes each for DMA mode 3 -- the
-                                ;   address twice, then the colour (pal_prep)
+                                ;   address twice, then the colour (pal_prep):
+                                ;   the NES palette's 32 and h_xpal's 8
+.assert PALSTAGE + (32 + 8) * 4 <= CGSHADOW, error, "PALSTAGE runs into CGSHADOW"
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
 h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
 h_chrqn         = HAL_VARS+$CF  ; words in CHRQUEUE; above CHRQ_CAP, too many: the span
@@ -1425,6 +1429,11 @@ h_pkrst         = HAL_VARS+$C9  ; scratch: $80 if this packet restarts the sweep
 h_stereo        = HAL_VARS+$E0
 h_panbusy       = HAL_VARS+$E1  ; 2 bytes: the busy byte's address, bank $00
 h_pkpan         = HAL_VARS+$E3  ; scratch: this pulse packet's pan
+;  OBJ palettes 4 and 5, which the NES has no use for: eight NES colours the
+;  game hands over, sent with the next palette flush once it sets
+;  h_xpaldirty (xpal_prep; FUN%'s Exploding Dwarf's gibs).
+h_xpaldirty     = HAL_VARS+$E4
+h_xpal          = HAL_VARS+$E5  ; 8 bytes: palette 4's four colours, then 5's
 h_hfacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_hftickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
@@ -2420,6 +2429,37 @@ TC_LATCH        = TC_BASE+$BF0
 .assert TC_BASE >= OWSRAM_END, error, "boss tactics' scratch overlaps the map edit screen's"
 .assert TC_SPRECEND <= TC_LATCH, error, "boss tactics' spell records run into the latch"
 .assert TC_LATCH + 3 <= $7F0000 + THEENDBUF_AT, error, "boss tactics' scratch runs into the ending's"
+
+;  FUN%'s Exploding Dwarf (fun.asm, tools/dwarfref.py): the gibs, a word a
+;  particle in each array, read long; between Boss tactics' scratch and the
+;  ending's buffer, neither of which is up on a standard map.  Nothing here
+;  needs to be clean at power-on but the flags, which every boot zeroes
+;  (fun_init), as leaving the map does (fun_exit).
+FUNRAM          = $7F5800
+GIB_N           = 56              ; dwarfref.PARTICLES (dwarfgibs.inc checks it)
+GIB_X           = FUNRAM+$000     ; each gib's place from the origin, 1/256 px...
+GIB_Y           = FUNRAM+$070
+GIB_Z           = FUNRAM+$0E0     ; ...its height off the floor...
+GIB_VX          = FUNRAM+$150     ; ...its speed, per frame...
+GIB_VY          = FUNRAM+$1C0
+GIB_VZ          = FUNRAM+$230
+GIB_TILE        = FUNRAM+$2A0     ; ...its tile, from DWARF_GIB_FIRST...
+GIB_REST        = FUNRAM+$310     ; ...and nonzero once it lies still
+FUN_ACTIVE      = FUNRAM+$380     ; nonzero while the gibs are out, till the map is left
+FUN_PENDING     = FUNRAM+$381     ; nonzero: his line drawn, the burst next map frame
+FUN_PARKED      = FUNRAM+$383     ; nonzero: fun_frame put them away (a menu, a shop, a battle)
+FUN_RNG         = FUNRAM+$386     ; 2: the burst's draws (dwarfref.xs16)
+FUN_OX          = FUNRAM+$388     ; 2: the origin, in map pixels: his feet
+FUN_OY          = FUNRAM+$38A     ; 2
+FUN_SX          = FUNRAM+$38C     ; 2: this frame's scroll, in map pixels
+FUN_SY          = FUNRAM+$38E     ; 2
+FUN_T           = FUNRAM+$390     ; 2: scratch
+FUN_PX          = FUNRAM+$392     ; 2: scratch: a gib on the screen
+FUNRAM_END      = FUNRAM+$394
+.assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
+.assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"
+OBJID_HURRAY    = $63             ; the Hurray dwarf, the Dwarf Cave's (lut_MapObjects)
+DLG_HURRAY      = $77             ; his "Hurray!!"
 ROLLSTAGE_PLACE   = 0           ; placing the key items (and before)
 ROLLSTAGE_WIRING  = 1           ; entrance shuffle: dealing the doors
 ROLLSTAGE_LOGIC   = 2           ; ...and working out what they open

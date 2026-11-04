@@ -13622,9 +13622,11 @@ def pane(bus):
 def optrow(label):
     """The row of lut_OptRows that carries this label.  Tests find rows this
     way rather than by number, which every row added above them changed.
-    Runs of spaces count as one: "Enemy HP min" is "Enemy HP    min"."""
+    Runs of spaces count as one: "Enemy HP min" is "Enemy HP    min".  As
+    many rows as the source says: a count written here fell a row short when
+    the settings grew past it."""
     base = rom_at("lut_OptRows")
-    for r in range(128):
+    for r in range(K["OPTROW_SETTINGS"]):
         raw = ROMDATA[base + r * K["OPTROW_STRIDE"] + 2:][:22]
         if " ".join("".join(_decode(b) or "?" for b in raw).split()) == label:
             return r
@@ -17155,6 +17157,278 @@ def test_palswap():
     check("every enemy palette: on, the shuffle's into its slot; off, its own; nothing else written", bad, [])
 
 
+# --- FUN%: Exploding Dwarf ------------------------------------------------------
+def test_dwarf():
+    """Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "I want to
+    watch him explode again and again"; "he should exclaim 'Oh shit!'"; "let
+    him respawn").  The row; his line; NPC Guillotine leaving him be; the
+    burst and every frame after it against tools/dwarfref.py, the screen
+    scrolling and wrapping; a dialogue box covering the gibs behind it; the
+    gibs hidden while the sprites are off, and their tiles and colours put
+    back; gone when the map is left, and at boot; and the HAL's colours."""
+    import presetdefs as P, genpresets as G, dwarfref as D
+    FUN, DWARF = K["OPT_FUN"] - OPTBLOCK, K["FUN_DWARF"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Exploding Dwarf")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Exploding Dwarf: FUN%, after Palette swap, Off and On, the respond rate's byte's bit 5",
+          (row.section, names[names.index("Exploding Dwarf") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("FUN%", "Palette swap", ["Off", "On"], (FUN, 5, DWARF)))
+    check("...no preset sets it", [n for n, _, _, s in G.resolve(G.load(), rows) if "Exploding Dwarf" in s], [])
+
+    HURRAY, DLG = K["OBJID_HURRAY"], K["DLG_HURRAY"]
+    MAPOBJ_S = MAPOBJ - 0x6000
+    gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
+    check("the Hurray dwarf's line, $77, is his alone", [i for i in range(256) if i != DLG and gameptr(i) == gameptr(DLG)], [])
+
+    #  Talking to him: his own line, and NPC Guillotine spares him.
+    def talk(guillotine, on, obj=HURRAY):
+        bus, cpu = machine()
+        setblk(bus, OPT_FLAGS + 1, OPTF_GUILLOTINE_HI if guillotine else 0)
+        setblk(bus, FUN, DWARF if on else 0)
+        bus.sram[MAPOBJ_S + 0x10] = obj
+        bus.sram[0x200 + obj] = 1
+        cpu.x = 0x10
+        call(cpu, "TalkToObject", bank=BANK_0E, dbr=BANK_0E)
+        return cpu.a & 0xFF, bus.sram[MAPOBJ_S + 0x10]
+    check("talking to him: his line $77, and he stays in his slot for the burst -- under NPC "
+          "Guillotine too, which empties it with the row off",
+          [talk(g, on) for g, on in ((0, 1), (1, 1), (0, 0), (1, 0))],
+          [(DLG, HURRAY), (DLG, HURRAY), (DLG, HURRAY), (DLG, 0)])
+    check("...another Talk_norm dwarf ($64) under NPC Guillotine, the row on: taken as ever",
+          talk(1, 1, 0x64)[1], 0)
+
+    #  His line as the drawer loads it (rando_dlgtext): "Oh shit!", and the
+    #  burst armed.
+    OPT, MAXD, PENDING = K["OPTDESC"], K["OPTDLG_MAX"], rw("FUN_PENDING")
+    def line(ptr, on):
+        bus, cpu = machine()
+        setblk(bus, FUN, DWARF if on else 0)
+        bus.wram[OPT:OPT + MAXD + 8] = bytes([0xEE]) * (MAXD + 8)
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
+        cpu.y = 0x5A
+        dbr = cpu.dbr
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        buf = bytes(bus.wram[OPT:OPT + MAXD + 8])
+        now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        z = buf.find(0)
+        text = ff_decode(buf[:z]) if now == OPT and 0 <= z < MAXD else None
+        return now, text, cpu.y & 0xFF, cpu.dbr == dbr, bus.wram[PENDING]
+    check("his line with the row on: \"Oh shit!\" from OPTDESC, the burst armed, Y and DBR kept",
+          line(gameptr(DLG), True), (OPT, "Oh shit!", 0x5A, True, 1))
+    decoy = gameptr(DLG) ^ 0x0100                       # his low byte, another page
+    check("...with it off, his own line and nothing armed; another's line on, the same, and a "
+          "pointer one page off his", [line(p, on)[::4] for p, on in ((gameptr(DLG), False),
+                                       (gameptr(DLG - 1), True), (decoy, True))],
+          [(gameptr(DLG), 0), (gameptr(DLG - 1), 0), (decoy, 0)])
+
+    #  The burst and the frames after it, against the model.
+    W = lambda n: rw(n)
+    OAM, HIDDEN = K["OAMSHADOW"] + 256, D.HIDDEN_Y
+    SHADOW = K["CHRSHADOW"] - RW_BASE + (256 + D.GIB_FIRST) * 32
+    def word(bus, at):
+        v = bus.wram[at] | bus.wram[at + 1] << 8
+        return v - 0x10000 if v & 0x8000 else v
+    def state(bus):
+        f = [[word(bus, W(n) + 2 * i) for i in range(D.PARTICLES)]
+             for n in ("GIB_X", "GIB_Y", "GIB_Z", "GIB_VX", "GIB_VY", "GIB_VZ", "GIB_TILE", "GIB_REST")]
+        return [(f[0][i], f[1][i], f[2][i], f[3][i], f[4][i], f[5][i], f[6][i], f[7][i] != 0)
+                for i in range(D.PARTICLES)]
+    model = lambda gibs: [(g.x, g.y, g.z, g.vx, g.vy, g.vz, g.tile, g.rest) for g in gibs]
+    sprites = lambda bus: [tuple(bus.wram[OAM + 4 * i:OAM + 4 * i + 4]) for i in range(D.PARTICLES)]
+    def same(got, want):
+        """A hidden sprite is its Y alone: the rest of it is left as it was."""
+        return all(g[1] == HIDDEN if w[1] == HIDDEN else g == w for g, w in zip(got, want))
+    def setscroll(bus, sx, sy):
+        bus.wram[0x29], bus.wram[0x35] = sx >> 4 & 0x3F, sx & 15      # sm_scroll_x, move_ctr_x
+        bus.wram[0x2A], bus.wram[0x36] = sy >> 4 & 0x3F, sy & 15
+    def room(seed, gx, gy, cx=0, cy=0):
+        bus, cpu = machine()
+        setblk(bus, FUN, DWARF)
+        bus.sram[0x200 + HURRAY] = 1
+        for slot, oid in ((11, 0x62), (12, HURRAY), (13, 0x64)):
+            o = MAPOBJ_S + slot * 16
+            bus.sram[o:o + 16] = bytes([oid, 0, gx, gy, gx, gy, cx, cy, 0, 0, oid, 0, 0, 0, 0, 0])
+        bus.wram[0x48] = 19                                         # cur_map: the Dwarf Cave
+        bus.wram[0xF0], bus.wram[0xF1] = seed & 0xFF, seed >> 8     # framecounter
+        bus.wram[K["h_ppumask"]] = 0x1E
+        bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])   # the span clean
+        bus.wram[K["h_chrqn"]] = 0
+        bus.wram[PENDING] = 1                                       # his line just drawn
+        return bus, cpu
+    pal = lambda bus: list(bus.wram[K["h_xpal"]:K["h_xpal"] + 8])
+
+    def run(seed, gx, gy, cx, cy, scroll, frames):
+        """Burst and run, the scroll each frame's; the frames that differ."""
+        bus, cpu = machine_ = room(seed, gx, gy, cx, cy)
+        gibs = D.burst(seed)
+        ox, oy = gx * 16 + cx + 8, gy * 16 + cy + 13
+        bad = []
+        for f in range(frames):
+            sx, sy = scroll(f)
+            setscroll(bus, sx, sy)
+            call(cpu, "fun_smframe")
+            call(cpu, "fun_frame")                  # the wait, sprites on: nothing
+            D.step(gibs)
+            if state(bus) != model(gibs) or not same(sprites(bus), D.oam(gibs, ox, oy, sx, sy)):
+                bad.append(f)
+        return bus, cpu, gibs, bad
+    walk = lambda f: (160 + max(0, min(f - 60, 80)), 64 + max(0, min(f - 150, 40)) // 2)
+    results = {}
+    for seed in (0x1234, 0xBEEF, 0x0001):
+        bus, cpu, gibs, bad = run(seed, 18, 10, 0, 0, walk, 280)
+        results[seed] = (bus, gibs)
+        check("seed $%04X: each frame's gibs and sprites dwarfref's, the screen still, then walking "
+              "right and down" % seed, bad[:4], [])
+    bus, gibs = results[0x1234]
+    check("...all at rest by then; the blood pooled, a bounce had", (
+        all(g.rest for g in gibs),
+        sorted({g.tile for g in gibs[:32]}),
+        any(D.burst(0x1234)[i].z > 0 and g.rest for i, g in enumerate(gibs) if g.bounces)), (True, [4, 5], True))
+    _, _, _, bad = run(0x5150, 1, 2, 7, 3, lambda f: (960 + f // 4, 992 - f // 8), 90)
+    check("...round the map's edge: the screen 1024 pixels round, the dwarf mid-step", bad[:4], [])
+    #  The screen's edges, each side, and the dwarf a long way off it: his
+    #  feet at (296, 173), the screen's corner placed so they are 250 px
+    #  across, 6, 30 down and 205, then 640 px each way.
+    edges = []
+    for sx, sy in ((46, 100), (290, 100), (160, 143), (160, -32), (296 - 640, 64), (160, 173 - 640)):
+        _, _, _, bad = run(0x0BAD, 18, 10, 0, 0, lambda f, sx=sx, sy=sy: (sx & 1023, sy & 1023), 120)
+        edges.append(bad[:2])
+    check("...at each of the screen's edges, and far off it, the same", edges, [[]] * 6)
+    seen = {g.tile for s in (0x1234, 0xBEEF, 1) for g in D.burst(s)}
+    check("...the gib set's every tile but the spare drawn", sorted(seen | {4, 5}), list(range(15)))
+
+    #  The burst itself: his slot emptied, the others and his flag kept, the
+    #  seed the frame counter's (zero taken as one), the tiles and colours in.
+    bus, cpu = room(0, 18, 10)
+    setscroll(bus, 160, 64)
+    call(cpu, "fun_smframe")
+    g = D.burst(0); D.step(g)
+    check("the burst: his slot's id zeroed, his neighbours' and his game flag kept; framecounter 0 seeds 1",
+          ([bus.sram[MAPOBJ_S + s * 16] for s in (11, 12, 13)], bus.sram[0x200 + HURRAY], state(bus) == model(g),
+           model(D.burst(0)) == model(D.burst(1)), bus.wram[W("FUN_ACTIVE")], bus.wram[PENDING]),
+          ([0x62, 0, 0x64], 1, True, True, 1, 0))
+    tiles = b"".join(D.tile_bytes(t) for t in D.GIBS)
+    span = lambda bus: (word(bus, K["h_chrlo"]) & 0xFFFF, word(bus, K["h_chrhi"]) & 0xFFFF, bus.wram[K["h_chrqn"]])
+    check("...the gib set in slot 14's row of the shadow, the span over it and the word list given up",
+          (bytes(bus.wram[SHADOW:SHADOW + 512]) == tiles, span(bus)),
+          (True, (SHADOW - 0x8000, SHADOW - 0x8000 + 511, K["CHRQ_CAP"] + 1)))
+    check("...their colours to the HAL, palettes 4 and 5", (pal(bus), bus.wram[K["h_xpaldirty"]]),
+          (D.GIB_PALETTES, 1))
+    check("...attributes: the second table, over BG1, palette 4 for blood, 5 for bone",
+          sorted({s[3] for s in sprites(bus)}), [0x29, 0x2B])
+    bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])
+    bus.wram[K["h_xpaldirty"]] = 0
+    call(cpu, "fun_smframe")
+    check("...the next frame sends neither again", (span(bus)[:2], bus.wram[K["h_xpaldirty"]]), ((0xFFFF, 0), 0))
+    call(cpu, "fun_smframe")
+    check("...and with nothing pending, no second burst", bus.wram[PENDING], 0)
+
+    #  A CHR load over them (a battle, the menu): put back.
+    bus.wram[SHADOW + 32 * 0xC:SHADOW + 512] = bytes([0x5A]) * (512 - 32 * 0xC)
+    call(cpu, "fun_smframe")
+    check("a load over the cranium's tile: the gib set back, and sent", (bytes(bus.wram[SHADOW:SHADOW + 512]) == tiles,
+          span(bus)[:2]), (True, (SHADOW - 0x8000, SHADOW - 0x8000 + 511)))
+
+    #  The sprites off (a menu on the way): hidden, once; back with the map.
+    before = sprites(bus)
+    bus.wram[K["h_ppumask"]] = 0x1E
+    call(cpu, "fun_frame")
+    check("a wait with the sprites on (a box being drawn): the gibs left as they are", sprites(bus), before)
+    bus.wram[K["h_ppumask"]] = 0x0E                     # sprites off, the background on: the bit alone
+    bus.wram[K["h_oamdirty"]] = 0
+    call(cpu, "fun_frame")
+    check("...with them off: every gib hidden, the HAL told", ({s[1] for s in sprites(bus)}, bus.wram[K["h_oamdirty"]],
+          bus.wram[W("FUN_PARKED")]), ({HIDDEN}, 1, 1))
+    bus.wram[K["h_oamdirty"]] = 0
+    call(cpu, "fun_frame")
+    check("...once", bus.wram[K["h_oamdirty"]], 0)
+    bus.wram[K["h_ppumask"]] = 0x1E
+    bus.wram[K["h_xpal"]:K["h_xpal"] + 8] = bytes(8)
+    call(cpu, "fun_smframe")
+    gibs = D.burst(0)
+    for _ in range(5):
+        D.step(gibs)
+    check("...the map back: drawn again, their colours sent again", (bus.wram[W("FUN_PARKED")], pal(bus),
+          bus.wram[K["h_xpaldirty"]], same(sprites(bus), D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, 160, 64))),
+          (0, D.GIB_PALETTES, 1, True))
+
+    #  A dialogue box: the gibs behind it hidden, the rest held.
+    bus, cpu, gibs, _ = run(0x2468, 18, 10, 0, 0, lambda f: (160, 100), 12)
+    held = state(bus)
+    want_all = D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, 160, 100)
+    got, edge = [], 0
+    for cutoff in range(0x08, 0x62):
+        bus.wram[TMP + 11] = cutoff
+        call(cpu, "fun_cover")
+        if not same(sprites(bus), D.cover(want_all, cutoff)):
+            got.append(cutoff)
+        edge += sum(1 for w in want_all if w[1] != HIDDEN and w[1] + D.NES_TOP_CROP - 1 == cutoff)
+    covered = D.cover(want_all, 0x40)
+    check("a box's frames: the gibs above its bottom hidden, at each size the box opens through; none move",
+          (got, state(bus) == held, edge > 0), ([], True, True))
+    check("...the box at $40 hides some and leaves some (the case is not vacuous)",
+          (any(s[1] == HIDDEN and w[1] != HIDDEN for s, w in zip(covered, want_all)),
+           any(s[1] != HIDDEN for s in covered)), (True, True))
+
+    #  Leaving the map, every way off it (StartScreenWipe): gone, and the
+    #  next visit has him back.  And every boot.
+    for name in ("fun_exit", "fun_init"):
+        bus, cpu, _, _ = run(0x1357, 18, 10, 0, 0, walk, 3)
+        bus.wram[PENDING] = 1
+        call(cpu, name)
+        call(cpu, "fun_smframe")
+        call(cpu, "fun_cover")
+        check("%s: every gib hidden, nothing out or pending, and nothing drawn after" % name,
+              ({s[1] for s in sprites(bus)}, bus.wram[W("FUN_ACTIVE")], bus.wram[PENDING]), ({HIDDEN}, 0, 0))
+    #  StartScreenWipe is not exported: known by its first instructions, the
+    #  hook then the game's own clearing of OAM (LDA #$F8, LDX #0).
+    fixed = ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:(0xA7 & 0x1F) * 0x10000 + 0x10000]
+    hook = bytes([0x22, SYM["fun_exit"] & 0xFF, SYM["fun_exit"] >> 8, bank_of("fun_exit")])
+    check("StartScreenWipe begins JSL fun_exit, and nothing else calls it",
+          (fixed.count(hook + bytes([0xA9, 0xF8, 0xA2, 0x00])), fixed.count(hook)), (1, 1))
+
+    #  The hooks, each once and in its place: the map loop's after its
+    #  sprites (then JMP StandardMapLoop), the box's before its wait (then JMP
+    #  WaitForVBlank_L), the frame wait's before the HAL's, the drawer's
+    #  before a BCS to the world chunk's line, the Guillotine's after its
+    #  flag test, and the boot's.
+    jsl = lambda name: bytes([0x22, SYM[name] & 0xFF, SYM[name] >> 8, bank_of(name)])
+    image = lambda bank: ROMDATA[(bank & 0x1F) * 0x10000:(bank & 0x1F) * 0x10000 + 0x10000]
+    def after(img, name, n):
+        k = img.find(jsl(name))
+        return img.count(jsl(name)), img[k + 4:k + 4 + n] if k >= 0 else None
+    wait = bytes([0x22, SYM["hal_waitvbl"] & 0xFF, SYM["hal_waitvbl"] >> 8, 0xC0])
+    rando, optb = image(RANDO_BANK)[0x8000:0xC000], image(0xA1 + K["CHUNK_OPT"])[0x8000:0xC000]   # their own
+    check("the hooks: the map loop's, the box's, the frame wait's, the drawer's, the Guillotine's, the boot's",
+          (after(fixed, "fun_smframe", 1), after(fixed, "fun_cover", 1), after(fixed, "fun_frame", 4),
+           (after(rando, "fun_dwarfline", 1), after(rando, "fun_spared", 1),
+            rando[rando.find(jsl("fun_spared")) - 2]), after(optb, "fun_init", 0)[0]),
+          ((1, b"\x4c"), (1, b"\x4c"), (1, wait), ((1, b"\xb0"), (1, b"\xb0"), 0xF0), 1))
+
+    #  The HAL: the colours staged after what is queued, block 0's.
+    def xpal(dirty):
+        bus, cpu = machine()
+        bus.wram[K["h_paldirty"]] = 0
+        bus.wram[K["h_xpaldirty"]] = dirty
+        bus.wram[K["h_xpal"]:K["h_xpal"] + 8] = bytes([0x0F, 0x06, 0x16, 0x26, 0x4F, 0x00, 0x30, 0x2D])
+        bus.wram[K["h_palsendn"]] = 3
+        st = K["PALSTAGE"] - RW_BASE
+        bus.wram[st:st + 160] = bytes([0xEE]) * 160
+        cpu.dbr = 0xA7
+        cpu.run(0xC0, SYM["pal_prep"])
+        recs = [tuple(bus.wram[st + 4 * i:st + 4 * i + 4]) for i in range(12)]
+        return recs, bus.wram[K["h_palsendn"]], bus.wram[K["h_xpaldirty"]]
+    nes = lambda c: tuple(ROMDATA[SYM["nespal_snes"] + 2 * (c & 0x3F):][:2])
+    cols = [0x0F, 0x06, 0x16, 0x26, 0x4F, 0x00, 0x30, 0x2D]
+    want = [(0xEE,) * 4] * 3 + [(192 + i // 4 * 16 + i % 4,) * 2 + nes(c) for i, c in enumerate(cols)] + [(0xEE,) * 4]
+    check("the HAL's pal_prep: OBJ palettes 4 and 5 as records after the three queued, the flag cleared",
+          xpal(1), (want, 11, 0))
+    check("...and nothing without the flag", xpal(0), ([(0xEE,) * 4] * 12, 3, 0))
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -17685,7 +17959,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_dwarf, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

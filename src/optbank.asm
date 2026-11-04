@@ -80,6 +80,7 @@
 .import lut_LvlUpHitRateBonus
 .import lut_DrinkCursorPos, lut_CombatDrinkBox
 .import rando_mapedits
+.import fun_init                ; fun.asm's, in Taverns' chunk
 .export opt_itemspell
 .import opt_spelloverride
 .import lut_WaitString
@@ -227,6 +228,7 @@ opt_init:
     STA OPTPOSE+1
     STA OPTPOSE+2
     STA OPTPOSE+3
+    JSL fun_init + FUNFAR       ; FUN%'s Exploding Dwarf: nothing bursting
 
 .ifdef OPT_FORCE
     LDA #$00

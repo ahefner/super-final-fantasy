@@ -14,6 +14,7 @@
 .include "optmenu.inc"
 
 .export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
+.export lut_Desc_114
 
 .segment "BANK_OPTTEXT2"
 
@@ -69,3 +70,9 @@ lut_Desc_113:  ; Palette swap (draft, 2026-11-03)
   FFPAD {"Maps take on new colors,"}, 28
   FFPAD {"and enemies trade colors."}, 28
   FFPAD {"Each seed has its own."}, 28
+
+lut_Desc_114:  ; Exploding Dwarf (draft, 2026-11-03)
+  FFLINES 3
+  FFPAD {"The Hurray dwarf in the"}, 28
+  FFPAD {"Dwarf Cave explodes when"}, 28
+  FFPAD {"you talk to him."}, 28

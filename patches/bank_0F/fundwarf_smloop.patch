@@ -1,0 +1,12 @@
+--- OLD
+  @Continue:
+    JSR ClearOAM            ; clear OAM
+    JSR DrawSMSprites       ; and draw all sprites
+    JMP StandardMapLoop     ; then keep looping
+--- NEW
+.import fun_smframe
+  @Continue:
+    JSR ClearOAM            ; clear OAM
+    JSR DrawSMSprites       ; and draw all sprites
+    JSL fun_smframe + FUNFAR    ; FUN%'s Exploding Dwarf: his gibs' frame
+    JMP StandardMapLoop     ; then keep looping

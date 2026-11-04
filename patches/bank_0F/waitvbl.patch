@@ -21,9 +21,13 @@ OnIRQ:                   ; IRQs point here, but the game doesn't use IRQs, so it
 @LoopForever:
     JMP @LoopForever     ; then loop forever! (or really until the NMI is triggered)
 --- NEW
-.import opt_padreset
+.import opt_padreset, fun_frame
 
 WaitForVBlank:
+    ;  FUN%'s Exploding Dwarf: a frame the map loop did not draw his gibs in
+    ;  hides them -- before the wait, which has no time to spare after it.
+    JSL fun_frame + FUNFAR
+
     ; Wait for vblank to start, then hand the frame to the HAL, which pushes
     ; everything the game drew since the last frame -- pattern tiles, tilemap,
     ; palette, OAM and scroll -- from the WRAM shadows into VRAM by DMA.
