@@ -17004,6 +17004,157 @@ def test_stereo():
     check("the HAL's register clear at power-on: mono until the game says", bus.wram[K["h_stereo"]], 0)
 
 
+# --- FUN%: Palette swap ---------------------------------------------------------
+def test_palswap():
+    """Palette swap (user, 2026-11-03: one On/Off, "Fixed per seed", the
+    overworld too; "enemy colors are fine too"; "some artistic license to
+    tint the background grass color toward blue or brown").  The row; the
+    seed's tables in the cache, randoref.build_palswap's, whatever the row;
+    the tint itself, every colour by every tint, against
+    randoref.palswap_tint; and each palette as the game loads it -- a
+    standard map's, the overworld's, a battle backdrop's, an enemy's -- and
+    as it ships with the row Off."""
+    import presetdefs as P, genpresets as G
+    FUN, SWAP = K["OPT_FUN"] - OPTBLOCK, K["FUN_PALSWAP"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Palette swap")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Palette swap: FUN%, after Stereo Sound, Off and On, the respond rate's byte's bit 4",
+          (row.section, names[names.index("Palette swap") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("FUN%", "Stereo Sound", ["Off", "On"], (FUN, 4, SWAP)))
+    check("...no preset sets it", [n for n, _, _, s in G.resolve(G.load(), rows) if "Palette swap" in s], [])
+
+    #  The tables: the cache's, the seed's, built whatever the row says.
+    PERM, TINT = rw("RW_PALPERM"), rw("RW_TINT")
+    def tables(seed, fun):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)
+        setblk(bus, FUN, fun)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        return list(bus.wram[PERM:PERM + 64]), list(bus.wram[TINT:TINT + R.PALSWAP_TINTS])
+    bad, seen = [], set()
+    for k, seed in enumerate(SEEDS):
+        got = tables(seed, SWAP if k & 1 else 0)
+        if got != R.build_palswap(seed):
+            bad.append(hex(seed))
+        seen.add(tuple(got[0]))
+    check("RW_PALPERM and RW_TINT: randoref.build_palswap's, %d seeds, the row on or off" % len(SEEDS), bad, [])
+    check("...every one a shuffle of the 64, and the seeds' all different",
+          ({tuple(sorted(p)) for p in seen}, len(seen)), ({tuple(range(64))}, len(SEEDS)))
+    tints = [t for s in range(40) for t in R.build_palswap(s)[1]]
+    check("...the tints 0-6, every one of them drawn", sorted(set(tints)), list(range(7)))
+
+    #  The tint, every colour by every tint, through the cartridge's own
+    #  routine (a backdrop's three colours at a time).
+    CURPAL = K["cur_pal"]
+    def bdtint(colours, tint, on=True):
+        bus, cpu = machine()
+        setblk(bus, FUN, SWAP if on else 0)
+        bus.wram[TINT + R.PALSWAP_BACKDROP + 5] = tint
+        bus.wram[CURPAL:CURPAL + 4] = bytes([0x21] + colours)     # colour 0 a decoy: never tinted
+        cpu.x = 5 * 4
+        call(cpu, "fun_bdpal")
+        return list(bus.wram[CURPAL:CURPAL + 4])
+    bad = []
+    for tint in range(7):
+        for c0 in range(0, 64, 3):
+            cs = [(c0 + i) % 64 for i in range(3)]
+            if bdtint(cs, tint) != [0x21] + [R.palswap_tint(c, tint) for c in cs]:
+                bad.append((tint, cs))
+    check("the tint: every colour, every tint, randoref.palswap_tint's -- the hue moved, the brightness kept", bad[:3], [])
+    check("...tint 3 changes nothing, and the greys and black stay at any tint",
+          ([c for c in range(64) if R.palswap_tint(c, 3) != c],
+           [c for c in range(64) for t in range(7) if c & 15 in (0, 13, 14, 15) and R.palswap_tint(c, t) != c]),
+          ([], []))
+    check("...grass ($1A) runs from brown to blue", [R.palswap_tint(0x1A, t) for t in range(7)],
+          [0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x11])
+    check("...and with the row Off, the colours as they came", bdtint([0x1A, 0x27, 0x30], 6, on=False),
+          [0x21, 0x1A, 0x27, 0x30])
+
+    #  A standard map, as it loads: its three background palettes and its
+    #  three in rooms tinted, the dialogue box's fourth of each and the
+    #  sprites as they ship.
+    LMP = K["load_map_pal"]
+    def smload(mapid, on, seed):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)                   # the map load builds the cache for it
+        setblk(bus, FUN, SWAP if on else 0)
+        bus.wram[0x48] = mapid
+        bus.wram[K["cur_tileset"]] = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xACC0 + mapid]
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadSMTilesetData"])
+        return list(bus.wram[LMP:LMP + 0x30])
+    smpal = lambda m: list(ROMDATA[0x10000 + 0xA000 + m * 0x30:][:0x30])
+    check("every standard map's fourth background palette is the dialogue box's, in rooms too",
+          {tuple(smpal(m)[12:16]) for m in range(61)} | {tuple(smpal(m)[44:48]) for m in range(61)},
+          {(0x0F, 0x00, 0x01, 0x30)})
+    bad = []
+    for m in range(61):
+        seed = 0x600DCAFE + m
+        tint = R.build_palswap(seed)[1][m]
+        want = smpal(m)
+        for i in list(range(12)) + list(range(32, 44)):
+            want[i] = R.palswap_tint(want[i], tint)
+        if smload(m, True, seed) != want or smload(m, False, seed) != smpal(m):
+            bad.append(m)
+    check("every standard map's palettes as they load: on, the six tinted by the seed's tint for the map; "
+          "off, as they ship", bad, [])
+
+    #  The overworld: its four background palettes, all land.
+    def owload(on, tint):
+        bus, cpu = machine()
+        setblk(bus, FUN, SWAP if on else 0)
+        bus.wram[TINT + R.PALSWAP_OW] = tint
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadOWTilesetData"])
+        return list(bus.wram[LMP:LMP + 0x30])
+    owpal = list(ROMDATA[0x10000 + 0x8000 + 0x380:][:0x30])
+    check("the overworld's palettes: on, the four background ones tinted, the rest as they ship; off, as "
+          "they ship", (owload(True, 0), owload(False, 0)),
+          ([R.palswap_tint(c, 0) for c in owpal[:16]] + owpal[16:], owpal))
+
+    #  A battle backdrop, by the tile the party stood on.
+    def backdrop(tile, on, tint):
+        bus, cpu = machine()
+        setblk(bus, FUN, SWAP if on else 0)
+        bd = ROMDATA[0x10000 + 0xB300 + tile] & 0x0F
+        bus.wram[TINT + R.PALSWAP_BACKDROP + bd] = tint
+        bus.wram[K["ow_tile"]] = tile
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadBattleBackdropPalette"])
+        return bd, list(bus.wram[CURPAL:CURPAL + 4])
+    bad = []
+    for tile in range(0, 128, 9):
+        bd, on = backdrop(tile, True, 6)
+        _, off = backdrop(tile, False, 6)
+        ship = list(ROMDATA[0x10000 + 0xB200 + bd * 4:][:4])
+        if off != ship or on != [ship[0]] + [R.palswap_tint(c, 6) for c in ship[1:]]:
+            bad.append((tile, bd))
+    check("battle backdrops: on, colours 1-3 tinted by the backdrop's own tint; off, as they ship", bad, [])
+
+    #  The enemies' palettes, every one, through the shuffle.
+    BTLPAL = K["btl_palettes"] - 0x6000
+    perm = R.build_palswap(0x600DCAFE)[0]
+    def enemy(pal, on):
+        bus, cpu = machine()
+        setblk(bus, FUN, SWAP if on else 0)
+        bus.wram[PERM:PERM + 64] = bytes(perm)
+        bus.sram[BTLPAL:BTLPAL + 16] = bytes([0xEE]) * 16
+        cpu.a, cpu.y = pal, 8
+        c = cpu; c.dbr = 0xA1 + 0x0C
+        c.run(0xA1 + 0x0C, SYM["LoadBattlePalette"])
+        return list(bus.sram[BTLPAL:BTLPAL + 16]), cpu.y & 0xFF
+    btl = lambda p: list(ROMDATA[(0xA1 + 0x0C & 0x1F) * 0x10000 + 0x8F20 + 4 * p:][:4])
+    bad = []
+    for p in range(64):
+        on, off = enemy(p, True), enemy(p, False)
+        if on != ([0xEE] * 8 + btl(perm[p]) + [0xEE] * 4, 12) or off != ([0xEE] * 8 + btl(p) + [0xEE] * 4, 12):
+            bad.append(p)
+    check("every enemy palette: on, the shuffle's into its slot; off, its own; nothing else written", bad, [])
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -17534,7 +17685,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

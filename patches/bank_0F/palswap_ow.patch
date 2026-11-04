@@ -1,0 +1,11 @@
+--- OLD
+    BNE @Loop           ; and keep looping until that expires ($400 iterations)
+
+    RTS                 ; then exit
+--- NEW
+.import fun_owpal
+.export LoadOWTilesetData       ; for tools/test_options.py
+    BNE @Loop           ; and keep looping until that expires ($400 iterations)
+
+    JSL fun_owpal + FUNFAR  ; FUN%'s Palette swap: the overworld's tint
+    RTS                 ; then exit

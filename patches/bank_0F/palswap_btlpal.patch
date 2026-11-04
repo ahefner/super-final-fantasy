@@ -1,0 +1,9 @@
+--- OLD
+LoadBattlePalette:
+    ASL A             ; multiply the palette ID by 4 (4 colors per palette)
+--- NEW
+.import fun_btlpal
+.export LoadBattlePalette       ; for tools/test_options.py
+LoadBattlePalette:
+    JSL fun_btlpal + FUNFAR   ; FUN%'s Palette swap: the enemies' palettes shuffled
+    ASL A             ; multiply the palette ID by 4 (4 colors per palette)

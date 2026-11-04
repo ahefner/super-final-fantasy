@@ -62,8 +62,10 @@ CHUNK_NEWGAME   = $1A           ; New Game's flow: its presets (presets/*.toml)
 NEWGAMEFAR      = (CHUNK0 + CHUNK_NEWGAME) * $10000
 CHUNK_OPTMENU   = $1B           ; the settings screen's engine and rows (optmenu.asm)
 OPTMENUFAR      = (CHUNK0 + CHUNK_OPTMENU) * $10000
-CHUNK_TAVERN    = $1C           ; Taverns: the clinic as a tavern, and its hire
+CHUNK_TAVERN    = $1C           ; Taverns: the clinic as a tavern, and its hire;
+                                ;   and the FUN% section's code (fun.asm)
 TAVERNFAR       = (CHUNK0 + CHUNK_TAVERN) * $10000
+FUNFAR          = TAVERNFAR
 CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the first bank's
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
@@ -259,6 +261,8 @@ OPT_FUN         = OPT_RESPOND
 FUN_FIELD       = $F8
 FUN_STEREO      = $08           ; Stereo Sound: the pulses panned (apu_pan)
 FUN_STEREO_SHIFT = 3
+FUN_PALSWAP     = $10           ; Palette swap: maps tinted, enemies' palettes
+FUN_PALSWAP_SHIFT = 4           ;   shuffled (fun.asm)
 .assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
@@ -2222,6 +2226,21 @@ ROLL_END        = ROLLRAM+$0062
 ;  as ROLL_ON is: power-on zeroes it, each check clears it after, and so
 ;  does a reset taken from the screen in the middle of one (ows_reset).
 OWS_TICKON      = ROLL_END
+;  Palette swap's (fun.asm, user, 2026-11-03: "Fixed per seed"), dealt with
+;  the cache whatever the row says, since FUN% is not the save's and turning
+;  the row on rebuilds nothing (deal_palswap).  Past the map edit screen's
+;  byte, which nothing clears.
+RW_PALPERM      = RANDOWRAM+$3E00 ; 64: the battle palette each one shows instead
+RW_TINT         = RANDOWRAM+$3E40 ; PALSWAP_TINTS: each map's tint (0-6, a shift of -3..+3
+                                  ;   round the hues), the overworld's, each backdrop's
+PALSWAP_TINTS   = 96
+TINT_OW         = 64              ; RW_TINT's index for the overworld...
+TINT_BACKDROP   = 80              ; ...and the sixteen battle backdrops'
+FUN_CODE        = RANDOWRAM+$3EA0 ; scratch: the tint being applied...
+FUN_END         = RANDOWRAM+$3EA1 ; ...where its run of colours ends...
+FUN_HUE         = RANDOWRAM+$3EA2 ; ...and a colour's hue, moved
+.assert RW_PALPERM >= OWS_TICKON + 2 && FUN_HUE < RP_BASE, error, "Palette swap's tables overlap"
+.assert RW_TINT >= RW_PALPERM + 64 && FUN_CODE >= RW_TINT + PALSWAP_TINTS, error, "Palette swap's tables overlap"
 OWS_TICKFRAME   = 2
 OWS_CANBACK     = $40             ; ows_choose's A: B leaves, answering NGNAV_BACK
 OWS_KEEP        = $20             ; ...and start from RANDO_OWEDITS as given, not the save's

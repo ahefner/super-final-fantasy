@@ -13,7 +13,7 @@
 .include "fftext.inc"
 .include "optmenu.inc"
 
-.export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112
+.export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
 
 .segment "BANK_OPTTEXT2"
 
@@ -63,3 +63,9 @@ lut_Desc_111:  ; FUN%: the user's words for the section (fun-percent.txt)
 lut_Desc_112:  ; Stereo Sound: the user's words
   FFLINES 1
   FFPAD {"In Stereo For Her Pleasure"}, 28
+
+lut_Desc_113:  ; Palette swap (draft, 2026-11-03)
+  FFLINES 3
+  FFPAD {"Maps take on new colors,"}, 28
+  FFPAD {"and enemies trade colors."}, 28
+  FFPAD {"Each seed has its own."}, 28

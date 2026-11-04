@@ -1,0 +1,10 @@
+--- OLD
+     ASL A                    ; and load up the palette
+     JMP LoadBackdropPalette
+--- NEW
+.import fun_bdpal
+.export LoadBattleBackdropPalette   ; for tools/test_options.py
+     ASL A                    ; and load up the palette
+     JSR LoadBackdropPalette
+     JSL fun_bdpal + FUNFAR   ; ...and FUN%'s Palette swap: the backdrop's tint
+     RTS

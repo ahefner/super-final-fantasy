@@ -2086,6 +2086,8 @@ lut_OptRows:
   FFPAD "", 30
   .BYTE $02, 64    ; Stereo Sound   (scalar 64: OPT_FUN bit 3)
   OPTLABEL {"Stereo Sound"}
+  .BYTE $02, 65    ; Palette swap   (scalar 65: OPT_FUN bit 4)
+  OPTLABEL {"Palette swap"}
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
 lut_OptRowTreasures:   ; the randomization screen's rows start here
@@ -2595,6 +2597,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValTaverns
               .BYTE <lut_ValOnOff                             ; Rebellious Princess
               .BYTE <lut_ValOnOff                             ; Stereo Sound
+              .BYTE <lut_ValOnOff                             ; Palette swap
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2625,6 +2628,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValTaverns
               .BYTE >lut_ValOnOff
               .BYTE >lut_ValOnOff                             ; Stereo Sound
+              .BYTE >lut_ValOnOff                             ; Palette swap
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2654,6 +2658,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE TAVERNS_MODES
               .BYTE PRINCESS_MODES
               .BYTE 2                                         ; Stereo Sound: Off, On
+              .BYTE 2                                         ; Palette swap: Off, On
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2671,6 +2676,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 3                                         ; Taverns
               .BYTE 2                                         ; Rebellious Princess
               .BYTE 2                                         ; Stereo Sound
+              .BYTE 2                                         ; Palette swap
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2705,6 +2711,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_NG_NORUN                             ; above Unrunnable fights
               .BYTE <OPT_NG_RNG                               ; above RNG tables
               .BYTE <OPT_FUN                                  ; above the respond rate
+              .BYTE <OPT_FUN                                  ; ...and Palette swap
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2728,6 +2735,7 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE TAVERNS_SHIFT                             ; Taverns
               .BYTE PRINCESS_SHIFT                            ; Rebellious Princess
               .BYTE FUN_STEREO_SHIFT                          ; Stereo Sound
+              .BYTE FUN_PALSWAP_SHIFT                         ; Palette swap
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
               .RES 4, $FF
@@ -2758,7 +2766,8 @@ lut_ValMask:  .RES 8, $FF
               .BYTE TAVERNS_FIELD                             ; Taverns
               .BYTE PRINCESS_FIELD                            ; Rebellious Princess
               .BYTE FUN_STEREO                                ; Stereo Sound
-VALSCALARS = 65
+              .BYTE FUN_PALSWAP                               ; Palette swap
+VALSCALARS = 66
 VAL_PARTY  = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"

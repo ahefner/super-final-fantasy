@@ -1662,7 +1662,7 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### FUN% (1)
+### FUN% (2)
 
 **Built 2026-11-03, not yet played.**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
@@ -1675,11 +1675,9 @@ refused), `ngp_apply` never touches the byte, and the title's presets
 (`opt_loadpreset`) reset the rate as before but keep these; a block that
 fails its checks clears them.  The rate's two readers take its three bits
 alone (`optrespond.patch`, `opt_titleleftright`).  The heading's
-description is the user's file's wording.  Planned beside it (user,
-2026-11-03): Palette swap -- one On/Off, fixed per seed, the overworld too;
-enemies' colours as FFR's shuffle has them, backgrounds tinted ("toward
-blue or brown") -- and the Exploding Dwarf: the Hurray dwarf only, "Oh
-shit!" in place of his "Hurray!", back every visit.  Music Shuffle later.
+description is the user's file's wording.  Planned beside them (user,
+2026-11-03): the Exploding Dwarf -- the Hurray dwarf only, "Oh shit!" in
+place of his "Hurray!", back every visit.  Music Shuffle later.
 
 **Stereo Sound** (user: "pan the two pulse channels hard left and right";
 "pulse 2 from center for sound effects"): Off and On; the description is
@@ -1708,6 +1706,37 @@ capitals.
     five menu sounds pulse 2 is written to both sides at the sound's level,
     then back to the right.  `test_stereo` holds the game's side: the row,
     the presets and the block, `opt_derive`, and the packets' pan.
+
+**Palette swap** (user, 2026-11-03: one On/Off, "Fixed per seed", the
+overworld too; "enemy colors are fine too"; "some artistic license to tint
+the background grass color toward blue or brown"): Off and On; the
+description a draft ("Maps take on new colors, and enemies trade colors.
+Each seed has its own.").  `fun.asm`, in Taverns' chunk.
+
+  - **The tables**, the seed's (`deal_palswap`, from the cache build:
+    `randoref.build_palswap`): the 64 battle palettes shuffled, as FFR's
+    PaletteSwap (`Fun.cs`) shuffles them, and a tint, 0-6, for each map, the
+    overworld and the sixteen battle backdrops -- dealt whatever the row
+    says, since FUN% is not the save's and turning the row on rebuilds
+    nothing (`RW_PALPERM`, `RW_TINT`, past the map edit screen's byte).
+  - **A tint** moves a colour's hue tint - 3 steps round the NES's twelve
+    and keeps its brightness; black, white and the greys (hues 0 and 13-15)
+    stay.  Every colour of a map moves together, so its art keeps its
+    contrast: grass runs from rust and olive through green to teal and blue,
+    caves from magenta through red to green.  The full -3..+3 is a draft of
+    the user's "toward blue or brown"; the far brown end is orange.
+  - **Where**: a standard map's three background palettes and its three in
+    rooms, as `LoadSMTilesetData` loads them (`fun_smpal`, then Short ToFR's
+    colour as before) -- every map's fourth palette, in rooms too, is the
+    dialogue box's `$0F $00 $01 $30`, and stays; the sprites stay.  The
+    overworld's four (`fun_owpal`, the end of `LoadOWTilesetData`).  A battle
+    backdrop's colours 1-3 (`fun_bdpal`, after `LoadBattleBackdropPalette`).
+    An enemy palette's number through the shuffle (`fun_btlpal`, the top of
+    `LoadBattlePalette`).
+  - `test_palswap`: the row; the tables against the reference, the row on
+    and off; the tint, every colour by every tint; every standard map's
+    palettes as they load, the overworld's, the backdrops' by the tile
+    stood on, and every enemy palette -- each on and off.
 
 ### Treasures (2)
 
@@ -2772,6 +2801,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Taverns | Off, Recruit, Replace | -- | 3 | Off |
 | Rebellious Princess | Off, On | -- | 2 | Off |
 | Stereo Sound | Off, On | -- | 2 | Off |
+| Palette swap | Off, On | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -4095,7 +4125,7 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   219 free    the scarce one; stamped into every chunk.  7
+    BANK_FIXED   206 free    the scarce one; stamped into every chunk.  7
                              declared, and 231 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
@@ -4179,8 +4209,9 @@ text region in the game references.
                              (52 more than the None's, 2026-11-02) -- the
                              next feature with much code goes to a chunk
                              of its own, as Boss tactics did; the respond
-                             rate's mask at boot 2 (FUN%, 2026-11-03)
-    BANK_OPTTEXT   157 free  the settings screen's descriptions (measured
+                             rate's mask at boot 2 (FUN%, 2026-11-03);
+                             Palette swap's three hooks 13 (2026-11-03)
+    BANK_OPTTEXT   155 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -4202,7 +4233,9 @@ text region in the game references.
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO     57 free  the randomizer: FULL -- the next feature moves something out
+    BANK_RANDO     49 free  the randomizer: FULL -- the next feature moves something out
+                             (Palette swap's deal call and rando_fyfar 8,
+                             2026-11-03)
                              (measured with ld65's map, 2026-11-03: Rebellious
                              Princess 576 -- pl_sara, pl_trysara and its
                              helpers, the dialogue swap; its map loading
@@ -4268,7 +4301,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3131 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3092 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -4285,13 +4318,17 @@ text region in the game references.
                              2026-11-02); Taverns' row 86, the second
                              descriptions bank's choice in it (2026-11-02);
                              Rebellious Princess's row 39 (2026-11-03);
-                             FUN% and Stereo Sound's rows 135 (2026-11-03)
-    BANK_TAVERN  ~14840 free Taverns' visit, hire, level up and look
-                             (tavern.asm, ~1540; 2026-11-02)
-    BANK_OPTTEXT2 15917 free the descriptions past the first bank's:
+                             FUN% and Stereo Sound's rows 135, Palette
+                             swap's 39 (2026-11-03)
+    BANK_TAVERN  14584 free  Taverns' visit, hire, level up and look
+                             (tavern.asm, 1538; 2026-11-02); the FUN%
+                             section's code (fun.asm: Palette swap 262,
+                             2026-11-03)
+    BANK_OPTTEXT2 15832 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
-                             Stereo Sound's (114; 2026-11-03)
+                             Stereo Sound's (114), Palette swap's (85;
+                             2026-11-03)
     HALCODE      6156 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
                              register the game sets)

@@ -2099,6 +2099,32 @@ _SARA_NAMES = ["the Temple of Fiends", "the Dwarf Cave", "Elfland Castle", "Cres
                "Cardia", "Pravoka", "Melmond"]     # worldgraph/romdata.PRINCESS_SPOTS's
 
 
+#  FUN%'s Palette swap (fun.asm's deal_palswap): the 64 battle palettes
+#  shuffled, as FFR's PaletteSwap shuffles them, then a tint below
+#  PALSWAP_STEPS for each of PALSWAP_TINTS -- every map, the overworld's at
+#  PALSWAP_OW, the backdrops' from PALSWAP_BACKDROP -- a shift of tint - 3
+#  round the twelve hues.  (perm, tints).
+STREAM_PALSWAP = 0x50414C53     # "PALS"
+PALSWAP_PALS, PALSWAP_TINTS, PALSWAP_STEPS = 64, 96, 7
+PALSWAP_OW, PALSWAP_BACKDROP = 64, 80
+
+
+def build_palswap(seed):
+    rng = Stream(seed, STREAM_PALSWAP)
+    perm = list(range(PALSWAP_PALS))
+    _fisher_yates(perm, rng)
+    return perm, [rng.below(PALSWAP_STEPS) for _ in range(PALSWAP_TINTS)]
+
+
+def palswap_tint(colour, tint):
+    """A NES colour moved tint - 3 steps round the hues 1-12, its brightness
+    kept; the greys and black (hues 0 and 13-15) as they are."""
+    h = colour & 0x0F
+    if h == 0 or h >= 13:
+        return colour
+    return (colour & 0xF0) | (h - 1 + tint - 3) % 12 + 1
+
+
 def sara_order(seed):
     xs = list(range(SARA_SPOTS))
     _fisher_yates(xs, Stream(seed, STREAM_SARA))

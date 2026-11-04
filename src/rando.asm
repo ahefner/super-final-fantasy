@@ -64,7 +64,8 @@
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
 .export rando_coldbuild, pl_place
 .export rando_caster
-.export rando_belowfar, rando_warmfar, rando_yieldfar
+.export rando_belowfar, rando_warmfar, rando_yieldfar, rando_fyfar
+.import deal_palswap            ; fun.asm's, in Taverns' chunk
 ;  New Game's roll screen (roll.asm), up while rando_build works.
 .import roll_begin, roll_tick, roll_end, roll_fail
 .import ows_tick
@@ -818,6 +819,13 @@ rando_warmfar:
     .a16
     JSR rando_warm
     RTL
+rando_fyfar:                    ; (fun.asm's deal_palswap)
+    .a8
+    .i16
+    JSR fy_bytes
+    RTL
+    .a16                        ; (the sizes after rando_warmfar, as before
+    .i8                         ;   this was put here)
 
 
 ;;  rando_below for bounds past 255: the same mask-and-reject, sixteen bits
@@ -1500,6 +1508,7 @@ build:
     BEQ @wiring                 ; TAVERNS_OFF
     JSR deal_taverns
   @wiring:
+    JSL deal_palswap + FUNFAR   ; FUN%'s Palette swap, whatever the row (fun.asm)
     ;  The teleport tables the game reads: placement's wiring under entrance
     ;  shuffle, else vanilla's (entrance shuffle's chunk).
     JSL es_tables + WORLDFAR
