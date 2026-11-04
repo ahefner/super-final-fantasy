@@ -1742,17 +1742,18 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     stood on, and every enemy palette -- each on and off.
 
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
-watch him explode again and again"; "if the dwarf is going to explode, he
-should exclaim 'Oh shit!'"; "let him respawn"): Off and On; the description
+watch him explode again and again"; "let him respawn"): Off and On; the description
 a draft ("The Hurray dwarf in the Dwarf Cave explodes when you talk to
 him.").  After tenes's 2021 hack (commit 72995c0), whose thousand-pixel
 overlay does not come to the SNES: here it is sprites.  `fun.asm`, in
 Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
 (`gen/dwarfgibs.inc`).
 
-  - **His line.**  Talk to him and dialogue $77, his alone, is "Oh shit!"
-    (`lut_DwarfLine`, the world chunk's), swapped as the drawer loads it
-    (`fun_dwarfline`, from `rando_dlgtext`); that arms the burst.  NPC
+  - **His line.**  Talk to him and he says what he always has, dialogue
+    $77, "Hurray!!", his alone; the drawer loading it (`fun_dwarfline`,
+    from `rando_dlgtext`) arms the burst.  (He said "Oh shit!" instead from
+    2026-11-03, the user's; reverted 2026-11-04: "he should just say
+    'Hooray!' as usual".)  NPC
     Guillotine leaves him in his slot (`fun_spared`, from `rando_talk`), or
     there would be no one to burst.
   - **The burst**, the first frame of the map loop after his box closes
@@ -1802,8 +1803,8 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     game hands it colours (`PALSTAGE` is 160 bytes now), and
     `hal_chrdirty`, a dirty span for tiles the game writes straight into
     the shadow.
-  - `test_dwarf`: the row and no preset; his line on and off, and a decoy
-    one page from his pointer; the Guillotine with him and another dwarf;
+  - `test_dwarf`: the row and no preset; his line on and off, the game's
+    own, and decoys a page and a byte from his pointer; the Guillotine with him and another dwarf;
     every frame of three bursts against the model, the screen still and
     walking, round the map's edge, at each of the screen's edges and far
     off it; the tiles, the span and the colours, mended after a load and

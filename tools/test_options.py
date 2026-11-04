@@ -17164,8 +17164,9 @@ def test_palswap():
 # --- FUN%: Exploding Dwarf ------------------------------------------------------
 def test_dwarf():
     """Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "I want to
-    watch him explode again and again"; "he should exclaim 'Oh shit!'"; "let
-    him respawn").  The row; his line; NPC Guillotine leaving him be; the
+    watch him explode again and again"; "let him respawn"; 2026-11-04: "he
+    should just say 'Hooray!' as usual").  The row; his line, the game's,
+    arming the burst; NPC Guillotine leaving him be; the
     burst and every frame after it against tools/dwarfref.py, the screen
     scrolling and wrapping; a dialogue box covering the gibs behind it; the
     gibs hidden while the sprites are off, and their tiles and colours put
@@ -17204,8 +17205,8 @@ def test_dwarf():
     check("...another Talk_norm dwarf ($64) under NPC Guillotine, the row on: taken as ever",
           talk(1, 1, 0x64)[1], 0)
 
-    #  His line as the drawer loads it (rando_dlgtext): "Oh shit!", and the
-    #  burst armed.
+    #  His line as the drawer loads it (rando_dlgtext): the game's own, and
+    #  the burst armed.
     OPT, MAXD, PENDING = K["OPTDESC"], K["OPTDLG_MAX"], rw("FUN_PENDING")
     def line(ptr, on):
         bus, cpu = machine()
@@ -17220,13 +17221,14 @@ def test_dwarf():
         z = buf.find(0)
         text = ff_decode(buf[:z]) if now == OPT and 0 <= z < MAXD else None
         return now, text, cpu.y & 0xFF, cpu.dbr == dbr, bus.wram[PENDING]
-    check("his line with the row on: \"Oh shit!\" from OPTDESC, the burst armed, Y and DBR kept",
-          line(gameptr(DLG), True), (OPT, "Oh shit!", 0x5A, True, 1))
+    check("his line with the row on: the game's own, untouched, the burst armed, Y and DBR kept",
+          line(gameptr(DLG), True), (gameptr(DLG), None, 0x5A, True, 1))
     decoy = gameptr(DLG) ^ 0x0100                       # his low byte, another page
+    decoy2 = gameptr(DLG) ^ 0x0001                      # his page, another low byte
     check("...with it off, his own line and nothing armed; another's line on, the same, and a "
-          "pointer one page off his", [line(p, on)[::4] for p, on in ((gameptr(DLG), False),
-                                       (gameptr(DLG - 1), True), (decoy, True))],
-          [(gameptr(DLG), 0), (gameptr(DLG - 1), 0), (decoy, 0)])
+          "pointer a page off his or a byte", [line(p, on)[::4] for p, on in ((gameptr(DLG), False),
+                                               (gameptr(DLG - 1), True), (decoy, True), (decoy2, True))],
+          [(gameptr(DLG), 0), (gameptr(DLG - 1), 0), (decoy, 0), (decoy2, 0)])
 
     #  The burst and the frames after it, against the model.
     W = lambda n: rw(n)
@@ -17467,8 +17469,8 @@ def test_dwarf():
     #  The hooks, each once and in its place: the map loop's after its
     #  sprites (then JMP StandardMapLoop), the box's before its wait (then JMP
     #  WaitForVBlank_L), the frame wait's before the HAL's, the drawer's
-    #  before a BCS to the world chunk's line, the Guillotine's after its
-    #  flag test, and the boot's.
+    #  before Rebellious Princess's JSR sara_moved, the Guillotine's after
+    #  its flag test, and the boot's.
     jsl = lambda name: bytes([0x22, SYM[name] & 0xFF, SYM[name] >> 8, bank_of(name)])
     image = lambda bank: ROMDATA[(bank & 0x1F) * 0x10000:(bank & 0x1F) * 0x10000 + 0x10000]
     def after(img, name, n):
@@ -17480,7 +17482,7 @@ def test_dwarf():
           (after(fixed, "fun_smframe", 1), after(fixed, "fun_cover", 1), after(fixed, "fun_frame", 4),
            (after(rando, "fun_dwarfline", 1), after(rando, "fun_spared", 1),
             rando[rando.find(jsl("fun_spared")) - 2]), after(optb, "fun_init", 0)[0]),
-          ((1, b"\x4c"), (1, b"\x4c"), (1, wait), ((1, b"\xb0"), (1, b"\xb0"), 0xF0), 1))
+          ((1, b"\x4c"), (1, b"\x4c"), (1, wait), ((1, b"\x20"), (1, b"\xb0"), 0xF0), 1))
 
     #  The HAL: the colours staged after what is queued, block 0's.
     def xpal(dirty):
