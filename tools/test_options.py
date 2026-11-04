@@ -17113,9 +17113,13 @@ def test_palswap():
         c.run(0xA7, SYM["LoadOWTilesetData"])
         return list(bus.wram[LMP:LMP + 0x30])
     owpal = list(ROMDATA[0x10000 + 0x8000 + 0x380:][:0x30])
-    check("the overworld's palettes: on, the four background ones tinted, the rest as they ship; off, as "
-          "they ship", (owload(True, 0), owload(False, 0)),
-          ([R.palswap_tint(c, 0) for c in owpal[:16]] + owpal[16:], owpal))
+    tinted = lambda i: i < 16 or 28 <= i < 32
+    check("the overworld's palettes: on, the four background ones tinted and sprite palette 3 -- the "
+          "land over the canal, the bridge, the airship's shadow -- the rest as they ship; off, as they ship",
+          (owload(True, 0), owload(False, 0)),
+          ([R.palswap_tint(c, 0) if tinted(i) else c for i, c in enumerate(owpal)], owpal))
+    check("...sprite palette 3 is the grass's green with black and white, so its green moves with the map's",
+          (owpal[28:32], owpal[1]), ([0x0F, 0x0F, 0x30, 0x1A], 0x1A))
 
     #  A battle backdrop, by the tile the party stood on.
     def backdrop(tile, on, tint):

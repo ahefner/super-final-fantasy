@@ -1728,7 +1728,11 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     rooms, as `LoadSMTilesetData` loads them (`fun_smpal`, then Short ToFR's
     colour as before) -- every map's fourth palette, in rooms too, is the
     dialogue box's `$0F $00 $01 $30`, and stays; the sprites stay.  The
-    overworld's four (`fun_owpal`, the end of `LoadOWTilesetData`).  A battle
+    overworld's four (`fun_owpal`, the end of `LoadOWTilesetData`), and its
+    sprite palette 3, `$0F $0F $30 $1A`: the land over the canal before the
+    TNT, the bridge and the airship's shadow are sprites drawn in it to sit
+    on the grass, and its green moves with the map's (user, 2026-11-04: the
+    land bridge "needs to match the palette swap of the background").  A battle
     backdrop's colours 1-3 (`fun_bdpal`, after `LoadBattleBackdropPalette`).
     An enemy palette's number through the shuffle (`fun_btlpal`, the top of
     `LoadBattlePalette`).

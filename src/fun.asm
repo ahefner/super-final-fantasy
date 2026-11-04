@@ -161,7 +161,11 @@ fun_smpal:
     JML rando_smpal + RANDOFAR
 
 ;;  The end of LoadOWTilesetData (palswap.patch): the overworld's tint over
-;;  its four background palettes, all of them land.
+;;  its four background palettes, all of them land, and sprite palette 3,
+;;  which the land over the canal, the bridge and the airship's shadow are
+;;  drawn in to sit on the grass (user, 2026-11-04: the land bridge before
+;;  the canal "needs to match"): its green moves with the map's, its black
+;;  and white stay.
 fun_owpal:
     JSR palswap_on
     BEQ @out
@@ -170,6 +174,10 @@ fun_owpal:
     LDA #$10
     STA f:FUN_END
     LDY #$00
+    JSR tint_lmp
+    LDA #$20
+    STA f:FUN_END
+    LDY #$1C
     JSR tint_lmp
   @out:
     RTL
