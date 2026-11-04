@@ -1710,17 +1710,19 @@ capitals.
 overworld too; "enemy colors are fine too"; "some artistic license to tint
 the background grass color toward blue or brown"; 2026-11-04, the
 overworld's water kept blue and the standard maps given "more variation in
-hue vs. luminance"): Off and On; the description a draft ("Maps take on new colors, and enemies trade colors.
+hue vs. luminance", and their greys, "with a low probability", a colour
+ramp): Off and On; the description a draft ("Maps take on new colors, and enemies trade colors.
 Each seed has its own.").  `fun.asm`, in Taverns' chunk.
 
   - **The tables**, the seed's (`deal_palswap`, from the cache build:
     `randoref.build_palswap`): the 64 battle palettes shuffled, as FFR's
     PaletteSwap (`Fun.cs`) shuffles them, a tint, 0-6, for each map, the
-    overworld and the sixteen battle backdrops, and a tone for each standard
-    map -- dealt whatever the row says, since FUN% is not the save's and
-    turning the row on rebuilds nothing (`RW_PALPERM`, `RW_TINT`, `RW_TONE`,
-    past the map edit screen's byte).  The tones are drawn after the tints,
-    so a seed's tints are what they were before tones came.
+    overworld and the sixteen battle backdrops, and a tone and a grey ramp
+    for each standard map -- dealt whatever the row says, since FUN% is not
+    the save's and turning the row on rebuilds nothing (`RW_PALPERM`,
+    `RW_TINT`, `RW_TONE`, `RW_GREY`, past the map edit screen's byte).  The
+    tones are drawn after the tints and the ramps after the tones, so a
+    seed's tints are what they were before tones came.
   - **A tint** moves a colour's hue tint - 3 steps round the NES's twelve
     and keeps its brightness; black, white and the greys (hues 0 and 13-15)
     stay.  Every colour of a map moves together, so its art keeps its
@@ -1757,7 +1759,22 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     darkest shade gone blue, or have its lightest, most of the cave, turned
     another colour over orange shadows.  The odds and
     the two hues are a draft.  It costs about 1,300 instructions more per
-    map load (about 2,000 in all), once.
+    map load (about 2,000 in all), once.  (The user, 2026-11-04, of the
+    odds: "it sounds like you've already implemented it as I tried to
+    describe" -- the two ends drawn independently.)
+  - **A grey ramp** (user, 2026-11-04: "I do notice the grayscale ramps
+    aren't changed.  It would be interesting if, with a low probability,
+    those get remapped to a color ramp instead"): one standard map in eight
+    (`grey_hue`, `GREY_ODDS`) has its greys, `$00` `$10` `$20` `$30`, become
+    a ramp of a hue drawn from the twelve, each a row up -- `$00` to `$1x`,
+    `$10` to `$2x`, `$20` and `$30` to `$3x` -- so the ramp keeps its order
+    and about its brightness.  Black and the dark greys (`$xD`-`$xF`) stay,
+    and the ramped colours are neither tinted nor toned, nor count toward a
+    set's rows.  The dialogue box's palette, every map's fourth, stays, and
+    that limits it: Coneria Castle's walls and the floating castle's floors
+    are drawn in that palette, so there a ramp reaches the white of a room
+    seen from outside and little else, where the Temple of Fiends, grey in
+    its own palettes, goes wholly blue or orange or green.  The odds a draft.
   - **Where**: a standard map's three background palettes and its three in
     rooms, as `LoadSMTilesetData` loads them (`fun_smpal`: tinted and toned,
     then Short ToFR's colour as before) -- every map's fourth palette, in rooms too, is the
@@ -1773,16 +1790,17 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     `LoadBattlePalette`).
   - `test_palswap`: the row; the tables against the reference, the row on
     and off, and the tones' odds; the tint, every colour by every tint; the
-    tone and the water by hand (the Dwarf Cave toned three ways, a map of
-    one row, the water at every tint); `fun_smpal` over 1,368 synthetic
-    palettes, every tone code at both ends, and `fun_owpal` over every
+    tone, the ramp and the water by hand (the Dwarf Cave toned three ways,
+    a set of one row, Coneria Castle's greys ramped, the water at every
+    tint); `fun_smpal` over 1,368 synthetic palettes, every tone code at
+    both ends, with and without a ramp of every hue, and `fun_owpal` over every
     colour at every tint, against `randoref`; every standard map's palettes
     as they load, the overworld's at every tint, the backdrops' by the tile
     stood on, and every enemy palette -- each on and off.  Of 30 deliberate
     bugs in the tones and the water, 25 are caught and five cannot change
     what the game shows: the darkest row's start, a step down past hue 1,
     the brightness kept with $30 rather than $F0, where violet ends for the
-    water, and a grey counted as water.
+    water, and a grey counted as water.  All 11 in the ramp are caught.
 
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
 watch him explode again and again"; "let him respawn"): Off and On; the description
@@ -4448,10 +4466,11 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  10944 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10864 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
-                             2026-11-03, 640 with the water and the tones,
+                             2026-11-03, 720 with the water, the tones and the
+                             grey ramps,
                              2026-11-04; the Exploding Dwarf 3271 -- the
                              gib set 512 and the particles' tables 1464,
                              dwarfgibs.inc, and 1295 of code, 180 of it

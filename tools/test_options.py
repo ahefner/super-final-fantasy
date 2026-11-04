@@ -17032,21 +17032,22 @@ def test_palswap():
     check("...no preset sets it", [n for n, _, _, s in G.resolve(G.load(), rows) if "Palette swap" in s], [])
 
     #  The tables: the cache's, the seed's, built whatever the row says.
-    PERM, TINT, TONE = rw("RW_PALPERM"), rw("RW_TINT"), rw("RW_TONE")
+    PERM, TINT, TONE, GREY = rw("RW_PALPERM"), rw("RW_TINT"), rw("RW_TONE"), rw("RW_GREY")
     def tables(seed, fun):
         bus, cpu = machine()
         setsave(bus, seed, 0)
         setblk(bus, FUN, fun)
         call(cpu, "rando_ensure", bank=RANDO_BANK)
         return (list(bus.wram[PERM:PERM + 64]), list(bus.wram[TINT:TINT + R.PALSWAP_TINTS]),
-                list(bus.wram[TONE:TONE + R.PALSWAP_TONES]))
+                list(bus.wram[TONE:TONE + R.PALSWAP_TONES]), list(bus.wram[GREY:GREY + R.PALSWAP_TONES]))
     bad, seen = [], set()
     for k, seed in enumerate(SEEDS):
         got = tables(seed, SWAP if k & 1 else 0)
         if got != R.build_palswap(seed):
             bad.append(hex(seed))
         seen.add(tuple(got[0]))
-    check("RW_PALPERM, RW_TINT and RW_TONE: randoref.build_palswap's, %d seeds, the row on or off" % len(SEEDS),
+    check("RW_PALPERM, RW_TINT, RW_TONE and RW_GREY: randoref.build_palswap's, %d seeds, the row on or off"
+          % len(SEEDS),
           bad, [])
     check("...every one a shuffle of the 64, and the seeds' all different",
           ({tuple(sorted(p)) for p in seen}, len(seen)), ({tuple(range(64))}, len(SEEDS)))
@@ -17057,6 +17058,9 @@ def test_palswap():
     check("...a tone's ends: left alone 7 in 16, moved 2-4 steps 8 in 16, turned 3-9 steps 1 in 16, "
           "every code drawn", (share(lambda e: e == 0), share(lambda e: 2 <= e <= 4), share(lambda e: e >= 5),
                                sorted(set(ends))), (7, 8, 1, [0, 2, 3, 4] + list(range(5, 12))))
+    greys = [g for s in range(40) for g in R.build_palswap(s)[3]]
+    check("...a grey ramp one map in 8, its hue any of the twelve",
+          (round(8 * sum(g != 0 for g in greys) / len(greys)), sorted(set(greys))), (1, list(range(13))))
 
     #  The tint, every colour by every tint, through the cartridge's own
     #  routine (a backdrop's three colours at a time).
@@ -17109,6 +17113,22 @@ def test_palswap():
            0x0F, 0x10, 0x12, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x0F, 0x0F, 0x07, 0x12])
     check("...a tone moves no further than its hue: orange warmed 4 stays orange, blue cooled 3 stays blue",
           (R.palswap_tone(0x27, 4, R.TONE_WARM), R.palswap_tone(0x01, 3, R.TONE_COOL)), (0x27, 0x01))
+    #  A grey ramp, by hand (user, 2026-11-04: the greyscale ramps "with a
+    #  low probability ... remapped to a color ramp instead"): Coneria
+    #  Castle's white and greys, $30 $10 $00, to blue a row up, $31 $21 $11,
+    #  whatever the tint and tone; black, the colours and the box as before.
+    castle = smpal(0x08)
+    check("a grey ramp by hand: Coneria Castle as it ships...", pick(castle),
+          [0x0F, 0x30, 0x30, 0x30, 0x0F, 0x30, 0x30, 0x10, 0x0F, 0x12, 0x1A, 0x19,
+           0x0F, 0x27, 0x17, 0x0F, 0x0F, 0x0F, 0x00, 0x10, 0x0F, 0x12, 0x1A, 0x19])
+    check("...its greys a blue ramp, the rest tinted +2 as with no ramp",
+          pick(R.palswap_sm(castle, 5, 0x00, 1)),
+          [0x0F, 0x31, 0x31, 0x31, 0x0F, 0x31, 0x31, 0x21, 0x0F, 0x14, 0x1C, 0x1B,
+           0x0F, 0x29, 0x19, 0x0F, 0x0F, 0x0F, 0x11, 0x21, 0x0F, 0x14, 0x1C, 0x1B])
+    check("...$20 to the palest as $30 is, and black and the dark greys ($xD-$xF) kept",
+          [R.palswap_grey(c, 6) for c in (0x00, 0x10, 0x20, 0x30, 0x0D, 0x1D, 0x2D, 0x3D, 0x0E, 0x0F, 0x3F)],
+          [0x16, 0x26, 0x36, 0x36, 0x0D, 0x1D, 0x2D, 0x3D, 0x0E, 0x0F, 0x3F])
+    check("...and no ramp, the greys as they ship", pick(R.palswap_sm(castle, 3, 0x00, 0)), pick(castle))
     tof = smpal(0x0C)
     check("...a set of one row, the Temple of Fiends' rooms, $17 among greys: the lightest's tone alone -- "
           "tinted -3 to $14, warmed 2 to $16, the darkest's 4 not applied",
@@ -17125,10 +17145,11 @@ def test_palswap():
     setblk(bus, FUN, SWAP)
     MAP = 0x30
     bus.wram[K["cur_map"]] = MAP
-    cases = [(t, (k * 37) % 7) for t in range(256) for k in range(3)] + \
-            [(rnd.randrange(256), rnd.randrange(7)) for _ in range(600)]
+    cases = [(t, (k * 37) % 7, (t + k) % 13 if k else 0) for t in range(256) for k in range(3)] + \
+            [(rnd.randrange(256), rnd.randrange(7), rnd.choice([0] * 12 + list(range(1, 13))))
+             for _ in range(600)]
     bad = []
-    for n, (tone, tint) in enumerate(cases):
+    for n, (tone, tint, grey) in enumerate(cases):
         pals = [rnd.choice(range(64)) for _ in range(48)]
         if n % 4:                                       # each set of fewer rows
             for at in (0, 32):
@@ -17137,11 +17158,12 @@ def test_palswap():
         bus.wram[LMP:LMP + 48] = bytes(pals)
         bus.wram[TINT + MAP - 1:TINT + MAP + 2] = bytes([6 - tint, tint, 6 - tint])
         bus.wram[TONE + MAP - 1:TONE + MAP + 2] = bytes([tone ^ 0x5A, tone, tone ^ 0xA5])
+        bus.wram[GREY + MAP - 1:GREY + MAP + 2] = bytes([(grey + 5) % 13, grey, (grey + 7) % 13])
         call(cpu, "fun_smpal")
-        if list(bus.wram[LMP:LMP + 48]) != R.palswap_sm(pals, tint, tone):
-            bad.append((n, tone, tint))
-    check("fun_smpal over %d synthetic palettes, every tone code at both ends: randoref.palswap_sm's"
-          % len(cases), bad[:3], [])
+        if list(bus.wram[LMP:LMP + 48]) != R.palswap_sm(pals, tint, tone, grey):
+            bad.append((n, tone, tint, grey))
+    check("fun_smpal over %d synthetic palettes, every tone code at both ends, with and without a grey "
+          "ramp of every hue: randoref.palswap_sm's" % len(cases), bad[:3], [])
 
     #  The overworld's water, by hand: $21 and $31 at each tint, cyan to
     #  blue-violet and no further, where the grass beside them runs on.
@@ -17187,12 +17209,15 @@ def test_palswap():
     bad = []
     for m in range(61):
         seed = 0x600DCAFE + m
-        _, tints, tones = R.build_palswap(seed)
-        want = R.palswap_sm(smpal(m), tints[m], tones[m])
+        _, tints, tones, greys = R.build_palswap(seed)
+        want = R.palswap_sm(smpal(m), tints[m], tones[m], greys[m])
         if smload(m, True, seed) != want or smload(m, False, seed) != smpal(m):
             bad.append(m)
-    check("every standard map's palettes as they load: on, the six tinted and toned by the seed's tint and "
-          "tone for the map; off, as they ship", bad, [])
+    check("every standard map's palettes as they load: on, the six tinted, toned and their greys ramped by "
+          "the seed's tables for the map; off, as they ship", bad, [])
+    check("...the seeds there giving some map a grey ramp, a map with greys among them",
+          [m for m in range(61) if R.build_palswap(0x600DCAFE + m)[3][m]
+           and any(smpal(m)[i] & 15 == 0 for i in R.SM_TINTED)] != [], True)
 
     #  The overworld: its four background palettes, all land.
     def owload(on, tint):

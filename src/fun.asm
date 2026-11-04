@@ -52,8 +52,9 @@ SRAMFAR_FUN     = CHUNK0 * $10000 + OPT_FUN
 
 ;;  deal_palswap -- Palette swap's tables for the seed: RW_PALPERM a
 ;;  Fisher-Yates of 0..63, then RW_TINT a draw below TINT_STEPS each, then
-;;  RW_TONE two ends each (tone_end), all on STREAM_PALSWAP.  From build
-;;  (rando.asm): native, DBR = $7F, A8 I16.  Out: the same.
+;;  RW_TONE two ends each (tone_end), then RW_GREY one each (grey_hue), all
+;;  on STREAM_PALSWAP.  From build (rando.asm): native, DBR = $7F, A8 I16.
+;;  Out: the same.
 deal_palswap:
     REP #$30
     .a16
@@ -104,7 +105,34 @@ deal_palswap:
     INX
     CPX #PALSWAP_TONES
     BCC @tone
+    LDX #$0000
+  @grey:
+    PHX
+    JSR grey_hue
+    PLX
+    STA a:.LOWORD(RW_GREY), X
+    INX
+    CPX #PALSWAP_TONES
+    BCC @grey
     RTL
+
+;;  A map's grey ramp (user, 2026-11-04: "with a low probability, those get
+;;  remapped to a color ramp instead"): one map in GREY_ODDS has its greys a
+;;  ramp of a hue drawn from the twelve, the rest keep them.  As randoref's
+;;  _grey_hue.  A = the hue, or 0; X not kept.
+GREY_ODDS       = 8
+grey_hue:
+    LDA #GREY_ODDS
+    JSL rando_belowfar + RANDOFAR
+    CMP #0
+    BNE @keep
+    LDA #12
+    JSL rando_belowfar + RANDOFAR
+    INC A
+    RTS
+  @keep:
+    LDA #0
+    RTS
 
 ;;  One end of a map's tone (user, 2026-11-04: "sometimes the darkest color
 ;;  is a cooler tone, the lightest color is a warmer tone, or occasionally an
@@ -209,6 +237,8 @@ fun_smpal:
     STA f:FUN_CODE
     LDA f:RW_TONE, X
     STA f:FUN_TONE
+    LDA f:RW_GREY, X
+    STA f:FUN_GREY
     LDY #$00
     JSR sm_set
     LDY #$20
@@ -258,8 +288,26 @@ sm_rows:
 
 ;;  The colours from Y to FUN_END tinted, then toned if of the lightest row
 ;;  (the high nibble's code, toward TONE_WARM) or else the darkest (the
-;;  low's, toward TONE_COOL).  Y moved, X not kept.
+;;  low's, toward TONE_COOL).  With a grey ramp, the greys ($00-$30) to its
+;;  hue a row up, $00 to $1x, $10 to $2x and $20 and $30 to $3x, so the ramp
+;;  keeps its order and about its brightness; black and the dark greys
+;;  ($xD-$xF) stay.  Y moved, X not kept.
 sm_lmp:
+    LDA load_map_pal, Y
+    AND #$0F
+    BNE @colour                 ; not one of the four greys
+    LDA f:FUN_GREY
+    BEQ @colour                 ; the greys kept
+    LDA load_map_pal, Y
+    CLC
+    ADC #$10                    ; a row up...
+    CMP #$40
+    BCC :+
+    LDA #$30                    ; ...to the palest at most
+:   ORA f:FUN_GREY
+    STA load_map_pal, Y
+    BRA @next
+  @colour:
     LDA load_map_pal, Y
     JSR tint_one
     STA load_map_pal, Y

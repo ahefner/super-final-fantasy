@@ -2104,7 +2104,8 @@ _SARA_NAMES = ["the Temple of Fiends", "the Dwarf Cave", "Elfland Castle", "Cres
 #  PALSWAP_STEPS for each of PALSWAP_TINTS -- every map, the overworld's at
 #  PALSWAP_OW, the backdrops' from PALSWAP_BACKDROP -- a shift of tint - 3
 #  round the twelve hues; then a tone for each of PALSWAP_TONES standard
-#  maps (palswap_tone).  (perm, tints, tones).
+#  maps (palswap_tone), then a grey ramp's hue for each (_grey_hue).
+#  (perm, tints, tones, greys).
 STREAM_PALSWAP = 0x50414C53     # "PALS"
 PALSWAP_PALS, PALSWAP_TINTS, PALSWAP_STEPS, PALSWAP_TONES = 64, 96, 7, 64
 PALSWAP_OW, PALSWAP_BACKDROP = 64, 80
@@ -2124,6 +2125,16 @@ def _tone_end(rng):
     return 5 + rng.below(7) if n is None else n
 
 
+#  A map's grey ramp (user, 2026-11-04: "with a low probability, those get
+#  remapped to a color ramp instead"): one in GREY_ODDS a hue 1-12, the rest
+#  0, their greys kept.
+GREY_ODDS = 8
+
+
+def _grey_hue(rng):
+    return 1 + rng.below(12) if rng.below(GREY_ODDS) == 0 else 0
+
+
 def build_palswap(seed):
     rng = Stream(seed, STREAM_PALSWAP)
     perm = list(range(PALSWAP_PALS))
@@ -2133,7 +2144,8 @@ def build_palswap(seed):
     for _ in range(PALSWAP_TONES):
         dark = _tone_end(rng)
         tones.append(dark | _tone_end(rng) << 4)
-    return perm, tints, tones
+    greys = [_grey_hue(rng) for _ in range(PALSWAP_TONES)]
+    return perm, tints, tones, greys
 
 
 def _chroma(colour):
@@ -2181,18 +2193,30 @@ def palswap_tone(colour, code, target):
 SM_TINTED = list(range(12)) + list(range(32, 44))   # a map's three, and its three in rooms
 
 
-def palswap_sm(pals, tint, tone):
+def palswap_grey(colour, grey):
+    """A grey ($00, $10, $20, $30) to hue grey a row up, $20 and $30 both to
+    the palest; anything else, or grey 0, as it is."""
+    if not grey or colour & 0x0F:
+        return colour
+    return min((colour >> 4) + 1, 3) << 4 | grey
+
+
+def palswap_sm(pals, tint, tone, grey=0):
     """A standard map's 48 palette bytes as fun_smpal leaves them: the six
     palettes tinted, then in each set of three -- the map's, and its rooms'
     -- the colours of its darkest brightness row (the NES's $0x-$3x) toned
     by tone's low nibble and of its lightest by the high; the lightest's
-    alone when a set has but the one row."""
+    alone when a set has but the one row.  With a grey ramp, the greys to
+    palswap_grey's instead."""
     out = list(pals)
     for at in (0, 32):
         span = range(at, at + 12)
         rows = [pals[i] >> 4 for i in span if _chroma(pals[i])]
         dark, light = (min(rows), max(rows)) if rows else (None, None)
         for i in span:
+            if grey and pals[i] & 0x0F == 0:
+                out[i] = palswap_grey(pals[i], grey)
+                continue
             c = palswap_tint(pals[i], tint)
             if _chroma(c) and c >> 4 == light:
                 c = palswap_tone(c, tone >> 4, TONE_WARM)
