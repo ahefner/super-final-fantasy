@@ -3797,8 +3797,10 @@ hal_apu_frame:
     sta a:h_apuwave             ;   cycle length is the SPC700's to choose
     lda a:h_apupitch
     sta a:APUIO2
+    jsr apu_pan
     lda a:h_apupitch+1          ; the period's top three bits
     ora a:h_pkrst               ; ...and bit 7: start the sweep over
+    ora a:h_pkpan               ; ...and bits 6-5, Stereo Sound's pan
     sta a:APUIO3
     lda a:h_apuvol
     ora a:h_apuvoice
@@ -4743,6 +4745,39 @@ hal_w4015:
 ;;  Hand the packet on the data ports to the SPC700 and wait for it to be
 ;;  taken.  Called with A eight bits wide and in either index width, so the
 ;;  bounded-wait counter lives in memory rather than an index register.
+;;  Stereo Sound (user, 2026-11-03: "pan the two pulse channels hard left
+;;  and right"; "pulse 2 from center for sound effects"): a pulse packet's
+;;  pan, into h_pkpan for its byte 3, bits 6-5 -- genspc.py's PAN_LEFT and
+;;  PAN_RIGHT, the other side's volume zero; 0 both sides, as the NES.  Off
+;;  unless the game set h_stereo; pulse 2 back in the middle while the byte
+;;  at h_panbusy is nonzero, which the game names (its sound effect's mark)
+;;  -- the HAL knows only the register it was given.  In: Y = 0 for pulse
+;;  1, 4 for pulse 2.  A8 I16; A clobbered, X and Y kept.
+PAN_LEFT  = $20
+PAN_RIGHT = $40
+.a8
+.i16
+apu_pan:
+    stz a:h_pkpan
+    lda a:h_stereo
+    beq @out
+    lda #PAN_LEFT
+    cpy #0
+    beq @set
+    phx
+    ldx a:h_panbusy
+    lda a:$0000,x               ; the game's mark: a sound effect has pulse 2
+    plx
+    cmp #0
+    bne @out                    ; ...so both sides
+    lda #PAN_RIGHT
+@set:
+    sta a:h_pkpan
+@out:
+    rts
+.a8
+.i8                             ; (as before apu_pan was put here)
+
 apu_send:
     ;  Port 0 is the handshake: the SPC700 acts when it changes and echoes it
     ;  back.  Only enough of it has to change to be noticed, so three bits are

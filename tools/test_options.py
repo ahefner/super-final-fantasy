@@ -8261,7 +8261,8 @@ def test_ngpresets():
             rom_rows.append(("chk" if rec[0] == 1 else "val", rec[1], label))
     check("presetdefs: the ROM's rows, kind, bit or scalar, and label",
           rom_rows, [(r.kind, r.arg, r.label) for r in rows])
-    lo, hi, shift, count = tab("lut_ValTabLo", 64), tab("lut_ValTabHi", 64), tab("lut_ValShift", 64), tab("lut_ValCount", 64)
+    nval = max(r.arg for r in rows if r.kind == "val") + 1
+    lo, hi, shift, count = (tab(n, nval) for n in ("lut_ValTabLo", "lut_ValTabHi", "lut_ValShift", "lut_ValCount"))
     bad = []
     for r in rows:
         if r.kind != "val":
@@ -8277,7 +8278,8 @@ def test_ngpresets():
     #  rate the player's, the title's preset named or Custom, and the block
     #  sealed: opt_init leaves it alone.
     presets = G.resolve(G.load(), rows)
-    off, bit, mask = tab("lut_ValOff", 64), tab("lut_ValBit", 64), tab("lut_ValMask", 64)
+    off, bit, mask = tab("lut_ValOff", nval), tab("lut_ValBit", nval), tab("lut_ValMask", nval)
+    prows = G.preset_rows(rows)                 # the player's own sections aside (test_stereo)
     def apply(i):
         bus, cpu = machine()
         call(cpu, "opt_init")
@@ -8294,7 +8296,7 @@ def test_ngpresets():
         page = bus.sram[K["OPTBLOCK"] - 0x6000:][:256]
         fl = K["OPT_FLAGS"] - K["OPTBLOCK"]
         return {r.label: (page[fl + r.arg // 8] >> (r.arg % 8) & 1) if r.kind == "chk"
-                else (page[off[r.arg]] & mask[r.arg]) >> bit[r.arg] for r in rows}
+                else (page[off[r.arg]] & mask[r.arg]) >> bit[r.arg] for r in prows}
     bad, sealed = [], []
     for i, (name, _, title, want) in enumerate(presets):
         bus, cpu = apply(i)
@@ -8308,7 +8310,7 @@ def test_ngpresets():
     check("each preset applied: every setting as its file and the base say", bad[:2], [])
     check("...the block sealed, the respond rate kept, the title's preset named or Custom",
           [x for x in sealed if x[1:] != (True, 5, True)], [])
-    efs = {r.label: (r.values[v] if r.values else bool(v)) for r in rows
+    efs = {r.label: (r.values[v] if r.values else bool(v)) for r in prows
            for v in [dict((p[0], p[3]) for p in presets)["Entrance and Floor Shuffle"][r.label]]}
     check("inheritance: Entrance and Floor Shuffle's own, Entrance Shuffle's, Beginner's, the base's",
           [efs[k] for k in ("Map shuffle", "Short ToFR", "Key items", "Gold and XP", "Speed hacks")],
@@ -8369,7 +8371,7 @@ def test_ngpresets():
           "preset's number keeps its meaning", [p[0] for p in presets],
           ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
            "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise", "Oops All Loose", "Floaterless"])
-    resolved = lambda name: {r.label: (r.values[v] if r.values else bool(v)) for r in rows
+    resolved = lambda name: {r.label: (r.values[v] if r.values else bool(v)) for r in prows
                              for v in [dict((p[0], p[3]) for p in presets)[name][r.label]]}
     oal, fl = resolved("Oops All Loose"), resolved("Floaterless")
     keyrows = ["SHIP", "AIRSHIP", "BRIDGE", "CANAL", "CANOE", "KEY", "CHIME", "CROWN", "LUTE", "TAIL", "ROD",
@@ -16859,6 +16861,149 @@ def test_princess():
           True)
 
 
+# --- FUN%: Stereo Sound --------------------------------------------------------
+def test_stereo():
+    """Stereo Sound (user, 2026-11-03, fun-percent.txt: "pan the two pulse
+    channels hard left and right"; "pulse 2 from center for sound effects";
+    FUN% "Not part of the seed settings").  The FUN% row, its field above
+    the respond rate, and its panes; no preset sets it, and choosing one --
+    on the title or in New Game's flow -- keeps it, as a broken block does
+    not; the respond rate's readers take their three bits alone; opt_derive
+    sets the HAL's register; and the pulse packets carry the pan: pulse 1
+    left and pulse 2 right, pulse 2 back in the middle while the byte the
+    game named says a sound effect has it, both in the middle with the row
+    Off.  The SPC700's side -- the other side's volume zero -- is genspc.py's,
+    which this harness does not run."""
+    import presetdefs as P, genpresets as G, textwrap
+    FUN, STEREO = K["OPT_FUN"] - OPTBLOCK, K["FUN_STEREO"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Stereo Sound")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Stereo Sound: FUN%, after Short ToFR, Off and On, the respond rate's byte's bit 3",
+          (row.section, names[names.index("Stereo Sound") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("FUN%", "Short ToFR", ["Off", "On"], (FUN, 3, STEREO)))
+    check("...the respond rate's three bits and the FUN% rows' share it, apart",
+          (FUN == OPT_RESPOND, K["RESPOND_FIELD"] & K["FUN_FIELD"], STEREO & K["FUN_FIELD"]), (True, 0, STEREO))
+    presets = G.resolve(G.load(), rows)
+    check("...no preset sets it", [n for n, _, _, s in presets if "Stereo Sound" in s], [])
+    files = G.load()
+    f, table = files[-1]
+    bad = dict(table, settings=dict(table.get("settings", {}), **{"Stereo Sound": "On"}))
+    try:
+        G.resolve(files[:-1] + [(f, bad)], rows)
+        said = None
+    except G.PresetError as e:
+        said = str(e)
+    check("...and one that names it is refused: the player's own", said is not None and "player's own" in said, True)
+
+    SEL, TOP = 0x6E, 0x6F
+    def desc(r, fun):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setblk(bus, FUN, fun)
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    srow = optrow("Stereo Sound")
+    check("its pane, either value: the user's words, from the second bank",
+          [desc(srow, v * STEREO | 5) for v in range(2)], [["In Stereo For Her Pleasure"]] * 2)
+    check("...and the heading's, the user's too",
+          desc(optrow("FUN%"), 0), textwrap.wrap("Goofy settings that don't change anything about gameplay.", 28))
+
+    #  The block: the bit is the player's own.
+    def fresh(fun):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, FUN, fun)
+        call(cpu, "opt_commit_body")
+        return bus, cpu
+    got = []
+    for preset in range(2):
+        bus, cpu = fresh(STEREO | 3)
+        cpu.a = preset
+        call(cpu, "opt_loadpreset")
+        got.append(blk(bus, FUN))
+    check("the title's presets: the respond rate their default, Stereo Sound kept",
+          got, [STEREO | K["OPT_RESPOND_DEFAULT"]] * 2)
+    got = []
+    for k in range(len(presets)):
+        bus, cpu = fresh(STEREO | 3)
+        cpu.a = k
+        call(cpu, "ngp_apply")
+        got.append(blk(bus, FUN))
+    check("New Game's presets, every one: the byte untouched", got, [STEREO | 3] * len(presets))
+    bus, cpu = machine()
+    setblk(bus, FUN, 0xFF)                          # a block that fails its checks
+    call(cpu, "opt_init")
+    check("a broken block: Stereo Sound Off, the respond rate the default",
+          blk(bus, FUN), K["OPT_RESPOND_DEFAULT"])
+    bus, cpu = fresh(STEREO | 3)
+    call(cpu, "opt_init")
+    check("...an intact one kept as it is, and the HAL told", (blk(bus, FUN), bus.wram[K["h_stereo"]] != 0),
+          (STEREO | 3, True))
+    bus, cpu = fresh(STEREO | 3)
+    bus.wram[TITLE_CURSOR], bus.wram[RESPONDRATE] = 0, 3
+    cpu.a = DIR_RIGHT
+    call(cpu, "opt_titleleftright")
+    check("the title's respond rate: its three bits moved, Stereo Sound kept",
+          (bus.wram[RESPONDRATE], blk(bus, FUN)), (4, STEREO | 4))
+    #  The game's respond rate at boot (optrespond.patch): the three bits.
+    fixed = ROMDATA[(0xA1 & 0x1F) * 0x10000 + 0xC000:][:0x4000]
+    r, o = K["respondrate"], K["OPT_RESPOND"]
+    masked = bytes([0xAD, o & 0xFF, o >> 8, 0x29, K["RESPOND_FIELD"], 0x85, r])
+    whole = bytes([0xAD, o & 0xFF, o >> 8, 0x85, r])
+    check("the boot's respondrate from the block: masked to its three bits, and never the whole byte",
+          (fixed.count(masked), fixed.count(whole)), (1, 0))
+
+    #  opt_derive: the HAL's register, and the byte it watches.
+    for on in (0, 1):
+        bus, cpu = fresh(on * STEREO | 2)
+        bus.wram[K["h_stereo"]] = 0x5A
+        call(cpu, "opt_derive", dbr=0xA1 + K["CHUNK_OPT"])
+        check("opt_derive, Stereo Sound %s: h_stereo %s, h_panbusy sq2_sfx" % (("Off", "On")[on], ("0", "set")[on]),
+              (bus.wram[K["h_stereo"]] != 0, bus.wram[K["h_panbusy"]] | bus.wram[K["h_panbusy"] + 1] << 8),
+              (bool(on), K["sq2_sfx"]))
+
+    #  The packets: both pulses sounding, every combination of the register
+    #  and the busy byte, read off the ports as each packet is announced.
+    SHADOW, BUSY = K["APUSHADOW"], 0x10
+    def frame(stereo, busy, at=None):
+        bus, cpu = machine()
+        bus.wram[K["h_apuok"]] = 1
+        bus.wram[K["h_stereo"]] = stereo
+        at = K["sq2_sfx"] if at is None else at
+        bus.wram[K["h_panbusy"]], bus.wram[K["h_panbusy"] + 1] = at & 0xFF, at >> 8
+        bus.wram[K["sq2_sfx"]] = busy
+        bus.wram[BUSY] = 0
+        bus.wram[SHADOW + 0x15] = 0x03                  # both pulses enabled
+        for base in (0, 4):
+            bus.wram[SHADOW + base:SHADOW + base + 4] = bytes([0xBF, 0x00, 0x23, 0x01])
+        packets = []
+        write = bus.write
+        def spy(bank, addr, val):
+            write(bank, addr, val)
+            if addr & 0xFFFF == 0x2140:
+                packets.append(tuple(bus.io.get(0x2141 + i, 0) for i in range(3)))
+        bus.write = spy
+        cpu.dbr = 0xA7
+        cpu.run(0xC0, SYM["hal_audioframe"], limit=200_000)
+        notes = {p[0] >> 4 & 3: p for p in packets if p[0] & 0xC0 != 0xC0}   # by voice; sweep packets aside
+        return {v: (notes[v][2] & 0x60, notes[v][2] & 0x9F) for v in (0, 1) if v in notes}
+    want = {(0, 0): (0, 0), (0, 5): (0, 0), (1, 0): (0x20, 0x40), (1, 5): (0x20, 0)}
+    got = {k: frame(*k) for k in want}
+    check("pulse packets' byte 3, bits 6-5: Off both middle; On pulse 1 left, pulse 2 right -- in the "
+          "middle while sq2_sfx is set", {k: (g[0][0], g[1][0]) for k, g in got.items()}, want)
+    check("...the period's bits and the sweep's restart beside them as without the pan",
+          {k: (g[0][1], g[1][1]) for k, g in got.items()}, {k: (0x81, 0x81) for k in want})
+    check("...the busy byte the one the game named, not sq2_sfx itself",
+          (frame(1, 0, BUSY), frame(1, 5, BUSY)[1][0]), ({0: (0x20, 0x81), 1: (0x40, 0x81)}, 0x40))
+    bus, cpu = machine()
+    check("the HAL's register clear at power-on: mono until the game says", bus.wram[K["h_stereo"]], 0)
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -17389,7 +17534,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

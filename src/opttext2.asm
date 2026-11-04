@@ -13,7 +13,7 @@
 .include "fftext.inc"
 .include "optmenu.inc"
 
-.export lut_Desc_109, lut_Desc_110
+.export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112
 
 .segment "BANK_OPTTEXT2"
 
@@ -53,3 +53,13 @@ lut_Desc_110_1:  ; Rebellious Princess: On
   FFPAD {"The princess has run away"}, 28
   FFPAD {"from home. She may be found"}, 28
   FFPAD {"in one of several places."}, 28
+
+lut_Desc_111:  ; FUN%: the user's words for the section (fun-percent.txt)
+  FFLINES 3
+  FFPAD {"Goofy settings that don't"}, 28
+  FFPAD {"change anything about"}, 28
+  FFPAD {"gameplay."}, 28
+
+lut_Desc_112:  ; Stereo Sound: the user's words
+  FFLINES 1
+  FFPAD {"In Stereo For Her Pleasure"}, 28

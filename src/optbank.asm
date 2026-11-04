@@ -229,6 +229,8 @@ opt_init:
     STA OPTPOSE+3
 
 .ifdef OPT_FORCE
+    LDA #$00
+    STA OPT_FUN                 ; (the FUN% rows: Off, and the rate the preset's)
     LDA #OPT_FORCED_PRESET      ; FFDEBUG build: ignore SRAM, always this preset
     JSR opt_loadpreset
     PLB
@@ -250,6 +252,8 @@ opt_init:
     BEQ @good
 
   @reset:
+    LDA #$00
+    STA OPT_FUN                 ; the FUN% rows Off: opt_loadpreset keeps them
     LDA #OPT_DEFAULT_PRESET
     JSR opt_loadpreset
   @good:
@@ -296,7 +300,9 @@ opt_loadpreset:
     STA OPT_MAGIC1
     LDA #OPT_FORMAT
     STA OPT_VERSION
-    LDA #OPT_RESPOND_DEFAULT
+    LDA OPT_FUN                 ; the FUN% rows are the player's own: kept
+    AND #FUN_FIELD
+    ORA #OPT_RESPOND_DEFAULT
     STA OPT_RESPOND
                                 ; flow into opt_commit's body
 
@@ -327,6 +333,17 @@ opt_commit:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 opt_derive:
+    ;  Stereo Sound: the HAL's pan register, and the byte it watches for pulse
+    ;  2's sound effects to come back to the middle (sq2_sfx, which every one
+    ;  of the game's sets).
+    LDA OPT_FUN
+    AND #FUN_STEREO
+    STA h_stereo
+    LDA #<sq2_sfx
+    STA h_panbusy
+    LDA #>sq2_sfx
+    STA h_panbusy+1
+
     ;  The elemental and type damage bonus.  The dial stores a step and the
     ;  step is worth two, so the derived byte is a shift -- and the use site
     ;  in bank $0C, where a load costs one byte more than the immediate it
@@ -995,8 +1012,11 @@ opt_titleleftright:
   @rateadd:
     CLC
     ADC respondrate
-    AND #7                      ; wraps 0<->7, as the original did
+    AND #RESPOND_FIELD          ; wraps 0<->7, as the original did
     STA respondrate
+    LDA OPT_RESPOND
+    AND #FUN_FIELD              ; the FUN% rows above it kept
+    ORA respondrate
     STA OPT_RESPOND
     JSR opt_commit_body
     BRA @out

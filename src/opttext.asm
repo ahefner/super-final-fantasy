@@ -16,6 +16,7 @@
 
 .export lut_DescLo, lut_DescHi
 .import lut_Desc_109, lut_Desc_110      ; opttext2.asm's, in the second bank
+.import lut_Desc_111, lut_Desc_112
 
 .segment "BANK_OPTTEXT"
 
@@ -1203,7 +1204,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65
   .BYTE <lut_Desc_66, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_99
   .BYTE <lut_Desc_27, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64
-  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
+  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_DescBlank, <lut_Desc_111, <lut_DescBlank, <lut_Desc_112, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
   .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71, <lut_Desc_108, <lut_Desc_109, <lut_Desc_110
@@ -1227,7 +1228,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65
   .BYTE >lut_Desc_66, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_99
   .BYTE >lut_Desc_27, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64
-  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
+  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_DescBlank, >lut_Desc_111 | DESC_SECOND, >lut_DescBlank, >lut_Desc_112 | DESC_SECOND, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108, >lut_Desc_109 | DESC_SECOND, >lut_Desc_110 | DESC_SECOND

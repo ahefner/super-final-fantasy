@@ -1662,6 +1662,53 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
+### FUN% (1)
+
+**Built 2026-11-03, not yet played.**  The user's Fun% flags
+(`fun-percent.txt`: "goofy flags that don't change anything about
+gameplay"), a section of their own after VARIATIONS.  **Not part of the
+seed settings** (user, 2026-11-03): they are the player's own, as the
+respond rate is, and share its byte (`OPT_FUN` is `OPT_RESPOND`, bits 3-7
+above the rate's 0-2), so no preset writes them.  `genpresets.py` leaves
+the section out (`PLAYER_SECTIONS`; a preset naming one of its rows is
+refused), `ngp_apply` never touches the byte, and the title's presets
+(`opt_loadpreset`) reset the rate as before but keep these; a block that
+fails its checks clears them.  The rate's two readers take its three bits
+alone (`optrespond.patch`, `opt_titleleftright`).  The heading's
+description is the user's file's wording.  Planned beside it (user,
+2026-11-03): Palette swap -- one On/Off, fixed per seed, the overworld too;
+enemies' colours as FFR's shuffle has them, backgrounds tinted ("toward
+blue or brown") -- and the Exploding Dwarf: the Hurray dwarf only, "Oh
+shit!" in place of his "Hurray!", back every visit.  Music Shuffle later.
+
+**Stereo Sound** (user: "pan the two pulse channels hard left and right";
+"pulse 2 from center for sound effects"): Off and On; the description is
+the user's, "In Stereo For Her Pleasure".  The label keeps the user's
+capitals.
+
+  - **The SPC700** wrote a voice's volume to left and right alike.  A
+    pulse's packet now carries a pan in byte 3, bits 6-5 (`genspc.py`'s
+    `PAN_LEFT`, `PAN_RIGHT`), and the other side's volume goes to zero; the
+    pan is cached beside the volume, so a change of pan alone is written.
+    The triangle and noise stay in the middle.  The program is 1226 of its
+    1280 bytes.
+  - **The HAL** decides each pulse packet's pan (`apu_pan`) from a register
+    the game sets -- `h_stereo`, and `h_panbusy`, the address of a byte that
+    puts pulse 2 back in the middle while it is nonzero -- so the HAL knows
+    nothing of the game's.  `opt_derive` sets them from the row, naming
+    `sq2_sfx`, which every one of the game's sound effects sets while it has
+    pulse 2 and the music driver counts down.  Every frame path -- the
+    game's frame wait, the menus' audio frames, the roll screen's ticks --
+    sends its packets through `hal_apu_frame`, so all of them pan.
+  - A mono TV sums the two sides, so nothing is lost there, and each side
+    carries less than it did, so nothing new can clip.
+  - **Checked in ares's DSP log** (2026-11-03, the instrumented build's
+    `ARES_DSP_LOG`): with the row On, voice 0's right volume and voice 1's
+    left stay zero through the intro's and the title's music, and at each of
+    five menu sounds pulse 2 is written to both sides at the sound's level,
+    then back to the right.  `test_stereo` holds the game's side: the row,
+    the presets and the block, `opt_derive`, and the packets' pan.
+
 ### Treasures (2)
 
 Starting items, Starting caster item.  *Until 2026-10-14 also* Free SHIP, Free AIRSHIP, Free
@@ -2683,7 +2730,9 @@ minimap, the title and description beside the zoom.
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen
-control and its own byte in the options block, and defaults to 8.
+control and its own byte in the options block, and defaults to 8.  The
+byte's three low bits are the rate; above them, since 2026-11-03, the FUN%
+rows, which are the player's own too (`OPT_FUN`, above).
 
 Stored 0-based and displayed `+1`, so 8 is a stored 7 -- which is also what
 FFR's speed hack uses.  It is explicitly zeroed in two places,
@@ -2722,6 +2771,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Party | Free, Balanced, 4 Forced ... RWB | -- | 16 | Free |
 | Taverns | Off, Recruit, Replace | -- | 3 | Off |
 | Rebellious Princess | Off, On | -- | 2 | Off |
+| Stereo Sound | Off, On | -- | 2 | Off |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -4045,7 +4095,7 @@ text region in the game references.
 
 ### Budgets, and what is nearly out
 
-    BANK_FIXED   224 free    the scarce one; stamped into every chunk.  7
+    BANK_FIXED   219 free    the scarce one; stamped into every chunk.  7
                              declared, and 231 at the end: the randomizer's
                              hooks gave back 149 between them -- the
                              item-name lookups blursings replaced, then
@@ -4089,7 +4139,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    5658 free   the settings screen's engine and rows (6695)
+    BANK_OPT    5623 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -4128,8 +4178,9 @@ text region in the game references.
                              them, 2026-10-31), and Party's class cycle
                              (52 more than the None's, 2026-11-02) -- the
                              next feature with much code goes to a chunk
-                             of its own, as Boss tactics did
-    BANK_OPTTEXT   167 free  the settings screen's descriptions (measured
+                             of its own, as Boss tactics did; the respond
+                             rate's mask at boot 2 (FUN%, 2026-11-03)
+    BANK_OPTTEXT   157 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -4217,7 +4268,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3266 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  3131 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -4233,13 +4284,17 @@ text region in the game references.
                              row, readouts, scalar and opt_needseed's ask,
                              2026-11-02); Taverns' row 86, the second
                              descriptions bank's choice in it (2026-11-02);
-                             Rebellious Princess's row 39 (2026-11-03)
+                             Rebellious Princess's row 39 (2026-11-03);
+                             FUN% and Stereo Sound's rows 135 (2026-11-03)
     BANK_TAVERN  ~14840 free Taverns' visit, hire, level up and look
                              (tavern.asm, ~1540; 2026-11-02)
-    BANK_OPTTEXT2 16031 free the descriptions past the first bank's:
+    BANK_OPTTEXT2 15917 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
-                             Princess's two (147; 2026-11-03)
-    HALCODE     ~6200 free   not available; see below
+                             Princess's two (147; 2026-11-03), FUN%'s and
+                             Stereo Sound's (114; 2026-11-03)
+    HALCODE      6156 free   not available; see below (Stereo Sound's
+                             apu_pan 39, 2026-11-03: hardware, a pan
+                             register the game sets)
 
 **Measure with a listing that counts each line's bytes**, not the address the
 last line starts at, and not trailing zeros.  All three disagree.  And a bank

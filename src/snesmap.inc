@@ -208,7 +208,9 @@ OPT_ENEMYHPTO   = OPTBLOCK+$13  ; Enemy HP max
 OPT_BOSSTO      = OPTBLOCK+$14  ; Boss stats max
 OPT_BOSSHP      = OPTBLOCK+$15  ; Boss HP min
 OPT_BOSSHPTO    = OPTBLOCK+$16  ; Boss HP max
-OPT_RESPOND     = OPTBLOCK+$17  ; 0-based, so the default 8 is stored as 7
+OPT_RESPOND     = OPTBLOCK+$17  ; 0-based, so the default 8 is stored as 7;
+                                ;   bits 0-2 (RESPOND_FIELD), the FUN% rows
+                                ;   above them (OPT_FUN)
 OPT_CKSUM       = OPTBLOCK+$18
 OPT_SIZE        = $19
 
@@ -246,6 +248,18 @@ OPT_FORMAT      = $0A           ; bumped from $09: the scaling's six range
                                 ; whenever the block's meaning changes, not
                                 ; just its layout.
 OPT_RESPOND_DEFAULT = 7         ; 0-based, so this is the 8 the menu shows
+RESPOND_FIELD   = $07
+;  The FUN% section (user, 2026-11-03, fun-percent.txt: "goofy flags that
+;  don't change anything about gameplay"; "Not part of the seed settings"):
+;  the player's own, as the respond rate is, so they share its byte, above
+;  it -- no preset writes it (opt_loadpreset keeps them; ngp_apply never
+;  touches the byte; genpresets.py leaves the section out).  Zero in every
+;  block made before them: Off.
+OPT_FUN         = OPT_RESPOND
+FUN_FIELD       = $F8
+FUN_STEREO      = $08           ; Stereo Sound: the pulses panned (apu_pan)
+FUN_STEREO_SHIFT = 3
+.assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
 ;  feature's hook is wherever the feature lives -- the fixed bank and the game
@@ -1400,6 +1414,13 @@ h_sqrst         = HAL_VARS+$C4  ; set by a $4003/$4007 write: the sweep starts
 h_swsent        = HAL_VARS+$BF  ; the sweep register last sent to the SPC700;
                                 ;   indexed by Y = 0 or 4, so pulse 2's is +$C3
 h_pkrst         = HAL_VARS+$C9  ; scratch: $80 if this packet restarts the sweep
+;  Stereo Sound's register (apu_pan), the game's to set (opt_derive): pulse 1
+;  hard left and pulse 2 hard right while h_stereo is nonzero, pulse 2 in the
+;  middle while the byte h_panbusy names is nonzero -- the game's mark that a
+;  sound effect has it.
+h_stereo        = HAL_VARS+$E0
+h_panbusy       = HAL_VARS+$E1  ; 2 bytes: the busy byte's address, bank $00
+h_pkpan         = HAL_VARS+$E3  ; scratch: this pulse packet's pan
 h_hfacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_hftickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's

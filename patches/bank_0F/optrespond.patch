@@ -8,6 +8,7 @@
     ;  zeroes the variable twice on its way past -- and immediately before the
     ;  title screen, which is what displays and edits it.
     LDA OPT_RESPOND
+    AND #RESPOND_FIELD              ; (the FUN% rows above it)
     STA respondrate
 
     LDA #BANK_TITLE                 ; Then swap in the title bank

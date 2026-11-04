@@ -17,7 +17,9 @@ Port protocol (65816 -> SPC700), one packet per voice per frame:
            noise:    the DSP noise rate
     $2143  triangle: pitch, high byte in bits 5-0
            pulse:    the period's top three bits in bits 2-0; bit 7 set when
-                     the CPU wrote $4003/$4007, which starts the sweep over
+                     the CPU wrote $4003/$4007, which starts the sweep over;
+                     bits 6-5 the pan, Stereo Sound's (PAN_LEFT, PAN_RIGHT;
+                     0 both sides, as every other voice always is)
     $2140  sequence number, written last; the SPC700 acts when it changes and
            echoes it back as the acknowledgement.  Bits 7-3 carry the
            waveform: for the triangle its cycle length, for a pulse its duty
@@ -132,6 +134,8 @@ class Asm:
     def cmpw_ya_dp(self, d):   self.emit(0x5A, d)     # C set = YA >= word
     def inc_dp(self, d):       self.emit(0xAB, d)
     def cmp_y_dp(self, d):     self.emit(0x7E, d)
+    def mov_y_dp(self, d):     self.emit(0xEB, d)
+    def cmp_y_imm(self, i):    self.emit(0xAD, i)
     def mov_dp_y(self, d):     self.emit(0xCB, d)
     def inc_abs(self, a):      self.emit(0xAC, a & 0xFF, a >> 8)
     def dec_abs(self, a):      self.emit(0x8C, a & 0xFF, a >> 8)
@@ -230,6 +234,9 @@ TGT     = 0x50        # word: the sweep's target period
 PTR     = 0x52        # word: table pointer
 PTBASE  = 0x54        # word: address of the period -> pitch table
 TACC    = 0x58        # quarter-milliseconds counted toward the next half-frame
+PANK    = 0x70        # this packet's pan: P7's bits 6-5 for a pulse, else 0
+PANC    = 0x71        # four bytes: the pan each voice's volume was last sent with
+PAN_LEFT, PAN_RIGHT = 0x20, 0x40   # Stereo Sound (hal.asm's apu_pan)
 TSEQ    = 0x59        # which interval of TPAT is running
 TPAT    = 0x5A        # six bytes: the intervals between half-frame clocks
 SV      = 0x60        # the voice halfclk is sweeping
@@ -879,14 +886,34 @@ def program():
     #
     #  So cache what was last sent per voice and skip the write when it has not
     #  moved.  With nothing changing, nothing is written at all.
+    #
+    #  Stereo Sound (user, 2026-11-03): a pulse's packet may pan it hard to
+    #  one side, the other side's volume zero.  The pan is cached beside the
+    #  volume, so a pan that changes alone -- pulse 2 coming to the middle
+    #  for a sound effect and going back -- is written too.
+    a.mov_a_imm(0); a.mov_dp_a(PANK)
+    a.mov_a_dp(VB); a.cmp_a_imm(0x20); a.bcs("panset")      # pulses only
+    a.mov_a_dp(P7); a.and_a_imm(PAN_LEFT | PAN_RIGHT); a.mov_dp_a(PANK)
+    a.label("panset")
     a.mov_a_dp(VB); a.xcn_a(); a.and_a_imm(0x0F); a.mov_x_a()   # X = voice
     a.mov_a_dp(VOL)
     a.cmp_a_dpx(VOLC)
+    a.bne("volnew")
+    a.mov_a_dp(PANK)
+    a.cmp_a_dpx(PANC)
     if "vol" not in _NOCACHE:
         a.beq("volsame")
-    a.mov_dpx_a(VOLC)
-    a.mov_a_dp(VB);                  a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
-    a.mov_a_dp(VB); a.or_a_imm(1);   a.mov_dp_a(0xF2); a.mov_a_dp(VOL); a.mov_dp_a(0xF3)
+    a.label("volnew")
+    a.mov_a_dp(VOL); a.mov_dpx_a(VOLC)
+    a.mov_a_dp(PANK); a.mov_dpx_a(PANC)
+    a.mov_a_dp(VB); a.mov_dp_a(0xF2)                         # VOL L: none if
+    a.mov_a_dp(VOL); a.mov_y_dp(PANK); a.cmp_y_imm(PAN_RIGHT)   # panned right
+    a.bne("lvol"); a.mov_a_imm(0)
+    a.label("lvol"); a.mov_dp_a(0xF3)
+    a.mov_a_dp(VB); a.or_a_imm(1); a.mov_dp_a(0xF2)          # VOL R: none if
+    a.mov_a_dp(VOL); a.cmp_y_imm(PAN_LEFT)                   #   panned left
+    a.bne("rvol"); a.mov_a_imm(0)
+    a.label("rvol"); a.mov_dp_a(0xF3)
     a.label("volsame")
     # The noise voice takes no pitch or waveform: instead its packet's pitch-low
     # byte is the global noise rate, written into FLG's low five bits (echo

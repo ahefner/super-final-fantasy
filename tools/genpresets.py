@@ -57,6 +57,15 @@ TITLE_CUSTOM = 3
 #  something -- needs a seed, as opt_needseed asks at run time -- and may not
 #  skip New Game's screens.
 RANDO_SECTIONS = ("TREASURES", "RANDOMIZATION", "KEY ITEMS")
+#  The player's own sections, which no preset sets (snesmap.inc's OPT_FUN):
+#  FUN% (user, 2026-11-03: "Not part of the seed settings").
+PLAYER_SECTIONS = ("FUN%",)
+
+
+def preset_rows(rows=None):
+    """The rows a preset sets: every one but the player's own."""
+    rows = rows if rows is not None else presetdefs.rows()
+    return [r for r in rows if r.section not in PLAYER_SECTIONS]
 
 
 #  The Party modes that draw on the seed, by readout: rando.asm's
@@ -114,7 +123,9 @@ def _text(s, where, what):
 def resolve(files, rows=None):
     """Each preset as (name, description lines, title index, {label: value index}),
     in list order.  Raises PresetError with what is wrong and where."""
-    rows = rows if rows is not None else presetdefs.rows()
+    every = rows if rows is not None else presetdefs.rows()
+    own_rows = {r.label for r in every if r.section in PLAYER_SECTIONS}
+    rows = preset_rows(every)
     by_label = {r.label: r for r in rows}
     labels = [r.label for r in rows]
     if len(by_label) != len(rows):
@@ -135,6 +146,9 @@ def resolve(files, rows=None):
             raise PresetError("%s: a second preset named \"%s\"" % (f, name))
         own = {}
         for label, v in t.get("settings", {}).items():
+            if label in own_rows:
+                raise PresetError("%s: \"%s\" is the player's own (%s): no preset sets it"
+                                  % (f, label, "/".join(PLAYER_SECTIONS)))
             if label not in by_label:
                 near = difflib.get_close_matches(label, labels, 3)
                 raise PresetError("%s: no setting \"%s\"%s" % (f, label,
@@ -282,7 +296,7 @@ def emit_desc(presets):
 
 
 def main():
-    rows = presetdefs.rows()
+    rows = preset_rows()
     try:
         files = load()
         presets = resolve(files, rows)
