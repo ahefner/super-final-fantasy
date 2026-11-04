@@ -17330,11 +17330,27 @@ def test_dwarf():
     call(cpu, "fun_smframe")
     check("...and with nothing pending, no second burst", bus.wram[PENDING], 0)
 
-    #  A CHR load over them (a battle, the menu): put back.
+    #  A CHR load over them (a battle, the menu), the sprites off as every
+    #  load has them: put back when the map is.  With them on, nothing loads
+    #  CHR, and nothing is checked.
     bus.wram[SHADOW + 32 * 0xC:SHADOW + 512] = bytes([0x5A]) * (512 - 32 * 0xC)
     call(cpu, "fun_smframe")
-    check("a load over the cranium's tile: the gib set back, and sent", (bytes(bus.wram[SHADOW:SHADOW + 512]) == tiles,
-          span(bus)[:2]), (True, (SHADOW - 0x8000, SHADOW - 0x8000 + 511)))
+    check("a frame with the sprites on checks no tiles", bytes(bus.wram[SHADOW + 32 * 0xC:SHADOW + 32 * 0xD]),
+          bytes([0x5A]) * 32)
+    bus.wram[K["h_ppumask"]] = 0
+    call(cpu, "fun_frame")
+    bus.wram[K["h_ppumask"]] = 0x1E
+    bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])
+    call(cpu, "fun_smframe")
+    check("a load over the cranium's tile, then the map back: the gib set back, and sent",
+          (bytes(bus.wram[SHADOW:SHADOW + 512]) == tiles, span(bus)[:2]),
+          (True, (SHADOW - 0x8000, SHADOW - 0x8000 + 511)))
+    bus.wram[K["h_ppumask"]] = 0
+    call(cpu, "fun_frame")
+    bus.wram[K["h_ppumask"]] = 0x1E
+    bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])
+    call(cpu, "fun_smframe")
+    check("...and back with the tiles as they were: none sent", span(bus)[:2], (0xFFFF, 0))
 
     #  The sprites off (a menu on the way): hidden, once; back with the map.
     before = sprites(bus)
@@ -17353,7 +17369,7 @@ def test_dwarf():
     bus.wram[K["h_xpal"]:K["h_xpal"] + 8] = bytes(8)
     call(cpu, "fun_smframe")
     gibs = D.burst(0)
-    for _ in range(5):
+    for _ in range(7):                          # the burst's frame and six since
         D.step(gibs)
     check("...the map back: drawn again, their colours sent again", (bus.wram[W("FUN_PARKED")], pal(bus),
           bus.wram[K["h_xpaldirty"]], same(sprites(bus), D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, 160, 64))),
@@ -17373,9 +17389,63 @@ def test_dwarf():
     covered = D.cover(want_all, 0x40)
     check("a box's frames: the gibs above its bottom hidden, at each size the box opens through; none move",
           (got, state(bus) == held, edge > 0), ([], True, True))
-    check("...the box at $40 hides some and leaves some (the case is not vacuous)",
-          (any(s[1] == HIDDEN and w[1] != HIDDEN for s, w in zip(covered, want_all)),
-           any(s[1] != HIDDEN for s in covered)), (True, True))
+    before = sprites(bus)
+    bus.wram[TMP + 11] = 0x61
+    call(cpu, "fun_cover")
+    check("...a frame with the box the size it was: the sprites as they were", sprites(bus), before)
+    call(cpu, "fun_smframe")
+    D.step(gibs)
+    check("...and the box gone, the map's frame puts them all back, moved on a frame",
+          same(sprites(bus), D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, 160, 100)), True)
+
+    #  At rest, where a frame draws only what changed (user, 2026-11-04:
+    #  slowdown "when walking around in its vicinity, or opening a dialog
+    #  box"): walking each way, some of them off the screen, a box over them
+    #  and gone, the box at a size it was before, a menu over them.  And the
+    #  cost, in instructions, the harness's measure: the old drawing was 4479
+    #  a frame, still or walking, and a box's frame 4703; the screen away
+    #  from them, 2324, never slowed.
+    def cost(name):
+        s0 = cpu.steps
+        call(cpu, name)
+        return cpu.steps - s0
+    bus, cpu, gibs, _ = run(0x1234, 18, 10, 0, 0, lambda f: (160, 64), 300)
+    want = lambda sx, sy: D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, sx, sy)
+    check("at rest, all of them on the screen", (all(g.rest for g in gibs),
+          sum(s[1] != HIDDEN for s in sprites(bus))), (True, D.PARTICLES))
+    still = cost("fun_smframe")
+    walked, walk_ = [], []
+    for sx, sy in [(160 + k, 64) for k in range(1, 9)] + [(168, 64 + k) for k in range(1, 9)]:
+        setscroll(bus, sx, sy)
+        walk_.append(cost("fun_smframe"))
+        walked.append(same(sprites(bus), want(sx, sy)))
+    check("...walking right, then down: each frame's sprites dwarfref's", walked, [True] * 16)
+    setscroll(bus, 288, 72)
+    call(cpu, "fun_smframe")
+    off = want(288, 72)
+    check("...on further, some of them off the screen", (same(sprites(bus), off),
+          0 < sum(s[1] == HIDDEN for s in off) < D.PARTICLES), (True, True))
+    bus.wram[TMP + 11] = 0x40
+    grow = cost("fun_cover")
+    same_ = cost("fun_cover")
+    check("...a box: those behind it hidden, the ones off the screen too", same(sprites(bus), D.cover(off, 0x40)), True)
+    call(cpu, "fun_smframe")
+    check("...the box gone: all back, nothing having moved", same(sprites(bus), off), True)
+    call(cpu, "fun_cover")
+    check("...a box again at the size the last one was: covered again", same(sprites(bus), D.cover(off, 0x40)), True)
+    call(cpu, "fun_smframe")
+    bus.wram[K["h_ppumask"]] = 0
+    call(cpu, "fun_frame")
+    bus.wram[TMP + 11] = 0x20
+    call(cpu, "fun_cover")
+    check("...put away (a menu), a box's frame leaves them so", {s[1] for s in sprites(bus)}, {HIDDEN})
+    bus.wram[K["h_ppumask"]] = 0x1E
+    call(cpu, "fun_smframe")
+    check("...and the map back, they are too", same(sprites(bus), off), True)
+    check("the cost: at rest and still under 80, walking under 1400, a box's frame under 700 as it grows and "
+          "under 20 once open", (still < 80, max(walk_) < 1400, grow < 700, same_ < 20,
+                                 (still, max(walk_), grow, same_)),
+          (True, True, True, True, (still, max(walk_), grow, same_)))
 
     #  Leaving the map, every way off it (StartScreenWipe): gone, and the
     #  next visit has him back.  And every boot.

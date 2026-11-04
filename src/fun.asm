@@ -358,59 +358,74 @@ fun_frame:
     RTL
 
 ;;  From Dialogue_CoverSprites_VBl, before its wait, as the game gives its
-;;  sprites behind the box the background's priority: the gibs as they were,
-;;  less those behind the box -- a sprite whose NES Y is above the box's
-;;  bottom, tmp+11 (dwarfref.cover).  They do not move while it is open.
-;;  A8 X8.
+;;  sprites behind the box the background's priority: the gibs as last drawn
+;;  (GIB_SPR), less those behind the box -- a sprite whose NES Y is above the
+;;  box's bottom, tmp+11 (dwarfref.cover).  They do not move while it is
+;;  open.  A box's frame has the least time of any (user, 2026-11-04: the
+;;  burst's remains slowed "opening a dialog box"), so a frame whose box is
+;;  the size it was does nothing, and one that grew is a compare a gib.  Put
+;;  away (FUN_PARKED), they stay so.  A8 X8.
 fun_cover:
     LDA f:FUN_ACTIVE
     BEQ @out
+    LDA f:FUN_PARKED
+    BNE @out
+    LDA tmp+11
+    CMP f:FUN_CUT
+    BEQ @out
+    STA f:FUN_CUT
     PHB
-    PHK
-    PLB
+    LDA #^FUNRAM
+    PHA
+    PLB                         ; FUNRAM's bank; OAM through the direct page
     CLC
     XCE
     REP #$30
     .a16
     .i16
-    LDA #0
-    JSR dwarf_heal
-    JSR dwarf_draw
-    LDA tmp+11
+    PHD
+    LDA #GIB_OAM
+    TCD
+    LDA a:.loword(FUN_CUT)      ; tmp+11, as stored above
     AND #$00FF
-    STA f:FUN_T
-    LDY #0
-  @gib:
-    LDA GIB_OAM + 1, Y
-    AND #$00FF
-    CLC
-    ADC #NES_TOP_CROP - 1       ; its NES Y, as hal_oamdma takes it off
-    CMP f:FUN_T
+    SEC
+    SBC #NES_TOP_CROP - 1       ; the box's bottom as a SNES Y...
     BCS :+
-    SEP #$20
-    .a8
-    LDA #GIB_HIDDEN
-    STA GIB_OAM + 1, Y
-    REP #$20
-    .a16
-:   INY
-    INY
-    INY
-    INY
-    CPY #GIB_N * 4
+    LDA #0
+:   XBA                         ; ...against the sprite word's high byte
+    STA a:.loword(FUN_T)
+    LDX #0
+  @gib:
+    LDA a:.loword(GIB_SPR), X
+    CMP a:.loword(FUN_T)
+    BCS :+
+    LDA #GIB_HIDDEN << 8        ; behind the box
+:   STA z:0, X
+    INX
+    INX
+    INX
+    INX
+    CPX #GIB_N * 4
     BCC @gib
+    LDA #1
+    STA a:.loword(FUN_REDRAW)   ; the map's next frame puts them all back
+    PLD
     SEP #$30
     .a8
     .i8
     SEC
     XCE
     PLB
+    LDA #1
+    STA f:h_oamdirty
   @out:
     RTL
 
 
 ;;  From the standard map loop, the frame's sprites drawn: the burst, if his
-;;  line has just closed, then the gibs' frame.  A8 X8.
+;;  line has just closed, then the gibs' frame -- which costs next to nothing
+;;  once they lie still and the screen does too (user, 2026-11-04: they
+;;  slowed the game "when walking around in its vicinity").  A8 X8.
 fun_smframe:
     LDA f:FUN_PENDING
     BEQ :+
@@ -426,11 +441,13 @@ fun_smframe:
     REP #$30
     .a16
     .i16
-    LDA #0                      ; (only if a load took them)
-    JSR dwarf_heal
-    JSR dwarf_step
+    JSR dwarf_heal              ; back from hiding: tiles and colours
+    JSR dwarf_step              ; while any gib moves
+    JSR dwarf_scroll            ; a new scroll redraws
+    LDA f:FUN_REDRAW
+    BEQ :+
     JSR dwarf_draw
-    SEP #$30
+:   SEP #$30
     .a8
     .i8
     SEC
@@ -467,7 +484,8 @@ dwarf_burst:
     .a16
     .i16
     ;  His feet, where his sprite has them: 16 per tile with the movement
-    ;  counter, and the sprite drawn two above its tile and 16 tall.
+    ;  counter, and the sprite drawn two above its tile and 16 tall.  Kept
+    ;  as a gib sprite's corner, 4 up and left, and the crop off.
     LDA mapobj_gfxX, X
     AND #$00FF
     ASL A
@@ -480,7 +498,7 @@ dwarf_burst:
     CLC
     ADC f:FUN_T
     CLC
-    ADC #8
+    ADC #8 - 4
     STA f:FUN_OX
     LDA mapobj_gfxY, X
     AND #$00FF
@@ -494,7 +512,7 @@ dwarf_burst:
     CLC
     ADC f:FUN_T
     CLC
-    ADC #13
+    ADC #13 - 4 - NES_TOP_CROP
     STA f:FUN_OY
     LDA framecounter            ; the draws: a new burst every time
     BNE :+
@@ -544,12 +562,16 @@ dwarf_burst:
     STA f:GIB_VZ, X
     LDA #0
     STA f:GIB_REST, X
+    JSR gib_place
+    JSR gib_sprite
     INX
     INX
     CPX #GIB_N * 2
-    BCC @gib
-    LDA #$FFFF                  ; the tiles and colours in, whatever is there
-    JSR dwarf_tiles
+    BCS :+
+    JMP @gib
+:   LDA #1
+    STA f:FUN_MOVING
+    JSR dwarf_tiles             ; the tiles and colours in, whatever is there
     SEP #$30
     .a8
     .i8
@@ -558,8 +580,6 @@ dwarf_burst:
     PLB
     LDA #1
     STA f:FUN_ACTIVE
-    LDA #0
-    STA f:FUN_PARKED
     RTS
 
 .a16
@@ -606,33 +626,31 @@ asr4:
     ROR A
     RTS
 
-;;  The gibs' tiles into object slot 14's row of the shadow, and their
-;;  colours to the HAL, when a load has put something else there -- party
-;;  creation, a battle, a menu and the map's own object CHR all write it --
-;;  or the colours when the gibs come back from hiding.  In: A16 nonzero to
-;;  do both regardless.  A16 I16, DBR this chunk.
-dwarf_tiles:
+;;  Back from hiding -- a menu, a shop, a battle, any of which may have
+;;  loaded the pattern table over them and the palette: the gibs' tiles
+;;  again if the cranium's is not as it should be, their colours, and a
+;;  redraw.  Nothing else loads CHR while the map's sprites are on, so a
+;;  frame that has not hidden them checks nothing.  A16 I16, DBR this chunk.
 dwarf_heal:
-    CMP #$FFFF
-    BEQ @tiles
-    LDX #32 * $C                ; the cranium's tile, as it should be?
+    LDA f:FUN_PARKED
+    AND #$00FF
+    BEQ @out
+    LDX #32 * $C
   @check:
     LDA f:CHRSHADOW + GIB_SHADOW, X
     CMP lut_DwarfGibs, X
-    BNE @tiles
+    BNE dwarf_tiles
     INX
     INX
     CPX #32 * $D
     BCC @check
-    SEP #$20
-    .a8
-    LDA f:FUN_PARKED
-    REP #$20
-    .a16
-    AND #$00FF
-    BNE @colours                ; back from hiding: a box or a menu may have
-    RTS                         ;   had the palette
-  @tiles:
+    BRA dwarf_colours
+  @out:
+    RTS
+
+;;  The gibs' tiles into object slot 14's row of the shadow, then their
+;;  colours.  A16 I16, DBR this chunk.
+dwarf_tiles:
     LDX #0
   @copy:
     LDA lut_DwarfGibs, X
@@ -644,7 +662,8 @@ dwarf_heal:
     LDA #GIB_SHADOW
     LDX #GIB_SHADOW + 16 * 32 - 1
     JSL hal_chrdirty + HALFAR
-  @colours:
+;;  Their colours to the HAL, and every gib drawn again.
+dwarf_colours:
     SEP #$20
     .a8
     LDX #7
@@ -659,12 +678,68 @@ dwarf_heal:
     STA f:FUN_PARKED
     REP #$20
     .a16
+    LDA #1
+    STA f:FUN_REDRAW
+    RTS
+
+;;  Gib X's sprite's corner in map pixels, from its place: dwarf_draw's
+;;  part that does not change with the scroll.  A16 I16; X kept.
+gib_place:
+    LDA f:GIB_X, X
+    JSR hibyte
+    CLC
+    ADC f:FUN_OX
+    STA f:FUN_T2
+    LDA f:GIB_Z, X
+    JSR hibyte
+    STA f:FUN_T
+    LDA f:GIB_Y, X
+    JSR hibyte
+    SEC
+    SBC f:FUN_T
+    CLC
+    ADC f:FUN_OY
+    PHX
+    PHA
+    TXA
+    ASL A                       ; four bytes a gib
+    TAX
+    PLA
+    STA f:GIB_MXY + 2, X
+    LDA f:FUN_T2
+    STA f:GIB_MXY, X
+    PLX
+    RTS
+
+;;  Gib X's sprite's tile and attributes, which change only as it pools.
+;;  A16 I16, DBR this chunk; X kept, Y clobbered.
+gib_sprite:
+    TXA
+    ASL A
+    TAY
+    SEP #$20
+    .a8
+    LDA f:GIB_TILE, X
+    CLC
+    ADC #DWARF_GIB_FIRST
+    STA GIB_OAM + 2, Y
+    LDA lut_DwarfAttr, X
+    STA GIB_OAM + 3, Y
+    REP #$20
+    .a16
     RTS
 
 ;;  dwarfref.step: each gib's frame -- it flies and falls; on the floor a
 ;;  bouncer bounces back up slower, a drop of blood pools, and a gib too slow
-;;  to bounce lies still.  A16 I16, DBR this chunk.
+;;  to bounce lies still -- while any does.  A16 I16, DBR this chunk.
 dwarf_step:
+    LDA f:FUN_MOVING
+    BNE :+
+    RTS
+:   LDA #1
+    STA f:FUN_REDRAW
+    LDA #0
+    STA f:FUN_MOVING
     LDX #0
   @gib:
     LDA f:GIB_REST, X
@@ -688,7 +763,7 @@ dwarf_step:
     STA f:GIB_VZ, X
     LDA f:GIB_Z, X
     BMI :+
-    JMP @next                   ; still in the air
+    JMP @moving                 ; still in the air
 :   LDA #0
     STA f:GIB_Z, X
     LDA f:GIB_VZ, X             ; down: (-vz * 5) / 8 back up
@@ -722,6 +797,10 @@ dwarf_step:
     CMP #$8000
     ROR A
     STA f:GIB_VY, X
+  @moving:
+    LDA #1
+    STA f:FUN_MOVING
+    JSR gib_place
     BRA @next
   @settle:
     LDA #1
@@ -732,20 +811,22 @@ dwarf_step:
     STA f:GIB_VZ, X
     LDA lut_DwarfRest, X
     CMP #$FFFF
-    BEQ @next                   ; it keeps its tile
+    BEQ :+                      ; it keeps its tile
     STA f:FUN_T
     LDA f:GIB_TILE, X           ; a drop pools: the pools, by its own
     AND #$0001
     CLC
     ADC f:FUN_T
     STA f:GIB_TILE, X
+:   JSR gib_place
+    JSR gib_sprite
   @next:
     INX
     INX
     CPX #GIB_N * 2
-    BCC :+
-    RTS
-:   JMP @gib
+    BCS :+
+    JMP @gib
+:   RTS
 
 ;;  The A16 word's high byte, sign extended: its whole pixels, the floor.
 hibyte:
@@ -756,11 +837,9 @@ hibyte:
     ORA #$FF00
 :   RTS
 
-;;  dwarfref.oam: each gib's sprite, from the origin, the screen's scroll as
-;;  the map objects take it (map pixels: 16 a tile with the movement
-;;  counter), the screen 1024 pixels round, and the NES's cropped top lines
-;;  off; off the screen, hidden.  A16 I16, DBR this chunk.
-dwarf_draw:
+;;  This frame's scroll, as the map objects take it (map pixels: 16 a tile
+;;  with the movement counter); a new one redraws.  A16 I16.
+dwarf_scroll:
     LDA sm_scroll_x
     AND #$00FF
     ASL A
@@ -785,76 +864,93 @@ dwarf_draw:
     CLC
     ADC f:FUN_T
     STA f:FUN_SY
-    LDX #0                      ; X the gib, two a gib; Y its sprite, four
-    LDY #0
-  @gib:
-    LDA f:GIB_X, X
-    JSR hibyte
-    CLC
-    ADC f:FUN_OX
-    SEC
-    SBC f:FUN_SX
-    AND #$03FF
-    STA f:FUN_PX
-    CMP #4
-    BCC @hide
-    CMP #252
-    BCS @hide
-    LDA f:GIB_Z, X
-    JSR hibyte
-    STA f:FUN_T
-    LDA f:GIB_Y, X
-    JSR hibyte
-    SEC
-    SBC f:FUN_T
-    CLC
-    ADC f:FUN_OY
-    SEC
-    SBC f:FUN_SY
-    AND #$03FF
-    CMP #NES_TOP_CROP + 4
-    BCC @hide
-    CMP #NES_TOP_CROP + 224 - 4
-    BCS @hide
-    SEC
-    SBC #NES_TOP_CROP + 4
-    SEP #$20
-    .a8
-    STA GIB_OAM + 1, Y
-    LDA f:FUN_PX
-    SEC
-    SBC #4
-    STA GIB_OAM + 0, Y
-    LDA f:GIB_TILE, X
-    CLC
-    ADC #DWARF_GIB_FIRST
-    STA GIB_OAM + 2, Y
-    LDA lut_DwarfAttr, X
-    STA GIB_OAM + 3, Y
-    REP #$20
-    .a16
-    BRA @next
-  @hide:
-    SEP #$20
-    .a8
-    LDA #GIB_HIDDEN
-    STA GIB_OAM + 1, Y
-    REP #$20
-    .a16
-  @next:
-    INY
-    INY
-    INY
-    INY
-    INX
-    INX
-    CPX #GIB_N * 2
-    BCS :+
-    JMP @gib
-:   SEP #$20
-    .a8
+    CMP f:FUN_LSY
+    BNE @new
+    LDA f:FUN_SX
+    CMP f:FUN_LSX
+    BNE @new
+    RTS
+  @new:
     LDA #1
-    STA h_oamdirty
+    STA f:FUN_REDRAW
+    RTS
+
+;;  dwarfref.oam: each gib's sprite from its corner in map pixels less the
+;;  scroll, the screen 1024 pixels round; off the screen, hidden.  The
+;;  position alone, X and Y in a word: the tiles and attributes are
+;;  gib_sprite's.  Every frame the screen moves near them, so a tight loop:
+;;  the scroll added negated, the carry clear at each add without a CLC (the
+;;  loop's BCC and each BCS before leave it so), one index for the corners,
+;;  OAM through the direct page and the sprites as drawn.  A16 I16, DBR this
+;;  chunk.
+dwarf_draw:
+    PHB
+    PHD
+    SEP #$20
+    .a8
+    LDA #^FUNRAM
+    PHA
+    PLB                         ; FUNRAM's bank; OAM through the direct page
+    REP #$20
+    .a16
+    LDA #GIB_OAM
+    TCD
+    LDA a:.loword(FUN_SX)
+    STA a:.loword(FUN_LSX)
+    EOR #$FFFF
+    INC A
+    STA a:.loword(FUN_NSX)
+    LDA a:.loword(FUN_SY)
+    STA a:.loword(FUN_LSY)
+    EOR #$FFFF
+    INC A
+    STA a:.loword(FUN_NSY)
+    LDX #0                      ; four bytes a gib, in all three
+    CLC
+  @gib:
+    LDA a:.loword(GIB_MXY), X
+    ADC a:.loword(FUN_NSX)
+    AND #$03FF
+    CMP #252 - 4                ; dwarfref.oam: 4 <= px < 252
+    BCS @hide
+    STA a:.loword(FUN_T)
+    LDA a:.loword(GIB_MXY) + 2, X
+    ADC a:.loword(FUN_NSY)
+    AND #$03FF
+    CMP #220 - 4                ; ...and the crop + 4 <= py < the crop + 220
+    BCS @hide
+    XBA
+    ORA a:.loword(FUN_T)
+    STA z:0, X
+    STA a:.loword(GIB_SPR), X
+    INX
+    INX
+    INX
+    INX
+    CPX #GIB_N * 4
+    BCC @gib
+    BRA @done
+  @hide:
+    LDA #GIB_HIDDEN << 8
+    STA z:0, X
+    STA a:.loword(GIB_SPR), X
+    INX
+    INX
+    INX
+    INX
+    CPX #GIB_N * 4
+    BCC @gib
+  @done:
+    LDA #0
+    STA a:.loword(FUN_REDRAW)
+    PLD
+    PLB
+    SEP #$20
+    .a8
+    LDA #$FF
+    STA f:FUN_CUT               ; a box's cover starts again from these
+    LDA #1
+    STA f:h_oamdirty
     REP #$20
     .a16
     RTS

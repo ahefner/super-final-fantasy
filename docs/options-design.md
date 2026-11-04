@@ -1782,6 +1782,21 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     standard map -- stairs, a teleport, WARP, EXIT, the way out to the
     world -- starts and the game hides its own sprites.  Every boot, a soft
     reset's too, clears them (`fun_init`, from `opt_init`).
+  - **What a frame costs.**  The first build redrew every gib from its
+    physics every frame, about 4500 instructions, and a box's frame 4700:
+    nothing while the party stood watching, but the user had slowdown
+    "when walking around in its vicinity, or opening a dialog box"
+    (2026-11-04) -- frames the game already fills.  Now each gib keeps its
+    sprite's corner in map pixels as it moves (`GIB_MXY`), so a frame's
+    drawing is a subtraction a gib in one tight loop, and it draws only
+    when something changed: a gib moved, the screen scrolled, they came
+    back from hiding or from under a box.  Standing still among them, 58
+    instructions; walking, 1270 (the screen away from them, which never
+    slowed, was 2324); a box's frame 9, and 600 on a frame it grows or
+    shrinks, from the sprites as last drawn (`GIB_SPR`).  The tiles are
+    checked only after hiding, when a load can have had them.  The burst
+    itself is one long frame, about 23000.  `test_dwarf` holds the costs
+    to bounds.
   - **The HAL** gained two services, hardware only: `xpal_prep`, which
     stages OBJ palettes 4 and 5 beside the NES palette's records when the
     game hands it colours (`PALSTAGE` is 160 bytes now), and
@@ -1793,8 +1808,11 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     walking, round the map's edge, at each of the screen's edges and far
     off it; the tiles, the span and the colours, mended after a load and
     sent back after hiding; every box size; the exit and the boot; the
-    hooks, each once in its place; the HAL's records.  47 mutations, all
-    caught.
+    hooks, each once in its place; the HAL's records; at rest, walking each
+    way, off the screen, a box over them and gone, a box the size of the
+    last, a menu over them -- and the costs.  47 mutations, all caught; 39
+    more for the cheaper frame (2026-11-04), all caught once the at-rest
+    cases were in.
 
 ### Treasures (2)
 
@@ -4386,12 +4404,13 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  11493 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  11313 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
-                             2026-11-03; the Exploding Dwarf 3091 -- the
+                             2026-11-03; the Exploding Dwarf 3271 -- the
                              gib set 512 and the particles' tables 1464,
-                             dwarfgibs.inc, and 1115 of code, 2026-11-04)
+                             dwarfgibs.inc, and 1295 of code, 180 of it
+                             the cheaper frame, 2026-11-04)
     BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and

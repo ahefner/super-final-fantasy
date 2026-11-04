@@ -2449,14 +2449,27 @@ FUN_ACTIVE      = FUNRAM+$380     ; nonzero while the gibs are out, till the map
 FUN_PENDING     = FUNRAM+$381     ; nonzero: his line drawn, the burst next map frame
 FUN_PARKED      = FUNRAM+$383     ; nonzero: fun_frame put them away (a menu, a shop, a battle)
 FUN_RNG         = FUNRAM+$386     ; 2: the burst's draws (dwarfref.xs16)
-FUN_OX          = FUNRAM+$388     ; 2: the origin, in map pixels: his feet
-FUN_OY          = FUNRAM+$38A     ; 2
+FUN_OX          = FUNRAM+$388     ; 2: the origin, in map pixels: his feet, less 4 --
+FUN_OY          = FUNRAM+$38A     ; 2:   a gib's sprite's corner -- and the crop off Y
 FUN_SX          = FUNRAM+$38C     ; 2: this frame's scroll, in map pixels
 FUN_SY          = FUNRAM+$38E     ; 2
 FUN_T           = FUNRAM+$390     ; 2: scratch
-FUN_PX          = FUNRAM+$392     ; 2: scratch: a gib on the screen
-FUNRAM_END      = FUNRAM+$394
+GIB_MXY         = FUNRAM+$3A0     ; each gib's sprite's corner in map pixels, X then Y,
+                                  ;   four bytes a gib as OAM's are: kept as it moves,
+                                  ;   so a frame's drawing is a subtraction
+GIB_SPR         = FUNRAM+$480     ; each gib's sprite as last drawn, four bytes a gib:
+                                  ;   X | Y << 8, $F000 hidden (the box's cover's)
+FUN_LSX         = FUNRAM+$560     ; 2: the scroll it was drawn at
+FUN_LSY         = FUNRAM+$562     ; 2
+FUN_REDRAW      = FUNRAM+$564     ; 2: nonzero: a gib moved, came back or was covered
+FUN_MOVING      = FUNRAM+$566     ; 2: nonzero while any gib is not at rest
+FUN_NSX         = FUNRAM+$568     ; 2: the scroll, negated, as dwarf_draw adds it
+FUN_NSY         = FUNRAM+$56A     ; 2
+FUN_T2          = FUNRAM+$56C     ; 2: scratch
+FUN_CUT         = FUNRAM+$56E     ; the box's bottom the cover last hid at, $FF none
+FUNRAM_END      = FUNRAM+$570
 .assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
+.assert GIB_SPR = GIB_MXY + GIB_N * 4 && GIB_SPR + GIB_N * 4 <= FUN_LSX, error, "the gibs' arrays overlap"
 .assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"
 OBJID_HURRAY    = $63             ; the Hurray dwarf, the Dwarf Cave's (lut_MapObjects)
 DLG_HURRAY      = $77             ; his "Hurray!!"
