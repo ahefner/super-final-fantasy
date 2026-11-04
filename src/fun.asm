@@ -10,21 +10,24 @@
 ;
 ;    deal_palswap  the seed's tables, into the cache with the rest of it:
 ;                  the 64 battle palettes shuffled, as FFR's PaletteSwap
-;                  (Fun.cs) shuffles them, and a tint for every map, the
-;                  overworld and each battle backdrop (randoref.build_palswap)
-;    fun_smpal     a standard map's palettes tinted as they load -- its
-;                  three background palettes and its three in rooms, the
-;                  fourth of each the dialogue box's -- then Short ToFR's
-;    fun_owpal     the overworld's four, likewise
+;                  (Fun.cs) shuffles them, a tint for every map, the
+;                  overworld and each battle backdrop, and a tone for every
+;                  standard map (randoref.build_palswap)
+;    fun_smpal     a standard map's palettes tinted and toned as they load
+;                  -- its three background palettes and its three in rooms,
+;                  the fourth of each the dialogue box's -- then Short ToFR's
+;    fun_owpal     the overworld's four, likewise tinted, the water kept blue
 ;    fun_bdpal     a battle backdrop's three colours
 ;    fun_btlpal     an enemy palette's number, through the shuffle
 ;
 ;  A tint moves a colour's hue a few steps round the NES's twelve, the
 ;  same for every colour of the map, and keeps its brightness: greens go
 ;  toward teal and blue one way, olive and brown the other, and black,
-;  white and the greys stay.  Each is a no-op with the row Off.  From the
-;  fixed bank, by JSL, emulation mode, A8 X8, the caller's DBR (which
-;  decodes low WRAM); deal_palswap from the build, native.
+;  white and the greys stay.  A tone (user, 2026-11-04) moves a standard
+;  map's darkest colours toward blue, or its lightest toward orange, or
+;  turns either to a hue of its own.  Each is a no-op with the row Off.
+;  From the fixed bank, by JSL, emulation mode, A8 X8, the caller's DBR
+;  (which decodes low WRAM); deal_palswap from the build, native.
 ; ---------------------------------------------------------------------------
 .p816
 .a8
@@ -48,9 +51,9 @@ TINT_STEPS      = 7             ; -3..+3
 SRAMFAR_FUN     = CHUNK0 * $10000 + OPT_FUN
 
 ;;  deal_palswap -- Palette swap's tables for the seed: RW_PALPERM a
-;;  Fisher-Yates of 0..63, then RW_TINT a draw below TINT_STEPS each, all on
-;;  STREAM_PALSWAP.  From build (rando.asm): native, DBR = $7F, A8 I16.
-;;  Out: the same.
+;;  Fisher-Yates of 0..63, then RW_TINT a draw below TINT_STEPS each, then
+;;  RW_TONE two ends each (tone_end), all on STREAM_PALSWAP.  From build
+;;  (rando.asm): native, DBR = $7F, A8 I16.  Out: the same.
 deal_palswap:
     REP #$30
     .a16
@@ -85,7 +88,59 @@ deal_palswap:
     INX
     CPX #PALSWAP_TINTS
     BCC @tint
+    LDX #$0000
+  @tone:
+    PHX
+    JSR tone_end                ; the darkest colours'...
+    STA a:.LOWORD(FUN_CODE)
+    JSR tone_end                ; ...and the lightest'
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ORA a:.LOWORD(FUN_CODE)
+    PLX
+    STA a:.LOWORD(RW_TONE), X
+    INX
+    CPX #PALSWAP_TONES
+    BCC @tone
     RTL
+
+;;  One end of a map's tone (user, 2026-11-04: "sometimes the darkest color
+;;  is a cooler tone, the lightest color is a warmer tone, or occasionally an
+;;  entirely different hue altogether"): a draw below sixteen, seven of them
+;;  leaving the colours be (0), eight moving them toward the end's hue, three
+;;  of 2 steps, three of 3 and two of 4, and one turning them 3-9 steps round
+;;  the twelve (5-11, a second draw).  As randoref's TONE_DRAW.  A = the code;
+;;  X not kept.
+tone_end:
+    LDA #16
+    JSL rando_belowfar + RANDOFAR
+    CMP #15
+    BCS @turn
+    CMP #7
+    BCC @none
+    CMP #10
+    BCC @two
+    CMP #13
+    BCC @three
+    LDA #4
+    RTS
+  @three:
+    LDA #3
+    RTS
+  @two:
+    LDA #2
+    RTS
+  @none:
+    LDA #0
+    RTS
+  @turn:
+    LDA #7
+    JSL rando_belowfar + RANDOFAR
+    CLC
+    ADC #5
+    RTS
 
 .a8
 .i8                             ; the rest: from the fixed bank, emulation mode
@@ -128,44 +183,182 @@ tint_one:
     PLA
     RTS
 
-;;  load_map_pal from Y up to FUN_END, each colour tinted.  Y moved.
-tint_lmp:
-    LDA load_map_pal, Y
-    JSR tint_one
-    STA load_map_pal, Y
-    INY
-    TYA
-    CMP f:FUN_END
-    BCC tint_lmp
+;;  C clear when A is a colour -- its hue 1-12 -- and set for the greys and
+;;  black (0, 13-15).  A = the hue.
+hue_of:
+    AND #$0F
+    BEQ @grey
+    CMP #$0D
+    RTS
+  @grey:
+    SEC
     RTS
 
 ;;  The end of LoadSMTilesetData (optopenchests.patch): this map's tint over
 ;;  its three background palettes and its three in rooms -- each set's fourth
-;;  is the dialogue box's, $0F $00 $01 $30 on every map -- then Short ToFR's
-;;  colour, as before.
+;;  is the dialogue box's, $0F $00 $01 $30 on every map -- and its tone over
+;;  the colours of its darkest brightness row and of its lightest; then Short
+;;  ToFR's colour, as before.  A map whose colours are all one row has the
+;;  lightest's tone alone.
 fun_smpal:
     JSR palswap_on
     BEQ @out
     LDX cur_map
     LDA f:RW_TINT, X
     STA f:FUN_CODE
-    LDA #$0C
-    STA f:FUN_END
-    LDY #$00
-    JSR tint_lmp
-    LDA #$2C
-    STA f:FUN_END
-    LDY #$20
-    JSR tint_lmp
+    LDA f:RW_TONE, X
+    STA f:FUN_TONE
+    LDA #3
+    STA f:FUN_DARK
+    LDA #0
+    STA f:FUN_LIGHT
+    JSR sm_rows
+    JSR sm_lmp
   @out:
     JML rando_smpal + RANDOFAR
 
+;;  Y on to the next of a standard map's colours to tint: $00-$0B, its three
+;;  palettes, then $20-$2B, its three in rooms.  C clear while there is one.
+sm_next:
+    INY
+    CPY #$0C
+    BNE :+
+    LDY #$20
+:   CPY #$2C
+    RTS
+
+;;  FUN_DARK down to the darkest row of the map's colours, FUN_LIGHT up to
+;;  the lightest.  Y not kept.
+sm_rows:
+    LDY #$00
+  @colour:
+    LDA load_map_pal, Y
+    JSR hue_of
+    BCS @next
+    LDA load_map_pal, Y
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    CMP f:FUN_DARK
+    BCS :+
+    STA f:FUN_DARK
+:   CMP f:FUN_LIGHT
+    BCC @next
+    STA f:FUN_LIGHT
+  @next:
+    JSR sm_next
+    BCC @colour
+    RTS
+
+;;  Each of the map's colours tinted, then toned if it is of the lightest
+;;  row (the high nibble's code, toward TONE_WARM) or else the darkest (the
+;;  low's, toward TONE_COOL).  X and Y not kept.
+sm_lmp:
+    LDY #$00
+  @colour:
+    LDA load_map_pal, Y
+    JSR tint_one
+    STA load_map_pal, Y
+    JSR hue_of
+    BCS @next
+    STA f:FUN_HUE
+    LDA load_map_pal, Y
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    CMP f:FUN_LIGHT
+    BEQ @light
+    CMP f:FUN_DARK
+    BNE @next
+    LDX #TONE_COOL
+    LDA f:FUN_TONE
+    AND #$0F
+    BRA @tone
+  @light:
+    LDX #TONE_WARM
+    LDA f:FUN_TONE
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+  @tone:
+    JSR tone_move
+    LDA load_map_pal, Y
+    AND #$F0
+    ORA f:FUN_HUE
+    STA load_map_pal, Y
+  @next:
+    JSR sm_next
+    BCC @colour
+    RTS
+
+;;  FUN_HUE moved by a tone's code in A (randoref.palswap_tone): 0 nothing;
+;;  1-4 that many steps round the twelve toward hue X, the shorter way --
+;;  up when the ways tie -- and no further; 5-15 turned code - 2 steps.  Y
+;;  kept.
+TONE_COOL       = 1             ; blue
+TONE_WARM       = 7             ; orange
+tone_move:
+    CMP #0
+    BEQ @out
+    CMP #5
+    BCS @turn
+    STA f:FUN_STEPS
+    TXA
+    STA f:FUN_TARGET
+  @step:
+    LDA f:FUN_TARGET
+    SEC
+    SBC f:FUN_HUE               ; target - hue, -11..11
+    BEQ @out
+    BPL :+
+    CLC
+    ADC #12                     ; round the twelve, 1..11
+:   CMP #7
+    LDA f:FUN_HUE
+    BCC @up                     ; 1-6 steps up to it
+    DEC A
+    BNE @moved
+    LDA #12
+    BRA @moved
+  @up:
+    INC A
+    CMP #13
+    BCC @moved
+    LDA #1
+  @moved:
+    STA f:FUN_HUE
+    LDA f:FUN_STEPS
+    DEC A
+    STA f:FUN_STEPS
+    BNE @step
+  @out:
+    RTS
+  @turn:
+    SEC
+    SBC #2                      ; 3-13 steps
+    CLC
+    ADC f:FUN_HUE               ; 4-25
+  @wrap:
+    CMP #13
+    BCC @turned
+    SBC #12                     ; (C set)
+    BRA @wrap
+  @turned:
+    STA f:FUN_HUE
+    RTS
+
 ;;  The end of LoadOWTilesetData (palswap.patch): the overworld's tint over
-;;  its four background palettes, all of them land, and sprite palette 3,
-;;  which the land over the canal, the bridge and the airship's shadow are
-;;  drawn in to sit on the grass (user, 2026-11-04: the land bridge before
-;;  the canal "needs to match"): its green moves with the map's, its black
-;;  and white stay.
+;;  its four background palettes and sprite palette 3, which the land over
+;;  the canal, the bridge and the airship's shadow are drawn in to sit on
+;;  the grass (user, 2026-11-04: the land bridge before the canal "needs to
+;;  match"): its green moves with the map's, its black and white stay.  The
+;;  water, the colours shipped blue -- hue 1, 2 or 12, $21 and $31 -- is kept
+;;  to those three (user, 2026-11-04: "clamp the water palette entries to
+;;  stop them getting to green or too purple"), so a tint that would carry
+;;  it on toward violet stops at 2 and toward green at 12.
 fun_owpal:
     JSR palswap_on
     BEQ @out
@@ -174,13 +367,58 @@ fun_owpal:
     LDA #$10
     STA f:FUN_END
     LDY #$00
-    JSR tint_lmp
+    JSR ow_lmp
     LDA #$20
     STA f:FUN_END
     LDY #$1C
-    JSR tint_lmp
+    JSR ow_lmp
   @out:
     RTL
+
+;;  load_map_pal from Y up to FUN_END, each colour tinted, the water's kept
+;;  blue.  Y moved.
+ow_lmp:
+    LDA load_map_pal, Y
+    PHA
+    JSR tint_one
+    STA load_map_pal, Y
+    PLA                         ; as shipped: water's if blue
+    JSR blue_hue
+    BCC @next
+    LDA load_map_pal, Y
+    JSR blue_hue
+    BCS @next                   ; still blue
+    CMP #$08                    ; 3-7, toward violet: to 2; 8-11, toward green: to 12
+    LDA #$02
+    BCC :+
+    LDA #$0C
+:   STA f:FUN_HUE
+    LDA load_map_pal, Y
+    AND #$F0
+    ORA f:FUN_HUE
+    STA load_map_pal, Y
+  @next:
+    INY
+    TYA
+    CMP f:FUN_END
+    BCC ow_lmp
+    RTS
+
+;;  C set when A's hue is blue -- 1, 2 or 12 -- and clear for the rest.  A =
+;;  the hue.
+blue_hue:
+    AND #$0F
+    BEQ @no
+    CMP #$03
+    BCC @yes
+    CMP #$0C
+    BEQ @yes                    ; (C set)
+  @no:
+    CLC
+    RTS
+  @yes:
+    SEC
+    RTS
 
 ;;  After LoadBattleBackdropPalette's copy (palswap.patch): X = the backdrop
 ;;  times four, cur_pal 0-3 its colours; colours 1-3 tinted, 0 the black

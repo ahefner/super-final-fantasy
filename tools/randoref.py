@@ -2103,26 +2103,100 @@ _SARA_NAMES = ["the Temple of Fiends", "the Dwarf Cave", "Elfland Castle", "Cres
 #  shuffled, as FFR's PaletteSwap shuffles them, then a tint below
 #  PALSWAP_STEPS for each of PALSWAP_TINTS -- every map, the overworld's at
 #  PALSWAP_OW, the backdrops' from PALSWAP_BACKDROP -- a shift of tint - 3
-#  round the twelve hues.  (perm, tints).
+#  round the twelve hues; then a tone for each of PALSWAP_TONES standard
+#  maps (palswap_tone).  (perm, tints, tones).
 STREAM_PALSWAP = 0x50414C53     # "PALS"
-PALSWAP_PALS, PALSWAP_TINTS, PALSWAP_STEPS = 64, 96, 7
+PALSWAP_PALS, PALSWAP_TINTS, PALSWAP_STEPS, PALSWAP_TONES = 64, 96, 7, 64
 PALSWAP_OW, PALSWAP_BACKDROP = 64, 80
+#  A tone's ends (user, 2026-11-04: on a standard map, "sometimes the
+#  darkest color is a cooler tone, the lightest color is a warmer tone, or
+#  occasionally an entirely different hue altogether"): the low nibble the
+#  map's darkest colours', the high its lightest'.  0 leaves them; 1-4 moves
+#  them that many steps toward TONE_COOL (dark) or TONE_WARM (light), and no
+#  further; 5-15 turns them code - 2 round the twelve, 3-9 dealt.  Each end
+#  draws one of sixteen: seven leave it, eight move it 2-4, one turns it.
+TONE_COOL, TONE_WARM = 1, 7     # blue, orange
+TONE_DRAW = [0] * 7 + [2, 2, 2, 3, 3, 3, 4, 4] + [None]
+
+
+def _tone_end(rng):
+    n = TONE_DRAW[rng.below(16)]
+    return 5 + rng.below(7) if n is None else n
 
 
 def build_palswap(seed):
     rng = Stream(seed, STREAM_PALSWAP)
     perm = list(range(PALSWAP_PALS))
     _fisher_yates(perm, rng)
-    return perm, [rng.below(PALSWAP_STEPS) for _ in range(PALSWAP_TINTS)]
+    tints = [rng.below(PALSWAP_STEPS) for _ in range(PALSWAP_TINTS)]
+    tones = []
+    for _ in range(PALSWAP_TONES):
+        dark = _tone_end(rng)
+        tones.append(dark | _tone_end(rng) << 4)
+    return perm, tints, tones
+
+
+def _chroma(colour):
+    return 1 <= colour & 0x0F <= 12
 
 
 def palswap_tint(colour, tint):
     """A NES colour moved tint - 3 steps round the hues 1-12, its brightness
     kept; the greys and black (hues 0 and 13-15) as they are."""
     h = colour & 0x0F
-    if h == 0 or h >= 13:
+    if not _chroma(colour):
         return colour
     return (colour & 0xF0) | (h - 1 + tint - 3) % 12 + 1
+
+
+def palswap_water(shipped, colour):
+    """The overworld's: a colour shipped blue (hue 1, 2 or 12, its water)
+    kept to those three after its tint (user, 2026-11-04: "stop them getting
+    to green or too purple") -- 3-7 to 2, 8-11 to 12."""
+    if shipped & 0x0F not in (1, 2, 12):
+        return colour
+    h = colour & 0x0F
+    return colour if h in (1, 2, 12) else (colour & 0xF0) | (2 if h < 8 else 12)
+
+
+def hue_toward(h, target, n):
+    """Hue h moved n steps round the twelve toward target, the shorter way
+    (up when the two ways tie), stopping there."""
+    for _ in range(n):
+        if h == target:
+            break
+        h = h % 12 + 1 if (target - h) % 12 <= 6 else (h - 2) % 12 + 1
+    return h
+
+
+def palswap_tone(colour, code, target):
+    h = colour & 0x0F
+    if code >= 5:
+        h = (h - 1 + code - 2) % 12 + 1
+    elif code:
+        h = hue_toward(h, target, code)
+    return (colour & 0xF0) | h
+
+
+SM_TINTED = list(range(12)) + list(range(32, 44))   # a map's three, and its three in rooms
+
+
+def palswap_sm(pals, tint, tone):
+    """A standard map's 48 palette bytes as fun_smpal leaves them: the six
+    palettes tinted, then the colours of the map's darkest brightness row
+    (the NES's $0x-$3x) toned by tone's low nibble and of its lightest by
+    the high -- the lightest's alone when a map has but the one row."""
+    rows = [pals[i] >> 4 for i in SM_TINTED if _chroma(pals[i])]
+    dark, light = (min(rows), max(rows)) if rows else (None, None)
+    out = list(pals)
+    for i in SM_TINTED:
+        c = palswap_tint(pals[i], tint)
+        if _chroma(c) and c >> 4 == light:
+            c = palswap_tone(c, tone >> 4, TONE_WARM)
+        elif _chroma(c) and c >> 4 == dark:
+            c = palswap_tone(c, tone & 0x0F, TONE_COOL)
+        out[i] = c
+    return out
 
 
 def sara_order(seed):

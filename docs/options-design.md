@@ -1708,38 +1708,78 @@ capitals.
 
 **Palette swap** (user, 2026-11-03: one On/Off, "Fixed per seed", the
 overworld too; "enemy colors are fine too"; "some artistic license to tint
-the background grass color toward blue or brown"): Off and On; the
-description a draft ("Maps take on new colors, and enemies trade colors.
+the background grass color toward blue or brown"; 2026-11-04, the
+overworld's water kept blue and the standard maps given "more variation in
+hue vs. luminance"): Off and On; the description a draft ("Maps take on new colors, and enemies trade colors.
 Each seed has its own.").  `fun.asm`, in Taverns' chunk.
 
   - **The tables**, the seed's (`deal_palswap`, from the cache build:
     `randoref.build_palswap`): the 64 battle palettes shuffled, as FFR's
-    PaletteSwap (`Fun.cs`) shuffles them, and a tint, 0-6, for each map, the
-    overworld and the sixteen battle backdrops -- dealt whatever the row
-    says, since FUN% is not the save's and turning the row on rebuilds
-    nothing (`RW_PALPERM`, `RW_TINT`, past the map edit screen's byte).
+    PaletteSwap (`Fun.cs`) shuffles them, a tint, 0-6, for each map, the
+    overworld and the sixteen battle backdrops, and a tone for each standard
+    map -- dealt whatever the row says, since FUN% is not the save's and
+    turning the row on rebuilds nothing (`RW_PALPERM`, `RW_TINT`, `RW_TONE`,
+    past the map edit screen's byte).  The tones are drawn after the tints,
+    so a seed's tints are what they were before tones came.
   - **A tint** moves a colour's hue tint - 3 steps round the NES's twelve
     and keeps its brightness; black, white and the greys (hues 0 and 13-15)
     stay.  Every colour of a map moves together, so its art keeps its
     contrast: grass runs from rust and olive through green to teal and blue,
     caves from magenta through red to green.  The full -3..+3 is a draft of
     the user's "toward blue or brown"; the far brown end is orange.
+  - **The overworld's water** (user, 2026-11-04: "clamp the water palette
+    entries to stop them getting to green or too purple ... confine it to
+    $x1, $x2, $xC"): a colour shipped blue -- hue 1, 2 or 12, on the
+    overworld only `$21` and `$31`, the water -- is kept to those three
+    after its tint: carried on toward violet (3-7) it stops at 2, toward
+    green (8-11) at 12.  So the water runs cyan, cyan, cyan, blue,
+    blue-violet, blue-violet, blue-violet over the seven tints, where the
+    grass beside it runs brown to blue.  The backdrops' water is tinted as
+    before.
+  - **A tone** (user, 2026-11-04: places like the Dwarf Cave "come out very
+    monochromatic", so "sometimes the darkest color is a cooler tone, the
+    lightest color is a warmer tone, or occasionally an entirely different
+    hue altogether"), on a standard map after its tint.  The map's darkest
+    colours are those of the darkest NES brightness row (`$0x`-`$3x`) any
+    of its six palettes uses, its lightest those of the lightest row; a
+    map whose colours are all of one row has only the lightest's.  A row,
+    not a rank within each palette, so a colour two palettes share still
+    matches.  Each end draws one of sixteen (`tone_end`): seven leave it be;
+    eight move it toward its end's hue, the darkest toward blue (hue 1), the
+    lightest toward orange (7), three of them 2 steps, three 3 and two 4,
+    the shorter way round and no further; and one turns it 3-9 steps round
+    the twelve, a hue of its own.  So about one map in five is tinted alone,
+    and about one in eight has an end in a colour of its own.  The Dwarf
+    Cave, all orange from `$07` to `$27`, might keep its orange with its
+    darkest shade gone blue, or have its lightest, most of the cave, turned
+    another colour over orange shadows.  The odds and
+    the two hues are a draft.  It costs about 1,300 instructions more per
+    map load (about 2,000 in all), once.
   - **Where**: a standard map's three background palettes and its three in
-    rooms, as `LoadSMTilesetData` loads them (`fun_smpal`, then Short ToFR's
-    colour as before) -- every map's fourth palette, in rooms too, is the
+    rooms, as `LoadSMTilesetData` loads them (`fun_smpal`: tinted and toned,
+    then Short ToFR's colour as before) -- every map's fourth palette, in rooms too, is the
     dialogue box's `$0F $00 $01 $30`, and stays; the sprites stay.  The
     overworld's four (`fun_owpal`, the end of `LoadOWTilesetData`), and its
     sprite palette 3, `$0F $0F $30 $1A`: the land over the canal before the
     TNT, the bridge and the airship's shadow are sprites drawn in it to sit
-    on the grass, and its green moves with the map's (user, 2026-11-04: the
+    on the grass, and its green moves with the map's (`fun_owpal`'s, the
+    water kept blue) (user, 2026-11-04: the
     land bridge "needs to match the palette swap of the background").  A battle
     backdrop's colours 1-3 (`fun_bdpal`, after `LoadBattleBackdropPalette`).
     An enemy palette's number through the shuffle (`fun_btlpal`, the top of
     `LoadBattlePalette`).
   - `test_palswap`: the row; the tables against the reference, the row on
-    and off; the tint, every colour by every tint; every standard map's
-    palettes as they load, the overworld's, the backdrops' by the tile
-    stood on, and every enemy palette -- each on and off.
+    and off, and the tones' odds; the tint, every colour by every tint; the
+    tone and the water by hand (the Dwarf Cave toned three ways, a map of
+    one row, the water at every tint); `fun_smpal` over 1,368 synthetic
+    palettes, every tone code at both ends, and `fun_owpal` over every
+    colour at every tint, against `randoref`; every standard map's palettes
+    as they load, the overworld's at every tint, the backdrops' by the tile
+    stood on, and every enemy palette -- each on and off.  Of 27 deliberate
+    bugs in the tones and the water, 22 are caught and five cannot change
+    what the game shows: the darkest row's start, a step down past hue 1,
+    the brightness kept with $30 rather than $F0, where violet ends for the
+    water, and a grey counted as water.
 
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
 watch him explode again and again"; "let him respawn"): Off and On; the description
@@ -4405,10 +4445,11 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  11313 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10955 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
-                             2026-11-03; the Exploding Dwarf 3271 -- the
+                             2026-11-03, 629 with the water and the tones,
+                             2026-11-04; the Exploding Dwarf 3271 -- the
                              gib set 512 and the particles' tables 1464,
                              dwarfgibs.inc, and 1295 of code, 180 of it
                              the cheaper frame, 2026-11-04)
