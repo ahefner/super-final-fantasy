@@ -1739,12 +1739,15 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
   - **A tone** (user, 2026-11-04: places like the Dwarf Cave "come out very
     monochromatic", so "sometimes the darkest color is a cooler tone, the
     lightest color is a warmer tone, or occasionally an entirely different
-    hue altogether"), on a standard map after its tint.  The map's darkest
-    colours are those of the darkest NES brightness row (`$0x`-`$3x`) any
-    of its six palettes uses, its lightest those of the lightest row; a
-    map whose colours are all of one row has only the lightest's.  A row,
-    not a rank within each palette, so a colour two palettes share still
-    matches.  Each end draws one of sixteen (`tone_end`): seven leave it be;
+    hue altogether"), on a standard map after its tint.  In each set of
+    three palettes, the map's and its rooms', the darkest colours are those
+    of the darkest NES brightness row (`$0x`-`$3x`) the set uses, the
+    lightest those of the lightest row; a set whose colours are all of one
+    row has only the lightest's.  Each set by itself, since a room's
+    palettes are up only inside it: taken together, a cave whose darkest
+    shade is in its rooms alone never had its own shadows toned (seen in a
+    preview, 2026-11-04).  A row, not a rank within each palette, so a
+    colour two palettes of a set share still matches.  Each end draws one of sixteen (`tone_end`): seven leave it be;
     eight move it toward its end's hue, the darkest toward blue (hue 1), the
     lightest toward orange (7), three of them 2 steps, three 3 and two 4,
     the shorter way round and no further; and one turns it 3-9 steps round
@@ -1775,8 +1778,8 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     palettes, every tone code at both ends, and `fun_owpal` over every
     colour at every tint, against `randoref`; every standard map's palettes
     as they load, the overworld's at every tint, the backdrops' by the tile
-    stood on, and every enemy palette -- each on and off.  Of 27 deliberate
-    bugs in the tones and the water, 22 are caught and five cannot change
+    stood on, and every enemy palette -- each on and off.  Of 30 deliberate
+    bugs in the tones and the water, 25 are caught and five cannot change
     what the game shows: the darkest row's start, a step down past hue 1,
     the brightness kept with $30 rather than $F0, where violet ends for the
     water, and a grey counted as water.
@@ -4445,10 +4448,10 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  10955 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10944 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
-                             2026-11-03, 629 with the water and the tones,
+                             2026-11-03, 640 with the water and the tones,
                              2026-11-04; the Exploding Dwarf 3271 -- the
                              gib set 512 and the particles' tables 1464,
                              dwarfgibs.inc, and 1295 of code, 180 of it

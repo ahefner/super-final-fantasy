@@ -17091,7 +17091,8 @@ def test_palswap():
     #  Cave is all orange, $07 to $27: tinted two steps on to yellow-green,
     #  its lightest ($29) warmed two steps back to orange and its darkest
     #  ($09) cooled four, past green and teal, to blue; the middle row only
-    #  tinted.  Then its lightest turned seven steps, a hue of its own.
+    #  tinted.  Its rooms go by their own rows, $07 to $17, so there $17 is
+    #  the lightest.  Then its lightest turned seven steps, a hue of its own.
     smpal = lambda m: list(ROMDATA[0x10000 + 0xA000 + m * 0x30:][:0x30])
     dwarf = smpal(0x13)
     pick = lambda p: [p[i] for i in R.SM_TINTED]
@@ -17101,15 +17102,15 @@ def test_palswap():
     check("...tinted +2, the lightest warmed 2 and the darkest cooled 4",
           pick(R.palswap_sm(dwarf, 5, 0x24)),
           [0x0F, 0x27, 0x27, 0x27, 0x0F, 0x27, 0x27, 0x19, 0x0F, 0x01, 0x19, 0x27,
-           0x0F, 0x10, 0x19, 0x0F, 0x0F, 0x0F, 0x01, 0x01, 0x0F, 0x0F, 0x01, 0x19])
+           0x0F, 0x10, 0x17, 0x0F, 0x0F, 0x0F, 0x01, 0x01, 0x0F, 0x0F, 0x01, 0x17])
     check("...untinted, the lightest turned 7 (code 9), orange to blue-violet, the rest as they ship",
           pick(R.palswap_sm(dwarf, 3, 0x90)),
           [0x0F, 0x22, 0x22, 0x22, 0x0F, 0x22, 0x22, 0x17, 0x0F, 0x07, 0x17, 0x22,
-           0x0F, 0x10, 0x17, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x0F, 0x0F, 0x07, 0x17])
+           0x0F, 0x10, 0x12, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x0F, 0x0F, 0x07, 0x12])
     check("...a tone moves no further than its hue: orange warmed 4 stays orange, blue cooled 3 stays blue",
           (R.palswap_tone(0x27, 4, R.TONE_WARM), R.palswap_tone(0x01, 3, R.TONE_COOL)), (0x27, 0x01))
     tof = smpal(0x0C)
-    check("...a map of one row, the Temple of Fiends' $17 among greys: the lightest's tone alone -- "
+    check("...a set of one row, the Temple of Fiends' rooms, $17 among greys: the lightest's tone alone -- "
           "tinted -3 to $14, warmed 2 to $16, the darkest's 4 not applied",
           [c for c in pick(R.palswap_sm(tof, 0, 0x24)) if 1 <= c & 15 <= 12], [0x16])
 
@@ -17129,9 +17130,10 @@ def test_palswap():
     bad = []
     for n, (tone, tint) in enumerate(cases):
         pals = [rnd.choice(range(64)) for _ in range(48)]
-        if n % 4 == 0:                                  # a map of fewer rows
-            rows = rnd.sample(range(4), rnd.randrange(1, 3))
-            pals = [c & 15 | rnd.choice(rows) << 4 for c in pals]
+        if n % 4:                                       # each set of fewer rows
+            for at in (0, 32):
+                rows = rnd.sample(range(4), rnd.randrange(1, 4))
+                pals[at:at + 12] = [c & 15 | rnd.choice(rows) << 4 for c in pals[at:at + 12]]
         bus.wram[LMP:LMP + 48] = bytes(pals)
         bus.wram[TINT + MAP - 1:TINT + MAP + 2] = bytes([6 - tint, tint, 6 - tint])
         bus.wram[TONE + MAP - 1:TONE + MAP + 2] = bytes([tone ^ 0x5A, tone, tone ^ 0xA5])

@@ -197,9 +197,10 @@ hue_of:
 ;;  The end of LoadSMTilesetData (optopenchests.patch): this map's tint over
 ;;  its three background palettes and its three in rooms -- each set's fourth
 ;;  is the dialogue box's, $0F $00 $01 $30 on every map -- and its tone over
-;;  the colours of its darkest brightness row and of its lightest; then Short
-;;  ToFR's colour, as before.  A map whose colours are all one row has the
-;;  lightest's tone alone.
+;;  each set's colours of its darkest brightness row and of its lightest;
+;;  then Short ToFR's colour, as before.  Each set by itself, since a room's
+;;  palettes are up only inside it, and a set whose colours are all one row
+;;  has the lightest's tone alone.
 fun_smpal:
     JSR palswap_on
     BEQ @out
@@ -208,30 +209,32 @@ fun_smpal:
     STA f:FUN_CODE
     LDA f:RW_TONE, X
     STA f:FUN_TONE
+    LDY #$00
+    JSR sm_set
+    LDY #$20
+    JSR sm_set
+  @out:
+    JML rando_smpal + RANDOFAR
+
+;;  The three palettes from load_map_pal + Y, tinted and toned.  X and Y
+;;  not kept.
+sm_set:
+    TYA
+    CLC
+    ADC #$0C
+    STA f:FUN_END
     LDA #3
     STA f:FUN_DARK
     LDA #0
     STA f:FUN_LIGHT
+    PHY
     JSR sm_rows
-    JSR sm_lmp
-  @out:
-    JML rando_smpal + RANDOFAR
+    PLY
+    BRA sm_lmp
 
-;;  Y on to the next of a standard map's colours to tint: $00-$0B, its three
-;;  palettes, then $20-$2B, its three in rooms.  C clear while there is one.
-sm_next:
-    INY
-    CPY #$0C
-    BNE :+
-    LDY #$20
-:   CPY #$2C
-    RTS
-
-;;  FUN_DARK down to the darkest row of the map's colours, FUN_LIGHT up to
-;;  the lightest.  Y not kept.
+;;  FUN_DARK down to the darkest row of the colours from Y to FUN_END,
+;;  FUN_LIGHT up to the lightest.  Y moved.
 sm_rows:
-    LDY #$00
-  @colour:
     LDA load_map_pal, Y
     JSR hue_of
     BCS @next
@@ -247,16 +250,16 @@ sm_rows:
     BCC @next
     STA f:FUN_LIGHT
   @next:
-    JSR sm_next
-    BCC @colour
+    INY
+    TYA
+    CMP f:FUN_END
+    BCC sm_rows
     RTS
 
-;;  Each of the map's colours tinted, then toned if it is of the lightest
-;;  row (the high nibble's code, toward TONE_WARM) or else the darkest (the
-;;  low's, toward TONE_COOL).  X and Y not kept.
+;;  The colours from Y to FUN_END tinted, then toned if of the lightest row
+;;  (the high nibble's code, toward TONE_WARM) or else the darkest (the
+;;  low's, toward TONE_COOL).  Y moved, X not kept.
 sm_lmp:
-    LDY #$00
-  @colour:
     LDA load_map_pal, Y
     JSR tint_one
     STA load_map_pal, Y
@@ -290,8 +293,10 @@ sm_lmp:
     ORA f:FUN_HUE
     STA load_map_pal, Y
   @next:
-    JSR sm_next
-    BCC @colour
+    INY
+    TYA
+    CMP f:FUN_END
+    BCC sm_lmp
     RTS
 
 ;;  FUN_HUE moved by a tone's code in A (randoref.palswap_tone): 0 nothing;

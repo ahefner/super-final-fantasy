@@ -2183,19 +2183,22 @@ SM_TINTED = list(range(12)) + list(range(32, 44))   # a map's three, and its thr
 
 def palswap_sm(pals, tint, tone):
     """A standard map's 48 palette bytes as fun_smpal leaves them: the six
-    palettes tinted, then the colours of the map's darkest brightness row
-    (the NES's $0x-$3x) toned by tone's low nibble and of its lightest by
-    the high -- the lightest's alone when a map has but the one row."""
-    rows = [pals[i] >> 4 for i in SM_TINTED if _chroma(pals[i])]
-    dark, light = (min(rows), max(rows)) if rows else (None, None)
+    palettes tinted, then in each set of three -- the map's, and its rooms'
+    -- the colours of its darkest brightness row (the NES's $0x-$3x) toned
+    by tone's low nibble and of its lightest by the high; the lightest's
+    alone when a set has but the one row."""
     out = list(pals)
-    for i in SM_TINTED:
-        c = palswap_tint(pals[i], tint)
-        if _chroma(c) and c >> 4 == light:
-            c = palswap_tone(c, tone >> 4, TONE_WARM)
-        elif _chroma(c) and c >> 4 == dark:
-            c = palswap_tone(c, tone & 0x0F, TONE_COOL)
-        out[i] = c
+    for at in (0, 32):
+        span = range(at, at + 12)
+        rows = [pals[i] >> 4 for i in span if _chroma(pals[i])]
+        dark, light = (min(rows), max(rows)) if rows else (None, None)
+        for i in span:
+            c = palswap_tint(pals[i], tint)
+            if _chroma(c) and c >> 4 == light:
+                c = palswap_tone(c, tone >> 4, TONE_WARM)
+            elif _chroma(c) and c >> 4 == dark:
+                c = palswap_tone(c, tone & 0x0F, TONE_COOL)
+            out[i] = c
     return out
 
 
