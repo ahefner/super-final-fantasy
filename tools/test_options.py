@@ -17458,7 +17458,7 @@ def test_dwarf():
            attrs.count(0x2B), halcode.count(bytes([0xC2, 0x30, 0x9C, 0x02, 0x21]))),
           (True, 16, 1))
     check("...the ribcage drawn, not the eyes' rings it replaced",
-          (sum(t == 0xE for t in [g.tile for g in D.burst(0x1234)]), D.GIBS[0xE][3]), (1, "2.222.2."))
+          (sum(t == 0xE for t in [g.tile for g in D.burst(0x1234)]), D.GIBS[0xE][2]), (1, "2..2..2."))
     bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])
     bus.wram[K["h_xpaldirty"]] = 0
     call(cpu, "fun_smframe")

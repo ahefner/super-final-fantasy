@@ -1831,7 +1831,8 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     black pupil, which read as rings: the user's "I'd change one of them to
     something like a ribcage, and the other to a regular bone".  The eyes
     were this port's, not tenes's, whose hack has only blood, bones and the
-    skull.)  They fly and fall (gravity 12/256 px a frame); bones and the
+    skull.  Of four ribcages drawn, the user's pick: "I preferred A" --
+    three pairs of ribs on the spine.)  They fly and fall (gravity 12/256 px a frame); bones and the
     skull bounce back up at 5/8 the speed until they are too slow to, and
     blood pools where it lands.  All of it lies still in about 4.5 seconds.
   - **The sprites**: OAM entries 64-119, which the NES never uses, drawn
