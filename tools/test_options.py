@@ -17285,10 +17285,10 @@ def test_dwarf():
     """Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "I want to
     watch him explode again and again"; "let him respawn"; 2026-11-04:
     "change his dialog to 'Oh no, not again!'", "bones appear over top of
-    blood").  The row; his line, arming the burst; NPC Guillotine leaving
-    him be; the
-    burst and every frame after it against tools/dwarfref.py, the bones
-    drawn over the blood, the screen
+    blood", "A still-beating heart would be pretty slick").  The row; his
+    line, arming the burst; NPC Guillotine leaving him be; the
+    burst and every frame after it against tools/dwarfref.py, the heart
+    beating, the bones drawn over the blood, the screen
     scrolling and wrapping; a dialogue box covering the gibs behind it; the
     gibs hidden while the sprites are off, and their tiles and colours put
     back; gone when the map is left, and at boot; and the HAL's colours."""
@@ -17384,6 +17384,7 @@ def test_dwarf():
         bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])   # the span clean
         bus.wram[K["h_chrqn"]] = 0
         bus.wram[PENDING] = 1                                       # his line just drawn
+        bus.wram[W("FUN_BEAT")] = 29                                # a beat a visit before left
         return bus, cpu
     pal = lambda bus: list(bus.wram[K["h_xpal"]:K["h_xpal"] + 8])
 
@@ -17425,7 +17426,7 @@ def test_dwarf():
         edges.append(bad[:2])
     check("...at each of the screen's edges, and far off it, the same", edges, [[]] * 6)
     seen = {g.tile for s in (0x1234, 0xBEEF, 1) for g in D.burst(s)}
-    check("...the gib set's every tile but the spare drawn", sorted(seen | {4, 5}), list(range(15)))
+    check("...the gib set's every tile drawn, the heart's among them", sorted(seen | {4, 5}), list(range(16)))
 
     #  The burst itself: his slot emptied, the others and his flag kept, the
     #  seed the frame counter's (zero taken as one), the tiles and colours in.
@@ -17450,8 +17451,12 @@ def test_dwarf():
     #  lower OAM entry in front, priority rotation off -- the HAL's OAM flush
     #  zeroes OAMADDL and OAMADDH with one 16-bit store, and no store of the
     #  code's sets OAMADDH's bit 7.  So every bone, the skull and the ribcage
-    #  among them, comes before every red gib.
+    #  among them, comes before every red gib but the heart, which is first
+    #  of all.
     attrs = [s[3] for s in sprites(bus)]
+    check("...the heart first, full, in red", (D.HEART, sprites(bus)[0][2:]),
+          (0, (D.GIB_FIRST + D.HEART_FULL, 0x29)))
+    attrs[D.HEART] = None
     halcode = ROMDATA[0x8000:0x10000]                   # HALCODE, $C0:8000
     check("...the bones in OAM before the blood and chunks, and the HAL's flush the rotation off",
           (max(i for i, a in enumerate(attrs) if a == 0x2B) < min(i for i, a in enumerate(attrs) if a == 0x29),
@@ -17578,10 +17583,25 @@ def test_dwarf():
     bus.wram[K["h_ppumask"]] = 0x1E
     call(cpu, "fun_smframe")
     check("...and the map back, they are too", same(sprites(bus), off), True)
-    check("the cost: at rest and still under 80, walking under 1400, a box's frame under 700 as it grows and "
-          "under 20 once open", (still < 80, max(walk_) < 1400, grow < 700, same_ < 20,
-                                 (still, max(walk_), grow, same_)),
-          (True, True, True, True, (still, max(walk_), grow, same_)))
+    #  The heart at rest, still beating: the frames to the next squeeze,
+    #  that frame's cost and its sprite, and the release four on.
+    heart = lambda bus: sprites(bus)[D.HEART][2] - D.GIB_FIRST
+    to_beat = (D.BEAT_SQUEEZE[0] - 1 - bus.wram[W("FUN_BEAT")]) % D.BEAT_PERIOD
+    for _ in range(to_beat):
+        call(cpu, "fun_smframe")
+    before = heart(bus)
+    bus.wram[K["h_oamdirty"]] = 0
+    beat = cost("fun_smframe")
+    squeezed, dirty = heart(bus), bus.wram[K["h_oamdirty"]]
+    for _ in range(D.BEAT_RELEASE[0] - D.BEAT_SQUEEZE[0]):
+        call(cpu, "fun_smframe")
+    check("...the heart at rest beats on: full, squeezed and the OAM sent, full again four frames on",
+          (before, squeezed, dirty, heart(bus)), (D.HEART_FULL, D.HEART_SQUEEZED, 1, D.HEART_FULL))
+    check("the cost: at rest and still under 80, a beat under 150, walking under 1400, a box's frame "
+          "under 700 as it grows and under 20 once open",
+          (still < 80, beat < 150, max(walk_) < 1400, grow < 700, same_ < 20,
+           (still, beat, max(walk_), grow, same_)),
+          (True, True, True, True, True, (still, beat, max(walk_), grow, same_)))
 
     #  Leaving the map, every way off it (StartScreenWipe): gone, and the
     #  next visit has him back.  And every boot.

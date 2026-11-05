@@ -518,6 +518,7 @@ fun_btlpal:
 ;;  dialog to 'Oh no, not again!'"): talk to the Hurray dwarf in the Dwarf
 ;;  Cave and he says so, and when the box closes he bursts -- tenes's 2021
 ;;  hack (commit 72995c0) for the SNES,
+;;  (and "A still-beating heart would be pretty slick", 2026-11-04),
 ;;  as sprites: DWARF_PARTICLES gibs in OAM entries 64 up, which the NES
 ;;  never uses, their tiles object slot 14's row (empty on that map), their
 ;;  colours OBJ palettes 4 and 5 (the HAL's h_xpal).  tools/dwarfref.py is
@@ -528,7 +529,8 @@ fun_btlpal:
 ;;    fun_spared     NPC Guillotine leaves him be (rando_talk), so he is
 ;;                   back on the next visit
 ;;    fun_smframe    each frame of the standard map loop, the sprites drawn:
-;;                   the burst, then the gibs flying, falling and lying
+;;                   the burst, then the gibs flying, falling and lying, and
+;;                   the heart beating
 ;;    fun_cover      each frame of a dialogue box, as the game's own sprites
 ;;                   are covered: the gibs behind the box hidden, the rest
 ;;                   held where they were
@@ -735,6 +737,7 @@ fun_smframe:
     .a16
     .i16
     JSR dwarf_heal              ; back from hiding: tiles and colours
+    JSR dwarf_beat              ; the heart, every frame
     JSR dwarf_step              ; while any gib moves
     JSR dwarf_scroll            ; a new scroll redraws
     LDA f:FUN_REDRAW
@@ -864,6 +867,8 @@ dwarf_burst:
     JMP @gib
 :   LDA #1
     STA f:FUN_MOVING
+    LDA #0
+    STA f:FUN_BEAT              ; the heart's beat from the burst
     JSR dwarf_tiles             ; the tiles and colours in, whatever is there
     SEP #$30
     .a8
@@ -1018,6 +1023,42 @@ gib_sprite:
     STA GIB_OAM + 2, Y
     LDA lut_DwarfAttr, X
     STA GIB_OAM + 3, Y
+    REP #$20
+    .a16
+    RTS
+
+;;  dwarfref.step's beat: the heart's count, every map frame whether it
+;;  flies or lies still, and at two of DWARF_BEAT_PERIOD's phases its tile
+;;  squeezed, at two more full again -- lub-dub.  A frame between them is a
+;;  count and four compares; one that beats writes the heart's sprite's tile,
+;;  no redraw.  A16 I16, DBR this chunk.
+dwarf_beat:
+    LDA f:FUN_BEAT
+    INC A
+    CMP #DWARF_BEAT_PERIOD
+    BCC :+
+    LDA #0
+:   STA f:FUN_BEAT
+    LDY #DWARF_HEART_SQUEEZED
+    CMP #DWARF_BEAT_S1
+    BEQ @tile
+    CMP #DWARF_BEAT_S2
+    BEQ @tile
+    LDY #DWARF_HEART_FULL
+    CMP #DWARF_BEAT_R1
+    BEQ @tile
+    CMP #DWARF_BEAT_R2
+    BEQ @tile
+    RTS
+  @tile:
+    TYA
+    LDX #DWARF_HEART * 2
+    STA f:GIB_TILE, X
+    JSR gib_sprite
+    SEP #$20
+    .a8
+    LDA #1
+    STA f:h_oamdirty
     REP #$20
     .a16
     RTS

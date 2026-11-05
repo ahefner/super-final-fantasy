@@ -3,8 +3,9 @@
 The user's (2026-11-03, fun-percent.txt; "Hurray dwarf only", "I want to
 watch him explode again and again"), after tenes's 2021 particle hack
 (commit 72995c0): the Hurray dwarf in the Dwarf Cave bursts into blood,
-bones, his ribcage and his skull, which fly, fall and come to rest on the
-floor.  The
+bones, his ribcage, his skull and his heart, which fly, fall and come to
+rest on the floor -- the heart beating still (user, 2026-11-04: "A
+still-beating heart would be pretty slick").  The
 NES-side overlay of a thousand pixels does not go to the SNES; this is
 the sprites' version -- PARTICLES gibs in OAM entries the NES never uses,
 each an 8x8 tile of the gib set (GIBS), in the cartridge's own integer
@@ -29,6 +30,9 @@ REST_VZ = 0x30                  # a bounce slower than this comes to rest
 #  front (the HAL leaves OAM's priority rotation off).  So the bones lie
 #  over the blood (user, 2026-11-04: "bones appear over top of blood").
 CLASSES = [
+    # the heart, in front of all, which lands soft and goes on beating
+    # (HEART_FULL, squeezed to HEART_SQUEEZED by the beat)
+    (1, 0xF, 0, 4, 0x0600, 0x01FF, 0x00FF, 0x007F, 0x00A0, 0x007F, False, None),
     # the skull: the cranium, the jaw
     (1, 0xC, 0, 5, 0x0B00, 0x01FF, 0x00FF, 0x007F, 0x0180, 0x007F, True, None),
     (1, 0xD, 0, 5, 0x0800, 0x01FF, 0x00FF, 0x007F, 0x00E0, 0x007F, True, None),
@@ -39,11 +43,21 @@ CLASSES = [
     # bones
     (13, 0x8, 3, 5, 0x0600, 0x07FF, 0x01FF, 0x00FF, 0x00A0, 0x00FF, True, None),
     # chunks
-    (8, 0x6, 1, 4, 0x0400, 0x07FF, 0x01FF, 0x00FF, 0x0080, 0x00FF, False, None),
+    (7, 0x6, 1, 4, 0x0400, 0x07FF, 0x01FF, 0x00FF, 0x0080, 0x00FF, False, None),
     # blood: four drops, which pool where they land
     (32, 0x0, 3, 4, 0x0200, 0x0BFF, 0x01FF, 0x00FF, 0x0060, 0x01FF, False, 0x4),
 ]
 assert sum(c[0] for c in CLASSES) == PARTICLES
+
+#  The heart's beat, a count of map frames from the burst, round
+#  BEAT_PERIOD (75 a minute): lub-dub, the tile squeezed at each of
+#  BEAT_SQUEEZE and full again at each of BEAT_RELEASE, whether it flies or
+#  lies still.  The squeeze is a chunk's tile, $F6, a lump the heart's size.
+HEART_FULL, HEART_SQUEEZED = 0xF, 0x6
+HEART = [c[1] for c in CLASSES for _ in range(c[0])].index(HEART_FULL)
+BEAT_PERIOD = 48
+BEAT_SQUEEZE = (0, 8)
+BEAT_RELEASE = (4, 12)
 BODY_X = 0x07FF                 # spawn x: (draw & BODY_X) - $400, the dwarf's width
 BODY_Y = 0x01FF                 # spawn y: (draw & BODY_Y) - $100
 
@@ -74,8 +88,8 @@ GIBS = [
     # $FE the ribcage: three pairs of ribs on the spine (user, 2026-11-04,
     # of four drawn: "I preferred A")
     ["...2....", ".22222..", "2..2..2.", ".22222..", "2..2..2.", "..222...", "...2....", "........"],
-    # $FF spare
-    ["........"] * 8,
+    # $FF the heart, full (the beat squeezes it to $F6)
+    ["........", ".22.22..", "2322222.", "2222221.", ".22221..", "..221...", "...1....", "........"],
 ]
 assert len(GIBS) == 16 and all(len(t) == 8 and all(len(r) == 8 for r in t) for t in GIBS)
 #  OBJ palettes 4 and 5, NES colours: blood dark, red, bright; bone grey,
@@ -97,7 +111,8 @@ def s16(v):
 
 
 class Gib:
-    __slots__ = ("x", "y", "z", "vx", "vy", "vz", "tile", "pal", "bounces", "rest_tile", "rest")
+    __slots__ = ("x", "y", "z", "vx", "vy", "vz", "tile", "pal", "bounces", "rest_tile", "rest",
+                 "beat")
 
 
 def burst(seed):
@@ -115,13 +130,21 @@ def burst(seed):
             s = xs16(s); g.vy = (s & vym) - (vym + 1) // 2
             s = xs16(s); g.vz = vzb + (s & vzm)
             g.pal, g.bounces, g.rest_tile, g.rest = pal, bounces, rest_tile, False
+            g.beat = 0 if len(out) == HEART else None
             out.append(g)
     return out
 
 
 def step(gibs):
-    """One frame: fly, fall, bounce or settle."""
+    """One frame: the heart's beat, and each gib flies, falls, bounces or
+    settles."""
     for g in gibs:
+        if g.beat is not None:
+            g.beat = (g.beat + 1) % BEAT_PERIOD
+            if g.beat in BEAT_SQUEEZE:
+                g.tile = HEART_SQUEEZED
+            elif g.beat in BEAT_RELEASE:
+                g.tile = HEART_FULL
         if g.rest:
             continue
         g.x = s16(g.x + g.vx)
@@ -194,6 +217,14 @@ def write_inc(path):
     o.append("DWARF_BODY_X    = $%04X" % BODY_X)
     o.append("DWARF_BODY_Y    = $%04X" % BODY_Y)
     o.append("DWARF_GIB_FIRST = $%02X" % GIB_FIRST)
+    o.append("DWARF_HEART     = %d" % HEART)
+    o.append("DWARF_HEART_FULL = $%X" % HEART_FULL)
+    o.append("DWARF_HEART_SQUEEZED = $%X" % HEART_SQUEEZED)
+    o.append("DWARF_BEAT_PERIOD = %d" % BEAT_PERIOD)
+    o.append("DWARF_BEAT_S1   = %d" % BEAT_SQUEEZE[0])
+    o.append("DWARF_BEAT_S2   = %d" % BEAT_SQUEEZE[1])
+    o.append("DWARF_BEAT_R1   = %d" % BEAT_RELEASE[0])
+    o.append("DWARF_BEAT_R2   = %d" % BEAT_RELEASE[1])
     o.append("")
     o.append(";  The gib set: sixteen 8x8 tiles, the SNES's 4bpp, planes 2-3 clear.")
     o.append("lut_DwarfGibs:")

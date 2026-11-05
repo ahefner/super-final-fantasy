@@ -2479,7 +2479,8 @@ FUN_NSX         = FUNRAM+$568     ; 2: the scroll, negated, as dwarf_draw adds i
 FUN_NSY         = FUNRAM+$56A     ; 2
 FUN_T2          = FUNRAM+$56C     ; 2: scratch
 FUN_CUT         = FUNRAM+$56E     ; the box's bottom the cover last hid at, $FF none
-FUNRAM_END      = FUNRAM+$570
+FUN_BEAT        = FUNRAM+$570     ; 2: the heart's beat, map frames from the burst round DWARF_BEAT_PERIOD
+FUNRAM_END      = FUNRAM+$572
 .assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
 .assert GIB_SPR = GIB_MXY + GIB_N * 4 && GIB_SPR + GIB_N * 4 <= FUN_LSX, error, "the gibs' arrays overlap"
 .assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"

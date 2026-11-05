@@ -1806,7 +1806,8 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
 watch him explode again and again"; "let him respawn"; 2026-11-04: "When
 the explosion flag is enabled, change his dialog to 'Oh no, not
-again!'"): Off and On; the description
+again!'"; "A still-beating heart would be pretty slick"): Off and On; the
+description
 a draft ("The Hurray dwarf in the Dwarf Cave explodes when you talk to
 him.").  After tenes's 2021 hack (commit 72995c0), whose thousand-pixel
 overlay does not come to the SNES: here it is sprites.  `fun.asm`, in
@@ -1824,23 +1825,31 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
   - **The burst**, the first frame of the map loop after his box closes
     (`fun_smframe`, after `DrawSMSprites`): he leaves the map's objects for
     the visit -- his game flag as it is, so the next load of the map has
-    him back -- and 56 gibs start from his feet: the cranium, the jaw, the
-    ribcage, 13 bones, 8 chunks and 32 drops of blood, each drawn from a
-    16-bit xorshift seeded with the frame counter, so no two bursts are
-    alike.  (Until 2026-11-04, 12 bones and two eyes, white rings round a
-    black pupil, which read as rings: the user's "I'd change one of them to
-    something like a ribcage, and the other to a regular bone".  The eyes
-    were this port's, not tenes's, whose hack has only blood, bones and the
-    skull.  Of four ribcages drawn, the user's pick: "I preferred A" --
-    three pairs of ribs on the spine.)  They fly and fall (gravity 12/256 px a frame); bones and the
-    skull bounce back up at 5/8 the speed until they are too slow to, and
-    blood pools where it lands.  All of it lies still in about 4.5 seconds.
+    him back -- and 56 gibs start from his feet: his heart, the cranium,
+    the jaw, the ribcage, 13 bones, 7 chunks and 32 drops of blood, each
+    drawn from a 16-bit xorshift seeded with the frame counter, so no two
+    bursts are alike.  (Until 2026-11-04, 12 bones and two eyes, white
+    rings round a black pupil, which read as rings: the user's "I'd change
+    one of them to something like a ribcage, and the other to a regular
+    bone".  The eyes were this port's, not tenes's, whose hack has only
+    blood, bones and the skull.  Of four ribcages drawn, the user's pick:
+    "I preferred A" -- three pairs of ribs on the spine.)  They fly and
+    fall (gravity 12/256 px a frame); bones and the skull bounce back up at 5/8 the speed until they are too slow to, and
+    blood pools where it lands.  All of it lies still in about 4.5 seconds
+    -- but the heart, which lands soft and goes on beating for as long as
+    the party stays on the map: lub-dub at 75 a minute, squeezed for four
+    frames, full for four, squeezed for four, then full to the next beat
+    (`dwarf_beat`, every map frame; the count `FUN_BEAT` from the burst,
+    round 48).  Its full tile is the gib set's last, $FF, spare till then;
+    the squeeze is a chunk's, $F6, a lump the heart's size.  (User,
+    2026-11-04; one of the 8 chunks became it, so the count and the RAM
+    stand.)
   - **The sprites**: OAM entries 64-119, which the NES never uses, drawn
     from map pixels with the scroll the map's objects use, so they keep to
     the floor as the screen moves.  Of two sprites the SNES draws the lower
     entry in front (the HAL's OAM flush leaves priority rotation off), so
-    the gibs are in that order, front first: the skull and ribcage, the
-    bones, the chunks, the blood (user, 2026-11-04: "Make sure sprite order
+    the gibs are in that order, front first: the heart, the skull and
+    ribcage, the bones, the chunks, the blood (user, 2026-11-04: "Make sure sprite order
     / priority is set so that bones appear over top of blood").  They were
     in the other order until then, blood over bone -- and the preview,
     painting the list in order, had shown the reverse of the console.
@@ -1867,9 +1876,10 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     sprite's corner in map pixels as it moves (`GIB_MXY`), so a frame's
     drawing is a subtraction a gib in one tight loop, and it draws only
     when something changed: a gib moved, the screen scrolled, they came
-    back from hiding or from under a box.  Standing still among them, 58
-    instructions; walking, 1270 (the screen away from them, which never
-    slowed, was 2324); a box's frame 9, and 600 on a frame it grows or
+    back from hiding or from under a box.  Standing still among them, 75
+    instructions (58 before the heart's count; 89 on a frame it beats, a
+    tile written, no redraw); walking, 1287 (the screen away from them,
+    which never slowed, was 2324); a box's frame 9, and 600 on a frame it grows or
     shrinks, from the sprites as last drawn (`GIB_SPR`).  The tiles are
     checked only after hiding, when a load can have had them.  The burst
     itself is one long frame, about 23000.  `test_dwarf` holds the costs
@@ -1882,6 +1892,8 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
   - `test_dwarf`: the row and no preset; his line on and off, and decoys
     a page and a byte from his pointer; the Guillotine with him and another
     dwarf; the bones before the blood in OAM, and the HAL's rotation off;
+    the heart first, beating on at rest, its count started afresh from a
+    stale one;
     every frame of three bursts against the model, the screen still and
     walking, round the map's edge, at each of the screen's edges and far
     off it; the tiles, the span and the colours, mended after a load and
@@ -1890,7 +1902,8 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     way, off the screen, a box over them and gone, a box the size of the
     last, a menu over them -- and the costs.  47 mutations, all caught; 39
     more for the cheaper frame (2026-11-04), all caught once the at-rest
-    cases were in; 10 for "Oh no, not again!" and the order, all caught.
+    cases were in; 10 for "Oh no, not again!" and the order, all caught;
+    11 for the heart's beat, all caught.
 
 ### Treasures (2)
 
@@ -4482,14 +4495,15 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  10855 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10779 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
                              2026-11-03, 720 with the water, the tones and the
                              grey ramps,
-                             2026-11-04; the Exploding Dwarf 3280 -- the
+                             2026-11-04; the Exploding Dwarf 3356 -- the
                              gib set 512 and the particles' tables 1464,
-                             dwarfgibs.inc, and 1304 of code, 180 of it
+                             dwarfgibs.inc, and 1380 of code, 76 of it the
+                             heart's beat, 180 of it
                              the cheaper frame, 2026-11-04)
     BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
