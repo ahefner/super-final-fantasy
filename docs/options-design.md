@@ -1864,8 +1864,11 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     silent and flagged END without LOOP, so the voice stops of itself.  It
     plays at 90% of its rate, 7.2kHz: 2.06 s, a little under two semitones
     down (`STRETCH`).  Its volume, 96 a side (`VOLUME`), puts its peaks at
-    12000 where a full NES pulse's are 6720: loud over the music, a first
-    guess the user can move.
+    16950 where a full NES pulse's are 6720: loud over the music.  12000 at
+    first; the user asked for 3dB more ("increase the volume of the scream
+    by 3 dB", 2026-11-04), which went into the sample's own level
+    (`PEAK`, 16000 to 22600) since `VOLUME` stops at 127, short of the 136
+    it would have needed.  `VOLUME` keeps 2.4dB in hand.
     It lives in the low half of Taverns' image bank, `$DD:0000`
     (`FUNDATAFAR`, `mkrom.py`'s `LOWHALF`), 32KB a chunk otherwise left a
     mirror of its code; reached only long, as the beam's bank is.  At boot

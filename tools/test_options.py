@@ -17715,9 +17715,10 @@ def test_scream():
           (True, True))
     want, _ = S.build()
     snr = 10 * math.log10(sum(v * v for v in want) / sum((a - b) ** 2 for a, b in zip(want, samples)))
-    check("...and within 20dB of the samples it was made from (BRR is four bits); its loudest about "
-          "half of full scale, clear of the interpolator's wrap", (snr > 20, 15000 < max(map(abs, samples)) <= 16384),
-          (True, True))
+    loud = max(map(abs, samples))
+    check("...and within 20dB of the samples it was made from (BRR is four bits); its loudest PEAK's, "
+          "22600 since 3dB up, and under three quarters of full scale, clear of the interpolator's wrap",
+          (snr > 20, S.PEAK == 22600, S.PEAK * 0.97 < loud <= S.PEAK * 1.05, loud < 24576), (True,) * 4)
 
     #  The SPC700 behind the 65816, running the program the cartridge uploads,
     #  entered as the loader leaves it -- its last index on port 0 -- and run

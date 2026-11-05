@@ -36,11 +36,14 @@ CUTOFF = 3700          # Hz, the resampler's low-pass: under RATE / 2
 TAPS = 24              # the resampler's half-width, in source samples
 FADE = 0.060           # seconds faded out at the end; the export stops on a
                        #   level a tenth of full, a click if cut
-PEAK = 16000           # the BRR's loudest decoded sample, of 32768.  Not near
+PEAK = 22600           # the BRR's loudest decoded sample, of 32768.  Not near
                        #   the rail: the DSP's interpolator sums three taps
-                       #   before it truncates, and wraps (genspc.py, BRR_SCALE)
+                       #   before it truncates, and wraps (genspc.py, BRR_SCALE).
+                       #   16000 at first; 3dB up (user, 2026-11-04: "increase
+                       #   the volume of the scream by 3 dB"), here because
+                       #   VOLUME would have needed 136
 VOLUME = 96            # the voice's VOL, each side, of 127: the scream's peak
-                       #   at 12000, a full NES pulse's at 6720
+                       #   at 16950, a full NES pulse's at 6720
 
 #  The DSP's pitch register: 4096 plays a sample at 32kHz, one source sample
 #  a DSP sample.
