@@ -2096,7 +2096,7 @@ PRINCESS_LOC = 248              # the princess's event: genlogic's EVENT_ORDER[0
 SARA_SPOTS = 8
 SARA_SLOT = 7                   # her place's masks while placement tries spots (snesmap.inc)
 _SARA_NAMES = ["the Temple of Fiends", "the Dwarf Cave", "Elfland Castle", "Crescent Lake", "Sarda's Cave",
-               "Cardia", "Pravoka", "Melmond"]     # worldgraph/romdata.PRINCESS_SPOTS's
+               "Matoya's Cave", "Pravoka", "Melmond"]     # worldgraph/romdata.PRINCESS_SPOTS's
 
 
 #  FUN%'s Palette swap (fun.asm's deal_palswap): the 64 battle palettes

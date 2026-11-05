@@ -2429,10 +2429,13 @@ flag of our own, not FFR's; built, not yet played), after Taverns, Off and
 On, Off in every preset (user).  On, the kidnapped princess is at one of
 eight spots, the seed's: Garland's; the Dwarf Cave beside the blacksmith
 (8,2); Elfland Castle with the sleeping prince; Crescent Lake in the circle
-of sages; Sarda's Cave on the chair (8,2); the empty cave beside Bahamut's
-at Cardia; Pravoka near Bikke; the middle of Melmond (the user placed the
-Dwarf Cave, Sarda's and Cardia; `worldgraph/romdata.PRINCESS_SPOTS`,
-gengraph.py's `SARA_AT`).
+of sages; Sarda's Cave on the chair (8,2); Matoya's Cave, walking about the
+main room from its middle (8,5); Pravoka near Bikke; the middle of Melmond
+(the user placed the Dwarf Cave, Sarda's and Matoya's; `worldgraph/romdata.PRINCESS_SPOTS`,
+gengraph.py's `SARA_AT`).  **Matoya's Cave** (user, 2026-11-05; built, not
+yet played) took the place of the empty cave beside Bahamut's at Cardia: "set
+loose to wander around starting from the middle of the main room".  Her
+logic there is Pravoka's, the same land.
 
   - **Talking to her is the rescue** (user: yes): Talk_Princess1 as ever, she
     disappears and the rescued princess appears in Coneria Castle, and the
@@ -2444,7 +2447,9 @@ gengraph.py's `SARA_AT`).
     Garland's $04 with her away (`rando_dlgtext`, `dlgsara.inc`, the world
     chunk's): "The king is a fool! I would never lay a hand upon the young
     lady. How dare you besmirch my honor!" (user: "I would never", an
-    edit-induced error fixed).  It is 98 bytes, past OPTDESC's $50, into the
+    edit-induced error fixed).  At Matoya's she sings (user, 2026-11-05):
+    "Chim chim-in-ey, / Chim chim-in-ey, / Chim chim cher-ee! / Matoya's as
+    lucky / as witches can be!", five rows.  Garland's is 98 bytes, past OPTDESC's $50, into the
     shop and description screens' scratch after it, which nothing on a map
     uses (`OPTDLG_MAX`, $68).  The lines that call it a kidnapping stay (user:
     "the joke is that everyone thinks Garland kidnapped the princess, but
@@ -2452,9 +2457,15 @@ gengraph.py's `SARA_AT`).
   - **On the maps** (`sara.inc`'s `rando_saraobjects`, from
     `rando_tofrplate` after the map's objects): the Temple's slot for her
     emptied; on her spot's map she is loaded into a slot it leaves empty
-    through the game's `LoadSingleMapObject`, standing, so her game flag
-    hides her once found.  Her graphic needs nothing: the empty slot loads
-    object 0's, which is the kidnapped princess's (`lut_MapObjGfx`).  At
+    through the game's `LoadSingleMapObject`, so her game flag hides her
+    once found -- standing, but at Matoya's, where she is loaded without the
+    standing flag and the game's own object update walks her as it walks the
+    brooms.  The cave's walls and the door at (8,12), which an object cannot
+    step on, keep her in the room (`test_princess` runs 3000 frames of
+    `UpdateAndDrawMapObjects`; it is exported for that, nothing else).  Her
+    graphic needs nothing: the empty slot loads object 0's, which is the
+    kidnapped princess's (`lut_MapObjGfx`), and it has all four facings, so
+    she walks with them.  At
     Crescent Lake the sages are set loose (user: "just set
     them loose, they'll wander around a little before the player can walk
     there"), FFR's ConfusedOldMen's twelve, where they stand.
@@ -4521,15 +4532,18 @@ text region in the game references.
                              259 (lut_PartySlots 64, rando_party,
                              party_pick, rando_partyseeded, the surprise
                              mask; 2026-11-02)
-    BANK_LOGIC   6011 free  the vanilla world's logic for placement (3714),
+    BANK_LOGIC   6003 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only; Rebellious
-                             Princess's spots 138 (2026-11-03)
-    BANK_WORLD   4500 free  (measured 2026-11-04; 5337 on 2026-10-28)
+                             Princess's spots 146 (2026-11-03; Matoya's
+                             two masks 8, 2026-11-05)
+    BANK_WORLD   4459 free  (measured 2026-11-05; 5337 on 2026-10-28)
                              the Exploding Dwarf's line 18 (2026-11-04)
-                             Rebellious Princess 819: her lines (dlgsara.inc),
-                             her map loading (sara.inc), es_saraspots;
+                             Rebellious Princess 860: her lines
+                             (dlgsara.inc; Matoya's song 41 more than
+                             Cardia's line, 2026-11-05), her map loading
+                             (sara.inc), es_saraspots;
                              entrance shuffle's code
                              (4430): the wiring, the seed's logic, roots,
                              groups, the dock, and the landing tables; the

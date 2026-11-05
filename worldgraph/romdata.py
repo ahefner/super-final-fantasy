@@ -187,7 +187,7 @@ def map_objects(m, sara=0):
 
 #  Rebellious Princess (user, 2026-11-02, rebellious-princess.txt): where the
 #  kidnapped princess may be, the vanilla first.  (name, map, x, y, flags):
-#  standing, in a room where the room is one.
+#  standing but at Matoya's, in a room where the room is one.
 OBJID_PRINCESS1 = 0x03
 PRINCESS_SPOTS = [
     ("Temple of Fiends", 12, 20, 18, 0xC0),     # Garland's: vanilla
@@ -195,7 +195,8 @@ PRINCESS_SPOTS = [
     ("Elfland Castle", 9, 6, 5, 0xC0),          # with the sleeping prince
     ("Crescent Lake", 4, 39, 7, 0x40),          # in the sages' circle
     ("Sarda's Cave", 21, 8, 2, 0xC0),           # on the chair (user)
-    ("Cardia", 16, 28, 16, 0x40),               # the cave by Bahamut's
+    ("Matoya's Cave", 20, 8, 5, 0x80),          # loose, from the main room's middle
+                                                #   (user, 2026-11-05: Cardia's spot out)
     ("Pravoka", 1, 6, 7, 0x40),                 # by Bikke
     ("Melmond", 3, 17, 12, 0x40),               # in the middle of town
 ]

@@ -346,10 +346,6 @@ def check_goals(seeds, get):
     return lost
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
-
 #  Rebellious Princess: each seed's spot and world (randoref.sara_world)
 #  played on a graph built with her there.  Key items Vanilla too, its
 #  rewards the graph's own; "late" is Standard without Early King, where the
@@ -408,3 +404,7 @@ def check_princess(seeds):
                       "spots %s" % (f, mode, name, seeds, stats["won"], stats["lost"], stats["no world"],
                                     dict(sorted(spots.items()))))
     return lost
+
+
+if __name__ == "__main__":
+    sys.exit(main())

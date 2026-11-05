@@ -1,0 +1,5 @@
+--- OLD
+UpdateAndDrawMapObjects:
+--- NEW
+.export UpdateAndDrawMapObjects    ; for tools/test_options.py (Rebellious Princess's loose spot)
+UpdateAndDrawMapObjects:

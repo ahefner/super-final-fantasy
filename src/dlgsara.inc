@@ -30,10 +30,16 @@ lut_SaraLine4:  ; Sarda's Cave
   .BYTE DLG_NL
   FFTEXT "best stories!"
   .BYTE $00
-lut_SaraLine5:  ; Cardia
-  FFTEXT "Please, I don't want to"
+lut_SaraLine5:  ; Matoya's Cave (user, 2026-11-05)
+  FFTEXT "Chim chim-in-ey,"
   .BYTE DLG_NL
-  FFTEXT "go home! I like it here!"
+  FFTEXT "Chim chim-in-ey,"
+  .BYTE DLG_NL
+  FFTEXT "Chim chim cher-ee!"
+  .BYTE DLG_NL
+  FFTEXT "Matoya's as lucky"
+  .BYTE DLG_NL
+  FFTEXT "as witches can be!"
   .BYTE $00
 lut_SaraLine6:  ; Pravoka
   FFTEXT "Mr. Bikke was teaching"

@@ -5,17 +5,18 @@
 ;  needs nothing: the free slot she takes loads object 0's, which is the
 ;  kidnapped princess's (lut_MapObjGfx; test_princess).
 ;
-;  Each spot's map, her x with her flags (standing; in a room where the room
-;  is one), her y, and a slot the map leaves empty (worldgraph/romdata.py's
+;  Each spot's map, her x with her flags (standing, but loose at Matoya's --
+;  user, 2026-11-05; in a room where the room is one), her y, and a slot the
+;  map leaves empty (worldgraph/romdata.py's
 ;  PRINCESS_SPOTS, graphdata.SARA_AT; test_princess).
 
 MAP_TOF          = 12
 MAP_CRESCENT     = 4
 SARA_TOFSLOT     = 1            ; hers in the Temple of Fiends' list
-lut_SaraMap:  .BYTE MAP_TOF, 19, 9, MAP_CRESCENT, 21, 16, 1, 3
-lut_SaraXF:   .BYTE 20 | $C0, 8 | $C0, 6 | $C0, 39 | $40, 8 | $C0, 28 | $40, 6 | $40, 17 | $40
-lut_SaraY:    .BYTE 18, 2, 5, 7, 2, 16, 7, 12
-lut_SaraSlot: .BYTE SARA_TOFSLOT, 13, 8, 14, 1, 9, 8, 14
+lut_SaraMap:  .BYTE MAP_TOF, 19, 9, MAP_CRESCENT, 21, 20, 1, 3
+lut_SaraXF:   .BYTE 20 | $C0, 8 | $C0, 6 | $C0, 39 | $40, 8 | $C0, 8 | $80, 6 | $40, 17 | $40
+lut_SaraY:    .BYTE 18, 2, 5, 7, 2, 5, 7, 12
+lut_SaraSlot: .BYTE SARA_TOFSLOT, 13, 8, 14, 1, 5, 8, 14
 .assert * - lut_SaraSlot = SARA_SPOTS, error, "a slot per spot"
 ;  Crescent Lake's sages, by slot: the circle, the Canoe Sage among them
 ;  (FFR's ConfusedOldMen's: slots 0-10 and 12).

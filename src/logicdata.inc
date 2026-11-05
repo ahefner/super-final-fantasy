@@ -102,7 +102,7 @@ lut_LogicMaskHi:
 ;  Rebellious Princess: where each of her spots' masks for the princess's
 ;  event start in lut_LogicMasks (past the locations'), and the last's end.
 lut_LogicSaraLo:
-  .BYTE $A0, $A1, $A3, $A5, $A8, $AA, $AB, $AE, $B0
+  .BYTE $A0, $A1, $A3, $A5, $A8, $AA, $AD, $B0, $B2
 
 lut_LogicSaraHi:
   .BYTE $01, $01, $01, $01, $01, $01, $01, $01, $01
@@ -215,8 +215,9 @@ lut_LogicMasks:
   .BYTE $00, $80, $11, $00, $00, $28, $10, $00, $00, $04, $03, $00, $00, $04, $10, $00
   .BYTE $00, $00, $00, $00, $00, $00, $02, $00, $00, $00, $10, $00, $00, $00, $02, $00
   .BYTE $00, $00, $10, $00, $00, $00, $03, $00, $00, $00, $0A, $00, $00, $00, $10, $00
-  .BYTE $00, $01, $0A, $00, $00, $00, $10, $00, $00, $00, $10, $00, $00, $00, $02, $00
-  .BYTE $00, $00, $04, $00, $00, $00, $10, $00, $00, $00, $0A, $00, $00, $00, $10, $00
+  .BYTE $00, $01, $0A, $00, $00, $00, $10, $00, $00, $00, $02, $00, $00, $00, $04, $00
+  .BYTE $00, $00, $10, $00, $00, $00, $02, $00, $00, $00, $04, $00, $00, $00, $10, $00
+  .BYTE $00, $00, $0A, $00, $00, $00, $10, $00
 
 ;  For each bit, the locations whose masks name it, so that gaining a bit
 ;  asks again only of those: where each bit's list starts and ends.

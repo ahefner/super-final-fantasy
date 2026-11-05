@@ -305,7 +305,7 @@ lut_GrLocNodes:
   .BYTE $9E, $C6, $C5, $9E, $9E, $9E, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F, $9F
   .BYTE $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $7D, $7D
   .BYTE $AC, $4B, $4D, $B8, $52, $52, $B9, $AF, $B7, $B0, $B1, $25, $4F, $8B, $AE, $A7
-  .BYTE $A8, $A9, $AA, $18, $BD, $4F, $52, $4B, $AF, $B9, $B4, $AC, $AE
+  .BYTE $A8, $A9, $AA, $18, $BD, $4F, $52, $4B, $AF, $B9, $B8, $AC, $AE
 
 lut_GrSaraOff:
   .WORD $0115, $0116, $0117, $0118, $0119, $011A, $011B, $011C

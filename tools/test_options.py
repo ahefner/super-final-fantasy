@@ -16489,15 +16489,15 @@ def test_princess():
     and the maps' free slots; her masks at each in both logics; the build's
     spot and world against randoref.sara_world, Key items Vanilla, Standard
     and Wide, under Map shuffle and map edits, and the flag never costing a
-    world; the maps as they load, her graphic, her lines and Garland's, and
-    no teleport home."""
+    world; the maps as they load, her graphic, her walk at Matoya's (user,
+    2026-11-05), her lines and Garland's, and no teleport home."""
     import presetdefs as P, genpresets as G, textwrap
     import graphdata as GD, logicdata as L
     RNGB = K["RANDO_RNG"] - 0x6000
     PF = K["PRINCESS_FIELD"]
     P1 = K["OBJID_PRINCESS_1"]
     SPOTS, SLOT = K["SARA_SPOTS"], K["SARA_SLOT"]
-    NAMES = ["Garland's", "the Dwarf Cave", "Elfland Castle", "Crescent Lake", "Sarda's Cave", "Cardia",
+    NAMES = ["Garland's", "the Dwarf Cave", "Elfland Castle", "Crescent Lake", "Sarda's Cave", "Matoya's Cave",
              "Pravoka", "Melmond"]
 
     #  The row.
@@ -16714,8 +16714,50 @@ def test_princess():
         found = load(m, True, k, seen=False)
         if (found[s0], found[s0 + 0x0A]) != (0, P1):
             bad.append((k, "found: still there"))
-    check("on each spot's map: her in her slot, standing, in a room where it is one, nothing else moved; "
-          "found, gone", bad, [])
+    check("on each spot's map: her in her slot, standing but at Matoya's, in a room where it is one, "
+          "nothing else moved; found, gone", bad, [])
+    MATOYA = NAMES.index("Matoya's Cave")
+    check("...at Matoya's loose, in the room, from its middle (user, 2026-11-05: Cardia's spot out)",
+          (at[MATOYA], [k for k in range(SPOTS) if not at[k][3] & 0x40]), ((20, 8, 5, 0x80), [MATOYA]))
+
+    #  ...and loose, she walks: the game's own object update, a few thousand
+    #  frames of it, the party at the cave's entrance.  The floor she can
+    #  reach is the room's (her steps are CanMapObjMove's: no wall, no
+    #  teleport, and the door at (8,12) is a wall to her), and she covers
+    #  some of it.
+    props = R.rom_props(ROMDATA)[ROMDATA[R.TILESETS + 20] * 256:][:256]
+    def roam(frames):
+        bus, cpu = machine()
+        bus.sram[RNGB] = PF | 1
+        bus.wram[rw("RW_SARA")] = MATOYA
+        bus.wram[0x48] = 20                             # cur_map
+        for o in range(0x100):
+            bus.sram[0x200 + o] = 1
+        c = CPU(bus); c.dbr = 0xA7
+        c.run(0xA7, SYM["LoadStandardMapAndObjects"])
+        bus.wram[0x400:0x500] = props                   # tileset_data
+        bus.wram[0x68], bus.wram[0x69] = 15, 11         # sm_player_x/y: the entrance
+        bus.wram[0x0D] = 0                              # inroom
+        s0 = slot[MATOYA] * 16
+        trail = []
+        for f in range(frames):
+            bus.wram[0xF0] = f & 0xFF                   # framecounter
+            c = CPU(bus); c.dbr = 0xA7
+            c.run(0xA7, SYM["UpdateAndDrawMapObjects"])
+            trail.append((bus.sram[MAPOBJ_S + s0 + 2], bus.sram[MAPOBJ_S + s0 + 3]))
+        return set(trail), bus.sram[MAPOBJ_S + s0], bytes(bus.sram[0x1000:0x2000])
+    trail, who, tiles = roam(3000)
+    #  The floor from the room's middle, on the map as the game decoded it.
+    floor = lambda x, y: not props[tiles[y * 64 + x] * 2] & 0xC1
+    reach, todo = {(8, 5)}, [(8, 5)]
+    while todo:
+        x, y = todo.pop()
+        for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if n not in reach and floor(*n):
+                reach.add(n)
+                todo.append(n)
+    check("...she walks, on the room's floor, from its middle: tiles reached, any off it, the room's lowest row",
+          (len(trail) >= 8, sorted(trail - reach), max(y for _, y in reach), who), (True, [], 11, P1))
     tof = at[0][0]
     t_plain, t_moved = load(tof, False, 0), load(tof, True, 6)
     s0 = slot[0] * 16
@@ -16794,7 +16836,7 @@ def test_princess():
              "I came to care for the Elven prince. Must I return home?",
              "That old castle is so boring! Let's dance!",
              "Uncle Sarda tells the best stories!",
-             "Please, I don't want to go home! I like it here!",
+             "Chim chim-in-ey, Chim chim-in-ey, Chim chim cher-ee! Matoya's as lucky as witches can be!",
              "Mr. Bikke was teaching me to play the LUTE!",
              "Am I needed at home? I came to help the people of Melmond rebuild."]
     GARLAND = "The king is a fool! I would never lay a hand upon the young lady. How dare you besmirch my honor!"
@@ -16862,8 +16904,8 @@ def test_princess():
     srm[a:a + 4] = seed.to_bytes(4, "little")
     srm[a + 0x11] = PF
     srm[a + 0x13], srm[a + 0x14], srm[a + 0x17], srm[a + 0x19] = 1, 0x20, 0x81, 0x0F     # Beginner's
-    check("randoref's wiring line: where she is", R.srm_wiring_text(bytes(srm))[0].endswith("the princess at Cardia"),
-          True)
+    check("randoref's wiring line: where she is",
+          R.srm_wiring_text(bytes(srm))[0].endswith("the princess at Matoya's Cave"), True)
 
 
 # --- FUN%: Stereo Sound --------------------------------------------------------
