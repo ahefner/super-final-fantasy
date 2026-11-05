@@ -47,6 +47,7 @@
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_chrdirty             ; for fun.asm's gibs
+.export hal_spcload, hal_spcplay  ; the game's samples (fun.asm's scream)
 .export hal_waitline9
 .export hal_vblaudio, hal_ppureclaim, hal_audioframe, hal_auxdetect
 
@@ -4883,6 +4884,132 @@ apu_send:
 @ok:
     rts
 
+;;  The game's samples: the SPC700 has a voice for them beside the NES's four
+;;  (genspc.py, voice 4), and RAM past its program to keep them in, from
+;;  SPC_FREE to SPC_FREE_END (gen/spcmap.inc).  The samples are the game's
+;;  data, in its chunks; the HAL only carries them across.
+;;
+;;  hal_spcload: a block of the game's bytes into the SPC700's RAM.  In: A =
+;;  the bank of a load record, X its address -- the SPC700 address (word),
+;;  the count of bytes (word, not zero), the bytes' long address.  Three
+;;  bytes a handshake, as spc_upload sends the image, and up to two past the
+;;  count arrive too.  The SPC700 does nothing else meanwhile, its sweeps'
+;;  clock among it, so this is for while nothing sounds: the game's boot.
+;;  By JSL, native, A16 I16, a DBR that decodes the I/O ports and low WRAM.
+;;  A, X, Y clobbered.
+.a16
+.i16
+hal_spcload:
+    phd
+    pea HAL_VARS
+    pld                         ; the direct page on our own: [dp],y below
+    stx z:h_spcptr - HAL_VARS
+    sep #$20
+    .a8
+    sta z:h_spcptr - HAL_VARS + 2
+    lda a:h_apuok
+    bne :+
+    jmp @out                    ; (past a branch's reach)
+:   stz a:h_apuwave             ; nothing for the doorbell's top bits
+    ldy #0
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO2                ; where...
+    iny
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO3
+    iny
+    lda #$E1
+    sta a:APUIO1
+    jsr apu_send
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO2                ; ...how many, and go
+    sta z:h_spccnt - HAL_VARS
+    iny
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO3
+    sta z:h_spccnt - HAL_VARS + 1
+    iny
+    lda #$E2
+    sta a:APUIO1
+    jsr apu_send
+    sta z:h_spcseq - HAL_VARS   ; this packet's byte: where the load ends
+    inc a
+    sta z:h_spcidx - HAL_VARS
+    lda a:h_apuok
+    beq @out                    ; it did not answer
+    rep #$20
+    .a16
+    lda [h_spcptr - HAL_VARS], y
+    tax
+    ldy #6
+    sep #$20
+    .a8
+    lda [h_spcptr - HAL_VARS], y
+    sta z:h_spcptr - HAL_VARS + 2
+    stx z:h_spcptr - HAL_VARS   ; the pointer now on the bytes themselves
+    ldy #0
+@triple:
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO1
+    iny
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO2
+    iny
+    lda [h_spcptr - HAL_VARS], y
+    sta a:APUIO3
+    iny
+    lda z:h_spcidx - HAL_VARS
+    sta a:APUIO0                ; the index, written last
+    ldx #$4000
+@echo:
+    cmp a:APUIO0
+    beq @got
+    dex
+    bne @echo
+    bra @dead
+@got:
+    inc z:h_spcidx - HAL_VARS
+    cpy z:h_spccnt - HAL_VARS
+    bcc @triple                 ; short of the count: more
+    lda z:h_spcseq - HAL_VARS
+    sta a:APUIO0                ; done: the count packet's byte back
+    ldx #$4000
+@end:
+    cmp a:APUIO0
+    beq @out
+    dex
+    bne @end
+@dead:
+    stz a:h_apuok               ; it stopped answering: go silent, not dead
+@out:
+    rep #$20
+    .a16
+    pld
+    rtl
+
+;;  hal_spcplay: a sample the game loaded, played on the sample voice from
+;;  its start.  In: A = its SPC700 address -- its pitch (word), its left and
+;;  right volumes, then its BRR.  By JSL, native, A16 I16, a DBR that decodes
+;;  the I/O ports and low WRAM.  A clobbered; X, Y kept.
+.a16
+.i16
+hal_spcplay:
+    sta a:APUIO2                ; the address, bytes 2 and 3
+    sep #$20
+    .a8
+    lda a:h_apuok
+    beq @out
+    stz a:h_apuwave
+    lda #$E0
+    sta a:APUIO1
+    jsr apu_send
+@out:
+    rep #$20
+    .a16
+    rtl
+
+.a8
+.i8
 hal_reset:
     sei
     clc

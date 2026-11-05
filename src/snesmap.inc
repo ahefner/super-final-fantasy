@@ -66,6 +66,11 @@ CHUNK_TAVERN    = $1C           ; Taverns: the clinic as a tavern, and its hire;
                                 ;   and the FUN% section's code (fun.asm)
 TAVERNFAR       = (CHUNK0 + CHUNK_TAVERN) * $10000
 FUNFAR          = TAVERNFAR
+;  ...and FUN%'s raw data, the scream's sample (tools/genscream.py), in the
+;  low half of that chunk's image bank: unused by the chunk, which runs at
+;  $8000 up, and reached only long, by HiROM's $C0+N, as the beam's bank is.
+;  mkrom.py's LOWHALF lays out/fundata.bin there.
+FUNDATAFAR      = $C00000 + (1 + CHUNK_TAVERN) * $10000
 CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the first bank's
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
@@ -1434,6 +1439,12 @@ h_pkpan         = HAL_VARS+$E3  ; scratch: this pulse packet's pan
 ;  h_xpaldirty (xpal_prep; FUN%'s Exploding Dwarf's gibs).
 h_xpaldirty     = HAL_VARS+$E4
 h_xpal          = HAL_VARS+$E5  ; 8 bytes: palette 4's four colours, then 5's
+;  hal_spcload's, while it loads the game's bytes into the SPC700's RAM.  It
+;  runs with the direct page on HAL_VARS, so these are reached as z: there.
+h_spcptr        = HAL_VARS+$F0  ; 3 bytes: the block, then the bytes themselves
+h_spccnt        = HAL_VARS+$F3  ; 2 bytes: how many bytes
+h_spcseq        = HAL_VARS+$F5  ; the count packet's sequence byte, the last one
+h_spcidx        = HAL_VARS+$F6  ; the handshake: the index the next three carry
 h_hfacc         = HAL_VARS+$96  ; fractional half-frame accumulator
 h_hftickn       = HAL_VARS+$98  ; half-frames falling in this video frame
 h_apufull       = HAL_VARS+$9A  ; set by hal_waitvbl: this call is the frame's
@@ -2480,7 +2491,9 @@ FUN_NSY         = FUNRAM+$56A     ; 2
 FUN_T2          = FUNRAM+$56C     ; 2: scratch
 FUN_CUT         = FUNRAM+$56E     ; the box's bottom the cover last hid at, $FF none
 FUN_BEAT        = FUNRAM+$570     ; 2: the heart's beat, map frames from the burst round DWARF_BEAT_PERIOD
-FUNRAM_END      = FUNRAM+$572
+FUN_SAMPLED     = FUNRAM+$572     ; nonzero once the scream is in the SPC700's RAM:
+                                  ;   hal_reset zeroes it as the console resets the SPC700
+FUNRAM_END      = FUNRAM+$573
 .assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
 .assert GIB_SPR = GIB_MXY + GIB_N * 4 && GIB_SPR + GIB_N * 4 <= FUN_LSX, error, "the gibs' arrays overlap"
 .assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"

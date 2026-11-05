@@ -82,7 +82,9 @@ writes VRAM checks the V counter first, since it can arrive late.
 **Audio** is an SPC700 driver fed from the pAPU shadow: two pulses with duty,
 sweep and envelope, the triangle with its linear counter, and noise with
 envelope and length counter.  The waveforms are BRR, sized per note, so a bass
-note carries harmonics the Gaussian interpolation would otherwise eat.
+note carries harmonics the Gaussian interpolation would otherwise eat.  A
+fifth voice plays the game's own samples, sent to the SPC700's RAM at boot
+(the Exploding Dwarf's scream).
 
 ## The options and the randomizer
 

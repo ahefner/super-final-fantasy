@@ -44,6 +44,12 @@ EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x
                 0x16: "WORLD", 0x17: "ROLL", 0x18: "TACTICS", 0x19: "OWS", 0x1A: "NEWGAME",
                 0x1B: "OPTMENU", 0x1C: "TAVERN", 0x1D: "OPTTEXT2"}
 
+#  Raw data laid into a chunk's low half, $0000-$7FFF of its image bank: the
+#  chunk runs at $8000 up, and banks $A1+N decode that range as I/O and RAM,
+#  so it is reached only long, through HiROM's $C0+N (snesmap.inc's
+#  FUNDATAFAR) -- 32KB a chunk otherwise left a mirror.  {chunk: out/<file>}.
+LOWHALF = {0x1C: "fundata.bin"}             # FUN%: the scream's sample
+
 
 def read(path, want):
     d = open(path, "rb").read()
@@ -292,6 +298,12 @@ def main():
             os.path.join(OUT, "bank_%s.bin" % name), 0x4000)
         rom[base + 0xC000:base + 0x10000] = fixed
         rom[base:base + 0x8000] = rom[base + 0x8000:base + 0x10000]
+    for chunk, name in LOWHALF.items():
+        blob = open(os.path.join(OUT, name), "rb").read()
+        if len(blob) > 0x8000:
+            sys.exit("%s is %d bytes, more than a chunk's low half" % (name, len(blob)))
+        base = (1 + chunk) * BANK
+        rom[base:base + len(blob)] = blob
 
     #  The altar beam's HDMA tables, pre-built by genbeam.py.  They get a bank
     #  of their own because HDMA reads them straight out of ROM: nothing has to

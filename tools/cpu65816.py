@@ -68,6 +68,11 @@ class Bus:
         addr &= 0xFFFF
         if bank in (0x7E, 0x7F):
             return self.wram[(bank - 0x7E) * 0x10000 + addr]
+        if bank & 0x40:
+            #  HiROM: banks $40-$7D and $C0-$FF are ROM end to end, the low
+            #  half too -- FUN%'s data is there, at $DD:0000 (FUNDATAFAR).
+            #  Low WRAM, the I/O and SRAM are only the other banks'.
+            return self._rom(bank, addr)
         if addr < 0x2000:
             return self.wram[addr]          # low WRAM mirrors $7E:0000
         if 0x4216 <= addr <= 0x4217:
@@ -105,6 +110,8 @@ class Bus:
         if bank in (0x7E, 0x7F):
             self.wram[(bank - 0x7E) * 0x10000 + addr] = val
             return
+        if bank & 0x40:
+            raise RuntimeError("write to ROM at $%02X:%04X" % (bank, addr))
         if addr < 0x2000:
             self.wram[addr] = val
             return
@@ -639,6 +646,8 @@ class CPU:
             self.narrow_index()
         elif op == 0x0B: self.push((self.d >> 8) & 0xFF); self.push(self.d & 0xFF)
         elif op == 0x2B: self.d = self.pull() | (self.pull() << 8)
+        elif op == 0xF4:                    # PEA: the operand word, high byte first
+            v = self.fetch16(); self.push(v >> 8); self.push(v & 0xFF)
         # flags and mode
         elif op == 0x18: self.p &= ~C
         elif op == 0x38: self.p |= C

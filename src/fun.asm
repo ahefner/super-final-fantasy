@@ -38,6 +38,7 @@
 
 .import rando_warmfar, rando_belowfar, rando_fyfar, rando_smpal
 .import hal_chrdirty, lut_DwarfLine
+.import hal_spcload, hal_spcplay
 .export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal
 .export fun_dwarfline, fun_spared, fun_exit, fun_smframe, fun_frame, fun_init
 .export fun_cover
@@ -546,6 +547,8 @@ fun_btlpal:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .include "dwarfgibs.inc"
+.include "scream.inc"
+.include "spcmap.inc"
 .assert DWARF_PARTICLES = GIB_N, error, "dwarfref.py's particles are not snesmap.inc's"
 DLGPTRFAR_HURRAY = (CHUNK0 + BANK_DIALOGUE) * $10000 + lut_DialoguePtrTbl + DLG_HURRAY * 2
 GIB_SHADOW = (256 + DWARF_GIB_FIRST) * 32   ; the gibs' tiles in CHRSHADOW: NES $1F00
@@ -619,13 +622,46 @@ dwarf_park:
     STA f:h_oamdirty
     RTS
 
+;;  The scream (user, 2026-11-04: "Should trigger at the same time as the
+;;  gib animation"): the user's recording, tools/genscream.py's, from
+;;  FUN%'s raw data into the SPC700's RAM once a power-on, there for the
+;;  burst to play (dwarf_burst).  A soft reset leaves the SPC700 as it was
+;;  and FUN_SAMPLED set, so the path the runners reset down pays nothing.
+SCREAM_SPC = SPC_FREE
+.assert SCREAM_SPC + SCREAM_LEN + 2 <= SPC_FREE_END, error, "the scream overruns the SPC700's free RAM"
+lut_ScreamLoad:                 ; hal_spcload's record
+    .word SCREAM_SPC
+    .word SCREAM_LEN
+    .faraddr FUNDATAFAR + SCREAM_AT
+
+;;  From opt_init, every boot: the scream into the SPC700 once a power-on,
+;;  then as fun_exit.
+fun_init:
+    LDA f:FUN_SAMPLED
+    BNE fun_exit
+    LDA #1
+    STA f:FUN_SAMPLED
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    LDA #^FUNFAR
+    LDX #.loword(lut_ScreamLoad)
+    JSL hal_spcload + HALFAR
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    ;  (on into fun_exit)
+
 ;;  From StartScreenWipe, as the map is left: whatever burst is gone, and
 ;;  the next load of the map has him back where he stands.  And from
-;;  opt_init, every boot: FUNRAM is WRAM the console does not clear, and
+;;  fun_init, every boot: FUNRAM is WRAM a soft reset does not clear, and
 ;;  fun_frame reads it from the first frame; a soft reset leaves the gibs
 ;;  in OAM, and the title would show them.  A8 X8; A, X clobbered.
 fun_exit:
-fun_init:
     JSR dwarf_park
     LDA #0
     STA f:FUN_ACTIVE
@@ -870,6 +906,8 @@ dwarf_burst:
     LDA #0
     STA f:FUN_BEAT              ; the heart's beat from the burst
     JSR dwarf_tiles             ; the tiles and colours in, whatever is there
+    LDA #SCREAM_SPC
+    JSL hal_spcplay + HALFAR    ; and the scream, from the same frame
     SEP #$30
     .a8
     .i8

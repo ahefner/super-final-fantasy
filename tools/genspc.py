@@ -33,12 +33,31 @@ the sample loops, so a duty change takes effect at the next cycle with no
 key-on -- which is how the NES does it, and the only way a change mid-note
 does not click.
 
+A sample voice, voice 4, beside the NES's four, and the game's samples in
+RAM of their own (user, 2026-11-04: the Exploding Dwarf's scream).  Three
+packets, all with both key bits set and voice 2's number -- a sweep packet
+names a pulse, so these cannot be one:
+    $E1    byte 2-3: an address in this RAM, for the next load
+    $E2    byte 2-3: a count of bytes to load there.  Acknowledged as any
+           packet, and then the bytes follow three a handshake: ports 1-3,
+           then port 0 the next of a running index from this packet's own
+           sequence byte plus one, echoed back.  Up to two bytes past the
+           count are written.  Then port 0 is this packet's sequence byte
+           again, echoed, and the program is back in its loop as if this
+           packet had been the last -- so the next real one cannot match
+           what is on the port.  Nothing else runs meanwhile, the sweeps'
+           clock among it: for while nothing sounds.
+    $E0    byte 2-3: the address of a sample in this RAM -- its pitch (word),
+           its left and right volumes, then its BRR -- to play on voice 4,
+           from its start, once (the last block END without LOOP)
+
 SPC700 memory:
     $0200  this program
-    $0700  sample directory (DIR = $07): two entries per voice
-    $0720  waveform address table
-    $0770  BRR sample data
+    $0800  sample directory (DIR = $08): two entries per voice, then voice 4's
+    $0824  waveform address table
+    $0874  BRR sample data
     after  the pulse period -> pitch and cycle-length tables
+    SPC_FREE..SPC_FREE_END  the game's (gen/spcmap.inc), for its samples
 """
 import os, re
 import os, re
@@ -60,11 +79,14 @@ OUT  = os.path.join(os.path.dirname(HERE), "src", "spcprog.inc")
 
 LOAD = 0x0200          # where the image lands in SPC RAM, and the entry point
 ECHOPAGE = 0xF0       # an unused page for ESA; echo writes are never enabled
-DIRPAGE = 0x07         # directory at $0700.  It has to be page aligned, so
+DIRPAGE = 0x08         # directory at $0800.  It has to be page aligned, so
                        # whatever sits below it is the program's whole budget:
-                       # $0200..$06FF, 1280 bytes.  It has moved up twice as the
-                       # program grew, the second time for the sweep units.
-ADDRTAB = (DIRPAGE << 8) + 0x20   # waveform address table, one word per waveform
+                       # $0200..$07FF, 1536 bytes.  It has moved up three times
+                       # as the program grew: the second for the sweep units,
+                       # the third for the sample voice.
+SAMPLE_VOICE = 4       # the game's samples, on a voice of their own
+SAMPLE_SRCN = 8        # ...and its directory entry, past the four voices' pairs
+ADDRTAB = (DIRPAGE << 8) + 0x24   # waveform address table, one word per waveform
 BRRBASE = ADDRTAB + 0x50          # BRR sample data (past a 40-entry address table)
 
 # --- a very small SPC700 assembler ----------------------------------------
@@ -137,6 +159,9 @@ class Asm:
     def mov_y_dp(self, d):     self.emit(0xEB, d)
     def cmp_y_imm(self, i):    self.emit(0xAD, i)
     def mov_dp_y(self, d):     self.emit(0xCB, d)
+    def mov_idy_a(self, d):    self.emit(0xD7, d)     # MOV [dp]+Y,A
+    def mov_abs_a(self, a):    self.emit(0xC5, a & 0xFF, a >> 8)     # MOV !abs,A
+    def mov_dp_dp(self, dst, src): self.emit(0xFA, src, dst)  # operand order: src, dst
     def inc_abs(self, a):      self.emit(0xAC, a & 0xFF, a >> 8)
     def dec_abs(self, a):      self.emit(0x8C, a & 0xFF, a >> 8)
     def branch(self, op, lab):
@@ -237,6 +262,9 @@ TACC    = 0x58        # quarter-milliseconds counted toward the next half-frame
 PANK    = 0x70        # this packet's pan: P7's bits 6-5 for a pulse, else 0
 PANC    = 0x71        # four bytes: the pan each voice's volume was last sent with
 PAN_LEFT, PAN_RIGHT = 0x20, 0x40   # Stereo Sound (hal.asm's apu_pan)
+LDPTR   = 0x76        # word: where the next loaded byte goes, or the sample played
+LDEND   = 0x78        # word: where the load stops
+LDIDX   = 0x7A        # the load's handshake: the index the next three bytes carry
 TSEQ    = 0x59        # which interval of TPAT is running
 TPAT    = 0x5A        # six bytes: the intervals between half-frame clocks
 SV      = 0x60        # the voice halfclk is sweeping
@@ -259,7 +287,12 @@ def _check_opcodes():
     """
     import collections, inspect
     seen = collections.defaultdict(list)
-    for name, fn in inspect.getmembers(Asm, predicate=inspect.isfunction):
+    #  Asm's own, from its __dict__: PyPy counts an inherited builtin among
+    #  getmembers' functions, and has no source for it (test_scream runs this
+    #  under PyPy).
+    for name, fn in vars(Asm).items():
+        if not inspect.isfunction(fn):
+            continue
         src = inspect.getsource(fn)
         m = re.search(r"self\.emit\((0x[0-9A-Fa-f]+)", src)
         if m and name not in ("emit", "branch", "dsp", "dsp_a"):
@@ -687,6 +720,10 @@ def program():
         # threshold where an attack reads as soft, and key-off gets the DSP's
         # release fade for free.
         a.dsp(v * 0x10 + 0x07, 0xDF)     # GAIN: linear increase, rate 31
+    #  The sample voice: its own directory entry, which each sample played
+    #  repoints, and the same 2 ms ramp in -- a scream starts loud.
+    a.dsp(SAMPLE_VOICE * 0x10 + 0x04, SAMPLE_SRCN)
+    a.dsp(SAMPLE_VOICE * 0x10 + 0x07, 0xDF)
     a.dsp(0x6C, 0x20)         # FLG: NOW release reset and mute; echo writes stay off
     a.dsp(0x5C, 0x00)         # release KOFF so voices can be keyed later
     #  The sweep units start idle.  SWREG starts at $FF because that is what
@@ -798,6 +835,10 @@ def program():
     #  it is sweeping stays put, but the new setting may silence it or let it
     #  sound again.
     a.mov_a_dp(CMD); a.and_a_imm(0xC0); a.cmp_a_imm(0xC0); a.bne("notaux")
+    #  ...for a pulse.  Voice 2's number instead: the sample voice's packets.
+    a.mov_a_dp(VB); a.cmp_a_imm(0x20); a.bne("sweeppkt")
+    a.jmp("sample")
+    a.label("sweeppkt")
     a.mov_a_dp(PLO); a.mov_dpx_a(SWREG)                 # X = voice
     a.mov_a_dpx(SWON); a.beq("auxdone")
     a.call("swcheck")
@@ -1043,8 +1084,69 @@ def program():
     a.jmp("loop")
     emit_tone(a)
     emit_sweep(a)
+    emit_sample(a)
     a.link()
     return bytes(a.code)
+
+def emit_sample(a):
+    """The sample voice's packets, $E0-$E2 (see the top of this file): a load
+    of the game's bytes into this RAM, and a sample played from it."""
+    smpdir = (DIRPAGE << 8) + 4 * SAMPLE_SRCN
+    vb = SAMPLE_VOICE * 0x10
+    a.label("sample")
+    a.mov_a_dp(CMD); a.and_a_imm(0x0F)
+    a.beq("smpplay")
+    a.cmp_a_imm(1); a.bne("smpload")
+    #  $E1: where the next load goes.
+    a.mov_a_dp(PLO); a.mov_dp_a(LDPTR); a.mov_a_dp(P7); a.mov_dp_a(LDPTR + 1)
+    a.jmp("ack")
+    #  $E2: how many bytes, and then the bytes.  Acknowledge this packet
+    #  first, as any other, so the 65816 knows to start.
+    a.label("smpload")
+    a.mov_a_dp(PLO); a.clc(); a.adc_a_dp(LDPTR); a.mov_dp_a(LDEND)
+    a.mov_a_dp(P7); a.adc_a_dp(LDPTR + 1); a.mov_dp_a(LDEND + 1)
+    a.mov_a_dp(LAST); a.mov_dp_a(0xF4)
+    a.inc_a(); a.mov_dp_a(LDIDX)
+    #  Three bytes a handshake, as the loader takes the image.  A single read
+    #  of port 0 is enough, as there: only the exact next index is taken, and
+    #  a torn read can only make that once all its bits are the new ones;
+    #  ports 1-3 were written before it.
+    a.label("ldwait")
+    a.mov_a_dp(0xF4); a.cmp_a_dp(LDIDX); a.bne("ldwait")
+    a.mov_y_imm(0)
+    a.mov_a_dp(0xF5); a.mov_idy_a(LDPTR); a.inc_y()
+    a.mov_a_dp(0xF6); a.mov_idy_a(LDPTR); a.inc_y()
+    a.mov_a_dp(0xF7); a.mov_idy_a(LDPTR)
+    a.mov_dp_dp(0xF4, LDIDX)                    # all three in: acknowledge
+    a.inc_dp(LDIDX)
+    a.mov_a_dp(LDPTR); a.clc(); a.adc_a_imm(3); a.mov_dp_a(LDPTR)
+    a.bcc("ldnocarry"); a.inc_dp(LDPTR + 1)
+    a.label("ldnocarry")
+    a.movw_ya_dp(LDPTR); a.cmpw_ya_dp(LDEND)
+    a.bcc("ldwait")                             # short of the end: more
+    #  Done.  Port 0 goes back to this packet's own sequence byte, and the
+    #  loop takes it from there as if nothing had followed it.
+    a.label("ldend")
+    a.mov_a_dp(0xF4); a.cmp_a_dp(LAST); a.bne("ldend")
+    a.jmp("ack")
+    #  $E0: a sample -- pitch, volumes, then the BRR -- from its start.  The
+    #  DSP reads the directory's start address only at the key-on, so the
+    #  entry can be repointed under one already playing; the key-on starts
+    #  it over.
+    a.label("smpplay")
+    a.mov_a_dp(PLO); a.mov_dp_a(LDPTR); a.mov_a_dp(P7); a.mov_dp_a(LDPTR + 1)
+    a.mov_y_imm(0)
+    for reg in (2, 3, 0, 1):                    # PITCH L, H; VOL L, R
+        a.mov_a_idy(LDPTR); a.dsp_a(vb + reg); a.inc_y()
+    a.mov_a_dp(LDPTR); a.clc(); a.adc_a_imm(4)
+    a.mov_abs_a(smpdir); a.mov_abs_a(smpdir + 2)
+    a.mov_a_dp(LDPTR + 1); a.adc_a_imm(0)
+    a.mov_abs_a(smpdir + 1); a.mov_abs_a(smpdir + 3)
+    a.dsp(0x5C, 0x00)                           # a key-on needs KOFF clear first
+    a.dsp(0x4C, 1 << SAMPLE_VOICE)              # KON
+    a.mov_dp_imm(KONPEND, 1)                    # released by the next packet
+    a.jmp("ack")
+
 
 # --- sample data -----------------------------------------------------------
 def brr_block(nibbles, shift, loop, end):
@@ -1185,7 +1287,9 @@ assert all(_SIZEIDX[t] == sum(t >= th for th in SIZE_THRESH)
 PTAB = BRRBASE + sum(len(w) for w in WAVES)
 TABLES = b"".join(bytes([p & 0xFF, p >> 8]) for p in _PULSE_PITCH)
 
-def main():
+def build():
+    """The program, the image it lands in, padded for the loader, and the
+    loader: (prog, image, padded, loader, third)."""
     prog = program()
     assert len(prog) <= DIRBASE - LOAD, (len(prog), DIRBASE - LOAD)
     #  Derived, not written down twice: the program runs from LOAD up to the
@@ -1205,6 +1309,7 @@ def main():
     w0 = WAVEADDR[0]; wt = WAVEADDR[TRIWAVE0]
     four = ent(w0) + ent(w0) + ent(wt) + ent(w0)       # voice 2 is the triangle
     dirent = four + four                               # ...and each one's spare
+    dirent += ent(w0)              # voice 4's, repointed by each sample played
     assert len(dirent) == ADDRTAB - DIRBASE, len(dirent)
     addrtab = b"".join(bytes([w & 0xFF, w >> 8]) for w in WAVEADDR)
     assert ADDRTAB + len(addrtab) <= BRRBASE, len(addrtab)
@@ -1218,6 +1323,22 @@ def main():
     assert LOAD + 3 * third <= LDR, "image would overwrite its own loader"
     padded = image + bytes(3 * third - len(image))
     ldr = loader(pages)
+    return prog, bytes(image), bytes(padded), ldr, third
+
+#  The SPC700's RAM past the image, the game's for its samples: from the end
+#  of what the loader writes to the echo page, whose writes stay disabled
+#  but which ESA names all the same.
+SPCMAP = os.path.join(os.path.dirname(HERE), "gen", "spcmap.inc")
+
+def main():
+    prog, image, padded, ldr, third = build()
+    free = LOAD + len(padded)
+    os.makedirs(os.path.dirname(SPCMAP), exist_ok=True)
+    with open(SPCMAP, "w") as f:
+        f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
+        f.write(";  The SPC700's RAM the game may load its samples into (hal_spcload).\n")
+        f.write("SPC_FREE      = $%04X\n" % free)
+        f.write("SPC_FREE_END  = $%04X\n" % (ECHOPAGE << 8))
     with open(OUT, "w") as f:
         f.write("; GENERATED by tools/genspc.py -- do not edit.\n")
         f.write("SPCPROG_LOAD  = $%04X\n" % LOAD)

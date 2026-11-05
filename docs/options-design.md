@@ -1688,7 +1688,8 @@ capitals.
     `PAN_LEFT`, `PAN_RIGHT`), and the other side's volume goes to zero; the
     pan is cached beside the volume, so a change of pan alone is written.
     The triangle and noise stay in the middle.  The program is 1226 of its
-    1280 bytes.
+    1280 bytes (1422 of 1536 since the Exploding Dwarf's scream gave it a
+    sample voice, 2026-11-04).
   - **The HAL** decides each pulse packet's pan (`apu_pan`) from a register
     the game sets -- `h_stereo`, and `h_panbusy`, the address of a byte that
     puts pulse 2 back in the middle while it is nonzero -- so the HAL knows
@@ -1806,7 +1807,8 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
 watch him explode again and again"; "let him respawn"; 2026-11-04: "When
 the explosion flag is enabled, change his dialog to 'Oh no, not
-again!'"; "A still-beating heart would be pretty slick"): Off and On; the
+again!'"; "A still-beating heart would be pretty slick"; a scream, below):
+Off and On; the
 description
 a draft ("The Hurray dwarf in the Dwarf Cave explodes when you talk to
 him.").  After tenes's 2021 hack (commit 72995c0), whose thousand-pixel
@@ -1846,6 +1848,35 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     the squeeze is a chunk's, $F6, a lump the heart's size.  (User,
     2026-11-04; one of the 8 chunks became it, so the count and the RAM
     stand.)
+  - **The scream** (user, 2026-11-04: "I've got a file scream.raw.  I
+    would downsample this slightly to reduce the size, and also lower the
+    pitch during playback to stretch it out slightly.  Should trigger at
+    the same time as the gib animation"; "it was exported at 11 KHz").
+    The recording is `sound/scream.raw`, 8-bit signed with no header,
+    11025Hz, 1.85 s.  `tools/genscream.py` takes out its DC offset (2% of
+    full scale), resamples it to 8kHz -- under 1% of its energy is above
+    4kHz, so that loses next to nothing and saves 27% -- fades the last 60
+    ms, as the export stops at a tenth of full level, and encodes it as
+    BRR, each block's filter and shift the best of those that decode it:
+    22dB against the samples it was made from, about what four bits give a
+    clipped, noisy recording (a 440Hz tone comes back at 41).  8347 bytes:
+    its pitch, its volume each side, then the BRR, whose last block is
+    silent and flagged END without LOOP, so the voice stops of itself.  It
+    plays at 90% of its rate, 7.2kHz: 2.06 s, a little under two semitones
+    down (`STRETCH`).  Its volume, 96 a side (`VOLUME`), puts its peaks at
+    12000 where a full NES pulse's are 6720: loud over the music, a first
+    guess the user can move.
+    It lives in the low half of Taverns' image bank, `$DD:0000`
+    (`FUNDATAFAR`, `mkrom.py`'s `LOWHALF`), 32KB a chunk otherwise left a
+    mirror of its code; reached only long, as the beam's bank is.  At boot
+    `fun_init` sends it to the SPC700's RAM once a power-on
+    (`hal_spcload`, about a fifth of a second, the screen still blank):
+    `FUN_SAMPLED` remembers, and `hal_reset` zeroes it as the console
+    resets the SPC700, so a soft reset sends nothing and costs two
+    instructions -- the runners' path stands.  The burst plays it in the
+    same call that starts the gibs (`hal_spcplay`), on a voice of its own,
+    voice 4, so it never takes a channel from the music or the game's
+    sound effects.  A soft reset in the middle of it lets it finish.
   - **The sprites**: OAM entries 64-119, which the NES never uses, drawn
     from map pixels with the scroll the map's objects use, so they keep to
     the floor as the screen moves.  Of two sprites the SNES draws the lower
@@ -1890,7 +1921,20 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     stages OBJ palettes 4 and 5 beside the NES palette's records when the
     game hands it colours (`PALSTAGE` is 160 bytes now), and
     `hal_chrdirty`, a dirty span for tiles the game writes straight into
-    the shadow.
+    the shadow.  For the scream, two more and a voice (2026-11-04):
+    `hal_spcload`, the game's bytes into the SPC700's RAM, three a
+    handshake as the boot sends the program, and `hal_spcplay`, a sample
+    there played on voice 4.  The samples stay the game's: the HAL only
+    carries them.  The SPC700's program (`genspc.py`) has the packets for
+    both -- both key bits and voice 2's number, which no sweep packet
+    carries -- and voice 4 with a directory entry of its own; the RAM past
+    the program, `SPC_FREE` to `SPC_FREE_END` (`$2F00-$EFFF`,
+    `gen/spcmap.inc`), is the game's.  The program grew past its 1280
+    bytes, to 1422, so the directory moved up a page to `$0800`, the third
+    time it has; the image sent at boot is the same 11520 bytes.  A load
+    ends with the 65816 putting its first packet's sequence byte back on
+    port 0, so the next real packet cannot match what the load left
+    there.
   - `test_dwarf`: the row and no preset; his line on and off, and decoys
     a page and a byte from his pointer; the Guillotine with him and another
     dwarf; the bones before the blood in OAM, and the HAL's rotation off;
@@ -1909,6 +1953,25 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     each map frame the cartridge runs steps the model too: the checks
     there had compared against the model frozen at rest, which held only
     while no beat fell in them.
+  - `test_scream`: the sample where `FUNDATAFAR` says; its pitch, volume
+    and END; heard 1.11 times the recording's length; decoded as the DSP
+    decodes it (`tools/spc700.py`'s own decoder, not the encoder's), the
+    raw file's own, correlated above 0.9 against it read at 8kHz, and not
+    a millisecond out.  Then the SPC700's program itself, the cartridge's
+    image, run behind the harness's 65816 by `tools/spc700.py` -- the
+    instructions `genspc.py` emits and no others, the DSP a register file
+    and a log: the boot's load byte for byte in its RAM, the program's own
+    bytes untouched, the next frame heard; a soft reset sending nothing;
+    loads of 1-7, 254, 256 and 769 bytes at boot and from every sequence
+    number, exact, nothing to the DSP, the next frame heard, with the
+    SPC700 close behind the 65816 and far ahead of it; the burst keying
+    voice 4 alone at its pitch and volume, its entry on the BRR, released
+    by the next packet; the wiring.  17 mutations, all caught once the
+    SPC700 was also run far ahead -- close behind, it never reached a
+    load's end before the 65816 had answered it, so leaving out the wait
+    for that answer passed.  The harness gained `PEA`, and banks $40+ read
+    as ROM from $0000, as HiROM maps them: it had read low WRAM there, and
+    the load copied zeros.
 
 ### Treasures (2)
 
@@ -4500,7 +4563,7 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  10779 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10735 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
                              2026-11-03, 720 with the water, the tones and the
@@ -4509,19 +4572,28 @@ text region in the game references.
                              gib set 512 and the particles' tables 1464,
                              dwarfgibs.inc, and 1380 of code, 76 of it the
                              heart's beat, 180 of it
-                             the cheaper frame, 2026-11-04)
+                             the cheaper frame, 2026-11-04; the scream's
+                             load and play 44, its sample 8347 in the
+                             chunk's low half, FUNDATAFAR, 24421 left
+                             there, 2026-11-04)
     BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
                              Stereo Sound's (114), Palette swap's (85;
                              2026-11-03), the Exploding Dwarf's (85;
                              2026-11-04)
-    HALCODE      6031 free   not available; see below (Stereo Sound's
+    HALCODE      5844 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
                              register the game sets; the Exploding
                              Dwarf's xpal_prep and hal_chrdirty 125,
                              2026-11-04: OBJ palettes 4-5 and a dirty
-                             span, services the game asks for)
+                             span, services the game asks for; its
+                             scream's hal_spcload and hal_spcplay 187,
+                             2026-11-04: the game's samples carried to
+                             the SPC700, the samples its own)
+    SPC700 RAM               the program 1422 of the 1536 below the
+                             directory (genspc.py); the game's samples
+                             $2F00-$EFFF, the scream 8347 of 49408
 
 **Measure with a listing that counts each line's bytes**, not the address the
 last line starts at, and not trailing zeros.  All three disagree.  And a bank

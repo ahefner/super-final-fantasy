@@ -18,7 +18,8 @@ To check the tests still bite, break the source and confirm a failure appears:
 tools/mutate.py does that for a list of mutations at once, each in its own
 copy of the tree.  Or corrupt a table in the loaded image.  Search the *upper* half of a chunk when you do: mkrom
 mirrors $8000-$FFFF into the low half of every chunk, and that copy is never
-addressed, so mutating it proves nothing.  Changing lut_EncDungeonN's vanilla
+addressed, so mutating it proves nothing.  (Taverns' chunk's low half is
+FUN%'s raw data instead, the scream: mkrom.py's LOWHALF.)  Changing lut_EncDungeonN's vanilla
 numerator from 16 to 15 should fail four of the five live base rates.
 """
 import os, random, re, shutil, subprocess, sys
@@ -12131,6 +12132,8 @@ def source_consts():
              os.path.join(ROOT, "game", "variables.inc"),
              os.path.join(ROOT, "src", "snesmap.inc"),
              os.path.join(ROOT, "gen", "presetcount.inc"),   # NGP_COUNT, for optmenu.inc
+             os.path.join(ROOT, "gen", "spcmap.inc"),        # SPC_FREE, for the scream
+             os.path.join(ROOT, "gen", "scream.inc"),        # SCREAM_LEN
              os.path.join(ROOT, "src", "optmenu.inc")]
     for f in files:
         for line in open(f, encoding="latin-1"):
@@ -17665,6 +17668,202 @@ def test_dwarf():
     check("...and nothing without the flag", xpal(0), ([(0xEE,) * 4] * 12, 3, 0))
 
 
+# --- FUN%: the Exploding Dwarf's scream ----------------------------------------
+def test_scream():
+    """The Exploding Dwarf's scream (user, 2026-11-04: "I've got a file
+    scream.raw.  I would downsample this slightly to reduce the size, and
+    also lower the pitch during playback to stretch it out slightly.  Should
+    trigger at the same time as the gib animation.  The file is raw 8-bit
+    signed audio with no header"; "it was exported at 11 KHz").  The sample:
+    the recording's own, at 8kHz, played 10% slow, clear of the rail, its
+    one END block the last and silent, in the ROM where FUNDATAFAR says.
+    Then genspc.py's program run behind the harness's 65816 (tools/spc700.py),
+    the cartridge's image: the boot's load puts the sample in the SPC700's
+    RAM byte for byte -- and any length, from any sequence number -- leaves
+    the program's own bytes alone, and the frame after it is heard; a soft
+    reset sends nothing; and the burst plays it, in the same call, on voice
+    4 alone, from its start."""
+    import genscream as S, genspc as G, spc700 as A, math
+    SPC_FREE, LEN = K["SPC_FREE"], K["SCREAM_LEN"]
+
+    #  The sample, as built and as the ROM holds it.
+    blob = open(os.path.join(ROOT, "out", "fundata.bin"), "rb").read()
+    FD = K["FUNDATAFAR"]
+    img = FD >> 16 & 0x1F
+    check("the sample where FUNDATAFAR says, Taverns' image bank's low half: out/fundata.bin, SCREAM_LEN long",
+          (img, FD & 0xFFFF, ROMDATA[img * 0x10000:img * 0x10000 + len(blob)] == blob, len(blob)),
+          (1 + K["CHUNK_TAVERN"], 0, True, LEN))
+    rate = (blob[0] | blob[1] << 8) * 32000 / 4096
+    check("its pitch 8kHz played at 90%, 7.2kHz; its volume 96 both sides", (round(rate), blob[2], blob[3]),
+          (7203, 96, 96))
+    samples, heads = A.brr_samples(blob, 4)
+    check("its BRR: one END block, the last, without LOOP, and silent; the first block filter 0, "
+          "nothing past the END",
+          ([i for i, h in enumerate(heads) if h & 1], heads[-1] & 2, samples[-16:], heads[0] >> 2 & 3,
+           len(blob) - 4), ([len(heads) - 1], 0, [0] * 16, 0, 9 * len(heads)))
+    raw = [b - 256 if b > 127 else b for b in open(S.SRC, "rb").read()]
+    heard = samples[:-16]
+    check("...heard for 10%% longer than the recording: %.2f s of its %.2f" % (len(heard) / rate, len(raw) / 11025),
+          round(len(heard) / rate / (len(raw) / 11025), 2), 1.11)
+    mean = sum(raw) / len(raw)
+    at = lambda i: raw[i] - mean if i < len(raw) else 0
+    ref = [at(int(j * 1.378125)) * (1 - j * 1.378125 % 1) + at(int(j * 1.378125) + 1) * (j * 1.378125 % 1)
+           for j in range(len(heard))]
+    corr = lambda d: sum(a * b for a, b in zip(ref, d)) / math.sqrt(sum(a * a for a in ref) * sum(b * b for b in d))
+    check("...the recording's own, read at 11025Hz: decoded as the DSP decodes, against the raw file "
+          "taken at 8kHz, correlated above 0.9; a millisecond late, not", (corr(heard) > 0.9, corr([0] * 8 + heard) < 0.9),
+          (True, True))
+    want, _ = S.build()
+    snr = 10 * math.log10(sum(v * v for v in want) / sum((a - b) ** 2 for a, b in zip(want, samples)))
+    check("...and within 20dB of the samples it was made from (BRR is four bits); its loudest about "
+          "half of full scale, clear of the interpolator's wrap", (snr > 20, 15000 < max(map(abs, samples)) <= 16384),
+          (True, True))
+
+    #  The SPC700 behind the 65816, running the program the cartridge uploads,
+    #  entered as the loader leaves it -- its last index on port 0 -- and run
+    #  until it says it is alive.
+    prog, image, padded, ldr, third = G.build()
+    check("the program run here is the cartridge's: the image spc_upload sends, in the HAL's bank",
+          ROMDATA[0x8000:0x10000].count(padded), 1)
+    SHADOW = K["APUSHADOW"]
+    def wired(seq=None, ahead=6):
+        """As spc_upload leaves the two of them; or with `seq`, as if a packet
+        with that sequence number, a waveform's bits above it, had just been
+        answered -- mid-game, the counter anywhere.  `ahead`: how far the
+        SPC700 runs on each look the 65816 takes at a port; far enough, and
+        it is through whatever follows an acknowledgement before the 65816
+        has written its next byte."""
+        bus, cpu = machine()
+        spc = A.boot(padded, G.LOAD, (third - 1) & 0xFF)
+        spc.out[0] = 0xFF
+        while spc.out[0] != 0:
+            spc.step()
+        A.attach(bus, spc, ahead)
+        bus.wram[K["h_apuok"]] = 1
+        bus.wram[K["h_apuseq"]] = 0
+        if seq is not None:
+            last = seq | 0xA8
+            spc.ram[G.LAST], spc.inp[0], spc.out[0] = last, last, last
+            bus.wram[K["h_apuseq"]] = seq
+        return bus, cpu, spc
+    def pulse1(bus, cpu, spc):
+        """A frame with pulse 1 sounding: the DSP's writes it made."""
+        bus.wram[SHADOW + 0x15] = 0x01
+        bus.wram[SHADOW:SHADOW + 4] = bytes([0xBF, 0x00, 0x23, 0x01])
+        n = len(spc.dsplog)
+        cpu.dbr = 0xA7
+        cpu.run(0xC0, SYM["hal_audioframe"], limit=200_000)
+        spc.run(400)
+        return spc.dsplog[n:]
+    own = lambda spc: (bytes(spc.ram[G.LOAD:G.DIRBASE]) == image[:G.DIRBASE - G.LOAD],
+                       bytes(spc.ram[G.ADDRTAB:G.LOAD + len(image)]) == image[G.ADDRTAB - G.LOAD:])
+
+    #  The boot: opt_init's call, as it makes it.
+    bus, cpu, spc = wired()
+    s0, c0 = cpu.steps, spc.cycles
+    call(cpu, "fun_init", dbr=0xA1 + K["CHUNK_OPT"])
+    secs = (spc.cycles - c0) / 1.024e6
+    check("the boot: the sample in the SPC700's RAM at SPC_FREE byte for byte; FUN_SAMPLED set; the program's "
+          "own code and tables as uploaded", (bytes(spc.ram[SPC_FREE:SPC_FREE + LEN]) == blob,
+                                             bus.wram[rw("FUN_SAMPLED")], own(spc)), (True, 1, (True, True)))
+    check("...in under a quarter second of the SPC700's time, the HAL still answered",
+          (secs < 0.25, bus.wram[K["h_apuok"]], round(secs, 2)), (True, 1, round(secs, 2)))
+    check("...and the frame after it heard: pulse 1 keyed on", (0x4C, 0x01) in pulse1(bus, cpu, spc), True)
+
+    #  A soft reset: the SPC700 as it was, FUN_SAMPLED set, nothing sent.
+    sent = []
+    write = bus.write
+    def spy(bank, addr, val):
+        if 0x2140 <= addr & 0xFFFF <= 0x2143:
+            sent.append(addr & 0xFFFF)
+        write(bank, addr, val)
+    bus.write = spy
+    s0 = cpu.steps
+    call(cpu, "fun_init", dbr=0xA1 + K["CHUNK_OPT"])
+    soft = cpu.steps - s0
+    s0 = cpu.steps
+    call(cpu, "fun_exit")
+    check("a soft reset: nothing sent to the SPC700, and two instructions over fun_exit's",
+          (sent, soft - (cpu.steps - s0)), ([], 2))
+    bus.write = write
+
+    #  Any length, from any sequence number: the copy exact and no further
+    #  than the last three's; nothing to the DSP meanwhile; the program's own
+    #  bytes alone; the frame after heard.  The record in WRAM, the bytes from
+    #  the ROM.  And again with the SPC700 running far ahead of the 65816.
+    bad = []
+    cases = ((1, None), (2, 3), (3, 7), (4, 5), (5, 1), (6, 6), (7, 2), (254, 4), (256, 0), (769, 7))
+    for (n, seq), ahead in [(c, 6) for c in cases] + [(c, 400) for c in cases if c[0] < 300]:
+        bus, cpu, spc = wired(seq, ahead)
+        bus.wram[K["h_apuwave"]] = 0xA8                     # a waveform left by the last voice
+        dest = 0x4001 + n
+        spc.ram[dest - 8:dest + n + 16] = bytes([0xA5]) * (n + 24)
+        src = FD + 0x123
+        rec = 0x2000
+        bus.wram[rec:rec + 7] = bytes([dest & 0xFF, dest >> 8, n & 0xFF, n >> 8,
+                                       src & 0xFF, src >> 8 & 0xFF, src >> 16])
+        cpu.e = False
+        cpu.p &= ~(FLAG_M | FLAG_X)
+        cpu.a, cpu.x, cpu.dbr = 0x7E, rec, 0xA7
+        dsp = len(spc.dsplog)
+        cpu.run(0xC0, SYM["hal_spcload"], limit=400_000)
+        spc.run(400)
+        quiet = len(spc.dsplog) == dsp
+        cpu.e = True
+        cpu.p |= FLAG_M | FLAG_X
+        want = ROMDATA[img * 0x10000 + 0x123:][:-(-n // 3) * 3]
+        got = bytes(spc.ram[dest - 8:dest + n + 16])
+        good = got == bytes([0xA5]) * 8 + want + bytes([0xA5]) * (n + 16 - len(want))
+        if not (good and quiet and own(spc) == (True, True) and (0x4C, 0x01) in pulse1(bus, cpu, spc)
+                and bus.wram[K["h_apuok"]] == 1):
+            bad.append((n, seq, ahead))
+    check("hal_spcload, lengths 1-7, 254, 256, 769, at boot and from every sequence number, the SPC700 "
+          "close behind and far ahead: exact, and no further than the last three; nothing to the DSP; "
+          "the frame after heard", bad, [])
+
+    #  The burst: the scream played in the same call, and nothing else keyed.
+    MAPOBJ_S, HURRAY = MAPOBJ - 0x6000, K["OBJID_HURRAY"]
+    def burst(pending):
+        bus, cpu, spc = wired()
+        call(cpu, "fun_init", dbr=0xA1 + K["CHUNK_OPT"])
+        setblk(bus, K["OPT_FUN"] - OPTBLOCK, K["FUN_DWARF"])
+        bus.sram[0x200 + HURRAY] = 1
+        o = MAPOBJ_S + 12 * 16
+        bus.sram[o:o + 16] = bytes([HURRAY, 0, 18, 10, 18, 10, 0, 0, 0, 0, HURRAY, 0, 0, 0, 0, 0])
+        bus.wram[0x48] = 19
+        bus.wram[K["h_ppumask"]] = 0x1E
+        bus.wram[rw("FUN_PENDING")] = pending
+        n = len(spc.dsplog)
+        call(cpu, "fun_smframe")
+        spc.run(400)
+        return bus, cpu, spc, spc.dsplog[n:]
+    bus, cpu, spc, log = burst(1)
+    regs = dict(log)
+    entry = bytes(spc.ram[G.DIRBASE + 4 * G.SAMPLE_SRCN:][:4])
+    start = SPC_FREE + 4
+    check("the burst: the scream keyed on in the same call -- voice 4 alone in KON -- at its pitch "
+          "and volume, its directory entry its BRR's start and loop, voice 4's SRCN that entry",
+          (bus.wram[rw("FUN_ACTIVE")], [v for r, v in log if r == 0x4C], regs.get(0x42), regs.get(0x43),
+           regs.get(0x40), regs.get(0x41), entry, spc.dsp[0x44]),
+          (1, [0x10], blob[0], blob[1], 96, 96, bytes([start & 0xFF, start >> 8]) * 2, G.SAMPLE_SRCN))
+    check("...what that entry points at, decoded as the DSP would, the sample's whole; the program's "
+          "own bytes as they were", (A.brr_samples(spc.ram, start)[0] == samples, own(spc)), (True, (True, True)))
+    check("...voice 4 a voice of its own: the 2ms ramp in (GAIN $DF, ADSR off), not the noise, not "
+          "pitch-modulated, no echo", (spc.dsp[0x47], spc.dsp[0x45] & 0x80, spc.dsp[0x3D] & 0x10,
+                                      spc.dsp[0x2D] & 0x10, spc.dsp[0x4D] & 0x10), (0xDF, 0, 0, 0, 0))
+    later = pulse1(bus, cpu, spc)
+    check("...its key-on released by the next packet, the voice not keyed off",
+          ((0x4C, 0x00) in later, [v for r, v in later if r == 0x5C and v & 0x10]), (True, []))
+    _, _, _, log = burst(0)
+    check("...and no scream on a map frame with no line said (his line arms it only with the row "
+          "on: test_dwarf)", [v for r, v in log if r == 0x4C], [])
+    #  The wiring, each once: the boot's load, the burst's play.
+    jsl = lambda name: bytes([0x22, SYM[name] & 0xFF, SYM[name] >> 8, 0xC0])
+    tav = ROMDATA[(0xA1 + K["CHUNK_TAVERN"] & 0x1F) * 0x10000 + 0x8000:][:0x4000]
+    check("fun.asm JSLs hal_spcload once and hal_spcplay once", (tav.count(jsl("hal_spcload")),
+          tav.count(jsl("hal_spcplay"))), (1, 1))
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -18195,7 +18394,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_dwarf, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS
