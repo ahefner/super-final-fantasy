@@ -65,11 +65,10 @@ lut_Desc_112:  ; Stereo Sound: the user's words
   FFLINES 1
   FFPAD {"In Stereo For Her Pleasure"}, 28
 
-lut_Desc_113:  ; Palette swap (draft, 2026-11-03)
-  FFLINES 3
+lut_Desc_113:  ; Palette swap (draft, 2026-11-03; the user, 2026-11-05: the line "Each seed has its own." out)
+  FFLINES 2
   FFPAD {"Maps take on new colors,"}, 28
   FFPAD {"and enemies trade colors."}, 28
-  FFPAD {"Each seed has its own."}, 28
 
 lut_Desc_114:  ; Exploding Dwarf (draft, 2026-11-03)
   FFLINES 3

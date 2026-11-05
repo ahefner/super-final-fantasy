@@ -1715,8 +1715,9 @@ overworld too; "enemy colors are fine too"; "some artistic license to tint
 the background grass color toward blue or brown"; 2026-11-04, the
 overworld's water kept blue and the standard maps given "more variation in
 hue vs. luminance", and their greys, "with a low probability", a colour
-ramp): Off and On; the description a draft ("Maps take on new colors, and enemies trade colors.
-Each seed has its own.").  `fun.asm`, in Taverns' chunk.
+ramp): Off and On; the description a draft ("Maps take on new colors, and
+enemies trade colors."; a third line, "Each seed has its own.", out at the
+user's word, 2026-11-05).  `fun.asm`, in Taverns' chunk.
 
   - **The tables**, the seed's (`deal_palswap`, from the cache build:
     `randoref.build_palswap`): the 64 battle palettes shuffled, as FFR's
