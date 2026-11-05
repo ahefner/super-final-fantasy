@@ -1664,8 +1664,10 @@ for an enemy (user asked, 2026-10-11).
 
 ### FUN% (3)
 
-**Built 2026-11-03; the Exploding Dwarf played 2026-11-04, all of it to
-the scream 3dB up (the user: "good enough"); the rest not yet played.**  The user's Fun% flags
+**Built 2026-11-03; all three played: Stereo Sound and Palette swap
+"extensively", the latter through its water, tones and grey ramps (the
+user, 2026-11-04), and the Exploding Dwarf on 2026-11-04, all of it to
+the scream 3dB up ("good enough").**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
 gameplay"), a section of their own after VARIATIONS.  **Not part of the
 seed settings** (user, 2026-11-03): they are the player's own, as the
