@@ -17554,37 +17554,43 @@ def test_dwarf():
     want = lambda sx, sy: D.oam(gibs, 18 * 16 + 8, 10 * 16 + 13, sx, sy)
     check("at rest, all of them on the screen", (all(g.rest for g in gibs),
           sum(s[1] != HIDDEN for s in sprites(bus))), (True, D.PARTICLES))
-    still = cost("fun_smframe")
+    #  Each map frame of the cartridge's is one of the model's: the heart
+    #  beats on while the rest lie still.
+    def smframe():
+        n = cost("fun_smframe")
+        D.step(gibs)
+        return n
+    still = smframe()
     walked, walk_ = [], []
     for sx, sy in [(160 + k, 64) for k in range(1, 9)] + [(168, 64 + k) for k in range(1, 9)]:
         setscroll(bus, sx, sy)
-        walk_.append(cost("fun_smframe"))
+        walk_.append(smframe())
         walked.append(same(sprites(bus), want(sx, sy)))
     check("...walking right, then down: each frame's sprites dwarfref's", walked, [True] * 16)
     setscroll(bus, 288, 72)
-    call(cpu, "fun_smframe")
-    off = want(288, 72)
-    check("...on further, some of them off the screen", (same(sprites(bus), off),
-          0 < sum(s[1] == HIDDEN for s in off) < D.PARTICLES), (True, True))
+    smframe()
+    off = lambda: want(288, 72)
+    check("...on further, some of them off the screen", (same(sprites(bus), off()),
+          0 < sum(s[1] == HIDDEN for s in off()) < D.PARTICLES), (True, True))
     bus.wram[TMP + 11] = 0x40
     grow = cost("fun_cover")
     same_ = cost("fun_cover")
-    check("...a box: those behind it hidden, the ones off the screen too", same(sprites(bus), D.cover(off, 0x40)), True)
-    call(cpu, "fun_smframe")
-    check("...the box gone: all back, nothing having moved", same(sprites(bus), off), True)
+    check("...a box: those behind it hidden, the ones off the screen too", same(sprites(bus), D.cover(off(), 0x40)), True)
+    smframe()
+    check("...the box gone: all back, nothing having moved", same(sprites(bus), off()), True)
     call(cpu, "fun_cover")
-    check("...a box again at the size the last one was: covered again", same(sprites(bus), D.cover(off, 0x40)), True)
-    call(cpu, "fun_smframe")
+    check("...a box again at the size the last one was: covered again", same(sprites(bus), D.cover(off(), 0x40)), True)
+    smframe()
     bus.wram[K["h_ppumask"]] = 0
     call(cpu, "fun_frame")
     bus.wram[TMP + 11] = 0x20
     call(cpu, "fun_cover")
     check("...put away (a menu), a box's frame leaves them so", {s[1] for s in sprites(bus)}, {HIDDEN})
     bus.wram[K["h_ppumask"]] = 0x1E
-    call(cpu, "fun_smframe")
-    check("...and the map back, they are too", same(sprites(bus), off), True)
+    smframe()
+    check("...and the map back, they are too", same(sprites(bus), off()), True)
     #  The heart at rest, still beating: the frames to the next squeeze,
-    #  that frame's cost and its sprite, and the release four on.
+    #  that frame's cost and its sprite, and the release after it.
     heart = lambda bus: sprites(bus)[D.HEART][2] - D.GIB_FIRST
     to_beat = (D.BEAT_SQUEEZE[0] - 1 - bus.wram[W("FUN_BEAT")]) % D.BEAT_PERIOD
     for _ in range(to_beat):
@@ -17595,7 +17601,7 @@ def test_dwarf():
     squeezed, dirty = heart(bus), bus.wram[K["h_oamdirty"]]
     for _ in range(D.BEAT_RELEASE[0] - D.BEAT_SQUEEZE[0]):
         call(cpu, "fun_smframe")
-    check("...the heart at rest beats on: full, squeezed and the OAM sent, full again four frames on",
+    check("...the heart at rest beats on: full, squeezed and the OAM sent, full again at the release",
           (before, squeezed, dirty, heart(bus)), (D.HEART_FULL, D.HEART_SQUEEZED, 1, D.HEART_FULL))
     check("the cost: at rest and still under 80, a beat under 150, walking under 1400, a box's frame "
           "under 700 as it grows and under 20 once open",

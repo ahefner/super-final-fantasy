@@ -1837,10 +1837,12 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     fall (gravity 12/256 px a frame); bones and the skull bounce back up at 5/8 the speed until they are too slow to, and
     blood pools where it lands.  All of it lies still in about 4.5 seconds
     -- but the heart, which lands soft and goes on beating for as long as
-    the party stays on the map: lub-dub at 75 a minute, squeezed for four
-    frames, full for four, squeezed for four, then full to the next beat
-    (`dwarf_beat`, every map frame; the count `FUN_BEAT` from the burst,
-    round 48).  Its full tile is the gib set's last, $FF, spare till then;
+    the party stays on the map: lub-dub at 25 a minute, squeezed for
+    twelve frames, full for twelve, squeezed for twelve, then full to the
+    next beat (`dwarf_beat`, every map frame; the count `FUN_BEAT` from the
+    burst, round 144).  It was three times that at first, 75 a minute;
+    played 2026-11-04, the user: "slow the heart animation to 1/3 of the
+    speed. currently it's very twitchy".  Its full tile is the gib set's last, $FF, spare till then;
     the squeeze is a chunk's, $F6, a lump the heart's size.  (User,
     2026-11-04; one of the 8 chunks became it, so the count and the RAM
     stand.)
@@ -1903,7 +1905,10 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     last, a menu over them -- and the costs.  47 mutations, all caught; 39
     more for the cheaper frame (2026-11-04), all caught once the at-rest
     cases were in; 10 for "Oh no, not again!" and the order, all caught;
-    11 for the heart's beat, all caught.
+    11 for the heart's beat, all caught.  After the gibs come to rest,
+    each map frame the cartridge runs steps the model too: the checks
+    there had compared against the model frozen at rest, which held only
+    while no beat fell in them.
 
 ### Treasures (2)
 

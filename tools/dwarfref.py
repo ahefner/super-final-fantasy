@@ -50,14 +50,16 @@ CLASSES = [
 assert sum(c[0] for c in CLASSES) == PARTICLES
 
 #  The heart's beat, a count of map frames from the burst, round
-#  BEAT_PERIOD (75 a minute): lub-dub, the tile squeezed at each of
+#  BEAT_PERIOD (25 a minute; 75 at first, slowed to a third, user,
+#  2026-11-04: "currently it's very twitchy"): lub-dub, the tile squeezed
+#  at each of
 #  BEAT_SQUEEZE and full again at each of BEAT_RELEASE, whether it flies or
 #  lies still.  The squeeze is a chunk's tile, $F6, a lump the heart's size.
 HEART_FULL, HEART_SQUEEZED = 0xF, 0x6
 HEART = [c[1] for c in CLASSES for _ in range(c[0])].index(HEART_FULL)
-BEAT_PERIOD = 48
-BEAT_SQUEEZE = (0, 8)
-BEAT_RELEASE = (4, 12)
+BEAT_PERIOD = 144
+BEAT_SQUEEZE = (0, 24)
+BEAT_RELEASE = (12, 36)
 BODY_X = 0x07FF                 # spawn x: (draw & BODY_X) - $400, the dwarf's width
 BODY_Y = 0x01FF                 # spawn y: (draw & BODY_Y) - $100
 
