@@ -37,7 +37,7 @@
 .include "variables.inc"
 
 .import rando_warmfar, rando_belowfar, rando_fyfar, rando_smpal
-.import hal_chrdirty
+.import hal_chrdirty, lut_DwarfLine
 .export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal
 .export fun_dwarfline, fun_spared, fun_exit, fun_smframe, fun_frame, fun_init
 .export fun_cover
@@ -513,18 +513,18 @@ fun_btlpal:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "Keep the
-;;  Hurray text"; "let him respawn"; 2026-11-04, his words the game's: "he
-;;  should just say 'Hooray!' as usual"): talk to the Hurray dwarf in the
-;;  Dwarf Cave and he says so, and when the box closes he bursts -- tenes's
-;;  2021 hack (commit 72995c0) for the SNES,
+;;  The Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "let him
+;;  respawn"; 2026-11-04: "When the explosion flag is enabled, change his
+;;  dialog to 'Oh no, not again!'"): talk to the Hurray dwarf in the Dwarf
+;;  Cave and he says so, and when the box closes he bursts -- tenes's 2021
+;;  hack (commit 72995c0) for the SNES,
 ;;  as sprites: DWARF_PARTICLES gibs in OAM entries 64 up, which the NES
 ;;  never uses, their tiles object slot 14's row (empty on that map), their
 ;;  colours OBJ palettes 4 and 5 (the HAL's h_xpal).  tools/dwarfref.py is
 ;;  the model, and dwarfgibs.inc its tables: the cartridge is it frame for
 ;;  frame (test_dwarf).
 ;;
-;;    fun_dwarfline  his line, from rando_dlgtext, arms the burst
+;;    fun_dwarfline  his line, from rando_dlgtext, and the burst armed
 ;;    fun_spared     NPC Guillotine leaves him be (rando_talk), so he is
 ;;                   back on the next visit
 ;;    fun_smframe    each frame of the standard map loop, the sprites drawn:
@@ -561,21 +561,28 @@ dwarf_on:
     RTS
 
 ;;  From rando_dlgtext with nothing armed: his line, dialogue DLG_HURRAY, the
-;;  row on, arms the burst for when the box closes.  The line is the game's
-;;  own, "Hurray!!" (user, 2026-11-04).  A clobbered; X, Y and text_ptr
-;;  kept.  A8 X8.
+;;  row on -- "Oh no, not again!" instead (lut_DwarfLine, the world chunk's;
+;;  user, 2026-11-04), and the burst armed for when the box closes.  Out: C
+;;  set, text_ptr's low byte his line's and A its high; else C clear and
+;;  text_ptr kept.  X, Y kept.  A8 X8.
 fun_dwarfline:
     JSR dwarf_on
-    BEQ @out
+    BEQ @no
     LDA f:DLGPTRFAR_HURRAY
     CMP text_ptr
-    BNE @out
+    BNE @no
     LDA f:DLGPTRFAR_HURRAY + 1
     CMP text_ptr+1
-    BNE @out
+    BNE @no
     LDA #1
     STA f:FUN_PENDING
-  @out:
+    LDA #<lut_DwarfLine
+    STA text_ptr
+    LDA #>lut_DwarfLine
+    SEC
+    RTL
+  @no:
+    CLC
     RTL
 
 ;;  From rando_talk's NPC Guillotine: C set when the object X talks to is the

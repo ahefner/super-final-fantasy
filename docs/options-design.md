@@ -1804,36 +1804,49 @@ Each seed has its own.").  `fun.asm`, in Taverns' chunk.
     water, and a grey counted as water.  All 11 in the ramp are caught.
 
 **Exploding Dwarf** (user, 2026-11-03: "Hurray dwarf only"; "I want to
-watch him explode again and again"; "let him respawn"): Off and On; the description
+watch him explode again and again"; "let him respawn"; 2026-11-04: "When
+the explosion flag is enabled, change his dialog to 'Oh no, not
+again!'"): Off and On; the description
 a draft ("The Hurray dwarf in the Dwarf Cave explodes when you talk to
 him.").  After tenes's 2021 hack (commit 72995c0), whose thousand-pixel
 overlay does not come to the SNES: here it is sprites.  `fun.asm`, in
 Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
 (`gen/dwarfgibs.inc`).
 
-  - **His line.**  Talk to him and he says what he always has, dialogue
-    $77, "Hurray!!", his alone; the drawer loading it (`fun_dwarfline`,
-    from `rando_dlgtext`) arms the burst.  (He said "Oh shit!" instead from
-    2026-11-03, the user's; reverted 2026-11-04: "he should just say
-    'Hooray!' as usual".)  NPC
-    Guillotine leaves him in his slot (`fun_spared`, from `rando_talk`), or
-    there would be no one to burst.
+  - **His line.**  Talk to him and his line, dialogue $77, his alone, is
+    "Oh no, not again!" (`lut_DwarfLine`, the world chunk's), swapped in as
+    the drawer loads it (`fun_dwarfline`, from `rando_dlgtext`); that arms
+    the burst.  With the row off he says "Hurray!!" as ever.  (Before
+    this he said "Oh shit!", the user's of 2026-11-03, then "Hurray!!"
+    again: "he should just say 'Hooray!' as usual".)  NPC Guillotine
+    leaves him in his slot (`fun_spared`, from `rando_talk`), or there
+    would be no one to burst.
   - **The burst**, the first frame of the map loop after his box closes
     (`fun_smframe`, after `DrawSMSprites`): he leaves the map's objects for
     the visit -- his game flag as it is, so the next load of the map has
-    him back -- and 56 gibs start from his feet: 32 drops of blood, 8
-    chunks, 12 bones, the cranium, the jaw and two eyes, each drawn from a
+    him back -- and 56 gibs start from his feet: the cranium, the jaw, the
+    ribcage, 13 bones, 8 chunks and 32 drops of blood, each drawn from a
     16-bit xorshift seeded with the frame counter, so no two bursts are
-    alike.  They fly and fall (gravity 12/256 px a frame); bones and the
+    alike.  (Until 2026-11-04, 12 bones and two eyes, white rings round a
+    black pupil, which read as rings: the user's "I'd change one of them to
+    something like a ribcage, and the other to a regular bone".  The eyes
+    were this port's, not tenes's, whose hack has only blood, bones and the
+    skull.)  They fly and fall (gravity 12/256 px a frame); bones and the
     skull bounce back up at 5/8 the speed until they are too slow to, and
     blood pools where it lands.  All of it lies still in about 4.5 seconds.
   - **The sprites**: OAM entries 64-119, which the NES never uses, drawn
     from map pixels with the scroll the map's objects use, so they keep to
-    the floor as the screen moves; their tiles go in object slot 14's row
-    of the shadow (NES $1F00, empty on that map), and their colours in OBJ
-    palettes 4 and 5 (the HAL's `h_xpal`).  A CHR load over them -- a
-    battle, the menu -- is mended the next map frame (the cranium's tile is
-    checked).
+    the floor as the screen moves.  Of two sprites the SNES draws the lower
+    entry in front (the HAL's OAM flush leaves priority rotation off), so
+    the gibs are in that order, front first: the skull and ribcage, the
+    bones, the chunks, the blood (user, 2026-11-04: "Make sure sprite order
+    / priority is set so that bones appear over top of blood").  They were
+    in the other order until then, blood over bone -- and the preview,
+    painting the list in order, had shown the reverse of the console.
+    Their tiles go in object slot 14's row of the shadow (NES $1F00, empty
+    on that map), and their colours in OBJ palettes 4 and 5 (the HAL's
+    `h_xpal`).  A CHR load over them -- a battle, the menu -- is mended the
+    next map frame (the cranium's tile is checked).
   - **Hidden when they should be.**  A dialogue box covers those behind it
     as the game covers its own sprites (`fun_cover`, from
     `Dialogue_CoverSprites_VBl`), and they hold still while it is open;
@@ -1865,8 +1878,9 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     game hands it colours (`PALSTAGE` is 160 bytes now), and
     `hal_chrdirty`, a dirty span for tiles the game writes straight into
     the shadow.
-  - `test_dwarf`: the row and no preset; his line on and off, the game's
-    own, and decoys a page and a byte from his pointer; the Guillotine with him and another dwarf;
+  - `test_dwarf`: the row and no preset; his line on and off, and decoys
+    a page and a byte from his pointer; the Guillotine with him and another
+    dwarf; the bones before the blood in OAM, and the HAL's rotation off;
     every frame of three bursts against the model, the screen still and
     walking, round the map's edge, at each of the screen's edges and far
     off it; the tiles, the span and the colours, mended after a load and
@@ -1875,7 +1889,7 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     way, off the screen, a box over them and gone, a box the size of the
     last, a menu over them -- and the costs.  47 mutations, all caught; 39
     more for the cheaper frame (2026-11-04), all caught once the at-rest
-    cases were in.
+    cases were in; 10 for "Oh no, not again!" and the order, all caught.
 
 ### Treasures (2)
 
@@ -4423,8 +4437,8 @@ text region in the game references.
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only; Rebellious
                              Princess's spots 138 (2026-11-03)
-    BANK_WORLD   4509 free  (measured 2026-11-04; 5337 on 2026-10-28)
-                             the Exploding Dwarf's line 9 (2026-11-04)
+    BANK_WORLD   4500 free  (measured 2026-11-04; 5337 on 2026-10-28)
+                             the Exploding Dwarf's line 18 (2026-11-04)
                              Rebellious Princess 819: her lines (dlgsara.inc),
                              her map loading (sara.inc), es_saraspots;
                              entrance shuffle's code
@@ -4467,14 +4481,14 @@ text region in the game references.
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04)
-    BANK_TAVERN  10864 free  Taverns' visit, hire, level up and look
+    BANK_TAVERN  10855 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
                              2026-11-03, 720 with the water, the tones and the
                              grey ramps,
-                             2026-11-04; the Exploding Dwarf 3271 -- the
+                             2026-11-04; the Exploding Dwarf 3280 -- the
                              gib set 512 and the particles' tables 1464,
-                             dwarfgibs.inc, and 1295 of code, 180 of it
+                             dwarfgibs.inc, and 1304 of code, 180 of it
                              the cheaper frame, 2026-11-04)
     BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious

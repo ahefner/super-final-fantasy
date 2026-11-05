@@ -17283,10 +17283,12 @@ def test_palswap():
 # --- FUN%: Exploding Dwarf ------------------------------------------------------
 def test_dwarf():
     """Exploding Dwarf (user, 2026-11-03: "Hurray dwarf only"; "I want to
-    watch him explode again and again"; "let him respawn"; 2026-11-04: "he
-    should just say 'Hooray!' as usual").  The row; his line, the game's,
-    arming the burst; NPC Guillotine leaving him be; the
-    burst and every frame after it against tools/dwarfref.py, the screen
+    watch him explode again and again"; "let him respawn"; 2026-11-04:
+    "change his dialog to 'Oh no, not again!'", "bones appear over top of
+    blood").  The row; his line, arming the burst; NPC Guillotine leaving
+    him be; the
+    burst and every frame after it against tools/dwarfref.py, the bones
+    drawn over the blood, the screen
     scrolling and wrapping; a dialogue box covering the gibs behind it; the
     gibs hidden while the sprites are off, and their tiles and colours put
     back; gone when the map is left, and at boot; and the HAL's colours."""
@@ -17324,8 +17326,8 @@ def test_dwarf():
     check("...another Talk_norm dwarf ($64) under NPC Guillotine, the row on: taken as ever",
           talk(1, 1, 0x64)[1], 0)
 
-    #  His line as the drawer loads it (rando_dlgtext): the game's own, and
-    #  the burst armed.
+    #  His line as the drawer loads it (rando_dlgtext): "Oh no, not again!",
+    #  and the burst armed.
     OPT, MAXD, PENDING = K["OPTDESC"], K["OPTDLG_MAX"], rw("FUN_PENDING")
     def line(ptr, on):
         bus, cpu = machine()
@@ -17340,8 +17342,8 @@ def test_dwarf():
         z = buf.find(0)
         text = ff_decode(buf[:z]) if now == OPT and 0 <= z < MAXD else None
         return now, text, cpu.y & 0xFF, cpu.dbr == dbr, bus.wram[PENDING]
-    check("his line with the row on: the game's own, untouched, the burst armed, Y and DBR kept",
-          line(gameptr(DLG), True), (gameptr(DLG), None, 0x5A, True, 1))
+    check("his line with the row on: \"Oh no, not again!\" from OPTDESC, the burst armed, Y and DBR kept",
+          line(gameptr(DLG), True), (OPT, "Oh no, not again!", 0x5A, True, 1))
     decoy = gameptr(DLG) ^ 0x0100                       # his low byte, another page
     decoy2 = gameptr(DLG) ^ 0x0001                      # his page, another low byte
     check("...with it off, his own line and nothing armed; another's line on, the same, and a "
@@ -17410,7 +17412,7 @@ def test_dwarf():
     bus, gibs = results[0x1234]
     check("...all at rest by then; the blood pooled, a bounce had", (
         all(g.rest for g in gibs),
-        sorted({g.tile for g in gibs[:32]}),
+        sorted({g.tile for g in gibs if g.rest_tile is not None}),
         any(D.burst(0x1234)[i].z > 0 and g.rest for i, g in enumerate(gibs) if g.bounces)), (True, [4, 5], True))
     _, _, _, bad = run(0x5150, 1, 2, 7, 3, lambda f: (960 + f // 4, 992 - f // 8), 90)
     check("...round the map's edge: the screen 1024 pixels round, the dwarf mid-step", bad[:4], [])
@@ -17444,6 +17446,19 @@ def test_dwarf():
           (D.GIB_PALETTES, 1))
     check("...attributes: the second table, over BG1, palette 4 for blood, 5 for bone",
           sorted({s[3] for s in sprites(bus)}), [0x29, 0x2B])
+    #  Bones over blood (user, 2026-11-04): of two sprites the SNES draws the
+    #  lower OAM entry in front, priority rotation off -- the HAL's OAM flush
+    #  zeroes OAMADDL and OAMADDH with one 16-bit store, and no store of the
+    #  code's sets OAMADDH's bit 7.  So every bone, the skull and the ribcage
+    #  among them, comes before every red gib.
+    attrs = [s[3] for s in sprites(bus)]
+    halcode = ROMDATA[0x8000:0x10000]                   # HALCODE, $C0:8000
+    check("...the bones in OAM before the blood and chunks, and the HAL's flush the rotation off",
+          (max(i for i, a in enumerate(attrs) if a == 0x2B) < min(i for i, a in enumerate(attrs) if a == 0x29),
+           attrs.count(0x2B), halcode.count(bytes([0xC2, 0x30, 0x9C, 0x02, 0x21]))),
+          (True, 16, 1))
+    check("...the ribcage drawn, not the eyes' rings it replaced",
+          (sum(t == 0xE for t in [g.tile for g in D.burst(0x1234)]), D.GIBS[0xE][3]), (1, "2.222.2."))
     bus.wram[K["h_chrlo"]:K["h_chrlo"] + 4] = bytes([0xFF, 0xFF, 0, 0])
     bus.wram[K["h_xpaldirty"]] = 0
     call(cpu, "fun_smframe")
@@ -17588,8 +17603,8 @@ def test_dwarf():
     #  The hooks, each once and in its place: the map loop's after its
     #  sprites (then JMP StandardMapLoop), the box's before its wait (then JMP
     #  WaitForVBlank_L), the frame wait's before the HAL's, the drawer's
-    #  before Rebellious Princess's JSR sara_moved, the Guillotine's after
-    #  its flag test, and the boot's.
+    #  before a BCS to the world chunk's line, the Guillotine's after its
+    #  flag test, and the boot's.
     jsl = lambda name: bytes([0x22, SYM[name] & 0xFF, SYM[name] >> 8, bank_of(name)])
     image = lambda bank: ROMDATA[(bank & 0x1F) * 0x10000:(bank & 0x1F) * 0x10000 + 0x10000]
     def after(img, name, n):
@@ -17601,7 +17616,7 @@ def test_dwarf():
           (after(fixed, "fun_smframe", 1), after(fixed, "fun_cover", 1), after(fixed, "fun_frame", 4),
            (after(rando, "fun_dwarfline", 1), after(rando, "fun_spared", 1),
             rando[rando.find(jsl("fun_spared")) - 2]), after(optb, "fun_init", 0)[0]),
-          ((1, b"\x4c"), (1, b"\x4c"), (1, wait), ((1, b"\x20"), (1, b"\xb0"), 0xF0), 1))
+          ((1, b"\x4c"), (1, b"\x4c"), (1, wait), ((1, b"\xb0"), (1, b"\xb0"), 0xF0), 1))
 
     #  The HAL: the colours staged after what is queued, block 0's.
     def xpal(dirty):

@@ -3,7 +3,8 @@
 The user's (2026-11-03, fun-percent.txt; "Hurray dwarf only", "I want to
 watch him explode again and again"), after tenes's 2021 particle hack
 (commit 72995c0): the Hurray dwarf in the Dwarf Cave bursts into blood,
-bones and his skull, which fly, fall and come to rest on the floor.  The
+bones, his ribcage and his skull, which fly, fall and come to rest on the
+floor.  The
 NES-side overlay of a thousand pixels does not go to the SNES; this is
 the sprites' version -- PARTICLES gibs in OAM entries the NES never uses,
 each an 8x8 tile of the gib set (GIBS), in the cartridge's own integer
@@ -22,18 +23,25 @@ REST_VZ = 0x30                  # a bounce slower than this comes to rest
 #  vx mask, vy mask, vz base, vz mask, bounces, tile once resting).
 #  A tile is GIB_FIRST + first + (draw & mask); vx and vy are centred
 #  (draw & mask) - (mask + 1) / 2, vx with an outward push of x / 16.
+#
+#  In the order they are drawn over one another, front first: particle i is
+#  OAM entry 64 + i, and of two sprites the SNES draws the lower entry in
+#  front (the HAL leaves OAM's priority rotation off).  So the bones lie
+#  over the blood (user, 2026-11-04: "bones appear over top of blood").
 CLASSES = [
-    # blood: four drops, which pool where they land
-    (32, 0x0, 3, 4, 0x0200, 0x0BFF, 0x01FF, 0x00FF, 0x0060, 0x01FF, False, 0x4),
-    # chunks
-    (8, 0x6, 1, 4, 0x0400, 0x07FF, 0x01FF, 0x00FF, 0x0080, 0x00FF, False, None),
-    # bones
-    (12, 0x8, 3, 5, 0x0600, 0x07FF, 0x01FF, 0x00FF, 0x00A0, 0x00FF, True, None),
     # the skull: the cranium, the jaw
     (1, 0xC, 0, 5, 0x0B00, 0x01FF, 0x00FF, 0x007F, 0x0180, 0x007F, True, None),
     (1, 0xD, 0, 5, 0x0800, 0x01FF, 0x00FF, 0x007F, 0x00E0, 0x007F, True, None),
-    # the eyes
-    (2, 0xE, 0, 5, 0x0A00, 0x03FF, 0x01FF, 0x00FF, 0x0100, 0x00FF, True, None),
+    # the ribcage (user, 2026-11-04, of the two eyes, which looked like white
+    # rings: "change one of them to something like a ribcage, and the other
+    # to a regular bone"), heavy like the skull
+    (1, 0xE, 0, 5, 0x0600, 0x01FF, 0x00FF, 0x007F, 0x00C0, 0x007F, True, None),
+    # bones
+    (13, 0x8, 3, 5, 0x0600, 0x07FF, 0x01FF, 0x00FF, 0x00A0, 0x00FF, True, None),
+    # chunks
+    (8, 0x6, 1, 4, 0x0400, 0x07FF, 0x01FF, 0x00FF, 0x0080, 0x00FF, False, None),
+    # blood: four drops, which pool where they land
+    (32, 0x0, 3, 4, 0x0200, 0x0BFF, 0x01FF, 0x00FF, 0x0060, 0x01FF, False, 0x4),
 ]
 assert sum(c[0] for c in CLASSES) == PARTICLES
 BODY_X = 0x07FF                 # spawn x: (draw & BODY_X) - $400, the dwarf's width
@@ -63,8 +71,8 @@ GIBS = [
     # $FC the cranium, $FD the jaw
     ["........", "..2222..", ".222222.", ".233232.", ".222222.", "..2..2..", "........", "........"],
     ["........", "........", "........", ".2.2.2..", ".222222.", "..2222..", "........", "........"],
-    # $FE an eye
-    ["........", "........", "...22...", "..2332..", "..2332..", "...22...", "........", "........"],
+    # $FE the ribcage: arched ribs round the spine
+    ["...2....", "..222...", ".2.2.2..", "2.222.2.", "2.2.2.2.", "1.222.1.", ".1.2.1..", "...1...."],
     # $FF spare
     ["........"] * 8,
 ]
