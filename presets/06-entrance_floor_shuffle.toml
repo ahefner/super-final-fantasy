@@ -2,8 +2,8 @@
 name = "Entrance and Floor Shuffle"
 inherit = "Entrance Shuffle"
 description = """
-Beginner with dungeon entrances and floors shuffled, and the short
-Temple of Fiends Revisited.
+Dungeon entrances and the floors inside them are shuffled. Towns stay
+put, and the Temple of Fiends Revisited is short.
 """
 
 [settings]

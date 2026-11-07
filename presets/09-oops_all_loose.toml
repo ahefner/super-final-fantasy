@@ -8,8 +8,7 @@
 name = "Oops All Loose"
 inherit = "Beginner"
 description = """
-Beginner with no incentive spots. Every key item lies loose somewhere in
-the world.
+Every key item lies loose somewhere in the world.
 """
 
 [settings]

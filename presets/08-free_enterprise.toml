@@ -8,8 +8,8 @@
 name = "Free Enterprise"
 inherit = "Beginner"
 description = """
-Beginner with Wide key items, incentive gear, free vehicles, no random
-battles, and a casting item to start.
+No random battles. Key items and incentive gear are spread wider,
+vehicles are free, and the party starts with a casting item.
 """
 
 [settings]

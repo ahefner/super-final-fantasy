@@ -3,7 +3,8 @@
 name = "Classic"
 inherit = "Beginner"
 description = """
-Beginner's settings for now, to become an intermediate tournament set.
+Shops, chests, magic, enemies and key items are shuffled, and the BRIDGE
+is free. To become an intermediate tournament set.
 """
 
 [settings]
