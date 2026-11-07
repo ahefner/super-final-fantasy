@@ -1,0 +1,49 @@
+--- OLD
+    LDA #1
+    STA orb_earth          ; otherwise, light up the orb
+    BNE SMMove_AltarEffect ; and do the altar effect (always branches)
+
+SMMove_FireOrb:
+    LDA orb_fire
+    BNE SMMove_OK
+    LDA #1
+    STA orb_fire
+    BNE SMMove_AltarEffect
+
+SMMove_WaterOrb:
+    LDA orb_water
+    BNE SMMove_OK
+    LDA #1
+    STA orb_water
+    BNE SMMove_AltarEffect
+
+SMMove_AirOrb:
+    LDA orb_air
+    BNE SMMove_OK
+    LDA #1
+    STA orb_air           ; no BNE here because it just flows directly into altar effect
+--- NEW
+.import opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair
+    JSL opt_orbearth + OPTFAR   ; otherwise, light up the orb -- and under
+    NOP                         ;   Shard Hunt its fiend's SHARDs (optbank.asm)
+    BNE SMMove_AltarEffect ; and do the altar effect (always branches)
+
+SMMove_FireOrb:
+    LDA orb_fire
+    BNE SMMove_OK
+    JSL opt_orbfire + OPTFAR
+    NOP
+    BNE SMMove_AltarEffect
+
+SMMove_WaterOrb:
+    LDA orb_water
+    BNE SMMove_OK
+    JSL opt_orbwater + OPTFAR
+    NOP
+    BNE SMMove_AltarEffect
+
+SMMove_AirOrb:
+    LDA orb_air
+    BNE SMMove_OK
+    JSL opt_orbair + OPTFAR
+    NOP                   ; (A = 1) flows directly into the altar effect

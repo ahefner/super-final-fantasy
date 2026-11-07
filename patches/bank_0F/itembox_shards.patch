@@ -1,0 +1,7 @@
+--- OLD
+      CPY #item_orb_start-items   ; since orb names aren't included in the item box...
+--- NEW
+      ;  From the CANOE's byte, not the orbs': Shard Hunt's SHARDs count there
+      ;  (SHARD_CODE) and show in the orb box, not here -- FFR's 0x7EF45.  No
+      ;  one holds the CANOE as an item, so the byte was always zero.
+      CPY #item_canoe-items       ; since orb names aren't included in the item box...

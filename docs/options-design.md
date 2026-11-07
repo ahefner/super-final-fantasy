@@ -2741,6 +2741,105 @@ item reachable and the caravan unstocked.  `tools/checkplace.py`'s new last
 part plays each goal's placements on the world graph, the Black Orb asking
 the Goal's orbs there, beside the screen's answer.
 
+### Shard Hunt
+
+**Built 2026-11-06; not yet played.**  FFR's ShardHunt (user, 2026-11-06:
+"Implement the shard hunt mode. We should have several shard #s as
+additional goal options, and then 'Shard Hunt' should go into the preset
+list"): the Goal row's values past 0 orbs are FFR's six fixed counts, 16,
+20, 24, 28, 32 and 36 SHARDs (user: the six; FFR's three random ranges left
+out), and the Black Orb gives way to that many and asks for no orb.
+
+  - **The row** (`RANDO_GOAL` 5-10 past the orbs' 0-4, `GOAL_SHARD0`,
+    `SHARD_GOAL`): its readouts sixteen wide, "16 shards" being one past
+    eight, the Seed Summary's too.  It reads left to right 0 orbs up to 4,
+    then 16 SHARDs up to 36 -- left lowers, as on every row (user,
+    2026-10-27) -- through `opt_goalorder`, the save's steps as they were;
+    the curse keeps its swap (`opt_valdir`).  Its eleven descriptions moved
+    to the second bank, the first having no room for six more; Shard
+    Hunt's are drafts: "The black ORB gives way once 16 SHARDS are found. 32
+    are in treasure, and each fiend gives 2 or 4 more."
+  - **The count** is item $11's byte, $6031: the game's CANOE as an item,
+    which no one holds (the canoe is `has_canoe`), so it was always zero.
+    FFR moves its earth orb down to free the byte past the orbs; here the
+    free one serves.  A chest giving `SHARD_CODE` adds one by the game's own
+    INC, a reward NPC by `talk_give`'s.  Its name, $11's, is SHARD, built in
+    the name buffer as the vehicles' are (FFR renames that string), so the
+    CANOE given is named by $15 now, the earth orb's empty name
+    (`NAME_SHARD` to `NAME_CANOE`).  The item list stops at it
+    (`itembox_shards.patch`, FFR's 0x7EF45): the orb box shows the SHARDs.
+  - **The fiends'** (`orbshards.patch`, `opt_orbearth` and the rest): an
+    altar lighting its orb adds FFR's 2, 2, 4 or 4 -- earth, fire, water,
+    air (OF_CE12_ShardRewards.asm) -- under a shard goal.  FFR adds them
+    whatever the goal; the count means nothing then, and here the byte stays
+    zero.  44 in all with the 32 dealt.
+  - **The deal** (`shards.inc`'s `shards_deal`, after the Chests row's in
+    the cache build; `randoref.shard_post`): `SHARDS_DEALT`, 32, into
+    places the party reaches -- under Standard or Wide the placement swept
+    from what is free on the world's masks (`shard_sweep`), under Vanilla
+    `rando_winnable`'s sweep, the princess where the build put her.
+    Shuffled, any such place but the caravan, NPCs among them as in FFR
+    (under Vanilla, the chests whose contents move); off (user: "Replace
+    common items in place"), the chests of common treasure.  That is FFR's
+    `ItemQuality.Common` (PlacementContext.cs): the six counted
+    consumables, the nineteen weapons from the Wooden Nunchucks, its
+    CommonArmorTier and gold from 10 to 880 -- 105 chests, genlogic.py's
+    `LOGIC_SHARD` and `lut_ShardCommon`.  The spots are a Fisher-Yates's
+    first 32 on the seed's `STREAM_SHARDS`; what a shard pushes out, if it
+    is not common, goes into another of the places that holds common
+    treasure, drawn on the same stream until one does, so each shard takes
+    a common item's room, as FFR takes 32 from its common treasure
+    (RemoveRandomWeightedItem).
+  - **The logic** (user, 2026-11-06: "It doesn't matter if all key items
+    are reachable so long as the seed is winnable"): goal.inc's test under
+    Shard Hunt counts the shards dealt -- as many as there is room for, the
+    room the chests of common treasure reached that hold no placed item --
+    and the fiends' for the orbs held; the world is won when those reach
+    the count.  Off, that room is exactly where the shards go; shuffled
+    there is more, never less.  The map edit screen does not know the
+    placement, so it takes every item placement places (`PLACE_ITEMS`)
+    off its room.  No pool place lies beyond the Black Orb (genlogic.py;
+    `test_shards`), so every place counted is reached before it.
+    Placement's last test moved to the world chunk (`pl_goalwon`), the
+    randomizer's being full, and the map edit screen's shares it
+    (`goal_won`).
+  - **The Black Orb** (`opt_orbgoal`): the count at least `SHARD_GOAL`.
+    Its line, dialogue $21, and Chaos's three, $2E-$30, are FFR's under a
+    shard goal (user: those, and not the opening story, which a player has
+    passed before choosing): `shard_line` (`dlgshard.inc`) swaps them by
+    the string's pointer, as the princess's are.  "The SHARDS coalesce to
+    restore the Black ORB.  Brave Light Warriors.... Destroy the Evil
+    within!"
+  - **The orb box** (user, 2026-11-06: "If orbs aren't the goal, they don't
+    need to be shown. FFR renders shards, either unlit/empty or lit in
+    place of the orbs in the menu"): FFR's shard box
+    (0E_B8D7_DrawShardBox.asm), a box 10 x 9 at (1, 1) over the orbs', one
+    tile for each SHARD the Goal asks, six to a row from column 3 -- row 3,
+    or row 4 for 24 or fewer -- the ones found lit, FFR's two tiles over the
+    top of the unlit orb ($76, $77), all in the box's palette 3.  Bank $0E
+    has one byte free, so the hook is the orb box's last five bytes, its
+    attribute write (`orbbox_shards.patch`, `opt_orbattr`), which draws
+    the box over the orbs'.
+  - **The preset**, Shard Hunt (`presets/11-shard_hunt.toml`, after
+    Floaterless): FFR's Shard_Hunt.json is its Beginner with ShardHunt and
+    ShardCount 3, 28; its one other difference, 60% encounters in dungeons
+    to Beginner's 70%, is Beginner's single dial here already.
+  - **Not ported:** FFR's random shard names (a preference), its ranges,
+    its newer numeric box, its opening story (user), and its tracker.
+
+`test_shards`: the row, its readouts, order and descriptions; the preset,
+Beginner's at 28; the common treasure, flag and table against FFR's
+ranking; the cache's deal against randoref's over Key items Vanilla and
+placed, the Chests row both ways, Map shuffle, map edits and the princess
+moved -- 32 shards in places reached, each taking a common item's room;
+`rando_winnable` under every shard goal, randoref's; the Black Orb at its
+count, the orbs not asked; the four lines, FFR's under a shard goal and
+the game's otherwise; the fiends' shards; the names; the item list; the
+orb box, and as it was under an orb goal.  `tools/checkplace.py`'s goal
+part plays each shard goal's placements on the world graph, the shards
+where the cache deals them, found with the Black Orb shut, the fiends'
+added as their orbs light.
+
 ### Map edits
 
 **Removed 2026-10-24** (user: "No value in it ... Clean it up"; "New
@@ -4426,7 +4525,7 @@ text region in the game references.
                              reachable only by code before the pinned $8500
                              blob (the save view took two), and four NOPs
                              after the title's @OptionChosen
-    BANK_OPT    5619 free   the settings screen's engine and rows (6695)
+    BANK_OPT    5353 free   the settings screen's engine and rows (6695)
                              moved to BANK_OPTMENU on 2026-10-21; before
                              that it had 140 free once the descriptions
                              moved out, the None, the
@@ -4467,8 +4566,11 @@ text region in the game references.
                              next feature with much code goes to a chunk
                              of its own, as Boss tactics did; the respond
                              rate's mask at boot 2 (FUN%, 2026-11-03);
-                             the Exploding Dwarf's boot clear 4 (2026-11-04)
-    BANK_OPTTEXT   153 free  the settings screen's descriptions (measured
+                             the Exploding Dwarf's boot clear 4 (2026-11-04);
+                             Shard Hunt 266 (2026-11-06: opt_orbgoal's
+                             count, the altars' four and their SHARDs, the
+                             orb box's, opt_orbattr, and its two tiles)
+    BANK_OPTTEXT   418 free  the settings screen's descriptions (measured
                              2026-10-22, the presets' since; the seed
                              screen's went with its art); Map
                              shuffle's took 376, the Ruse Staff's 115,
@@ -4485,13 +4587,19 @@ text region in the game references.
                              nearly full; later rows' descriptions go to
                              BANK_OPTTEXT2, Taverns' first; Rebellious
                              Princess's pointers 2, 2026-11-02; the
-                             Exploding Dwarf's 2, 2026-11-04)
+                             Exploding Dwarf's 2, 2026-11-04; the Goal's
+                             five moved to BANK_OPTTEXT2, freeing 265,
+                             2026-11-06: Shard Hunt's six would not fit)
                              (measured 2026-10-14 from
                              ld65's map: the 10788 here before dated from
                              10-09 and was not kept up as descriptions were
                              added)
     BANK_CREDITS 13065 free  the credits screen; mostly its text and tables
-    BANK_RANDO     37 free  the randomizer: FULL -- the next feature moves something out
+    BANK_RANDO    114 free  the randomizer: FULL -- the next feature moves something out
+                             (Shard Hunt, 2026-11-06: placement's last test
+                             moved to the world chunk, pl_goalwon, freeing
+                             77 after its own hooks -- the deal's call, the
+                             lines' swap, the SHARD's name in the buffer)
                              (Palette swap's deal call and rando_fyfar 8,
                              2026-11-03; the Exploding Dwarf's two hooks
                              12, his line's and the Guillotine's, 2026-11-04)
@@ -4532,13 +4640,19 @@ text region in the game references.
                              259 (lut_PartySlots 64, rando_party,
                              party_pick, rando_partyseeded, the surprise
                              mask; 2026-11-02)
-    BANK_LOGIC   6003 free  the vanilla world's logic for placement (3714),
+    BANK_LOGIC   5971 free  the vanilla world's logic for placement (3714),
                              each map's ship dock (71) and each place's
                              spread group (248), and entrance shuffle's
                              graph (5440), generated; data only; Rebellious
                              Princess's spots 146 (2026-11-03; Matoya's
-                             two masks 8, 2026-11-05)
-    BANK_WORLD   4459 free  (measured 2026-11-05; 5337 on 2026-10-28)
+                             two masks 8, 2026-11-05); Shard Hunt's common
+                             treasure, lut_ShardCommon 32 (2026-11-06)
+    BANK_WORLD   3053 free  (measured 2026-11-06; 5337 on 2026-10-28)
+                             Shard Hunt 1406 (2026-11-06): shards.inc --
+                             goal_won, the Chaos test placement and the map
+                             edit screen share, the shards' room both ways,
+                             the deal and its sweep -- and dlgshard.inc,
+                             the Black Orb's and Chaos's lines
                              the Exploding Dwarf's line 18 (2026-11-04)
                              Rebellious Princess 860: her lines
                              (dlgsara.inc; Matoya's song 41 more than
@@ -4583,7 +4697,9 @@ text region in the game references.
                              Rebellious Princess's row 39 (2026-11-03);
                              FUN% and Stereo Sound's rows 135, Palette
                              swap's 39 (2026-11-03); the Exploding Dwarf's
-                             39 (2026-11-04)
+                             39 (2026-11-04); the Goal's readouts sixteen
+                             wide, Shard Hunt's six, and opt_goalorder 194
+                             (2026-11-06)
     BANK_TAVERN  10735 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
@@ -4597,12 +4713,13 @@ text region in the game references.
                              load and play 44, its sample 8347 in the
                              chunk's low half, FUNDATAFAR, 24421 left
                              there, 2026-11-04)
-    BANK_OPTTEXT2 15747 free the descriptions past the first bank's:
+    BANK_OPTTEXT2 14677 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
                              Stereo Sound's (114), Palette swap's (85;
                              2026-11-03), the Exploding Dwarf's (85;
-                             2026-11-04)
+                             2026-11-04), the Goal's eleven (1070;
+                             2026-11-06, Shard Hunt's six among them)
     HALCODE      5844 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
                              register the game sets; the Exploding

@@ -63,6 +63,8 @@
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
 .export rando_coldbuild, pl_place
+.export lut_PlaceLBit           ; place.inc's, for shards.inc's sweep
+.import shards_deal, shard_line
 .export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar, rando_fyfar
 .import deal_palswap, fun_dwarfline, fun_spared    ; fun.asm's, in Taverns' chunk
@@ -1392,6 +1394,7 @@ build:
     JSR deal_chests
 
   @magic:
+    JSL shards_deal + WORLDFAR  ; Shard Hunt: the SHARDs over the deal (shards.inc)
     JSR copy_magic
     LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
     AND #MAGIC_FIELD            ; item magic's field is above it
@@ -2052,11 +2055,17 @@ REWARD_BRIDGE = $F1
 REWARD_CANAL  = $F2
 REWARD_CANOE  = $F3
 REWARD_XCALBER = TCITYPE_WEPSTART - 1 + WPNID_XCALBUR
-;  The ids the dialogue names a vehicle by (give_vehicle, rando_nameptr).
-NAME_CANOE    = $11       ; the game's own CANOE
-NAME_SHIP     = $12       ; the orbs' ids: empty names, never drawn
+;  The ids the dialogue names a vehicle by (give_vehicle, rando_nameptr):
+;  the orbs', whose names are empty and never drawn.  And Shard Hunt's SHARD
+;  (user, 2026-11-06), SHARD_CODE, the game's CANOE, which no one holds --
+;  FFR's rename of that string -- so the CANOE moved to the earth orb's.  All
+;  five are lut_VehicleNames', drawn from the buffer.
+NAME_SHARD    = $11
+NAME_SHIP     = $12
 NAME_BRIDGE   = $13
 NAME_CANAL    = $14
+NAME_CANOE    = $15
+.assert NAME_SHARD = SHARD_CODE, error, "the SHARD is named by its own id"
 
 .import Talk_norm, Talk_CoOGuy
 .import FindEmptyWeaponSlot, FindEmptyArmorSlot, ShowMapObject, OptCallFar, AddGPToParty
@@ -2688,8 +2697,8 @@ talk_reward:
 ;;  dock nearest the map it was found on, of those the party can reach from
 ;;  there without it (lut_ShipDock, genlogic.py's ship_docks, which proves each
 ;;  is reached and on the inner sea the logic has it sail).  Out: A = the id
-;;  the dialogue names it by -- CANOE's own, $11, and the orbs' $12-$14, whose
-;;  names are empty and never drawn, for the others (rando_nameptr).  X kept.
+;;  the dialogue names it by -- the orbs' $12-$15, whose names are empty and
+;;  never drawn (rando_nameptr; NAME_SHIP .. NAME_CANOE).  X kept.
 ;;  Emulation mode, the game's data bank.
 .import lut_DockX, lut_DockY, lut_ShipDock
 give_vehicle:
@@ -2887,12 +2896,15 @@ lut_TalkGiven:
 lut_Bit8:
   .BYTE $01, $02, $04, $08, $10, $20, $40, $80
 
-;  The vehicles' names, for NAME_SHIP, NAME_BRIDGE and NAME_CANAL, eight bytes
-;  each: the letters, the terminator, padding.
+;  The names from NAME_SHARD to NAME_CANOE, eight bytes each: the letters,
+;  the terminator, padding.
 lut_VehicleNames:
+  .BYTE $9C, $91, $8A, $9B, $8D, $00, $00, $00   ; SHARD
   .BYTE $9C, $91, $92, $99, $00, $00, $00, $00   ; SHIP
   .BYTE $8B, $9B, $92, $8D, $90, $8E, $00, $00   ; BRIDGE
   .BYTE $8C, $8A, $97, $8A, $95, $00, $00, $00   ; CANAL
+  .BYTE $8C, $8A, $97, $98, $8E, $00, $00, $00   ; CANOE
+.assert * - lut_VehicleNames = 8 * (NAME_CANOE - NAME_SHARD + 1), error, "a name from NAME_SHARD to NAME_CANOE"
 
 ;;  The Masmune's blursed name: Masa, then the sign and digit at 4 and 5.
 lut_MasaName:
@@ -4421,15 +4433,16 @@ rando_nameptr:
     STA a:wNAMEPTR
     SEP #$20
     .a8
-    ;  A vehicle given (give_vehicle) is named by $12-$14, the orbs' ids,
-    ;  whose own names are empty and never drawn: its name, into the buffer.
+    ;  A vehicle given (give_vehicle) is named by $12-$15, the orbs' ids,
+    ;  whose own names are empty and never drawn, and Shard Hunt's SHARD by
+    ;  $11, the CANOE no one holds: its name, into the buffer.
     LDA a:wNAMEID
-    CMP #NAME_SHIP
+    CMP #NAME_SHARD
     BCC @notvehicle
-    CMP #NAME_CANAL + 1
+    CMP #NAME_CANOE + 1
     BCS @notvehicle
     SEC
-    SBC #NAME_SHIP
+    SBC #NAME_SHARD
     ASL A
     ASL A
     ASL A                       ; eight bytes a name

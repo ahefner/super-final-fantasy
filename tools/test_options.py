@@ -1081,8 +1081,8 @@ def test_goal():
     width = 1 << tbl("lut_ValShift", scalar)
     reads = [" ".join("".join(_decode(b) or "?" for b in ROMDATA[at + i * width:][:width]).split())
              for i in range(tbl("lut_ValCount", scalar))]
-    check("...a value row, its readouts the orbs, four first", (kind, reads),
-          (2, ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"]))
+    check("...a value row, its readouts the orbs, four first, then Shard Hunt's (test_shards)", (kind, reads[:6]),
+          (2, ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs", "16 shards"]))
     check("...its byte the settings' last, the Goal's, all of it",
           (tbl("lut_ValOff", scalar), tbl("lut_ValBit", scalar), tbl("lut_ValMask", scalar)),
           (K["OPT_NG_GOAL"] & 0xFF, 0, 0xFF))
@@ -1095,12 +1095,13 @@ def test_goal():
     newgame_pressing(bus, cpu)
     check("...which New Game copies", bus.sram[K["RANDO_GOAL"] - 0x6000], K["GOAL_2ORBS"])
 
-    #  The Black Orb, every orb lit or not under every goal.
+    #  The Black Orb, every orb lit or not under every orb goal (Shard
+    #  Hunt's are test_shards').
     ORBS = [K[n] - 0x6000 for n in ("orb_fire", "orb_water", "orb_air", "orb_earth")]
     GF, SLOT = K["game_flags"] - 0x6000 + K["OBJID_BLACKORB"], K["mapobj_id"] - 0x6000 + 0x20
     bad, opened, armed = [], 0, []
     DLGNPC, ORB0 = rw("RW_DLGNPC"), K["DLG_ORB0"]
-    for g in range(K["GOAL_MODES"]):
+    for g in range(K["GOAL_SHARD0"]):
         for lit in range(16):
             bus, cpu = machine()
             bus.wram[DLGNPC] = 0
@@ -1166,7 +1167,7 @@ def test_goal():
     rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
     edits = [0, 0x1341, 0x0004, 0x1FFF]
     jobs = [(ki, r, e, f, g) for ki in (0, 1, 2) for r in rows for e in (0, 0x0F) for f in edits
-            for g in range(K["GOAL_MODES"])]
+            for g in range(K["GOAL_SHARD0"])]
     got = pmap(winnable_cart, jobs)
     want = [R.winnable(*j[:4], goal=j[4]) for j in jobs]
     check("rando_winnable: randoref's under every goal",
@@ -7973,7 +7974,8 @@ def test_sumscreen():
         l1 = max(n - S, 0)
         nums = [n, S, r, l1, max(n - r, 0) - l1]
         rows = {2: " " * 10 + "SEED %08X" % seed,
-                4: line("Goal", ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"][goal if goal < 5 else 0]),
+                4: line("Goal", (["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"] +
+                                 ["%d shards" % k for k in range(16, 40, 4)])[goal if goal < 11 else 0]),
                 5: line("Map shuffle", ["Off", "Entrances", "Floors"][ent if ent < 3 else 0]),
                 6: line("Removed", removed)}
         for k, (label, v) in enumerate(zip(["Incentive Items", "Locations", "Reachable", "Loose Items",
@@ -8368,10 +8370,11 @@ def test_ngpresets():
           (cart["Floaterless"], cart["Beginner"], cart["Improved Vanilla"]),
           (sorted(["Early Open", "Extended Open", "North Docks", "Ryukahn Dock", "Bahamut Dock",
                    "Lefein River", "Gaia Pass"]), ["Early Open"], []))
-    check("ten presets, in the list's order -- the two from 2026-10-24 after the rest, so a saved "
-          "preset's number keeps its meaning", [p[0] for p in presets],
+    check("eleven presets, in the list's order -- the two from 2026-10-24 after the rest, and Shard Hunt "
+          "(2026-11-06) after them, so a saved preset's number keeps its meaning", [p[0] for p in presets],
           ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
-           "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise", "Oops All Loose", "Floaterless"])
+           "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise", "Oops All Loose", "Floaterless",
+           "Shard Hunt"])
     resolved = lambda name: {r.label: (r.values[v] if r.values else bool(v)) for r in prows
                              for v in [dict((p[0], p[3]) for p in presets)[name][r.label]]}
     oal, fl = resolved("Oops All Loose"), resolved("Floaterless")
@@ -13285,13 +13288,15 @@ def test_rando_options():
             #  ...and the starting items, from None to Duckling Boon and back.
             (optrow("Starting items"), OPTBLOCK + OPT_STARTITEMS, 9,
              [1, 2, 3, 4, 5, 6, 7, 8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0]),
-            #  The blessing's numbers rise with its steps; the curse's and the
-            #  Goal's fall, so left steps them on and right back (user,
-            #  2026-10-27): right held at 0 and at 4 orbs, left down to -5 and
-            #  to 0 orbs.
+            #  The blessing's numbers rise with its steps; the curse's fall, so
+            #  left steps it on and right back (user, 2026-10-27): right held
+            #  at 0, left down to -5.  The Goal reads 0 orbs up to 4, then 16
+            #  SHARDs up to 36 (opt_goalorder; 2026-11-06): from 4 orbs right
+            #  walks the shards and holds at 36, left comes back to 4 orbs and
+            #  on down.
             (optrow("Max gear blessing"), K["OPT_NG_BLESS"], 6, [1, 2, 3, 4, 5, 5, 4, 3, 2, 1, 0, 0]),
             (optrow("Min gear curse"), K["OPT_NG_CURSE"], 6, [0] * 6 + [1, 2, 3, 4, 5, 5]),
-            (optrow("Goal"), K["OPT_NG_GOAL"], 5, [0] * 5 + [1, 2, 3, 4, 4])):
+            (optrow("Goal"), K["OPT_NG_GOAL"], 7, [5, 6, 7, 8, 9, 10, 10, 9, 8, 7, 6, 5, 0, 1])):
         steps = []
         for d in (1,) * presses + (2,) * presses:   # RIGHT, then LEFT
             bus.wram[SEL], bus.wram[TOP] = row, row - 19
@@ -16908,6 +16913,416 @@ def test_princess():
           R.srm_wiring_text(bytes(srm))[0].endswith("the princess at Matoya's Cave"), True)
 
 
+# --- Shard Hunt ------------------------------------------------------------------
+def shards_cart(job):
+    """The cache built from a save's settings under Shard Hunt: (RW_CHESTS,
+    RW_TALKREW, RW_SARA, RW_PLACED, RW_PLACE, RW_ENTRANCES, RW_SARALOG).  job:
+    (seed, config, Map shuffle mode, map edits, the Chests row, the Goal, the
+    RNG byte)."""
+    seed, (keyitems, items3, gear2, early), mode, owedits, chests, goal, rngbyte = job
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_CHESTS"] - 0x6000] = chests
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_ENTRANCES"] - 0x6000] = mode
+    s[K["RANDO_OWEDITS"] - 0x6000:K["RANDO_OWEDITS"] - 0x6000 + 2] = owedits.to_bytes(2, "little")
+    s[K["RANDO_GOAL"] - 0x6000] = goal
+    s[K["RANDO_RNG"] - 0x6000] = rngbyte
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=300_000_000)
+    w = lambda name, n: bytes(bus.wram[rw(name):rw(name) + n])
+    placed, own = placement(bus)
+    return (w("RW_CHESTS", 256), w("RW_TALKREW", 13), bus.wram[rw("RW_SARA")], placed, own,
+            bus.wram[rw("RW_ENTRANCES")], bus.wram[rw("RW_SARALOG")])
+
+
+def shards_ref(job):
+    """randoref's cache for shards_cart's job: (chests, NPC rewards or None,
+    the places reached, the placement or None)."""
+    seed, cfg, mode, owedits, chests, goal, rngbyte = job
+    keyitems, items3, gear2, early = cfg
+    rebel = bool(rngbyte & K["PRINCESS_FIELD"])
+    spot, (_, _, out, _) = R.sara_world(seed, *cfg, mode, owedits, goal, rebel=rebel)
+    if keyitems in (R.KEYITEMS_STANDARD, R.KEYITEMS_WIDE):
+        open_ = R.placed_open(seed, *cfg, mode, owedits, goal, rebel)
+        table, npc, _ = R.build_rewards(ROMDATA, seed, chests, out, items3, goal=goal, open_=open_)
+        return table, npc, open_, out
+    open_ = R.vanilla_open(items3, early, owedits, spot)
+    return R.build_chests(ROMDATA, seed, chests, items3, goal=goal, open_=open_), None, open_, None
+
+
+def test_shards():
+    """Shard Hunt (user, 2026-11-06): FFR's, its six fixed counts as Goal
+    values past the orbs, and a Shard Hunt preset.  The row, its readouts
+    sixteen wide and its order left to right; the descriptions; the preset,
+    Beginner's at 28 shards.  The logic's common treasure, genlogic's flag
+    and table.  The deal, the cache's against randoref's -- Key items
+    Vanilla and placed, the Chests row off and shuffled, Map shuffle, map
+    edits, the princess moved -- SHARDS_DEALT shards in places reached, each
+    taking a common item's room.  rando_winnable and placement under every
+    shard goal, randoref's.  The Black Orb at its count and the orbs not
+    asked; its line and Chaos's, FFR's; the fiends' shards as each orb
+    lights; the SHARD's name, and the CANOE's moved; the item list without
+    it; and the orb box showing the shards in the orbs' place."""
+    import collections
+    G0, NG = K["GOAL_SHARD0"], K["GOAL_MODES"]
+    PF = K["PRINCESS_FIELD"]
+    SH = K["SHARD_CODE"]
+    COUNT = K["items"] - 0x6000 + SH
+    need = lambda g: 4 * (g - 1)
+    check("the Goal's values: the orbs, then six counts of SHARDs, 16 to 36",
+          (G0, NG, [need(g) for g in range(G0, NG)], [R.shard_goal(g) for g in range(G0, NG)], R.shard_goal(4)),
+          (5, 11, [16, 20, 24, 28, 32, 36], [16, 20, 24, 28, 32, 36], 0))
+    check("...the count is the CANOE's byte, which no one holds", (SH, K["items"] + SH, K["item_canoe"]),
+          (0x11, K["item_canoe"], K["item_canoe"]))
+
+    #  The row: its readouts, sixteen wide, and its order -- right walks 0
+    #  orbs up to 4, then 16 SHARDs up to 36, and clamps; left the reverse.
+    goal = optrow("Goal")
+    table = rom_at("lut_OptRows")
+    scalar = ROMDATA[table + goal * 32 + 1]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    base = (bank_of("lut_ValTabLo") & 0x1F) * 0x10000
+    at = base + (tbl("lut_ValTabLo", scalar) | tbl("lut_ValTabHi", scalar) << 8)
+    width = 1 << tbl("lut_ValShift", scalar)
+    reads = [" ".join("".join(_decode(b) or "?" for b in ROMDATA[at + i * width:][:width]).split())
+             for i in range(tbl("lut_ValCount", scalar))]
+    check("the Goal row: its readouts, sixteen wide", (width, reads),
+          (16, ["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"] + ["%d shards" % n for n in range(16, 40, 4)]))
+    SEL, TOP = 0x6E, 0x6F
+    GB = K["OPT_NG_GOAL"] - 0x6000
+    def presses(start, d, n):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.sram[GB] = start
+        steps = []
+        for _ in range(n):
+            bus.wram[SEL], bus.wram[TOP] = goal, goal - 19
+            cpu.a = d
+            call(cpu, "opt_value_adjust", dbr=OPTMENU_BANK)
+            steps.append(bus.sram[GB])
+        return steps
+    RIGHT, LEFT = 1, 2
+    check("...right from 0 orbs: up the orbs to 4, then 16 shards up to 36, and there it stays",
+          presses(4, RIGHT, 11), [3, 2, 1, 0, 5, 6, 7, 8, 9, 10, 10])
+    check("...left from 36 shards: down to 16, then 4 orbs down to 0, and there it stays",
+          presses(10, LEFT, 11), [9, 8, 7, 6, 5, 0, 1, 2, 3, 4, 4])
+    check("...a step this build does not know: as any row's", presses(0x40, LEFT, 1), [0x3F])
+
+    #  The descriptions: each shard count's, by value.
+    def desc(v):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        bus.sram[GB] = v
+        bus.wram[SEL], bus.wram[TOP] = goal, goal - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return " ".join(pane(bus))
+    got = [desc(v) for v in range(G0, NG)]
+    check("...its descriptions: the count, the 32 dealt, the fiends' 2 or 4",
+          got, ["The black ORB gives way once %d SHARDS are found. 32 are in treasure, and each fiend "
+                "gives 2 or 4 more." % n for n in range(16, 40, 4)])
+    check("...the orbs' as they were", desc(0), "The black ORB gives way once all four ORBS are lit, as it always has.")
+
+    #  The preset: Beginner's, the Goal 28 shards.
+    import presetdefs as P, genpresets as GP
+    rows = P.rows()
+    presets = GP.resolve(GP.load(), rows)
+    byname = {p[0]: p for p in presets}
+    check("the presets: Shard Hunt after Floaterless", [p[0] for p in presets][-2:], ["Floaterless", "Shard Hunt"])
+    sh, beg = byname["Shard Hunt"][3], byname["Beginner"][3]
+    names = [r.label for r in rows]
+    diff = sorted(k for k in sh if sh[k] != beg.get(k))
+    check("...Beginner's but for the Goal, 28 shards (FFR's ShardCount 3)",
+          (diff, rows[names.index("Goal")].values[sh["Goal"]]), (["Goal"], "28 shards"))
+    check("...no other preset a shard goal",
+          [p[0] for p in presets if p[0] != "Shard Hunt" and p[3]["Goal"] >= G0], [])
+
+    #  Common treasure: genlogic's flag on the chests that hold it, and its
+    #  table, FFR's ranking's Common.
+    import logicdata as L
+    common = {i for i in range(0x16, 0x1C)} | set(range(28, 47)) | set(range(108, 139)) | \
+        {68, 69, 70, 71, 73, 78, 79, 84, 85, 86, 91, 93, 94, 95, 96, 100, 101, 102, 103}
+    check("common treasure: FFR's, the consumables, cheap gear and gold to 880", R.COMMON, frozenset(common))
+    bits = ROMDATA[rom_at("lut_ShardCommon"):][:32]
+    check("...lut_ShardCommon, a bit each", {v for v in range(256) if bits[v >> 3] >> (v & 7) & 1}, common)
+    rom = R.rom_chests(ROMDATA)
+    LSHARD = int(re.search(r"LOGIC_SHARD\s*=\s*\$([0-9A-F]+)",
+                           open(os.path.join(ROOT, "src", "logic.inc")).read()).group(1), 16)
+    flags = ROMDATA[rom_at("lut_LogicFlags"):][:len(L.LOCS)]
+    check("...LOGIC_SHARD on exactly the chests whose vanilla contents are common, in the cart and logicdata",
+          (LSHARD, [c for c in range(len(L.LOCS)) if bool(flags[c] & LSHARD) !=
+                    (L.LOCS[c][0] == 0 and rom[L.LOCS[c][1]] in common)],
+           [c for c in range(len(L.LOCS)) if bool(L.LOCS[c][2] & R.F_SHARD) != bool(flags[c] & LSHARD)],
+           sum(1 for c in range(len(L.LOCS)) if flags[c] & LSHARD)),
+          (R.F_SHARD, [], [], 105))
+    check("...and no pool place lies beyond the Black Orb (goal.inc counts on it)",
+          [c for c in range(248) if any(m & R.ORBS == R.ORBS for m in L.LOCS[c][4])], [])
+
+    #  The deal: the cache's against randoref's, each property besides.
+    C = PLACE_CONFIGS
+    van = (0, [0, 0, 0], [0, 0], 0x0F)
+    vanrm = (0, [0x2C, 0, 0], [0, 0], 0x0F)                # Vanilla, the FLOATER removed
+    OFF, ONLY, FLOORS = R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS
+    jobs = []
+    for chests in (0, 1):
+        for g in (G0, G0 + 3, NG - 1):
+            jobs += [(s * 7919 + 11, cfg, OFF, 0, chests, g, 0) for cfg in (van, C["beginner"]) for s in range(2)]
+        jobs += [(5, vanrm, OFF, K["OWEDIT_SAFE"], chests, G0 + 3, 0),
+                 (6, C["wide-loose"], OFF, 0, chests, G0 + 3, 0),
+                 (7, C["all-loose"], OFF, 0, chests, G0 + 1, 0),
+                 (8, C["beginner"], ONLY, 0, chests, G0 + 3, 0),
+                 (9, C["beginner"], FLOORS, 0, chests, NG - 1, 0),
+                 (10, C["beginner"], OFF, 0x0041, chests, G0 + 3, 0),
+                 (next(s for s in range(64) if R.sara_order(s)[0] == 5), C["beginner"], OFF, 0, chests, G0 + 3, PF),
+                 (3, van, OFF, 0, chests, G0, PF)]
+    got = pmap(shards_cart, jobs)
+    bad, props = [], []
+    for job, cart in zip(jobs, got):
+        seed, cfg, mode, owedits, chests, g, rngbyte = job
+        table, npc, open_, out = shards_ref(job)
+        if cart[0] != table or (npc is not None and cart[1] != npc) or (out is not None and cart[4] != out):
+            bad.append((seed, cfg[0], mode, owedits, chests, g, rngbyte,
+                        [c for c in range(256) if cart[0][c] != table[c]][:4]))
+        if cart[6] != 0:
+            bad.append((seed, "RW_SARALOG left", cart[6]))
+        #  The properties, on the reference: the shards in places reached,
+        #  each taking a common item's room.
+        plain = shards_ref(job[:5] + (0,) + job[6:])
+        slots = lambda t, n: list(t) + list(n or b"")
+        now, was = slots(table, npc), slots(plain[0], plain[1])
+        spots = [i for i, v in enumerate(now) if v == SH]
+        reached = {R.loc_slot(c) for c in open_ if c < 248}
+        lost = collections.Counter(was) - collections.Counter(now)
+        props.append((job[0], cfg[0], chests, g, len(spots), all(i in reached for i in spots),
+                      sum(lost.values()), all(v in R.COMMON for v in lost)))
+    check("the cache under Shard Hunt: randoref's chests, NPC rewards and placement; RW_SARALOG left 0",
+          bad[:3], [])
+    check("...32 shards, each in a place reached, each taking the room of a common item and nothing else",
+          [p for p in props if p[4:] != (32, True, 32, True)][:3], [])
+    check("...Key items Vanilla and placed, the Chests row both ways, every kind of world among them",
+          ({p[1] for p in props}, {p[2] for p in props}), ({0, 1, 2}, {0, 1}))
+    check("...off, only the chests of common treasure change, and only to shards",
+          [j[0] for j, c in zip(jobs, got) if j[4] == 0 and
+           [i for i in range(256) if c[0][i] != shards_ref(j[:5] + (0,) + j[6:])[0][i] and
+            not (c[0][i] == SH and rom[i] in common)]][:3], [])
+    check("...without a shard goal, no shard anywhere",
+          [j[0] for j in jobs[:4] if SH in shards_cart(j[:5] + (G0 - 1,) + j[6:])[0]], [])
+
+    #  The logic: rando_winnable under every shard goal, randoref's, the
+    #  smallest worlds among them; and placement too (above, the placement
+    #  compared), here over the configs that test_goal's placement uses.
+    rows_ = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x2B, 0, 0]]
+    edits = [0, 0x1341, 0x0004, 0x1FFF]
+    wjobs = [(ki, r, e, f, g) for ki in (0, 1, 2) for r in rows_ for e in (0, 0x0F) for f in edits
+             for g in range(G0, NG)]
+    wgot = pmap(winnable_cart, wjobs)
+    wwant = [R.winnable(*j[:4], goal=j[4]) for j in wjobs]
+    check("rando_winnable under every shard goal: randoref's",
+          [j for j, c, w in zip(wjobs, wgot, wwant) if (c[0], c[1] if not c[0] else 0) != (w[0], w[1] if not w[0] else 0)][:4], [])
+    check("...both answers among them", {w[0] for w in wwant}, {True, False})
+    check("...a smaller count never less winnable",
+          [j for j, w in zip(wjobs, wwant) if j[4] > G0 and w[0] and not wwant[wjobs.index(j[:4] + (j[4] - 1,))][0]][:4], [])
+
+    #  The test itself, at its edges (goal.inc's GOAL_HELD, through
+    #  placement's pl_goalwon): Chaos's one mask through the Black Orb; the
+    #  room, chests of common treasure reached and empty, from none to past
+    #  the 32 dealt; and every set of orbs held, for the fiends' 2, 2, 4, 4.
+    #  Won exactly when min(32, room) + the fiends' >= the count.
+    shard_chests = [c for c in range(248) if flags[c] & LSHARD]
+    ORB_LO = R.ORBS >> 16
+    bad = []
+    for g in range(G0, NG):
+        for room in (0, 4, need(g) - 13, need(g) - 12, 31, 32, 33, 40):
+            if room < 0:
+                continue
+            for orbs in range(16):
+                bus, cpu = machine()
+                bus.sram[K["RANDO_GOAL"] - 0x6000] = g
+                for c in range(256):
+                    bus.wram[rw("RP_REACH") + c] = 1 if c in shard_chests[:room] or c >= 248 else 0
+                    bus.wram[rw("RP_PLACED") + c] = 0xFF
+                bus.wram[rw("RP_PLACED") + shard_chests[room]] = 3     # a placed item: not room
+                bus.wram[rw("RP_REACH") + shard_chests[room]] = 1
+                owned = (orbs << 24) | 0x00FFFFFF
+                nown = ~owned & 0xFFFFFFFF
+                bus.wram[rw("RP_NOTOWN"):rw("RP_NOTOWN") + 4] = nown.to_bytes(4, "little")
+                bus.wram[rw("RP_CHAOS"):rw("RP_CHAOS") + 4] = (R.ORBS | 1).to_bytes(4, "little")
+                bus.wram[rw("RP_NCHAOS")], bus.wram[rw("RP_NCHAOS") + 1] = 1, 0
+                cpu.e = False
+                cpu.p &= ~(FLAG_M | FLAG_X)
+                cpu.dbr = 0x7F
+                cpu.run(WORLD_BANK, SYM["pl_goalwon"], limit=200_000)
+                fiends = sum(n for k, (_, n) in enumerate(R.FIEND_SHARDS) if orbs >> k & 1)
+                want = min(32, room) + fiends >= need(g)
+                if bool(cpu.p & 1) != want:
+                    bad.append((g, room, orbs, bool(cpu.p & 1)))
+    check("the test at its edges: won exactly when min(32, room) + the fiends' 2, 2, 4, 4 >= the count, "
+          "a placed item's chest not room", bad[:4], [])
+    check("...the orbs as goal.inc takes them, earth to air, bits 24-27", (ORB_LO, [n for _, n in R.FIEND_SHARDS]),
+          (0x0F00, [2, 2, 4, 4]))
+
+    #  The Black Orb: at the count, gives way; short of it, not; the orbs
+    #  not asked, and nothing armed (the line is shard_line's).
+    GF, SLOTO = K["game_flags"] - 0x6000 + K["OBJID_BLACKORB"], K["mapobj_id"] - 0x6000 + 0x20
+    ORBS = [K[n] - 0x6000 for n in ("orb_fire", "orb_water", "orb_air", "orb_earth")]
+    DLGNPC = rw("RW_DLGNPC")
+    bad = []
+    for g in range(G0, NG):
+        for n in (0, need(g) - 1, need(g), need(g) + 1, 44, 99):
+            for lit in (0, 15):
+                bus, cpu = machine()
+                s = bus.sram
+                for i, a in enumerate(ORBS):
+                    s[a] = lit >> i & 1
+                s[COUNT] = n
+                s[K["RANDO_GOAL"] - 0x6000] = g
+                s[GF], s[SLOTO] = 1, K["OBJID_BLACKORB"]
+                bus.wram[DLGNPC] = 0
+                bus.wram[0x11], bus.wram[0x12], bus.wram[0x7D] = 0x21, 0x22, 0
+                cpu.dbr = BANK_0E
+                cpu.x = 0x20
+                cpu.run(BANK_0E, SYM["Talk_BlackOrb"])
+                gives = n >= need(g)
+                got_ = (cpu.a & 0xFF, s[GF] & 1, s[SLOTO], bus.wram[0x7D], bus.wram[DLGNPC], s[COUNT])
+                want = ((0x21, 0, 0, 2) if gives else (0x22, 1, K["OBJID_BLACKORB"], 0)) + (0, n)
+                if got_ != want:
+                    bad.append((g, n, lit, got_))
+    check("the Black Orb under Shard Hunt: gives way exactly at the Goal's count, the orbs not asked, "
+          "nothing armed, the count kept", bad[:4], [])
+
+    #  Its line and Chaos's: FFR's under a shard goal, the game's otherwise.
+    dlg = (0xA1 + K["BANK_DIALOGUE"]) & 0x1F
+    gameptr = lambda i: ROMDATA[dlg * 0x10000 + 0x8000 + 2 * i] | ROMDATA[dlg * 0x10000 + 0x8001 + 2 * i] << 8
+    OPT, MAXD = K["OPTDESC"], K["OPTDLG_MAX"]
+    LINES = {0x21: "The SHARDS coalesce to\nrestore the Black ORB.\n\nBrave Light Warriors....\nDestroy the Evil within!",
+             0x2E: "Ah, the Light Warriors!\n\nSo you have collected\nthe SHARDS and restored\nthe BLACK ORB.",
+             0x2F: "Thus you've travelled\n2000 years into the past\nto try to stop me?\n\nStep forward then,\nto your peril!",
+             0x30: "Oh, Light Warriors!\nSuch arrogant bravery.\n\nLet us see whom history\nremembers. En Garde!"}
+    def line(i, g):
+        bus, cpu = machine()
+        bus.sram[K["RANDO_GOAL"] - 0x6000] = g
+        bus.wram[OPT:OPT + MAXD + 8] = bytes([0xEE]) * (MAXD + 8)
+        p = gameptr(i)
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = p & 0xFF, p >> 8
+        cpu.y = 0x5A
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        now = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        buf = bytes(bus.wram[OPT:OPT + MAXD + 8])
+        z = buf.find(0)
+        return (now, ff_decode(buf[:z]) if now == OPT and 0 <= z < MAXD else None, cpu.y & 0xFF)
+    bad = []
+    for i, words in LINES.items():
+        for g in range(G0, NG):
+            now, text, y = line(i, g)
+            rows__ = (text or "").split("\n")
+            if (now, text, y) != (OPT, words, 0x5A) or max(map(len, rows__)) > 24 or len(rows__) > 6:
+                bad.append((hex(i), g, text))
+        for g in range(G0):
+            now, text, y = line(i, g)
+            if (now, text) != (gameptr(i), None):
+                bad.append((hex(i), g, "swapped", now))
+    check("the Black Orb's line and Chaos's three: FFR's under a shard goal, within the box, from OPTDESC, "
+          "Y kept; the game's under the orbs", bad[:3], [])
+    check("...and no other line swapped", [i for i in (0x20, 0x22, 0x2D, 0x31) if line(i, G0)[0] != gameptr(i)], [])
+
+    #  The fiends' shards: each altar's orb lit, and its 2, 2, 4 or 4 added
+    #  under a shard goal only; A = 1 for the altar's BNE, X and Y kept.
+    bad = []
+    for name, orb, n in (("opt_orbearth", "orb_earth", 2), ("opt_orbfire", "orb_fire", 2),
+                         ("opt_orbwater", "orb_water", 4), ("opt_orbair", "orb_air", 4)):
+        for g in (0, 4, G0, NG - 1):
+            for before in (0, 9):
+                bus, cpu = machine()
+                bus.sram[K["RANDO_GOAL"] - 0x6000] = g
+                bus.sram[COUNT] = before
+                bus.sram[K[orb] - 0x6000] = 0
+                cpu.x, cpu.y = 0x5A, 0xA5
+                cpu.dbr = 0xA1 + 0x0F
+                call(cpu, name, dbr=0xA1 + 0x0F)
+                got_ = (bus.sram[K[orb] - 0x6000], bus.sram[COUNT], cpu.a & 0xFF, cpu.x & 0xFF, cpu.y & 0xFF)
+                want = (1, before + (n if g >= G0 else 0), 1, 0x5A, 0xA5)
+                if got_ != want:
+                    bad.append((name, g, before, got_))
+    check("an altar's orb lit, and under Shard Hunt its fiend's SHARDs: 2, 2, 4, 4", bad[:4], [])
+    fixed = ROMDATA[(0xA1 + 0x0F & 0x1F) * 0x10000 + 0xC000:][:0x4000]
+    jsl = lambda name: bytes([0x22]) + ((0xA1 + K["CHUNK_OPT"]) << 16 | SYM[name]).to_bytes(3, "little")
+    check("...each altar's code calls its own (orbshards.patch)",
+          [fixed.count(jsl(n)) for n in ("opt_orbearth", "opt_orbfire", "opt_orbwater", "opt_orbair")], [1] * 4)
+
+    #  The SHARD's name, and the CANOE's moved to the earth orb's empty one.
+    def name(item):
+        bus, cpu = machine()
+        cpu.a, cpu.y = item, 0x5A
+        call(cpu, "rando_nameptr", bank=RANDO_BANK)
+        p = (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8
+        raw = bytes(bus.read(0xA1 + 0x0A, p + k) for k in range(8))
+        return ff_decode(raw[:raw.index(0)])
+    check("names: $11 the SHARD, $12-$14 the vehicles, $15 the CANOE",
+          [name(i) for i in range(0x11, 0x16)], ["SHARD", "SHIP", "BRIDGE", "CANAL", "CANOE"])
+    bus, cpu = machine()
+    cpu.a = 0xF3                                     # REWARD_CANOE
+    call(cpu, "give_vehicle", bank=RANDO_BANK)
+    check("...the CANOE given is named by $15", cpu.a & 0xFF, 0x15)
+
+    #  The item list: the SHARDs never in it, the TENTs as ever.
+    bus, cpu = machine()
+    s = bus.sram
+    s[K["items"] - 0x6000 + 1] = 1                   # the LUTE
+    s[COUNT] = 12
+    s[K["item_tent"] - 0x6000] = 3
+    cpu.dbr = 0xA1 + 0x0E
+    call(cpu, "DrawItemBox", bank=0xA1 + 0x0E, dbr=0xA1 + 0x0E)
+    box = list(bus.wram[0x300:0x320])
+    check("the item list: the LUTE and the TENT, no SHARD", box[:box.index(0)] if 0 in box else box,
+          [0x01, K["item_tent"] - K["items"]])
+
+    #  The orb box: under Shard Hunt, the box over the orbs', one tile for
+    #  each SHARD asked, six to a row, the found lit; FFR's two tiles.
+    NT = K["NESNT"] - 0x7E0000
+    HADDR = K["h_addr"]
+    def orbbox(g, n, attr=0x5A):
+        bus, cpu = machine()
+        bus.sram[K["RANDO_GOAL"] - 0x6000] = g
+        bus.sram[COUNT] = n
+        bus.wram[0x17] = attr                        # tmp+7
+        bus.wram[NT:NT + 0x400] = bytes([0x00]) * 0x400
+        bus.wram[HADDR], bus.wram[HADDR + 1] = 0xC9, 0x23   # DrawOrbBox's: the attribute byte next
+        call(cpu, "opt_orbattr", dbr=0xA1 + 0x0E)
+        return bytes(bus.wram[NT:NT + 0x400]), bytes(bus.wram[0x8000 + 0x76 * 32:0x8000 + 0x78 * 32])
+    bad = []
+    for g in range(G0, NG):
+        for n in (0, 7, need(g), 40):
+            nt, chr_ = orbbox(g, n)
+            row0 = 3 if need(g) > 24 else 4
+            want = {}
+            for k in range(need(g)):
+                want[(row0 + k // 6) * 32 + 3 + k % 6] = 0x77 if k < n else 0x76
+            got_ = {i: nt[i] for i in want}
+            if got_ != want:
+                bad.append((g, n, "tiles"))
+            box = [nt[r * 32 + c] for r in range(1, 10) for c in (1, 10)]
+            if 0 in box or nt[0x3C9] != 0xFF:
+                bad.append((g, n, "box or palette"))
+            if [i for i in range(32 * 30) if nt[i] and not (1 <= i // 32 <= 9 and 1 <= i % 32 <= 10)]:
+                bad.append((g, n, "outside the box"))
+    check("the orb box under Shard Hunt: the box at (1, 1), 10 x 9, a tile for each SHARD asked, six a row, "
+          "the found lit, in palette 3", bad[:4], [])
+    nes = bytes.fromhex("001C22414141221CFFE3DDBEBEBEDDE3001C3E7F7F7F3E1CFFFFE3CFDFDFFFFF")
+    snes = b"".join(bytes([nes[t * 16 + r], nes[t * 16 + 8 + r]]) for t in range(2) for r in range(8))
+    _, chr_ = orbbox(G0, 3)
+    check("...its tiles FFR's, over the unlit orb's top ($76, $77)",
+          bytes(chr_[0:16]) + bytes(chr_[32:48]), snes)
+    nt, _ = orbbox(4, 3, attr=0x5A)
+    check("...and with an orb goal only the orbs' attribute byte, as ever",
+          (nt[0x3C9], [i for i in range(0x3C0) if nt[i]]), (0x5A, []))
+
+
 # --- FUN%: Stereo Sound --------------------------------------------------------
 def test_stereo():
     """Stereo Sound (user, 2026-11-03, fun-percent.txt: "pan the two pulse
@@ -18244,7 +18659,7 @@ def test_rando_namelazy():
     setgear(bus, 0x0BADF00D, 5, 5)
     got, want = [], []
     for item in range(256):
-        if 0x1C <= item < 0x6C or 0x12 <= item <= 0x14:
+        if 0x1C <= item < 0x6C or 0x11 <= item <= 0x15:
             continue
         s0 = cpu.steps
         cpu.a = item
@@ -18252,10 +18667,12 @@ def test_rando_namelazy():
         got.append((item, (cpu.a & 0xFF) | (cpu.x & 0xFF) << 8, bus.wram[tag], cpu.steps - s0 < 200))
         want.append((item, ROMDATA[b0a + 0xB700 + 2 * item] | ROMDATA[b0a + 0xB701 + 2 * item] << 8, 0, True))
     check("every name but gear's: the ROM's pointer, the cache not built, cheaply", got, want)
-    #  $12-$14 are the orbs' ids, whose names are empty and never drawn; a
+    #  $12-$15 are the orbs' ids, whose names are empty and never drawn; a
     #  vehicle given is named by them (give_vehicle), so they come back as the
     #  vehicle's name, built in the buffer -- cheaply, and the cache unbuilt.
-    for item, name in ((0x12, "SHIP"), (0x13, "BRIDGE"), (0x14, "CANAL")):
+    #  $11, the CANOE no one holds as an item, is Shard Hunt's SHARD (user,
+    #  2026-11-06), so the CANOE moved to $15.
+    for item, name in ((0x11, "SHARD"), (0x12, "SHIP"), (0x13, "BRIDGE"), (0x14, "CANAL"), (0x15, "CANOE")):
         bus, cpu = machine()
         s0 = cpu.steps
         cpu.a = item
@@ -18437,7 +18854,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

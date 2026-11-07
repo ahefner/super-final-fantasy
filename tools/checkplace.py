@@ -120,14 +120,26 @@ def loose_spheres(cfg, out):
     return [sph[c] for c, i in placed.items() if i < R.PLACE_KEYS and c not in inclocs]
 
 
-def winnable(g, adj, free, goal=0):
+def winnable(g, adj, free, goal=0, shards=()):
     """Chaos reached on the graph from what the party starts with.  Under a
     Goal (RANDO_GOAL, the orbs waived) the Black Orb and the tile beneath it
     -- the graph's only gates of all four orbs -- open once lit + waived >=
-    4, as the game's opt_orbgoal has it."""
+    4, as the game's opt_orbgoal has it.  Under Shard Hunt they open once
+    the SHARDs the party has found -- `shards`, the graph's locations that
+    hold one, reached with the orb shut -- and the fiends' (FIEND_SHARDS)
+    reach the Goal's count: opt_orbgoal and opt_orbshards, played."""
     owned = free
+    need = R.shard_goal(goal)
+    held = False
     while True:
-        held = bin(owned & ORBS).count("1") + goal >= 4
+        if need:
+            if not held:
+                shut = reach(g, owned, adj, False)
+                found = sum(1 for k in shards if not (g.locations[k].req & ~owned) and
+                            any(n in shut for n in g.locations[k].nodes))
+                held = found + sum(n for name, n in R.FIEND_SHARDS if owned & BIT[name]) >= need
+        else:
+            held = bin(owned & ORBS).count("1") + goal >= 4
         seen = reach(g, owned, adj, held)
         gained = 0
         for loc in g.locations:
@@ -300,7 +312,9 @@ def check_edited(seeds):
 #  seed's placement played on the graph with the Black Orb asking the
 #  Goal's orbs -- and beside it the map edit screen's answer
 #  (randoref.winnable), which should say winnable exactly when a world is
-#  placed.
+#  placed.  Shard Hunt's counts too: the shards where the cache deals them
+#  (randoref.build_rewards, Beginner's Chests row shuffled), found on the
+#  graph, the fiends' added as their orbs light.
 GOAL_CONFIGS = {
     "beginner":  (1, [0x20, 0x00, 0x00], [0x81, 0x00], 0x0F),
     "nofloater": (1, [0x2C, 0x00, 0x00], [0x81, 0x00], 0x0F),
@@ -312,10 +326,11 @@ GOAL_CONFIGS = {
 
 def check_goals(seeds, get):
     lost = 0
+    rom = open(rd.ROM_PATH, "rb").read()
     for name, cfg in GOAL_CONFIGS.items():
         early = cfg[3]
         free = R.place_setup(*cfg)[0]
-        for goal in range(5):
+        for goal in range(R.GOAL_MODES):
             says = R.winnable(cfg[0], cfg[1], early, 0, goal)[0]
             stats = Counter()
             for seed in range(1, seeds + 1):
@@ -324,6 +339,14 @@ def check_goals(seeds, get):
                     stats["unplaced"] += 1
                     continue
                 g0, idx0, _, _ = get(early, 0)
+                spots = []
+                if R.shard_goal(goal):
+                    open_ = R.placed_open(seed, *cfg, R.ENTRANCES_OFF, 0, goal)
+                    table, npc, _ = R.build_rewards(rom, seed, 1, out, cfg[1], goal=goal, open_=open_)
+                    deal = list(table) + list(npc)
+                    spots = [c for c in range(248) if c != R.CARAVAN and deal[R.loc_slot(c)] == R.SHARD_CODE]
+                    if len(spots) != R.SHARDS_DEALT:
+                        print("  goal %d %s seed %d: %d shards dealt" % (goal, name, seed, len(spots)))
                 won = True
                 for dock in sorted(ship_docks(g0, idx0, out)):
                     g, idx, adj, vanilla = get(early, dock)
@@ -332,7 +355,7 @@ def check_goals(seeds, get):
                     for i, c in enumerate(out):
                         if c != 0xFF and R.PLACE_ITEMS[i][0] in BIT:
                             g.locations[idx[c]].reward = R.PLACE_ITEMS[i][0]
-                    if not winnable(g, adj, free, goal):
+                    if not winnable(g, adj, free, goal, [idx[c] for c in spots]):
                         print("  goal %d %s seed %d: Chaos out of reach" % (goal, name, seed))
                         won = False
                     for k, r in vanilla.items():

@@ -2323,42 +2323,17 @@ rando_winnable:
     CMP #LOGIC_POOL
     BCC @spot
   @counted:
-    ;  Chaos: one of its masks held, the Goal's orbs counted (goal.inc),
-    ;  as placement's own test has it.
-    LDA a:esHAVE + 2
-    GOAL_HELD WORLDFAR
-    LDX #$0000
-    STZ a:esK
-  @chaos:
-    LDA a:esK
-    CMP a:eNCHAOS
-    BCS @lost
+    ;  Chaos: one of its masks held, the Goal counted (goal.inc's GOAL_HELD,
+    ;  through goal_won) -- under Shard Hunt the shards' room too, as the
+    ;  cache build will deal them (shards.inc) -- as placement's own test has
+    ;  it.
+    JSR shard_vanroom
     LDA a:esHAVE
-    EOR #$FFFF
-    AND a:eCHAOS, X
-    BNE @next
-    LDA a:eCHAOS + 2, X
-    AND #LOGIC_ORBS_HI
-    CMP #LOGIC_ORBS_HI
-    BNE @asis                   ; not through the Black Orb: as it is
-    CPY #0
-    BEQ @next                   ; through it, short of the Goal's orbs
-    LDA a:eCHAOS + 2, X
-    AND #.LOWORD(~LOGIC_ORBS_HI)
-    BRA @rest
-  @asis:
-    LDA a:eCHAOS + 2, X
-  @rest:
-    ORA a:esHAVE + 2            ; its high word less what is held
-    EOR a:esHAVE + 2
-    BEQ @won
-  @next:
-    INX
-    INX
-    INX
-    INX
-    INC a:esK
-    BRA @chaos
+    STA a:gwOWN
+    LDA a:esHAVE + 2
+    STA a:gwOWN + 2
+    JSR goal_won
+    BCC @lost
   @won:
     SEP #$30
     .a8

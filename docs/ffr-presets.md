@@ -23,6 +23,7 @@ tooltips.
 | Free Enterprise            | `Free_Enterprise.json`, without recruitment (user) |
 | Oops All Loose             | `Oops_All_Loose.json` (2026-10-24)               |
 | Floaterless                | `Floaterless.json` (2026-10-24)                  |
+| Shard Hunt                 | `Shard_Hunt.json` (2026-11-06): Beginner at 28 shards |
 
 **Oops All Loose and Floaterless** (user, 2026-10-24: "we can now probably
 port credible versions"; built, not yet played) need nothing the cartridge

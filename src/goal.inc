@@ -17,34 +17,73 @@
 ;  game's four orbs give the answer they always gave.  Places beyond the
 ;  Black Orb still count all four in their own masks: a little strict for a
 ;  smaller Goal, never wrong.
+;
+;  Shard Hunt (user, 2026-11-06): the Black Orb waits for SHARDs instead,
+;  and the logic counts them as the cache build will deal them (shards.inc):
+;  SHARDS_DEALT over the chests of common treasure the party reaches and no
+;  placed item holds -- the room, which the caller counts -- as many as there
+;  is room for, and each fiend's 2, 2, 4 or 4 for its orb.  The user's rule
+;  (2026-11-06: "It doesn't matter if all key items are reachable so long as
+;  the seed is winnable"): the world is won when those reach the Goal's
+;  count.  No pool place lies beyond the Black Orb (genlogic.py), so every
+;  place the room counts is reached before it.  Under the Chests row's
+;  Shuffle the shards may go to any place reached, more room than this,
+;  never less.
 ; ---------------------------------------------------------------------------
 
 LOGIC_ORBS_HI = ((1 << LBIT_ORB_EARTH) | (1 << LBIT_ORB_FIRE) | (1 << LBIT_ORB_WATER) | (1 << LBIT_ORB_AIR)) >> 16
 .assert LOGIC_ORBS_HI = $0F00, error, "goal.inc takes the orbs as bits 8-11 of a mask's high word"
-.assert GOAL_MODES = GOAL_ORBS + 1, error, "goal.inc counts orbs only: a goal past them needs its own test"
+.assert LBIT_ORB_FIRE = LBIT_ORB_EARTH + 1 && LBIT_ORB_WATER = LBIT_ORB_EARTH + 2 && LBIT_ORB_AIR = LBIT_ORB_EARTH + 3, error, "lut_OrbShards takes earth, fire, water, air"
+.assert GOAL_SHARD0 = GOAL_ORBS + 1 && GOAL_MODES = GOAL_SHARD0 + 6, error, "goal.inc knows the orbs and six shard counts"
+.assert SHARD_GOAL(GOAL_SHARD0) = 4 * (GOAL_SHARD0 - 1) && SHARD_GOAL(GOAL_MODES - 1) = 36, error, "GOAL_HELD's count is 4 * (goal - 1)"
 
-;;  Y = 1 if A, the high word of what is held (bits 16-31), has the Goal's
-;;  orbs; else 0.  far is the including chunk's own, for lut_OrbCount (put
-;;  there with GOAL_TABLE).  X clobbered.  A16 I16, out the same.
-.macro GOAL_HELD far
+;;  Y = 1 if A, the high word of what is held (bits 16-31), has the Goal: its
+;;  orbs, lit + waived >= GOAL_ORBS; under Shard Hunt its SHARDs, the room's
+;;  (a word at absolute `room`, the caller's count, at most SHARDS_DEALT) and
+;;  the fiends' for the orbs held.  Else 0.  far is the including chunk's own,
+;;  for lut_OrbCount and lut_OrbShards (put there with GOAL_TABLE).  X
+;;  clobbered.  A16 I16, out the same.  Anonymous labels only, so that the
+;;  caller's cheap locals reach across it.
+.macro GOAL_HELD far, room
     AND #LOGIC_ORBS_HI
     XBA                         ; the four, bits 0-3
     TAX
     SEP #$20
     .a8
-    LDA f:far + lut_OrbCount, X ; lit...
+    LDA f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)
+    CMP #GOAL_SHARD0
+    BCC :+++                    ; the orbs
+    DEC A                       ; the SHARDs asked, 4 * (goal - 1)...
+    ASL A
+    ASL A
+    PHA
+    LDA a:room + 1
+    BNE :+
+    LDA a:room
+    CMP #SHARDS_DEALT
+    BCC :++
+:   LDA #SHARDS_DEALT           ; (as many as are dealt)
+:   CLC
+    ADC f:far + lut_OrbShards, X    ; ...and those the room's and the fiends'
+    CMP 1, S                    ; give
+    PLA                         ; (C kept)
+    BRA :++
+:   LDA f:far + lut_OrbCount, X ; lit...
     CLC
     ADC f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)   ; ...and waived
     CMP #GOAL_ORBS
-    REP #$20
+:   REP #$20
     .a16
     LDA #0
     ROL A
     TAY
 .endmacro
 
-;;  How many bits of a nybble are set.
+;;  How many bits of a nybble are set; and the SHARDs the fiends' orbs give,
+;;  FFR's (OF_CE12_ShardRewards.asm): earth 2, fire 2, water 4, air 4.
 .macro GOAL_TABLE
 lut_OrbCount:
   .BYTE 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4
+lut_OrbShards:
+  .BYTE 0, 2, 2, 4, 4, 6, 6, 8, 4, 6, 6, 8, 8, 10, 10, 12
 .endmacro

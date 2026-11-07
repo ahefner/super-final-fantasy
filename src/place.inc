@@ -113,7 +113,6 @@ CARAVAN_TREASURE = $FE
 SHOPPABLE      = $00087FFF
 
 .include "logic.inc"
-.include "goal.inc"
 .import lut_LogicKind, lut_LogicIdent, lut_LogicFlags, lut_LogicMaskLo, lut_LogicMaskHi
 .import lut_LogicMasks, lut_LogicByBitLo, lut_LogicByBitHi, lut_LogicByBit, lut_LogicChaos
 .import lut_LogicGroup
@@ -209,7 +208,7 @@ pl_place:
 ;;  in the cache beside it.  With none in ES_ATTEMPTS, the game is Off's.
 ES_ATTEMPTS = 16
 ES_PLACE_ATTEMPTS = 4
-.import es_build, es_dockfar, rando_winnable
+.import es_build, es_dockfar, rando_winnable, pl_goalwon
 pl_shuffled:
     .a16
     JSR pl_items
@@ -1344,46 +1343,8 @@ pl_attempt:
     RTS
 
   @placed:
-    LDA a:pNOTOWN + 2           ; and the seed is won: Chaos reached, the
-    EOR #$FFFF                  ;   Goal's orbs counted (goal.inc)
-    GOAL_HELD RANDOFAR
-    LDX #$0000
-  @chaos:
-    TXA                         ; (none of Chaos's masks met, or none at all:
-    LSR A                       ;   a wiring nothing reaches Chaos in)
-    LSR A
-    CMP a:pNCHAOS
-    BCS @lost
-    LDA a:pCHAOS, X
-    AND a:pNOTOWN
-    BNE @next
-    LDA a:pCHAOS + 2, X
-    AND #LOGIC_ORBS_HI
-    CMP #LOGIC_ORBS_HI
-    BNE @asis                   ; not through the Black Orb: as it is
-    CPY #0
-    BEQ @next                   ; through it, short of the Goal's orbs
-    LDA a:pCHAOS + 2, X
-    AND #.LOWORD(~LOGIC_ORBS_HI)
-    BRA @rest
-  @asis:
-    LDA a:pCHAOS + 2, X
-  @rest:
-    AND a:pNOTOWN + 2
-    BEQ @won
-  @next:
-    INX
-    INX
-    INX
-    INX
-    BRA @chaos
-  @lost:
-    CLC
-    RTS
-  @won:
-    SEC
-    RTS
-    GOAL_TABLE
+    JSL pl_goalwon + WORLDFAR   ; and the seed is won: Chaos reached, the Goal
+    RTS                         ;   counted (goal.inc; shards.inc), C set if so
 
 
 ;;  FFR's SelectVendorItem: the caravan stocked before the loop, which never

@@ -208,13 +208,11 @@ sum_settings:
     LDA #0
 :   ASL A
     ASL A
-    ASL A                       ; x 8, the readout's width
+    ASL A
+    ASL A                       ; x 16, the readout's width
     LDX #<lut_ValGoal
     LDY #>lut_ValGoal
-    JSR sum_point
-    LDA #8
-    LDX #SUM_LINEW - 8
-    JSR sum_copy
+    JSR sum_readout
     LDA #SUM_GOALROW
     JSR sum_blit
 

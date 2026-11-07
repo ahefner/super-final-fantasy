@@ -98,6 +98,8 @@ rando_dlgtext:
   @sara:
     JSL fun_dwarfline + FUNFAR  ; FUN%'s Exploding Dwarf: "Oh no, not again!"
     BCS @worldline
+    JSL shard_line + WORLDFAR   ; Shard Hunt: the Black Orb's, Chaos's
+    BCS @worldline
     JSR sara_moved              ; X = her spot
     BCC @hint
     LDA f:DLGPTRFAR + DLG_PRINCESS1 * 2

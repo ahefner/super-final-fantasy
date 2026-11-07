@@ -70,6 +70,8 @@
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
 .export opt_critbox, opt_mapedits
 .export opt_dpadnew, opt_orbgoal
+.export opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair   ; orbshards.patch
+.export opt_orbattr             ; orbbox_shards.patch
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
@@ -870,6 +872,22 @@ opt_titleleave:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 opt_orbgoal:
     PHX
+    LDA f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)
+    CMP #GOAL_SHARD0
+    BCC @orbs
+    ;  Shard Hunt (user, 2026-11-06): the SHARDs, 4 * (goal - 1) of them
+    ;  (SHARD_GOAL), and the orbs not asked.  Its line is FFR's, put in by
+    ;  the dialogue's own swap (shards.inc's shard_line), not armed here.
+    DEC A
+    ASL A
+    ASL A
+    PHA
+    LDA items + SHARD_CODE      ; the count
+    CMP 1, S
+    PLA                         ; (C kept)
+    BCS @enough
+    BCC @short
+  @orbs:
     LDX #0
     LDA orb_fire
     BEQ :+
@@ -905,7 +923,161 @@ opt_orbgoal:
     PLX
     LDA #0
     RTL
-.assert GOAL_MODES = GOAL_ORBS + 1, error, "opt_orbgoal counts orbs only: a goal past them needs its own test"
+.assert GOAL_SHARD0 = GOAL_ORBS + 1 && SHARD_GOAL(GOAL_SHARD0) = 4 * (GOAL_SHARD0 - 1), error, "opt_orbgoal's orbs, then its shards at 4 * (goal - 1)"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_orbearth, _fire, _water, _air -- an altar lights its orb
+;;  (orbshards.patch, SMMove_xOrb), and under Shard Hunt the fiend's SHARDs
+;;  come with it: FFR's OF_CE12_ShardRewards.asm, earth 2, fire 2, water 4,
+;;  air 4 -- twelve, beside the thirty-two dealt.  DBR is the caller's, a game
+;;  bank, so the orbs are plain absolute.  Out: A = 1, Z clear, for the
+;;  altar's BNE.  By JSL, emulation mode; X and Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+opt_orbearth:
+    LDA #1
+    STA orb_earth
+    LDA #2
+    BNE opt_orbshards
+opt_orbfire:
+    LDA #1
+    STA orb_fire
+    LDA #2
+    BNE opt_orbshards
+opt_orbwater:
+    LDA #1
+    STA orb_water
+    LDA #4
+    BNE opt_orbshards
+opt_orbair:
+    LDA #1
+    STA orb_air
+    LDA #4
+opt_orbshards:
+    PHA
+    LDA f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)
+    CMP #GOAL_SHARD0
+    PLA                         ; (C kept)
+    BCC :+
+    CLC
+    ADC items + SHARD_CODE
+    STA items + SHARD_CODE
+:   LDA #1
+    RTL
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_orbattr -- the main menu's orb box, its last step (orbbox_shards.patch):
+;;  the attribute byte for the orbs, the PPU at $23C9 already.  Under Shard
+;;  Hunt the box shows the SHARDs instead (user, 2026-11-06: "If orbs aren't
+;;  the goal, they don't need to be shown. FFR renders shards, either
+;;  unlit/empty or lit in place of the orbs"): FFR's 0E_B8D7_DrawShardBox.asm,
+;;  a box of 10 x 9 at (1, 1) drawn over the orbs', one tile for each SHARD
+;;  the Goal asks, six to a row from column 3 -- row 3, or row 4 for 24 or
+;;  fewer -- the ones found lit.  Its two tiles are FFR's, over the top half of
+;;  the unlit orb ($76, $77), which the box no longer draws; all of it in the
+;;  box's own palette 3.  Bank $0E has no room, so the hook is the orb box's
+;;  last five bytes.  By JSL, emulation mode, DBR the game's; X and Y kept.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SHARDBOX_X      = 1
+SHARDBOX_Y      = 1
+SHARDBOX_W      = 10
+SHARDBOX_H      = 9
+SHARD_EMPTY     = $76               ; the unlit orb's top two tiles
+SHARD_FOUND     = $77
+opt_orbattr:
+    LDA f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)
+    CMP #GOAL_SHARD0
+    BCS @shards
+    LDA tmp+7                   ; the orbs' attributes, as ever
+    wPPUDATA
+    RTL
+  @shards:
+    PHX
+    PHY
+    PHB
+    PHK
+    PLB
+    LDA #$FF                    ; palette 3 over the orbs' corner
+    wPPUDATA
+    rPPUSTATUS
+    LDA #>(SHARD_EMPTY * 16)
+    wPPUADDR
+    LDA #<(SHARD_EMPTY * 16)
+    wPPUADDR
+    LDX #0
+  @chr:
+    LDA lut_ShardCHR, X
+    wPPUDATA
+    INX
+    CPX #32
+    BCC @chr
+    LDA cur_bank                ; (DrawBox can stall: this bank, as
+    PHA                         ;   opt_drawpresetbox names it)
+    LDA #CHUNK_OPT
+    STA cur_bank
+    LDA #SHARDBOX_X
+    STA box_x
+    LDA #SHARDBOX_Y
+    STA box_y
+    LDA #SHARDBOX_W
+    STA box_wd
+    LDA #SHARDBOX_H
+    STA box_ht
+    JSR DrawBox
+    PLA
+    STA cur_bank
+    LDA f:RANDO_SAVEFAR + (RANDO_GOAL - RANDO_SAVE)
+    DEC A                       ; the Goal's count, 4 * (goal - 1)
+    ASL A
+    ASL A
+    STA tmp+10
+    LDA #<($2000 + 3 * 32 + 3)  ; row 3, column 3...
+    LDX tmp+10
+    CPX #25
+    BCS :+
+    LDA #<($2000 + 4 * 32 + 3)  ; ...or row 4, for 24 or fewer
+:   STA tmp+11
+    LDA #>($2000 + 3 * 32 + 3)
+    STA tmp+12
+    LDY #0                      ; the SHARDs drawn
+  @row:
+    rPPUSTATUS
+    LDA tmp+12
+    wPPUADDR
+    LDA tmp+11
+    wPPUADDR
+    LDX #6
+  @col:
+    CPY tmp+10
+    BCS @done
+    LDA #SHARD_EMPTY
+    CPY items + SHARD_CODE
+    BCS :+
+    LDA #SHARD_FOUND            ; one of those found
+:   wPPUDATA
+    INY
+    DEX
+    BNE @col
+    LDA tmp+11
+    CLC
+    ADC #32
+    STA tmp+11
+    BCC @row
+    INC tmp+12
+    BRA @row
+  @done:
+    PLB
+    PLY
+    PLX
+    RTL
+.assert >($2000 + 4 * 32 + 3) = >($2000 + 3 * 32 + 3), error, "opt_orbattr's first row's high byte"
+.assert SHARD_GOAL(GOAL_MODES - 1) = 36, error, "the shard box holds six rows of six"
+
+;;  FFR's (BlackOrb.cs, AddShardGraphics, legacy): an empty SHARD, a found
+;;  one; NES planes, 0 then 1.
+lut_ShardCHR:
+  .BYTE $00, $1C, $22, $41, $41, $41, $22, $1C, $FF, $E3, $DD, $BE, $BE, $BE, $DD, $E3
+  .BYTE $00, $1C, $3E, $7F, $7F, $7F, $3E, $1C, $FF, $FF, $E3, $CF, $DF, $DF, $FF, $FF
+.assert SHARD_CODE = item_canoe - items, error, "the SHARDs' count is the CANOE's unused byte"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  opt_dpadnew -- the game's menu cursors' d-pad, newly pressed only

@@ -290,16 +290,21 @@ def moving_chests(table):
             if c not in UNUSED_CHESTS and table[c] >= ITEM_QTY_START]
 
 
-def build_chests(rom, seed, chests, items3=(0, 0, 0)):
+def build_chests(rom, seed, chests, items3=(0, 0, 0), goal=0, open_=()):
     """Every chest's contents as the cache holds them: 256 bytes by id.  With
     the FLOATER removed (the AIRSHIP row's Remove), its chest holds gold
     instead, drawn as build_rewards draws a removed item's, before the
-    Chests row deals -- so the gold is dealt with the rest."""
+    Chests row deals -- so the gold is dealt with the rest.  Under Shard Hunt
+    the shards go into chests of `open_`, the places the party reaches
+    (vanilla_open), after the deal (shard_post): shuffled, those whose
+    vanilla contents move; off, those of common treasure."""
     table = bytearray(rom_chests(rom))
+    vanilla = rom_chests(rom)
     if row_value(item_rows(items3), 1) == ITEM_REMOVE:
         c = next(c for c in range(256) if c not in UNUSED_CHESTS and table[c] == PLACE_CODE[_NAME.index("FLOATER")])
         table[c] = SPARE_GOLD[Stream(seed, STREAM_GOLD).below(len(SPARE_GOLD))]
-    if 0 < chests < CHESTS_MODES:
+    shuffled = 0 < chests < CHESTS_MODES
+    if shuffled:
         rng = Stream(seed, STREAM_CHESTS)
         locs = moving_chests(table)
         pool = [table[c] for c in locs]
@@ -308,7 +313,58 @@ def build_chests(rom, seed, chests, items3=(0, 0, 0)):
             pool[i], pool[j] = pool[j], pool[i]
         for c, v in zip(locs, pool):
             table[c] = v
+    if shard_goal(goal):
+        cands = [c for c in sorted(open_) if c < 248 and _L.LOCS[c][0] == 0 and
+                 (vanilla[_L.LOCS[c][1]] >= ITEM_QTY_START if shuffled else _L.LOCS[c][2] & F_SHARD)]
+        out = {s: table[s] for s in range(256)}
+        shard_post(seed, out, cands)
+        table = bytearray(out[s] for s in range(256))
     return bytes(table)
+
+
+def shard_order(seed, cands):
+    """Shard Hunt's draw: `cands` (location indices, ascending) with its
+    first k -- SHARDS_DEALT, or all of them if there are fewer -- a
+    Fisher-Yates from the bottom on the seed's STREAM_SHARDS, FFR's random
+    reachable spots (PredictivePlacement.cs).  (the list, k, the stream)."""
+    cands = list(cands)
+    rng = Stream(seed, STREAM_SHARDS)
+    n = len(cands)
+    k = min(SHARDS_DEALT, n)
+    for i in range(k):
+        j = i + rng.below(n - i)
+        cands[i], cands[j] = cands[j], cands[i]
+    return cands, k, rng
+
+
+def shard_spots(seed, cands):
+    order, k, _ = shard_order(seed, cands)
+    return order[:k]
+
+
+def shard_post(seed, out, cands):
+    """Shard Hunt's deal, after the Chests row's (shards.inc's shards_deal):
+    a SHARD into each of the spots shard_order draws, and what one held, if
+    it is not common, moved into one of the other `cands` that holds common
+    treasure, drawn on the same stream until one does -- so every shard
+    takes the room of a common item, as FFR takes it from its common
+    treasure (RemoveRandomWeightedItem).  With none left, it goes.  `out`,
+    slot to contents, is changed in place."""
+    order, k, rng = shard_order(seed, cands)
+    n = len(order)
+    commons = sum(1 for c in order[k:] if out[loc_slot(c)] in COMMON)
+    for i in range(k):
+        s = loc_slot(order[i])
+        v = out[s]
+        out[s] = SHARD_CODE
+        if v in COMMON or not commons:
+            continue
+        while True:
+            t = loc_slot(order[k + rng.below(n - k)])
+            if out[t] in COMMON:
+                break
+        out[t] = v
+        commons -= 1
 
 
 # --- blursings ---------------------------------------------------------------------
@@ -1513,17 +1569,55 @@ KEYITEMS_VANILLA, KEYITEMS_STANDARD, KEYITEMS_WIDE = 0, 1, 2
 _NAME = [n for n, _ in PLACE_ITEMS]
 _BIT = {n: 1 << _L.BITS.index(n) for n in _NAME[:PLACE_KEYS]}
 _BIT_AIRSHIP = 1 << _L.BITS.index("AIRSHIP")
-#  The Goal (RANDO_GOAL): the orbs waived, 0 the game's four (GOAL_ORBS).
+#  The Goal (RANDO_GOAL): the orbs waived, 0 the game's four (GOAL_ORBS);
+#  past them, Shard Hunt's counts.
 GOAL_4ORBS, GOAL_0ORBS, GOAL_ORBS = 0, 4, 4
 ORBS = sum(1 << _L.BITS.index(n) for n in ("ORB_EARTH", "ORB_FIRE", "ORB_WATER", "ORB_AIR"))
 
+#  Shard Hunt (user, 2026-11-06): FFR's, its six fixed counts -- 16, 20 ...
+#  36 -- as Goal values past the orbs (GOAL_SHARD0 on), the Black Orb giving
+#  way to that many SHARDs and the orbs not asked.  FFR's 32 shards are dealt
+#  over ordinary treasure (shard_spots, below), and each fiend's orb, as it
+#  lights, adds FFR's 2, 2, 4 or 4 (OF_CE12_ShardRewards.asm): 44 in all.
+#  The count is item $11's byte, the game's CANOE, which no one holds.
+GOAL_SHARD0, GOAL_MODES = 5, 11
+SHARDS_DEALT = 32
+SHARD_CODE = 0x11
+STREAM_SHARDS = 0x53485244      # "SHRD"
+FIEND_SHARDS = (("ORB_EARTH", 2), ("ORB_FIRE", 2), ("ORB_WATER", 4), ("ORB_AIR", 4))
+COMMON = frozenset(_L.COMMON)
+F_SHARD = 0x08                  # genlogic.py's: a chest of common treasure
 
-def chaos_won(chaos, owned, goal=GOAL_4ORBS):
+
+def shard_goal(goal):
+    """The SHARDs the Goal asks for, or 0 for an orb goal."""
+    return 16 + 4 * (goal - GOAL_SHARD0) if GOAL_SHARD0 <= goal < GOAL_MODES else 0
+
+
+def fiend_shards(owned):
+    return sum(n for name, n in FIEND_SHARDS if owned >> _L.BITS.index(name) & 1)
+
+
+def shard_room(open_places):
+    """How many shards the logic counts on: the chests of common treasure
+    among `open_places` -- reached, and holding no placed item.  Under the
+    Chests row's Off they are exactly where the shards go; under Shuffle
+    there is more room than this, never less."""
+    return sum(1 for c in open_places if c < 248 and _L.LOCS[c][2] & F_SHARD)
+
+
+def chaos_won(chaos, owned, goal=GOAL_4ORBS, room=0):
     """goal.inc's test, placement's and rando_winnable's both: a mask of
     Chaos's met.  One holding all four orbs is a way through the Black Orb,
-    met with its orbs aside once the Goal's are held, lit + waived >= 4; one
-    without them is met as it is."""
-    held = bin(owned & ORBS).count("1") + goal >= GOAL_ORBS
+    met with its orbs aside once the Goal's are held, lit + waived >= 4 --
+    or under Shard Hunt once the shards dealt, as many as there is room
+    for, and the fiends' reach the Goal's count; one without them is met as
+    it is."""
+    need = shard_goal(goal)
+    if need:
+        held = min(SHARDS_DEALT, room) + fiend_shards(owned) >= need
+    else:
+        held = bin(owned & ORBS).count("1") + goal >= GOAL_ORBS
     for m in chaos:
         if m & ORBS == ORBS:
             if held and m & ~ORBS & ~owned == 0:
@@ -1830,8 +1924,8 @@ def _attempt(rng, free, items, inc0, inclocs, masks, chaos=None, spread=None, tu
             break
     if remaining:
         return None
-    _, owned = place_accessible(masks, placed, free)
-    if not chaos_won(_L.CHAOS_MASKS if chaos is None else chaos, owned, goal):
+    open_, owned = place_accessible(masks, placed, free)
+    if not chaos_won(_L.CHAOS_MASKS if chaos is None else chaos, owned, goal, shard_room(open_)):
         return None
     return placed
 
@@ -2013,10 +2107,59 @@ def winnable(keyitems, items3, early, owedits, goal=GOAL_4ORBS, sara=0):
         if new == owned:
             break
         owned = new
-    if chaos_won(chaos, owned, goal):
+    room = 0
+    if shard_goal(goal):
+        #  The shards' room: placed, every item placement places may take a
+        #  chest of it (PLACE_ITEMS, all of them, the most there can be).
+        room = shard_room({c for c in range(248) if any(m & ~owned == 0 for m in masks[c])})
+        if placed:
+            room = max(0, room - len(PLACE_ITEMS))
+    if chaos_won(chaos, owned, goal, room):
         return True, 0
     floater = _BIT["FLOATER"]
     return False, WIN_AIRSHIP if not owned & _BIT_AIRSHIP and floater not in gone else 0
+
+
+def vanilla_open(items3, early, owedits, sara=0):
+    """Under Key items Vanilla, the places the party reaches: winnable's
+    sweep, each place reached giving its vanilla item but a removed one, on
+    the vanilla wiring under the edits, the princess at her spot."""
+    masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits, sara)[0]
+    rows = item_rows(items3)
+    gone, owned = set(), 0
+    for k, name in enumerate(ITEMROW_ITEM):
+        v = row_value(rows, k)
+        if v == ITEM_REMOVE:
+            gone.add(_BIT[name])
+        elif v == ITEM_FREE:
+            owned |= _BIT.get(name, 0) | (_BIT_AIRSHIP if name == "FLOATER" else 0)
+    while True:
+        new = owned
+        for c in range(len(_L.LOCS)):
+            vb = _L.VANBIT[c]
+            if vb and 1 << (vb - 1) not in gone and any(m & ~owned == 0 for m in masks[c]):
+                new |= 1 << (vb - 1)
+        if new == owned:
+            break
+        owned = new
+    return {c for c in range(248) if any(m & ~owned == 0 for m in masks[c])}
+
+
+def placed_open(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS, rebel=False):
+    """Under Key items Standard or Wide, the places the party reaches on the
+    world the seed builds, holding no placed item (the rewards' shards go
+    there): its placement swept from what is free, on its wiring's logic."""
+    sara, (mode, k, out, _) = sara_world(seed, keyitems, items3, gear2, early, entrances, owedits, goal, rebel)
+    if out is None:
+        return set()
+    free, _, _, _, masks = place_setup(keyitems, items3, gear2, early, sara)
+    if mode != ENTRANCES_OFF:
+        w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode, owedits, floater_removed(items3))
+        masks = es_masks(w[0], w[1], w[2], early, owedits, sara)[0]
+    elif owedits:
+        masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits, sara)[0]
+    placed = {c: i for i, c in enumerate(out) if c != 0xFF}
+    return place_accessible(masks, placed, free)[0]
 
 
 def incentive_counts(keyitems, items3, gear2, early, owedits):
@@ -2336,9 +2479,12 @@ def sellable(code):
     return 0 < code < 0x1C
 
 
-def build_rewards(rom, seed, chests, place, items3):
+def build_rewards(rom, seed, chests, place, items3, goal=0, open_=()):
     """(256 chest bytes, 13 NPC rewards, the caravan's item) once placement is
-    in; place is RANDO_PLACE, items3 RANDO_ITEMS."""
+    in; place is RANDO_PLACE, items3 RANDO_ITEMS.  Under Shard Hunt the
+    shards go to places of `open_`, those the party reaches that hold no
+    placed item (placed_open), after the deal (shard_post): shuffled, any
+    but the caravan; off, the chests of common treasure."""
     vanilla = {s: v for s, v in zip(range(256), rom_chests(rom))}
     for n, v in enumerate(TALK_REWARD):
         vanilla[SLOT_NPC + n] = v
@@ -2358,7 +2504,8 @@ def build_rewards(rom, seed, chests, place, items3):
     out = dict(vanilla)
     out.update(placed)
     rng = Stream(seed, STREAM_CHESTS)
-    if 0 < chests < CHESTS_MODES:
+    shuffled = 0 < chests < CHESTS_MODES
+    if shuffled:
         pool = [vanilla[s] for s in slots if s not in homes] + golds
         dest = [s for s in slots if s not in placed]
     else:
@@ -2378,6 +2525,10 @@ def build_rewards(rom, seed, chests, place, items3):
         pool[i], pool[j] = pool[j], pool[i]
     for s, v in zip(dest, pool):
         out[s] = v
+    if shard_goal(goal):
+        cands = [c for c in sorted(open_) if c < 248 and c != CARAVAN and
+                 (shuffled or _L.LOCS[c][2] & F_SHARD)]
+        shard_post(seed, out, cands)
     table = bytes(out[c] for c in range(256))
     return table, bytes(out[SLOT_NPC + n] for n in range(13)), out[SLOT_CARAVAN]
 

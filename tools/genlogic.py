@@ -66,6 +66,15 @@ EARLY = ["king", "sarda", "sage", "ordeals"]            # RANDO_EARLY's bits 0-3
 EARLY_BIT = {"king": "PRINCESS", "sarda": "VAMPIRE", "sage": "ORB_EARTH", "ordeals": "CROWN"}
 KIND_CHEST, KIND_NPC, KIND_SHOP, KIND_EVENT = 0, 1, 2, 3
 F_STANDARD, F_WIDE, F_POOL = 0x01, 0x02, 0x04
+#  Shard Hunt (user, 2026-11-06): a chest whose vanilla contents are common,
+#  FFR's ItemQuality.Common (PlacementContext.cs's itemRanking) -- the six
+#  counted consumables, the nineteen weapons from the Wooden Nunchucks, its
+#  CommonArmorTier, and gold from 10 to 880.  The shards replace those first,
+#  and the logic counts these chests as the shards' room (randoref.shard_room).
+F_SHARD = 0x08
+COMMON = sorted(set(range(0x16, 0x1C)) | set(range(28, 28 + 19)) |
+                {68, 69, 70, 71, 73, 78, 79, 84, 85, 86, 91, 93, 94, 95, 96, 100, 101, 102, 103} |
+                set(range(108, 108 + 31)))
 FREESHIP = (152, 169)        # snesmap.inc's FREESHIP_X/Y: Coneria's dock
 #  FFR's docks (Items.cs, Dock): the sea tiles a found ship is moored at.
 #  Coneria's first: Free SHIP's, and the dock of a map nothing is found on.
@@ -341,6 +350,8 @@ def main():
                 flags |= F_STANDARD
             if kind in (KIND_NPC, KIND_SHOP) or ident in placement.WIDE_CHESTS and kind == KIND_CHEST:
                 flags |= F_WIDE
+            if kind == KIND_CHEST and rd.TREASURE[ident] in COMMON:
+                flags |= F_SHARD
         early = EARLY.index(clears[c]) + 1 if c in clears else 0
         rows.append((kind, ident, flags, early, sorted(base[k]), l.label))
     #  What each gives in the vanilla game, as a logic bit, for the
@@ -398,7 +409,7 @@ def write_py(rows, chaos_masks, docks, groups):
                 'LOCS: (kind, ident, flags, early, masks, label) per cartridge location.\n'
                 'kind 0 chest (ident: chest id), 1 reward NPC (rando_talk entry), 2 the\n'
                 'caravan, 3 an event (ident: the bit it grants).  flags: 1 Standard spot,\n'
-                '2 Wide spot, 4 in the pool.  early: the RANDO_EARLY bit + 1 that clears\n'
+                '2 Wide spot, 4 in the pool, 8 a chest of common treasure.  early: the RANDO_EARLY bit + 1 that clears\n'
                 'EARLY_BIT[early] from its masks, or 0.  Masks in model.py\'s bit order.\n"""\n\n')
         f.write("BITS = %r\n" % (REQS,))
         f.write("EARLY_BIT = %r\n" % ([BIT[EARLY_BIT[e]] for e in EARLY],))
@@ -418,6 +429,8 @@ def write_py(rows, chaos_masks, docks, groups):
         f.write("#  Rebellious Princess: the princess's event's masks at each of her spots\n"
                 "#  (worldgraph/romdata.PRINCESS_SPOTS), the vanilla first.\n")
         f.write("SARA = %r\n" % (SARA,))
+        f.write("#  Shard Hunt: FFR's common treasure, the codes the shards replace first.\n")
+        f.write("COMMON = %r\n" % (COMMON,))
 
 
 #  Rebellious Princess: the princess's event's place in lut_LogicMasks holds
@@ -465,7 +478,8 @@ def write_inc(rows, chaos_masks, docks, groups):
         f.write("LOGIC_MASKS  = %d\n" % len(masks))
         f.write("LOGIC_BYBIT  = %d\n" % at)
         f.write("LOGIC_CHAOSMASKS = %d\n" % len(chaos_masks))
-        f.write("LOGIC_STANDARD = $%02X\nLOGIC_WIDE   = $%02X\nLOGIC_INPOOL = $%02X\n" % (F_STANDARD, F_WIDE, F_POOL))
+        f.write("LOGIC_STANDARD = $%02X\nLOGIC_WIDE   = $%02X\nLOGIC_INPOOL = $%02X\nLOGIC_SHARD  = $%02X\n" % (
+            F_STANDARD, F_WIDE, F_POOL, F_SHARD))
         f.write("LOGIC_NSTANDARD = %d\nLOGIC_NWIDE = %d\n\n" % (
             sum(1 for r in rows if r[2] & F_STANDARD), sum(1 for r in rows if r[2] & F_WIDE)))
         f.write("LOGIC_DOCKS  = %d\n" % len(DOCKS))
@@ -482,7 +496,7 @@ def write_inc(rows, chaos_masks, docks, groups):
                 ";  entry), 2 the caravan, 3 an event (the bit it grants).\n")
         emit(f, "lut_LogicKind", [r[0] for r in rows])
         emit(f, "lut_LogicIdent", [r[1] for r in rows])
-        f.write(";  LOGIC_STANDARD, LOGIC_WIDE, LOGIC_INPOOL; and in bits 4-6 the Early flag\n"
+        f.write(";  LOGIC_STANDARD, LOGIC_WIDE, LOGIC_INPOOL, LOGIC_SHARD; and in bits 4-6 the Early flag\n"
                 ";  (its RANDO_EARLY bit number + 1) that waives one of its requirements.\n")
         emit(f, "lut_LogicFlags", [r[2] | (r[3] << 4) for r in rows])
         f.write(";  Where each location's masks start in lut_LogicMasks, and where they end.\n")
@@ -502,6 +516,9 @@ def write_inc(rows, chaos_masks, docks, groups):
         f.write(";  What each gives in the vanilla game: its logic bit + 1, or 0 (the\n"
                 ";  unwinnable warning's sweep under Key items Vanilla).\n")
         emit(f, "lut_LogicVanBit", VANBIT)
+        f.write(";  Shard Hunt: FFR's common treasure, a bit per chest code (bit n of byte\n"
+                ";  code / 8 for code n %% 8): what the shards replace first.\n")
+        emit(f, "lut_ShardCommon", [sum(1 << b for b in range(8) if 8 * k + b in COMMON) for k in range(32)])
         f.write(";  Chaos: reached when every key item placed, the seed is winnable.\n")
         emit(f, "lut_LogicChaos", [b for m in chaos_masks for b in m.to_bytes(4, "little")])
         f.write(";  The docks a found ship is moored at (FFR's), as the sea tile it sits on.\n")

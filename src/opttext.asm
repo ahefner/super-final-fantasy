@@ -16,6 +16,7 @@
 
 .export lut_DescLo, lut_DescHi
 .import lut_Desc_109, lut_Desc_110      ; opttext2.asm's, in the second bank
+.import lut_Desc_103                    ; ...the Goal's too, since Shard Hunt's six
 .import lut_Desc_111, lut_Desc_112, lut_Desc_113, lut_Desc_114
 
 .segment "BANK_OPTTEXT"
@@ -1022,40 +1023,6 @@ lut_Desc_93_2:  ; Map shuffle: Floors
   FFPAD {"other floors. Only with Key"}, 28
   FFPAD {"items Standard or Wide."}, 28
 
-lut_Desc_103:  ; Goal, by value
-  .BYTE DESC_BYVALUE
-  .WORD lut_Desc_103_0, lut_Desc_103_1, lut_Desc_103_2, lut_Desc_103_3, lut_Desc_103_4
-  .assert * - lut_Desc_103 = 1 + 2 * GOAL_MODES, error, "one Goal description per goal"
-
-lut_Desc_103_0:  ; Goal: 4 orbs
-  FFLINES 3
-  FFPAD {"The black ORB gives way once"}, 28
-  FFPAD {"all four ORBS are lit, as it"}, 28
-  FFPAD {"always has."}, 28
-
-lut_Desc_103_1:  ; Goal: 3 orbs
-  FFLINES 3
-  FFPAD {"The black ORB gives way once"}, 28
-  FFPAD {"any three ORBS are lit, so"}, 28
-  FFPAD {"one fiend may be left alone."}, 28
-
-lut_Desc_103_2:  ; Goal: 2 orbs
-  FFLINES 3
-  FFPAD {"The black ORB gives way once"}, 28
-  FFPAD {"any two ORBS are lit, so two"}, 28
-  FFPAD {"fiends may be left alone."}, 28
-
-lut_Desc_103_3:  ; Goal: 1 orb
-  FFLINES 2
-  FFPAD {"The black ORB gives way once"}, 28
-  FFPAD {"any one ORB is lit."}, 28
-
-lut_Desc_103_4:  ; Goal: 0 orbs
-  FFLINES 3
-  FFPAD {"The black ORB gives way at"}, 28
-  FFPAD {"once. Chaos needs only the"}, 28
-  FFPAD {"KEY and the LUTE."}, 28
-
 ;  Each item row by value: the first two shared, Free the item's own.
 lut_DescItemInc:  ; an item row: Incentive
   FFLINES 4
@@ -1232,7 +1199,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108, >lut_Desc_109 | DESC_SECOND, >lut_Desc_110 | DESC_SECOND
-  .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_103, >lut_Desc_74, >lut_Desc_75
+  .BYTE >lut_DescBlank, >lut_Desc_72, >lut_DescBlank, >lut_Desc_73, >lut_Desc_93, >lut_Desc_103 | DESC_SECOND, >lut_Desc_74, >lut_Desc_75
   .BYTE >lut_Desc_76, >lut_Desc_77, >lut_Desc_78, >lut_Desc_79, >lut_Desc_80, >lut_Desc_81
   .BYTE >lut_Desc_82, >lut_Desc_83, >lut_Desc_84, >lut_Desc_85, >lut_DescBlank, >lut_Desc_86
   .BYTE >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86, >lut_Desc_86

@@ -1,0 +1,13 @@
+# Shard Hunt: FFR's Shard_Hunt.json (user, 2026-11-06: "'Shard Hunt' should
+# go into the preset list").  FFR's is its Beginner with ShardHunt on and a
+# goal of 28 (ShardCount 3, Count28); its one other difference, 60% in
+# dungeons where Beginner has 70%, is Beginner's one dial here already.
+name = "Shard Hunt"
+inherit = "Beginner"
+description = """
+Beginner, with the black ORB waiting for 28 SHARDS instead of the ORBS.
+32 are in treasure, and each fiend gives 2 or 4 more.
+"""
+
+[settings]
+"Goal" = "28 shards"

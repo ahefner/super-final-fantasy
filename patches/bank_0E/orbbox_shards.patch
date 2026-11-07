@@ -1,0 +1,9 @@
+--- OLD
+    LDA tmp+7    ; load computed attribute byte
+    STA $2007    ;   and draw it
+    RTS
+--- NEW
+.import opt_orbattr
+    JSL opt_orbattr + OPTFAR    ; the computed attribute byte -- and under Shard
+    NOP                         ;   Hunt the SHARDs in the orbs' place (optbank.asm)
+    RTS

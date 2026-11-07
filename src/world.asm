@@ -18,7 +18,10 @@
 .include "fftext.inc"
 
 .import rando_belowfar, rando_warmfar, rando_yieldfar
-.import lut_LogicKind, lut_LogicFlags, lut_LogicVanBit
+.import lut_LogicKind, lut_LogicFlags, lut_LogicVanBit, lut_LogicIdent, lut_ShardCommon
+.import lut_PlaceLBit
+;  Shard Hunt (shards.inc): placement's last test, and the deal.
+.export pl_goalwon, shards_deal, shard_line
 ;  For tools/test_options.py.
 .export es_build, es_dockfar, es_tables, rando_winnable
 .export rando_eswire, rando_esmasks, rando_esdock
@@ -69,6 +72,7 @@ esEarlyLBit:
   .BYTE LBIT_PRINCESS, LBIT_VAMPIRE, LBIT_ORB_EARTH, LBIT_CROWN
 
 .include "entrance.inc"
+.include "shards.inc"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -208,4 +212,5 @@ ow_lists:
 
 .include "dlghint.inc"
 .include "dlgsara.inc"
+.include "dlgshard.inc"
 .include "sara.inc"

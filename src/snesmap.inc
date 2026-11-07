@@ -525,15 +525,23 @@ ENTRANCES_MODES = 3
 ;  The Goal (RANDO_GOAL): how many of the four orbs the Black Orb waits for,
 ;  as FFR's Orbs Required with its Any mode -- any of them, not chosen ones.
 ;  The value is the orbs waived, so zero is the game's four and the test is
-;  lit + waived >= 4 (opt_orbgoal; goal.inc for the logic).  FFR's Shard Hunt
-;  would follow as more values, with a count of its own.
+;  lit + waived >= 4 (opt_orbgoal; goal.inc for the logic).  Past the orbs,
+;  FFR's Shard Hunt (user, 2026-11-06): its six fixed counts, 16 to 36 by
+;  fours, the Black Orb waiting for that many SHARDs and no orbs.  SHARDS_DEALT
+;  of them are dealt over common treasure in the cache build (shards.inc),
+;  and each fiend's orb adds FFR's 2, 2, 4 or 4 as it lights (opt_orbshards).
+;  The count is item SHARD_CODE's byte, the game's CANOE, which no one holds.
 GOAL_4ORBS      = 0
 GOAL_3ORBS      = 1
 GOAL_2ORBS      = 2
 GOAL_1ORB       = 3
 GOAL_0ORBS      = 4
-GOAL_MODES      = 5
+GOAL_SHARD0     = 5               ; 16 shards; each value after, four more
+GOAL_MODES      = 11
 GOAL_ORBS       = 4               ; lit + waived, the Black Orb's bar
+SHARDS_DEALT    = 32
+SHARD_CODE      = $11             ; item_canoe - items: the SHARD, and its count
+.define SHARD_GOAL(g) (16 + 4 * ((g) - GOAL_SHARD0))
 ;  Each item row (RANDO_ITEMS): an incentive, loose, or given at the start.
 ;  Other items, the nine with no Free, has the first two only; the SHIP and
 ;  AIRSHIP rows a fourth, Remove (user): the SHIP, or the FLOATER, in no
@@ -2179,6 +2187,7 @@ RW_CARAVAN      = RANDOWRAM+$3230 ; the caravan's one item, once placement is in
 RW_DLGNPC       = RANDOWRAM+$3231 ; a reward NPC's entry + 1, its line next (rando_dlgtext)
 DLG_ORB0        = 14              ; ...or the Black Orb's giving way, none lit (opt_orbgoal);
                                   ;   +1 one lit, +2 two or three
+DLG_SHARDS      = DLG_ORB0 + 3    ; ...or giving way to the SHARDs (Shard Hunt)
 ;  The teleport tables the game reads (rando_entrdest, rando_teledest,
 ;  rando_exitdest), as bank $00 holds them: vanilla's, or placement's wiring
 ;  under entrance shuffle (es_tables).
@@ -2519,6 +2528,12 @@ RV_NGOLD        = RP_BASE+$1C14
 RV_S            = RP_BASE+$1C16   ; a slot
 RV_K            = RP_BASE+$1C18
 RV_CODE         = RP_BASE+$1C1A
+;  Shard Hunt's (shards.inc), after the reach its sweep needs (rando_winnable's,
+;  under Key items Vanilla, uses the area below) and before the deal.
+RV_NCAND        = RP_BASE+$1C1C   ; how many places can take a shard...
+RV_DROP         = RP_BASE+$1C1E   ; ...and the pool's commons still to drop
+RV_SPOT         = RP_BASE+$1D00   ; SLOTS: 1 for a slot that gets a SHARD
+RV_CAND         = RP_BASE+$1E10   ; LOGIC_POOL: the places that can, in order
 SLOT_NPC        = 256
 SLOT_CARAVAN    = 269
 SLOTS           = 270

@@ -1587,6 +1587,7 @@ opt_value_adjust:
     LDY lut_ValOff, X           ; Y = where it is stored
     LDA OPTBLOCK, Y
     JSR opt_field_get
+    JSR opt_goalorder           ; (the Goal's: its place in the order it reads)
     TAY                         ; Y = the step it is at
     PLA
     JSR opt_valdir
@@ -1607,6 +1608,7 @@ opt_value_adjust:
     JSR opt_range_floor         ; a max stops at its min
     BCC @done
   @store:
+    JSR opt_goalorder           ; (the Goal's: from its place back to its step)
     JSR opt_field_put
     JSR opt_range_push          ; a min raised past its max takes it along
     JSR opt_sfx_move
@@ -1697,28 +1699,21 @@ opt_range_push:
     RTS
 
 
-;;  Left and right swapped on the rows whose numbers fall as their steps rise
-;;  -- Min gear curse's 0, -1 ... -5, the Goal's 4 orbs down to 0 -- so that
-;;  left lowers the number there as it does everywhere else (user,
-;;  2026-10-27: a player "will expect it to default to 0 but press left
-;;  rather than right to reduce it").  Known by their readouts, not their
-;;  scalar numbers, which the generated rows hold.  The steps, and what the
-;;  save and the presets mean by them, are as they were.  In: A = RIGHT or
-;;  LEFT, X = the scalar.  Out: A.  X and Y kept.
+;;  Left and right swapped on Min gear curse, whose numbers fall as its steps
+;;  rise -- 0, -1 ... -5 -- so that left lowers the number there as it does
+;;  everywhere else (user, 2026-10-27: a player "will expect it to default to
+;;  0 but press left rather than right to reduce it").  Known by its readouts,
+;;  not its scalar number, which the generated rows hold.  The steps, and what
+;;  the save and the presets mean by them, are as they were.  (The Goal's
+;;  order is opt_goalorder's.)  In: A = RIGHT or LEFT, X = the scalar.  Out:
+;;  A.  X and Y kept.
 opt_valdir:
     PHA
     LDA lut_ValTabHi, X
     CMP #>lut_ValCurse
-    BNE @goal
-    LDA lut_ValTabLo, X
-    CMP #<lut_ValCurse
-    BEQ @swap
-  @goal:
-    LDA lut_ValTabHi, X
-    CMP #>lut_ValGoal
     BNE @keep
     LDA lut_ValTabLo, X
-    CMP #<lut_ValGoal
+    CMP #<lut_ValCurse
     BEQ @swap
   @keep:
     PLA
@@ -1727,6 +1722,37 @@ opt_valdir:
     PLA
     EOR #RIGHT | LEFT
     RTS
+
+;;  The Goal's steps in the order they read, left to right: 0 orbs up to 4,
+;;  then 16 SHARDs up to 36 -- left lowers, as everywhere (user, 2026-10-27),
+;;  and Shard Hunt's counts go on past the orbs (2026-11-06).  The save's
+;;  steps run 4 orbs, 3 ... 0, then 16 ... 36 shards, so a step maps to its
+;;  place and a place back to its step through lut_GoalOrder, which is its
+;;  own inverse.  Known by its readouts, as opt_valdir knows the curse.  In:
+;;  A = a step or a place, X = the scalar.  Out: A mapped if X is the Goal's
+;;  and A one of its steps, else as it was.  X and Y kept.
+opt_goalorder:
+    PHA
+    LDA lut_ValTabHi, X
+    CMP #>lut_ValGoal
+    BNE @keep
+    LDA lut_ValTabLo, X
+    CMP #<lut_ValGoal
+    BNE @keep
+    PLA
+    CMP #GOAL_MODES
+    BCS @out                    ; a step this build does not know: as it is
+    PHX
+    TAX
+    LDA lut_GoalOrder, X
+    PLX
+  @out:
+    RTS
+  @keep:
+    PLA
+    RTS
+lut_GoalOrder: .BYTE 4, 3, 2, 1, 0, 5, 6, 7, 8, 9, 10
+.assert * - lut_GoalOrder = GOAL_MODES && GOAL_SHARD0 = 5, error, "lut_GoalOrder: the orbs reversed, then the shards"
 .assert RIGHT | LEFT = 3 && (RIGHT & LEFT) = 0, error, "opt_valdir swaps RIGHT and LEFT by EOR"
 
 
@@ -2494,13 +2520,21 @@ lut_ValItemMagic:
 .assert * - lut_ValItemMagic = 8 * ITEMMAGIC_MODES, error, "a readout per item magic mode"
 
 ;  The Goal: the orbs the Black Orb waits for, GOAL_4ORBS first.
+;  Shard Hunt's six after (user, 2026-11-06), so the readouts are sixteen
+;  wide: "16 shards" is one past eight.
 lut_ValGoal:
-  FFPAD "  4 orbs", 8
-  FFPAD "  3 orbs", 8
-  FFPAD "  2 orbs", 8
-  FFPAD "   1 orb", 8
-  FFPAD "  0 orbs", 8
-.assert * - lut_ValGoal = 8 * GOAL_MODES, error, "a readout per goal"
+  FFPAD "          4 orbs", 16
+  FFPAD "          3 orbs", 16
+  FFPAD "          2 orbs", 16
+  FFPAD "           1 orb", 16
+  FFPAD "          0 orbs", 16
+  FFPAD "       16 shards", 16
+  FFPAD "       20 shards", 16
+  FFPAD "       24 shards", 16
+  FFPAD "       28 shards", 16
+  FFPAD "       32 shards", 16
+  FFPAD "       36 shards", 16
+.assert * - lut_ValGoal = 16 * GOAL_MODES, error, "a readout per goal"
 
 ;  Pirates: as the game has them, FFR's SwolePirates, and that with its
 ;  AllowUnsafePirates (user, 2026-10-30).
@@ -2674,7 +2708,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 2                                         ; Starting caster item
               .BYTE 2                                         ; Thief lockpicking
               .BYTE 3                                         ; Item magic
-              .BYTE 3                                         ; Goal
+              .BYTE 4                                         ; Goal
               .BYTE 3                                         ; Pirates
               .RES 6, 2                                       ; the scaling's ranges
               .BYTE 3                                         ; Party
