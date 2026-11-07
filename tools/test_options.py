@@ -8372,7 +8372,7 @@ def test_ngpresets():
                    "Lefein River", "Gaia Pass"]), ["Early Open"], []))
     check("eleven presets, in the list's order -- the two from 2026-10-24 after the rest, and Shard Hunt "
           "(2026-11-06) after them, so a saved preset's number keeps its meaning", [p[0] for p in presets],
-          ["Vanilla", "Improved Vanilla", "Beginner", "Classic", "Entrance Shuffle",
+          ["Vanilla", "Improved Vanilla", "Beginner", "Intermediate", "Entrance Shuffle",
            "Entrance and Floor Shuffle", "Chaos Rush", "Free Enterprise", "Oops All Loose", "Floaterless",
            "Shard Hunt"])
     resolved = lambda name: {r.label: (r.values[v] if r.values else bool(v)) for r in prows

@@ -16,7 +16,7 @@ tooltips.
 | Vanilla                    | ours; FFR has no such preset                     |
 | Improved Vanilla           | `Improved_Vanilla.json`; the title's Improved too |
 | Beginner                   | `Beginner.json`                                  |
-| Classic                    | Beginner, for now (user, 2026-10-11); to be retuned toward an intermediate Spring Tournament set |
+| Intermediate               | ours: the settings of the user's save of 2026-11-07 (Classic, Beginner's, until then) |
 | Entrance Shuffle           | `Entrance_Floor_Shuffle.json` with Floors off; FFR has no such preset |
 | Entrance and Floor Shuffle | `Entrance_Floor_Shuffle.json`                    |
 | Chaos Rush                 | `Chaos_Rush.json`                                |

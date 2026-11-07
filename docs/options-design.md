@@ -326,10 +326,11 @@ from a preset and leaving without touching anything keeps the preset selected.
 
 **Built 2026-10-21, the first step of the New Game flow (`menus.txt` in the
 project directory; `randomization-notes.md` 12); built, not yet played.**  The list's entries, in
-filename order: Vanilla, Improved Vanilla, Beginner, Classic, Entrance
-Shuffle, Entrance and Floor Shuffle, Chaos Rush, Free Enterprise, and since
-2026-10-24 Oops All Loose and Floaterless (built, not yet played; after the
-rest, so a saved preset's number keeps its meaning) -- their
+filename order: Vanilla, Improved Vanilla, Beginner, Intermediate (Classic
+until 2026-11-07), Entrance Shuffle, Entrance and Floor Shuffle, Chaos
+Rush, Free Enterprise, and since 2026-10-24 Oops All Loose and Floaterless,
+since 2026-11-06 Shard Hunt (each after the rest, so a saved preset's
+number keeps its meaning) -- their
 settings from `ffr-presets.md` and FFR's own preset files, each file saying
 where.  The user's requirement: "in a subdirectory under snes/, in some
 easily-edited format. Flags set there should default against the Improved
@@ -339,9 +340,19 @@ shows them ("Gold and XP" = "250%", "Speed hacks" = true;
 `presets/README.md`).  Improved Vanilla is the base and sets every setting,
 the build stopping if it misses one, so a new row gets its default there;
 the rest set only what differs, `inherit` naming another preset to start
-from (Classic, the two shuffles, Chaos Rush, Free Enterprise, Oops All
-Loose and Floaterless start from Beginner; Entrance and Floor Shuffle from
-Entrance Shuffle).  `title`
+from (the two shuffles, Chaos Rush, Free Enterprise, Oops All Loose,
+Floaterless and Shard Hunt start from Beginner; Entrance and Floor Shuffle
+from Entrance Shuffle).  **Intermediate** (user, 2026-11-07: "Take the
+settings from my current save file and copy them to the 'Classic' preset.
+Rename it 'Intermediate'"; its description the user's, "A slightly
+spicier take on the original.") is every setting of that save written out
+whole, its map edits too -- Early Open, Extended Open, North Docks and
+Lefein River -- inheriting nothing, so it moves with no other preset.
+Beside Beginner: enemy HP 50-200% and boss HP up to 250%, Thief and Ninja
+hit +3 and no lockpicking, the NUKE Stick, any caster item to start, both
+trap tile sides, Item magic shuffled, formation zones shaken, Buffed
+pirates, and the Vorpal an incentive where the Masmune is treasure; map
+edits beyond Beginner's Early Open.  `title`
 names the title screen's preset an entry is (Vanilla, Improved), so the
 title's options row reads that name after choosing it; any other reads
 Custom.  `[map_edits]` (user, 2026-10-24: "Presets should be able to toggle

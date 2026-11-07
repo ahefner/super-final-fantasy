@@ -1,0 +1,124 @@
+# Intermediate (user, 2026-11-07: "Take the settings from my current save
+# file and copy them to the 'Classic' preset. Rename it 'Intermediate'"):
+# every setting of the save SuperFinalFantasy.ram of 2026-11-07, the
+# settings screen's and the game in progress's alike, and its map edits.
+# Written out whole, inheriting nothing, so it moves with no other preset.
+name = "Intermediate"
+description = """
+A slightly spicier take on the original.
+"""
+
+[settings]
+# SCALE
+"Gold and XP" = "250%"
+"Encounter rate" = "60%"
+"Enemy stats min" = "75%"
+"Enemy stats max" = "150%"
+"Enemy HP min" = "50%"
+"Enemy HP max" = "200%"
+"Boss stats min" = "75%"
+"Boss stats max" = "150%"
+"Boss HP min" = "75%"
+"Boss HP max" = "250%"
+"Elemental bonus" = "+30"
+# QUALITY OF LIFE
+"Speed hacks" = true
+"Faster walking" = true
+"Faster ship" = true
+"No party shuffle" = true
+"Identify treasures" = true
+"Chests appear opened" = true
+"Buy quantity" = true
+"Run becomes Wait" = true
+"Magic menu wraparound" = true
+"Auto retargeting" = false
+"Autosort inventory" = true
+"Repeated potion use" = true
+"Shop information" = true
+"Chest information" = true
+"NPC guillotine" = true
+"Lefein Inn and Clinic" = true
+"Lefein SuperStore" = true
+# BUGFIXES
+"House MP and HP fix" = true
+"Weapon stats" = true
+"Spell fixes" = true
+"Enemy status attacks" = true
+"Run chance fix" = true
+"Turn order fix" = true
+# VARIATIONS
+"Better Thief and Ninja" = true
+"Thief and Ninja hit%" = "+3"
+"Thief lockpicking" = "Off"
+"Double weapon crit" = true
+"Improved CURE and HEAL" = true
+"Better FIRE, LIT, ICE" = false
+"Cast Life in battle" = true
+"SOFT in battle" = true
+"White Mage HARM" = true
+"LOK2 accuracy" = true
+"TRANCE status element" = true
+"Asshat Octopus" = false
+"Boss tactics" = "Off"
+"RUSE Staff" = true
+"NUKE Stick" = true
+"Short ToFR" = false
+# TREASURES
+"Starting items" = "Explorer"
+"Starting caster item" = "Any"
+# RANDOMIZATION
+"Trap tiles" = "A+B"
+"Shops" = "Shuffle"
+"Chests" = "Shuffle"
+"Magic levels" = "Shuffle"
+"Item magic" = "Shuffle"
+"Max gear blessing" = "+5"
+"Min gear curse" = "-3"
+"Formation rarity" = "Shuffle"
+"Formation zones" = "Shaken"
+"Unrunnable fights" = "Shuffle"
+"Surprise rates" = "Shuffle"
+"Status attacks" = "Shuffle"
+"Enemy scripts" = "Both"
+"Enemy skills" = "Both"
+"Pirates" = "Buffed"
+"RNG tables" = "Shuffle"
+"Ordeals pillars" = "Shuffle"
+"Party" = "Free"
+"Taverns" = "Off"
+"Rebellious Princess" = "Off"
+# KEY ITEMS
+"Key items" = "Standard"
+"Map shuffle" = "Off"
+"Goal" = "4 orbs"
+"SHIP" = "Incentive"
+"AIRSHIP" = "Incentive"
+"BRIDGE" = "Free"
+"CANAL" = "Incentive"
+"CANOE" = "Incentive"
+"KEY" = "Incentive"
+"CHIME" = "Incentive"
+"CROWN" = "Incentive"
+"LUTE" = "Incentive"
+"TAIL" = "Incentive"
+"ROD" = "Incentive"
+"Other items" = "Incentive"
+"Masmune" = "Treasure"
+"Katana" = "Treasure"
+"Vorpal" = "Incentive"
+"Defense" = "Treasure"
+"Opal" = "Treasure"
+"Power" = "Treasure"
+"White" = "Treasure"
+"Ribbon" = "Incentive"
+"Xcalber" = "Treasure"
+"Early King" = "On"
+"Early Sarda" = "On"
+"Early Sage" = "On"
+"Early Ordeals" = "On"
+
+[map_edits]
+"Early Open" = true
+"Extended Open" = true
+"North Docks" = true
+"Lefein River" = true
