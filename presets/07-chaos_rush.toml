@@ -1,6 +1,8 @@
 # Chaos Rush: FFR's Chaos_Rush.json.  Not yet on the cartridge: the
 # unlocked Temple of Fiends Revisited (ChaosRush) and the Red Mage hit buff
-# (docs/ffr-presets.md, 3.5).
+# (docs/ffr-presets.md, 3.5).  The KEY free stands in for the unlocked
+# ToFR (user, 2026-11-07): with the LUTE free and 0 orbs, the way to
+# Chaos is open from the start.
 name = "Chaos Rush"
 inherit = "Beginner"
 description = """
@@ -21,6 +23,7 @@ up and win the game!
 "CANOE" = "Free"
 "TAIL" = "Free"
 "LUTE" = "Free"
+"KEY" = "Free"                          # in place of FFR's unlocked ToFR (user)
 
 "Katana" = "Incentive"
 "Vorpal" = "Incentive"

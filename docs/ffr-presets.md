@@ -261,7 +261,10 @@ HARM.
     (`OrbsRequiredCount`).  The locked doors in ToFR Revisited open, so with
     the Short ToFR, Chaos is there as soon as the party can survive him.
     Zero orbs is the Goal row's (built 2026-10-25, options-design.md "Goal"),
-    which Chaos Rush now sets; the unlocked ToFR is still to come.
+    which Chaos Rush now sets; the unlocked ToFR is not ported, and the KEY
+    free stands in for it (user, 2026-11-07: "make the key free for Chaos
+    Rush"): with the LUTE free too and 0 orbs, the way to Chaos is open
+    from the start, the preset's text saying so ("ToFR is open").
   - **A forced random party**: all four slots rolled, no Nones, and FFR's
     slot allow-lists.  The Party row's 4 Forced (built 2026-11-02,
     options-design.md "Party"), which Chaos Rush now sets, without FFR's
