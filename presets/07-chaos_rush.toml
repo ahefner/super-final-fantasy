@@ -4,8 +4,8 @@
 name = "Chaos Rush"
 inherit = "Beginner"
 description = """
-The black ORB needs no ORBS, most vehicles and the LUTE are free, gold
-and XP are 500%, and the encounter rate is low.
+Boss rush! ToFR is open, vehicles are free, and scaling is jacked. Level
+up and win the game!
 """
 
 [settings]
