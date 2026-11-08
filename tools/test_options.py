@@ -17515,9 +17515,11 @@ def test_palswap():
     check("...the tints 0-6, every one of them drawn", sorted(set(tints)), list(range(7)))
     ends = [t >> k & 15 for s in range(40) for t in R.build_palswap(s)[2] for k in (0, 4)]
     share = lambda f: round(16 * sum(map(f, ends)) / len(ends))
-    check("...a tone's ends: left alone 7 in 16, moved 2-4 steps 8 in 16, turned 3-9 steps 1 in 16, "
-          "every code drawn", (share(lambda e: e == 0), share(lambda e: 2 <= e <= 4), share(lambda e: e >= 5),
-                               sorted(set(ends))), (7, 8, 1, [0, 2, 3, 4] + list(range(5, 12))))
+    check("...a tone's ends: left alone 7 in 16, moved 1, 2, 3 and 4 steps 2 in 16 each, turned 3-9 steps "
+          "1 in 16, every code drawn",
+          (share(lambda e: e == 0), [share(lambda e, n=n: e == n) for n in range(1, 5)],
+           share(lambda e: e >= 5), sorted(set(ends))),
+          (7, [2, 2, 2, 2], 1, list(range(12))))
     greys = [g for s in range(40) for g in R.build_palswap(s)[3]]
     check("...a grey ramp one map in 8, its hue any of the twelve",
           (round(8 * sum(g != 0 for g in greys) / len(greys)), sorted(set(greys))), (1, list(range(13))))
@@ -17573,6 +17575,8 @@ def test_palswap():
            0x0F, 0x10, 0x12, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x0F, 0x0F, 0x07, 0x12])
     check("...a tone moves no further than its hue: orange warmed 4 stays orange, blue cooled 3 stays blue",
           (R.palswap_tone(0x27, 4, R.TONE_WARM), R.palswap_tone(0x01, 3, R.TONE_COOL)), (0x27, 0x01))
+    check("...a one-step move (user, 2026-11-08): yellow-green $29 warmed to yellow $28, $09 cooled to green "
+          "$0A", (R.palswap_tone(0x29, 1, R.TONE_WARM), R.palswap_tone(0x09, 1, R.TONE_COOL)), (0x28, 0x0A))
     #  A grey ramp, by hand (user, 2026-11-04: the greyscale ramps "with a
     #  low probability ... remapped to a color ramp instead"): Coneria
     #  Castle's white and greys, $30 $10 $00, to blue a row up, $31 $21 $11,

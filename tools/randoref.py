@@ -2258,9 +2258,10 @@ PALSWAP_OW, PALSWAP_BACKDROP = 64, 80
 #  map's darkest colours', the high its lightest'.  0 leaves them; 1-4 moves
 #  them that many steps toward TONE_COOL (dark) or TONE_WARM (light), and no
 #  further; 5-15 turns them code - 2 round the twelve, 3-9 dealt.  Each end
-#  draws one of sixteen: seven leave it, eight move it 2-4, one turns it.
+#  draws one of sixteen: seven leave it, eight move it, two each of 1-4
+#  steps (user, 2026-11-08: "add one step moves"), one turns it.
 TONE_COOL, TONE_WARM = 1, 7     # blue, orange
-TONE_DRAW = [0] * 7 + [2, 2, 2, 3, 3, 3, 4, 4] + [None]
+TONE_DRAW = [0] * 7 + [1, 1, 2, 2, 3, 3, 4, 4] + [None]
 
 
 def _tone_end(rng):

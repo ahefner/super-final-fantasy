@@ -138,10 +138,10 @@ grey_hue:
 ;;  One end of a map's tone (user, 2026-11-04: "sometimes the darkest color
 ;;  is a cooler tone, the lightest color is a warmer tone, or occasionally an
 ;;  entirely different hue altogether"): a draw below sixteen, seven of them
-;;  leaving the colours be (0), eight moving them toward the end's hue, three
-;;  of 2 steps, three of 3 and two of 4, and one turning them 3-9 steps round
-;;  the twelve (5-11, a second draw).  As randoref's TONE_DRAW.  A = the code;
-;;  X not kept.
+;;  leaving the colours be (0), eight moving them toward the end's hue, two
+;;  each of 1, 2, 3 and 4 steps (7-14 to (n - 5) / 2), and one turning them
+;;  3-9 steps round the twelve (5-11, a second draw).  As randoref's
+;;  TONE_DRAW.  A = the code; X not kept.
 tone_end:
     LDA #16
     JSL rando_belowfar + RANDOFAR
@@ -149,17 +149,8 @@ tone_end:
     BCS @turn
     CMP #7
     BCC @none
-    CMP #10
-    BCC @two
-    CMP #13
-    BCC @three
-    LDA #4
-    RTS
-  @three:
-    LDA #3
-    RTS
-  @two:
-    LDA #2
+    SBC #5                      ; carry set: 2-9
+    LSR A                       ; 1-4
     RTS
   @none:
     LDA #0

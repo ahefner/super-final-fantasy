@@ -1767,8 +1767,10 @@ user's word, 2026-11-05).  `fun.asm`, in Taverns' chunk.
     preview, 2026-11-04).  A row, not a rank within each palette, so a
     colour two palettes of a set share still matches.  Each end draws one of sixteen (`tone_end`): seven leave it be;
     eight move it toward its end's hue, the darkest toward blue (hue 1), the
-    lightest toward orange (7), three of them 2 steps, three 3 and two 4,
-    the shorter way round and no further; and one turns it 3-9 steps round
+    lightest toward orange (7), two each of 1, 2, 3 and 4 steps (user,
+    2026-11-08: "add one step moves", once told a step at the darkest and
+    lightest rows, the NES's least colourful, can barely show), the
+    shorter way round and no further; and one turns it 3-9 steps round
     the twelve, a hue of its own.  So about one map in five is tinted alone,
     and about one in eight has an end in a colour of its own.  The Dwarf
     Cave, all orange from `$07` to `$27`, might keep its orange with its
