@@ -293,7 +293,8 @@ patches: `elfastos_talk.patch` (the jump table's word) and
 `0E_95D5_objectdata.bin`, included around them); `test_elfastos` talks to
 it through `TalkToObject` in all four states.  The same kind of slip is in
 Coneria: object $2F thanks the party for rescuing the Princess on the Elf
-Prince's event; left as it is for now.
+Prince's event; left as it is for now.  Played 2026-11-10, both sides of
+the Astos fight (user).
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -2801,7 +2802,7 @@ out), and the Black Orb gives way to that many and asks for no orb.
     (`NAME_SHARD` to `NAME_CANOE`).  The item list stops at it
     (`itembox_shards.patch`, FFR's 0x7EF45): the orb box shows the SHARDs.
     So does Autosort Inventory's rebuild of the list (`opt_sortinv`), since
-    2026-11-10 (built, not yet played): it ran its key items on to $11, so with Autosort on the
+    2026-11-10 (played the same day): it ran its key items on to $11, so with Autosort on the
     first SHARD put an item $11 in the ITEM menu, named by the cartridge's
     string there, CANOE, and no canoe (user: "the CANOE also appears in my
     inventory, but I still can't use it to cross rivers").  `test_autosort`
