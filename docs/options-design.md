@@ -2781,6 +2781,13 @@ out), and the Black Orb gives way to that many and asks for no orb.
     CANOE given is named by $15 now, the earth orb's empty name
     (`NAME_SHARD` to `NAME_CANOE`).  The item list stops at it
     (`itembox_shards.patch`, FFR's 0x7EF45): the orb box shows the SHARDs.
+    So does Autosort Inventory's rebuild of the list (`opt_sortinv`), since
+    2026-11-10: it ran its key items on to $11, so with Autosort on the
+    first SHARD put an item $11 in the ITEM menu, named by the cartridge's
+    string there, CANOE, and no canoe (user: "the CANOE also appears in my
+    inventory, but I still can't use it to cross rivers").  `test_autosort`
+    now takes the vanilla list from `DrawItemBox` itself, as it hands over
+    to the sort, where it had its own copy of the old loop's range.
   - **The fiends'** (`orbshards.patch`, `opt_orbearth` and the rest): an
     altar lighting its orb adds FFR's 2, 2, 4 or 4 -- earth, fire, water,
     air (OF_CE12_ShardRewards.asm) -- under a shard goal.  FFR adds them
@@ -4151,7 +4158,8 @@ the worst flush ending at scanline 255 of 262.
         NPC repositioning                  opt_movenpcs
 
   - **Battle Magic Menu Wraparound** -- `opt_magicpgdn` / `opt_magicpgup`.
-  - **Autosort Inventory** -- `opt_sortinv`, after `DrawItemBox`'s own fill.
+  - **Autosort Inventory** -- `opt_sortinv`, after `DrawItemBox`'s own fill,
+    over the same items: $01-$10 (not $11, Shard Hunt's count) and $16-$1B.
   - **Auto Retargeting** -- `opt_retarget` and `opt_retarget_mag`.
   - **Run -> Wait** -- `OptRunLabel` and `OptRunFail`, both in the fixed bank.
   - **Identify Treasures** -- `opt_dlgident`, with the replacement string at

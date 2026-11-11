@@ -3576,20 +3576,48 @@ def test_autosort():
     rng = random.Random(1234)
 
     def vanilla(inv):
-        #  What DrawItemBox's own loop produces: $01 upward, orbs skipped.
+        #  What DrawItemBox's own loop produces: $01 upward, the SHARDs' count
+        #  ($11, the CANOE's byte) and the orbs skipped.
         out = []
-        for i in list(range(1, 0x12)) + list(range(0x16, 0x1C)):
+        for i in list(range(1, 0x11)) + list(range(0x16, 0x1C)):
             if inv[i]:
                 out.append(i)
         return out
 
     def sorted_order(inv):
         out = []
-        for grp in (range(0x19, 0x1C), range(0x16, 0x19), range(0x01, 0x12)):
+        for grp in (range(0x19, 0x1C), range(0x16, 0x19), range(0x01, 0x11)):
             for i in grp:
                 if inv[i]:
                     out.append(i)
         return out
+
+    def itembox(inv, flag):
+        """The game's own DrawItemBox: the list its loop fills, read as it
+        hands over to opt_sortinv, and the list after.  DrawBox, the frame,
+        is skipped -- it draws, and the fill does not need it."""
+        bus = Bus(ROMDATA)
+        cpu = CPU(bus)
+        setblk(bus, OPT_FLAGS + 1, flag >> 8)
+        for i, q in enumerate(inv):
+            bus.sram[ITEMS - 0x6000 + i] = q
+        cpu.dbr = BANK_FIXED
+        cpu.pbr, cpu.pc = BANK_FIXED, SYM["DrawItemBox"]
+        cpu.push(0xFF); cpu.push(0xFD)
+        lists, at = [], None
+        for _ in range(100_000):
+            if cpu.pc == SYM["DrawBox"] and cpu.pbr == BANK_FIXED:
+                lo, hi = cpu.pull(), cpu.pull()
+                cpu.pc = ((hi << 8 | lo) + 1) & 0xFFFF
+                continue
+            if cpu.pbr == CHUNK_OPT_BANK and cpu.pc == SYM["opt_sortinv"]:
+                lists.append(bytes(bus.wram[ITEM_BOX:ITEM_BOX + 0x20]).split(b"\0")[0])
+                at = cpu.s
+            cpu.step()
+            if at is not None and cpu.s == at + 3:              # its RTL
+                lists.append(bytes(bus.wram[ITEM_BOX:ITEM_BOX + 0x20]).split(b"\0")[0])
+                return [list(x) for x in lists], bus.wram[CURSOR_MAX]
+        return None, None
 
     for trial in range(60):
         inv = [0] * 0x1C
@@ -3601,6 +3629,11 @@ def test_autosort():
         van = vanilla(inv)
         check("trial %d: the sort is a permutation" % trial,
               sorted(want), sorted(van))
+        if trial < 12:
+            for flag in (0, OPTF_AUTOSORT):
+                lists, n = itembox(inv, flag)
+                check("trial %d autosort=%d: DrawItemBox's own fill, then the list it shows, and the count"
+                      % (trial, bool(flag)), (lists, n), ([van, want if flag else van], len(van)))
 
         for flag in (0, OPTF_AUTOSORT):
             bus, cpu = machine()
@@ -3644,6 +3677,15 @@ def test_autosort():
     call(cpu, "opt_sortinv", dbr=BANK_FIXED)
     check("orbs stay out of the list",
           [bus.wram[ITEM_BOX + i] for i in range(2)], [0x19, 0])
+
+    #  Nor the SHARDs' count, the CANOE's byte (user, 2026-11-10: with
+    #  Autosort on, "When I pick up a shard ... the CANOE also appears in my
+    #  inventory"), through DrawItemBox either way; the OXYALE before it stays.
+    inv = [0] * 0x1C
+    inv[0x10], inv[0x11], inv[0x16] = 1, 3, 2
+    for flag in (0, OPTF_AUTOSORT):
+        check("the SHARDs' count stays out of the list, autosort=%d" % bool(flag), itembox(inv, flag),
+              ([[0x10, 0x16], [0x16, 0x10] if flag else [0x10, 0x16]], 2))
 
 
 ENEMY_IDS = 0x6BB7             # nine slots; $FF means the slot is empty

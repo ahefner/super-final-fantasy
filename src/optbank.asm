@@ -1591,8 +1591,13 @@ opt_magicwrapon:
 ;;  This rebuilds the same list grouped by what it is -- potions, lodgings,
 ;;  key items -- which is the order FFR uses.  It runs after the vanilla fill
 ;;  rather than in place of it, so with the flag off nothing here executes at
-;;  all, and it enumerates exactly the set the vanilla loop does: $01-$11 and
-;;  $16-$1B, skipping the orbs at $12-$15, which have no menu entries.
+;;  all, and it enumerates exactly the set the vanilla loop does: $01-$10 and
+;;  $16-$1B, skipping the orbs at $12-$15, which have no menu entries, and
+;;  $11, the CANOE's byte, where Shard Hunt counts its SHARDs
+;;  (itembox_shards.patch stops the vanilla loop there too).  Until
+;;  2026-11-10 this loop ran on to $11, and a SHARD picked up with Autosort
+;;  on put a CANOE in the list (user: "the CANOE also appears in my
+;;  inventory").
 ;;
 ;;  Because the set is the same, the count cannot change; it is written again
 ;;  anyway, along with the terminator, so that a future edit to one loop
@@ -1619,9 +1624,9 @@ opt_sortinv:
     BNE @lodgings
 
     LDX #$01                    ; the key items, in their own order; $00 is
-  @unique:                      ;   unused and $12-$15 are the orbs
-    JSR opt_sortinv_one
-    CPX #$12
+  @unique:                      ;   unused, $11 the SHARDs' count, $12-$15
+    JSR opt_sortinv_one         ;   the orbs
+    CPX #SHARD_CODE
     BNE @unique
 
     STY cursor_max
