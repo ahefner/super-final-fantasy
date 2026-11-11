@@ -2775,7 +2775,7 @@ the Goal's orbs there, beside the screen's answer.
 
 ### Shard Hunt
 
-**Built 2026-11-06; not yet played.**  FFR's ShardHunt (user, 2026-11-06:
+**Built 2026-11-06; played 2026-11-10** (a full seed, user).  FFR's ShardHunt (user, 2026-11-06:
 "Implement the shard hunt mode. We should have several shard #s as
 additional goal options, and then 'Shard Hunt' should go into the preset
 list"): the Goal row's values past 0 orbs are FFR's six fixed counts, 16,
@@ -2801,7 +2801,7 @@ out), and the Black Orb gives way to that many and asks for no orb.
     (`NAME_SHARD` to `NAME_CANOE`).  The item list stops at it
     (`itembox_shards.patch`, FFR's 0x7EF45): the orb box shows the SHARDs.
     So does Autosort Inventory's rebuild of the list (`opt_sortinv`), since
-    2026-11-10: it ran its key items on to $11, so with Autosort on the
+    2026-11-10 (built, not yet played): it ran its key items on to $11, so with Autosort on the
     first SHARD put an item $11 in the ITEM menu, named by the cartridge's
     string there, CANOE, and no canoe (user: "the CANOE also appears in my
     inventory, but I still can't use it to cross rivers").  `test_autosort`
