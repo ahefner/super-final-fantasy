@@ -291,9 +291,11 @@ from FFR, which leaves this elf as it is.  Two byte-neutral bank $0E
 patches: `elfastos_talk.patch` (the jump table's word) and
 `elfastos_data.patch` (the object's four bytes inside
 `0E_95D5_objectdata.bin`, included around them); `test_elfastos` talks to
-it through `TalkToObject` in all four states.  The same kind of slip is in
-Coneria: object $2F thanks the party for rescuing the Princess on the Elf
-Prince's event; left as it is for now.  Played 2026-11-10, both sides of
+it through `TalkToObject` in all four states.  The talk table has the same
+kind of slip at object $2F (Coneria's "Thank you for rescuing the Princess"
+on the Elf Prince's event), but no map places $2F, in vanilla or here
+(`lut_MapObjects`, bank $00 $B400); the eleven placed objects with that
+line all ask for the Princess ($12).  Nothing to fix.  Played 2026-11-10, both sides of
 the Astos fight (user).
 ### Text rendering
 
