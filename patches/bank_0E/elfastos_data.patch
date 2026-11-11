@@ -1,0 +1,11 @@
+--- OLD
+  .INCBIN "bin/0E_95D5_objectdata.bin"
+--- NEW
+  ;  Object $4F's four bytes rewritten for Talk_ifvis (elfastos_talk.patch):
+  ;  the object to look at, then [1] if it is hidden, [2] if visible.  The
+  ;  file has $06 (the Elf Prince's event), $63, $64, 0; this is Astos's
+  ;  object, so "Astos has been defeated?" ($64) once he is gone and the
+  ;  spooky castle ($63) while he is not.  Same length, same address.
+  .INCBIN "bin/0E_95D5_objectdata.bin", 0, $4F * 4
+  .BYTE OBJID_ASTOS, $64, $63, $00
+  .INCBIN "bin/0E_95D5_objectdata.bin", $4F * 4 + 4

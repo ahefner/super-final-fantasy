@@ -275,6 +275,25 @@ Entrances, "Seems to work"): fourteen, each approved by the user, listed in
 `randomization-notes.md` §3.  Under Map shuffle, eight more that say where a
 dungeon is, and under Floors two that say the way through one (2026-10-28,
 the user's wording or approved; played 2026-10-29, user: "Verified").
+
+**The Elfland elf who says "Astos has been defeated?"** (object $4F;
+2026-11-10, user: "I haven't defeated Astos yet, but I awoke the Elf
+Prince, which is probably what triggers this dialog change").  It chose its
+line by the Elf Prince's event flag (`Talk_ifevent` on object $06), which
+in vanilla is the same thing: the HERB that wakes the Prince is Matoya's,
+for the CRYSTAL Astos gives.  With key items moved the Prince can wake
+first.  It now asks whether Astos's object is still there (`Talk_ifvis` on
+$07), which goes when he is beaten, vanilla's `Talk_Astos` and the reward
+NPCs' `TALKF_HIDE` alike: the spooky castle ($63) while he stands, $64
+after.  Always on, no row: in vanilla it differs only between beating Astos
+and waking the Prince, where the new line is the true one.  A deviation
+from FFR, which leaves this elf as it is.  Two byte-neutral bank $0E
+patches: `elfastos_talk.patch` (the jump table's word) and
+`elfastos_data.patch` (the object's four bytes inside
+`0E_95D5_objectdata.bin`, included around them); `test_elfastos` talks to
+it through `TalkToObject` in all four states.  The same kind of slip is in
+Coneria: object $2F thanks the party for rescuing the Princess on the Elf
+Prince's event; left as it is for now.
 ### Text rendering
 
 Labels and descriptions live in the options chunk and render through the
@@ -4453,7 +4472,10 @@ expensive way once, so both are now checked on every build:
 
   - **`tools/convert.py`** asserts the address of all 30 pinned `.INCBIN`
     blobs.  A patch that changes a bank's size moves every blob after it, and
-    the symptom is wrong orbs and truncated strings, not a build error.
+    the symptom is wrong orbs and truncated strings, not a build error.  A
+    blob included from partway in (`.INCBIN file, start[, size]`, to replace
+    bytes inside it, as `elfastos_data.patch` does) is held to its address
+    plus start.
   - **`tools/check_bankswap.py`** finds every call from the options bank into
     the fixed bank that can reach `SwapPRG`, and fails unless `cur_bank` names
     the options bank first.  On hardware the symptom is a freeze.  It follows

@@ -3688,6 +3688,43 @@ def test_autosort():
               ([[0x10, 0x16], [0x16, 0x10] if flag else [0x10, 0x16]], 2))
 
 
+def test_elfastos():
+    """The Elfland elf ($4F) whose second line is "Astos has been defeated?"
+    (user, 2026-11-10: it said so with Astos alive, the Elf Prince woken by a
+    HERB found early).  Through the game's TalkToObject: the line by Astos's
+    object, hidden once he is beaten, not by the Prince's event -- every
+    combination of the two, with the reward NPCs' table off and on.  A
+    neighbour on the Prince's event still answers to it, and the talk data
+    is the file's but for $4F's bytes."""
+    OBJ, ASTOS, PRINCE = 0x4F, K["OBJID_ASTOS"], K["OBJID_ELFPRINCE"]
+    MAPOBJ_S = MAPOBJ - 0x6000
+    orig = open(os.path.join(ROOT, "game", "bin", "0E_95D5_objectdata.bin"), "rb").read()
+
+    def talk(obj, astos_alive, prince_awake, table):
+        bus, cpu = machine()
+        bus.sram[K["RANDO_TALK"] - 0x6000] = table
+        bus.sram[MAPOBJ_S + 0x10] = obj
+        bus.sram[0x200 + obj] = 1
+        bus.sram[0x200 + ASTOS] = 1 if astos_alive else 0
+        bus.sram[0x200 + PRINCE] = 1 | (2 if prince_awake else 0)
+        cpu.x = 0x10
+        call(cpu, "TalkToObject", bank=BANK_0E, dbr=BANK_0E)
+        return cpu.a & 0xFF
+
+    states = [(a, p, t) for a in (1, 0) for p in (0, 1) for t in (0, 1)]
+    check("$4F: the spooky castle ($63) while Astos stands, \"Astos has been defeated?\" ($64) once he "
+          "is gone, the Prince asleep or awake, the reward NPCs' table off or on",
+          [talk(OBJ, *st) for st in states], [0x63 if a else 0x64 for a, _, _ in states])
+    n1, n2 = orig[0x4E * 4 + 1], orig[0x4E * 4 + 2]
+    check("...$4E beside it, on the Prince's event as it ships: its first line asleep, its second awake, "
+          "Astos either way", [talk(0x4E, *st) for st in states], [n2 if p else n1 for _, p, _ in states])
+    data = bytes(chunkbyte(0x0E, 0x95D5 + i) for i in range(len(orig)))
+    check("the talk data: the file's, but $4F's -- Astos's object and its two lines swapped",
+          ([i for i in range(len(orig)) if data[i] != orig[i] and not 0x13C <= i < 0x140], data[0x13C:0x140],
+           orig[0x13C:0x140]),
+          ([], bytes([ASTOS, 0x64, 0x63, 0]), bytes([PRINCE, 0x63, 0x64, 0])))
+
+
 ENEMY_IDS = 0x6BB7             # nine slots; $FF means the slot is empty
 BTL_DEFENDER = 0x6C8A
 DEFENDER_INDEX = 0x6885        # in SRAM, like the rest of the battle block
@@ -18900,7 +18937,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
              test_stackshift)
 
     global JOBS

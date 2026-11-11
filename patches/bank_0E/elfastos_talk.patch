@@ -1,0 +1,10 @@
+--- OLD
+  .WORD Talk_norm, Talk_ifevent, Talk_ifevent, Talk_ifitem, Talk_ifevent, Talk_ifevent, Talk_ifevent, Talk_ifevent      ; 48-4F
+--- NEW
+  ;  $4F, the Elfland elf whose second line is "Astos has been defeated?":
+  ;  Talk_ifvis on Astos's object, not Talk_ifevent on the Elf Prince's
+  ;  (elfastos_data.patch has the condition and the lines' order).  Vanilla
+  ;  could not wake the Prince before beating Astos -- the HERB is Matoya's,
+  ;  for his CRYSTAL -- so the Prince stood for Astos; with key items moved
+  ;  it can (user, 2026-11-10).  Byte-neutral: one word for another.
+  .WORD Talk_norm, Talk_ifevent, Talk_ifevent, Talk_ifitem, Talk_ifevent, Talk_ifevent, Talk_ifevent, Talk_ifvis        ; 48-4F

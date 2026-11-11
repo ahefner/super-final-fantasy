@@ -83,6 +83,9 @@ DATA_DIRECTIVE = re.compile(r"^\s*\.?(BYTE|WORD|DBYT|ADDR|RES|ASCIIZ|INCBIN)\b",
 #  Turn that into a build error: assert each blob lands where its name says.
 #  Six blobs predate the convention and are skipped; everything else is covered.
 INCBIN_ADDR = re.compile(r'^(\s*)\.INCBIN\s+"bin/([0-9A-F]{2})_([0-9A-F]{4})_', re.I)
+#  A blob included from partway in (".INCBIN file, start[, size]", as a patch
+#  does to replace a few bytes inside one) lands at its address plus start.
+INCBIN_START = re.compile(r'\.INCBIN\s+"[^"]*"\s*,\s*([^,;]+?)\s*(?:[,;]|$)', re.I)
 
 
 def split_comment(line):
@@ -273,9 +276,11 @@ def main():
             #  have long since moved off the addresses their names record.
             m = None if bank == "0F" else INCBIN_ADDR.match(l)
             if m:
-                out.append('%s.assert * = $%s, error, "bank %s: data blob moved '
+                st = INCBIN_START.search(l)
+                at = "$%s + (%s)" % (m.group(3), st.group(1)) if st else "$%s" % m.group(3)
+                out.append('%s.assert * = %s, error, "bank %s: data blob moved '
                            'from $%s -- a patch changed size; see snesmap.inc"'
-                           % (m.group(1), m.group(3), m.group(2), m.group(3)))
+                           % (m.group(1), at, m.group(2), m.group(3)))
                 guards += 1
             out.append(l)
             n += k
