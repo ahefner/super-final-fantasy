@@ -1,0 +1,9 @@
+--- OLD
+    LDX btl_attacker
+    JSR ClearEnemyID
+    JMP ClearAllCombatBoxes
+--- NEW
+    LDX btl_attacker
+    LDA #$FF                ; out of the battle, but not defeated: not
+    STA btl_enemyIDs, X     ;   ClearEnemyID, which marks it for the Bestiary
+    JMP ClearAllCombatBoxes

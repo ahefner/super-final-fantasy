@@ -167,6 +167,27 @@ bst_fontchr:
     BCC @own
     RTS
 
+;;  Battle palette A as the game's battles show it: under Palette swap the
+;;  seed's (fun_btlpal, LoadBattlePalette's own, through RW_PALPERM, which
+;;  bst_tables made if the cache was cold), else A.  A8 I16; X and Y kept.
+    .a8
+    .i16
+bst_palof:
+    PHX
+    PHY
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    JSL fun_btlpal + FUNFAR
+    CLC
+    XCE
+    REP #$10
+    .i16
+    PLY
+    PLX
+    RTS
+
 ;;  The enemies' tables, if the cache does not hold this game's: the
 ;;  randomizer's steps, the music's turn after each.  A8 I16.
     .a8
@@ -1598,10 +1619,12 @@ bst_dnextrow:
     .a8
     RTS
 
-;;  Battle palette A's colours 1-3 into BST_DPCG + Y.  A8 I16; X kept.
+;;  Battle palette A's colours 1-3 into BST_DPCG + Y -- the palette the
+;;  game's battles show for A (bst_palof).  A8 I16; X kept.
     .a8
     .i16
 bst_dpal:
+    JSR bst_palof
     PHX
     STY DT2
     REP #$20

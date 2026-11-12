@@ -5,9 +5,10 @@
 ;  PROTOTYPE (user, 2026-11-11), on the bestiary branch: the title's
 ;  BESTIARY row opens it (opt_titlechoose, 2026-11-12), the title's music
 ;  playing on; B or START goes back to the title, the hand on BESTIARY.  The
-;  defeated mask is a stand-in (lut_BstFakeSeen, 57 of 128), the count is
-;  out of 128 rather than out of those the seed can produce, and the colours
-;  are the cartridge's rather than Palette swap's.  A opens an enemy's page
+;  defeated are the game state's (BST_KILLS, which battles mark: the
+;  bstkill patches), and the colours its seed's under Palette swap
+;  (fun_btlpal), as its battles show them.  The count is out of 128 rather
+;  than out of those the seed can produce.  A opens an enemy's page
 ;  (bstdetail.inc).
 ;
 ;  The grid (user): five columns of 48 x 48 cells, every enemy in its id
@@ -69,7 +70,7 @@
 .import opt_padreset
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_BattlePalettes
-.import opt_bstscale, rando_bsttables
+.import opt_bstscale, rando_bsttables, fun_btlpal
 
 .segment "BANK_BESTIARY"
 
@@ -552,7 +553,7 @@ bst_count:
     STA f:V_COUNT
     LDX #$0000
   @byte:
-    LDA lut_BstFakeSeen, X
+    LDA f:BSTKILLSFAR, X        ; the game state's defeated
   @bit:
     BEQ @next
     LSR A
@@ -585,7 +586,7 @@ bst_seen:
     TAY
     SEP #$20
     .a8
-    LDA lut_BstFakeSeen, X
+    LDA f:BSTKILLSFAR, X
   @shift:
     DEY
     BMI @have
@@ -1898,6 +1899,7 @@ bst_cellcg:
 bst_group:
     STA f:V_TMP                 ; the CGRAM index
     TYA
+    JSR bst_palof               ; the palette the game's battles show
     REP #$20
     .a16
     AND #$00FF

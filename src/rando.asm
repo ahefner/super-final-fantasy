@@ -6458,20 +6458,20 @@ rando_dice:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  rando_bsttables -- the enemies' part of the world, for the Bestiary
 ;;
-;;  The Bestiary's detail view shows each enemy as the world has it: its
-;;  record (RW_ENEMIES), its touch (RW_TOUCH), its script (RW_ESCRIPT,
-;;  RW_SCRIPTS).  At the title after power-on the cache is cold, and
-;;  building all of it is placement too, a pause of seconds with the music
-;;  stopped (rando_coldbuild).  These tables need none of that -- each deal
-;;  is its own stream of the seed, as the build makes them -- so this makes
-;;  them alone, in steps the Bestiary gives the music turns between.  The
-;;  tag is left as it is: a stale cache stays stale, and the next ensure
-;;  builds all of it, these included.  A cache that matches is used as it
-;;  is.
+;;  The Bestiary shows each enemy as the world has it: its record
+;;  (RW_ENEMIES), its touch (RW_TOUCH), its script (RW_ESCRIPT, RW_SCRIPTS),
+;;  and with Palette swap on its colours (RW_PALPERM, deal_palswap's).  At
+;;  the title after power-on the cache is cold, and building all of it is
+;;  placement too, a pause of seconds with the music stopped
+;;  (rando_coldbuild).  These tables need none of that -- each deal is its
+;;  own stream of the seed, as the build makes them -- so this makes them
+;;  alone, in steps the Bestiary gives the music turns between.  The tag is
+;;  left as it is: a stale cache stays stale, and the next ensure builds all
+;;  of it, these included.  A cache that matches is used as it is.
 ;;
-;;  Two steps, build's own (build_touch, build_ai), so the Bestiary can give
-;;  the music its turn between them.  In: A = the step, 0 first.  Out: A =
-;;  the next step, 0 when done.  By JSL, emulation mode.
+;;  Two steps, build's own (build_touch; build_ai and deal_palswap), so the
+;;  Bestiary can give the music its turn between them.  In: A = the step, 0
+;;  first.  Out: A = the next step, 0 when done.  By JSL, emulation mode.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_bsttables:
@@ -6496,6 +6496,7 @@ rando_bsttables:
     REP #$10
     .i16
     JSR build_ai
+    JSL deal_palswap + FUNFAR   ; Palette swap's, for its enemy colours
     LDA #0
   @out:
     JMP leave

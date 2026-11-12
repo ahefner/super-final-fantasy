@@ -15332,6 +15332,8 @@ def test_bestiary():
         Clock(bus, cpu)
         for a in range(0x94, 0xAC):
             bus.wram[a] = 0xFF
+        kills = K["BST_KILLS"] - 0x6000
+        bus.sram[kills:kills + 16] = b"\xff" * 16
         def pad(nes):
             bus.io[0x4218] = nes & 0x80
             bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
@@ -15361,6 +15363,128 @@ def test_bestiary():
     check("RockGOL's page and back, then down into a fiend's row: as without the page",
           [n for n, a, b in zip(("sel", "state", "VRAM", "hand", "CGRAM", "OAM", "header"), with_page, without)
            if a != b] + [with_page[:2]], [(114, 0)])
+
+    #  The defeated (user, 2026-11-12: "Hook up the defeated enemy
+    #  tracking"): a bit an enemy in the game state, BST_KILLS, set as a
+    #  battle kills it or turns it to stone -- ClearEnemyID's, a spell's,
+    #  and the end of a turn's, an attack's -- and not as it runs away.
+    kills = K["BST_KILLS"] - 0x6000
+    img0c = (BANK_0C & 0x1F) * 0x10000
+    bank0c = bytes(ROMDATA[img0c + 0x8000:img0c + 0xC000])
+    kx, ky = SYM["opt_bstkillx"], SYM["opt_bstkilly"]
+    jslx = bytes([0x22, kx & 0xFF, kx >> 8, CHUNK_OPT_BANK])
+    jsly = bytes([0x22, ky & 0xFF, ky >> 8, CHUNK_OPT_BANK])
+    cle = 0x8000 + bank0c.find(jslx + b"\x60")          # ClearEnemyID: the JSL and RTS
+    ids = K["btl_enemyIDs"]
+    bad = []
+    for slot, enemy in ((0, 0), (3, 61), (8, 127), (5, 0xFF)):
+        for how in ("ClearEnemyID", "opt_bstkilly"):
+            bus, cpu = machine()
+            bus.sram[kills:kills + 16] = bytes(16)
+            bus.sram[ids - 0x6000 + slot] = enemy
+            cpu.x, cpu.y = (slot, 0x5A) if how == "ClearEnemyID" else (0xA5, slot)
+            cpu.dbr = BANK_0C
+            if how == "ClearEnemyID":
+                cpu.run(BANK_0C, cle)
+            else:
+                call(cpu, "opt_bstkilly", bank=CHUNK_OPT_BANK, dbr=BANK_0C)
+            mask = int.from_bytes(bus.sram[kills:kills + 16], "little")
+            want = 0 if enemy == 0xFF else 1 << enemy
+            if (mask, bus.sram[ids - 0x6000 + slot], cpu.x & 0xFF, cpu.y & 0xFF) != \
+                    (want, 0xFF, slot if how == "ClearEnemyID" else 0xA5, 0x5A if how == "ClearEnemyID" else slot):
+                bad.append((how, slot, enemy, hex(mask)))
+    check("a kill marks the enemy's bit, empties its slot, keeps X and Y; an empty slot marks nothing",
+          bad, [])
+    att = K["btl_attacker"]
+    ldx = bytes([0xA6, att]) if att < 0x100 else bytes([0xAE, att & 0xFF, att >> 8])
+    runsite = ldx + bytes([0xA9, 0xFF, 0x9D, ids & 0xFF, ids >> 8, 0x4C])
+    cle_jsr = bytes([0x20, cle & 0xFF, cle >> 8])
+    check("the battle's wiring: ClearEnemyID marks, called once (a spell's kill); the end of a turn "
+          "marks once; running away empties its slot itself",
+          (cle >= 0x8000, bank0c.count(jslx), bank0c.count(cle_jsr), bank0c.count(jsly),
+           bank0c.count(runsite)),
+          (True, 1, 1, 1, 1))
+    init = (1 + K["BANK_STARTUPINFO"]) * 0x10000 + K["lut_InitUnsramFirstPage"]
+    check("New Game starts the mask empty: the page it copies is zero there",
+          bytes(ROMDATA[init + (K["BST_KILLS"] - 0x6000):][:16]), bytes(16))
+
+    #  The count and the header, from the mask; and the colours, the seed's
+    #  under Palette swap as its battles show them (fun_btlpal), the cache
+    #  cold.  Rows 0-4 are on screen once the screen is up.
+    inc = open(os.path.join(ROOT, "gen", "bestiary.inc")).read()
+    def table(name):
+        body = inc.split(name + ":")[1].split("\n")
+        out = []
+        for line in body[1:]:
+            line = line.strip()
+            if not line.startswith(".BYTE"):
+                break
+            out += [int(v.strip().lstrip("$"), 16 if "$" in v else 10) for v in line[5:].split(",")]
+        return out
+    cga, pala = table("lut_BstCellCgA"), table("lut_BstPalA")
+    nescol = {int(m.group(1), 16): int(m.group(2), 16) for m in
+              re.finditer(r"NESCOL_([0-9A-F]{2})\s*=\s*\$([0-9A-F]{4})", open(os.path.join(ROOT, "src", "nescol.inc")).read())}
+    btlpal = ROMDATA[(1 + 0x0C) * 0x10000 + 0x8F20:][:256]
+    fun = K["OPT_FUN"] - 0x6000
+    seed = 0x0D15EA5E
+    perm = R.build_palswap(seed)[0]
+    def opened(mask, swap):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.dma = True
+        bus.frames()
+        bus.sram[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+        bus.sram[kills:kills + 16] = mask
+        bus.sram[fun] = (bus.sram[fun] & ~K["FUN_PALSWAP"] & 0xFF) | (K["FUN_PALSWAP"] if swap else 0)
+        cpu.pbr, cpu.pc = bst_bank, SYM["bst_show"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        reads = 0                   # the setup's own wait reads the pad first
+        for _ in range(60_000_000):
+            if cpu.pc == SYM["UpdateJoy"]:
+                reads += 1
+                if reads == 2:
+                    break
+            cpu.step()
+        return bus, cpu
+    some = bytes(random.Random(5).randrange(256) for _ in range(16))
+    bad = []
+    for mask in (bytes(16), b"\xff" * 16, some):
+        for swap in (False, True):
+            bus, cpu = opened(mask, swap)
+            n = bin(int.from_bytes(mask, "little")).count("1")
+            line = bytes(bus.wram[rw("BST_LINE"):rw("BST_LINE") + 30])
+            title = enc("Bestiary (" + str(n)) + bytes([0xF2]) + enc("128)")
+            if bus.wram[bv + 0x17] != n or not line.startswith(title):
+                bad.append(("count", mask.hex(), swap, bus.wram[bv + 0x17]))
+            for e in range(25):
+                seen = mask[e >> 3] >> (e & 7) & 1
+                p = perm[pala[e] & 63] if swap else pala[e]
+                for i in range(3):
+                    want = nescol[btlpal[p * 4 + 1 + i] & 0x3F] if seen else 0x24C5
+                    got = bus.cgram[2 * (cga[e] + i)] | bus.cgram[2 * (cga[e] + i) + 1] << 8
+                    if got != want:
+                        bad.append(("colour", mask.hex()[:6], swap, e, i, hex(got), hex(want)))
+                        break
+    check("the count and its header from the mask; rows 0-4's colours, silhouettes for the "
+          "undefeated, the seed's palettes under Palette swap", bad[:4], [])
+    #  ...and a page's: its palettes through the swap too.
+    bad = []
+    for swap in (False, True):
+        bus, cpu = opened(b"\xff" * 16, swap)
+        palb = table("lut_BstPalB")
+        for e in (0, 61, 109, 119, 127):
+            bus.wram[bv + 0x88] = e
+            native(cpu, "bst_dpicture")
+            got = [bus.wram[rw("BST_DPCG") + 2 * i] | bus.wram[rw("BST_DPCG") + 2 * i + 1] << 8 for i in range(6)]
+            pals = [pala[e]] + ([palb[e]] if e >= 119 else [])
+            want = []
+            for q in pals:
+                q = perm[q & 63] if swap else q
+                want += [nescol[btlpal[q * 4 + 1 + i] & 0x3F] for i in range(3)]
+            want += [0] * (6 - len(want))
+            if got != want:
+                bad.append((swap, e, got, want))
+    check("a page's picture in the palettes its battles show, under Palette swap the seed's", bad[:3], [])
 
 
 def test_rando_enemyai():

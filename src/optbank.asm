@@ -52,7 +52,7 @@
 .export opt_shopmax, opt_shopscale
 .export opt_scaleenemies, opt_scaleatk
 .export opt_scalestat, opt_isboss, opt_statrange, lut_StatLog   ; for the tests
-.export opt_isbossfar, opt_bstscale
+.export opt_isbossfar, opt_bstscale, opt_bstkillx, opt_bstkilly
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
@@ -2551,6 +2551,52 @@ opt_scaleenemies:
     CMP #$09
     BCC @slot
     RTL
+
+;;  An enemy defeated in a battle (the bstkill patches): its bit set in the
+;;  game state's mask, BST_KILLS, for the Bestiary, and its slot emptied as
+;;  the game emptied it.  opt_bstkillx is ClearEnemyID's, a spell's kill or
+;;  stone, the slot in X; opt_bstkilly the end of a turn's, an attack's
+;;  kill, the slot in Y.  An enemy running away takes neither (bstkill_run).
+;;  By JSL from bank $0C, emulation mode, its DBR, for which btl_enemyIDs is
+;;  absolute.  X and Y kept.
+opt_bstkillx:
+    LDA btl_enemyIDs, X
+    JSR opt_bstmark
+    LDA #$FF
+    STA btl_enemyIDs, X
+    RTL
+opt_bstkilly:
+    LDA btl_enemyIDs, Y
+    JSR opt_bstmark
+    LDA #$FF
+    STA btl_enemyIDs, Y
+    RTL
+
+;;  Enemy A's bit in BST_KILLS, set; not an enemy ($FF, an empty slot), none.
+;;  X and Y kept.
+opt_bstmark:
+    CMP #128
+    BCS @out
+    PHX
+    PHA                         ; the enemy...
+    AND #$07
+    TAX
+    LDA f:OPTFAR + lut_BstBit, X
+    PHA                         ; ...its bit, kept on the stack: the battle's
+    LDA $02, S                  ;   scratch (tmp) may be live round this
+    LSR A
+    LSR A
+    LSR A
+    TAX                         ; its byte
+    PLA
+    ORA f:BSTKILLSFAR, X
+    STA f:BSTKILLSFAR, X
+    PLA
+    PLX
+  @out:
+    RTS
+lut_BstBit:
+  .BYTE $01, $02, $04, $08, $10, $20, $40, $80
 
 ;  The Bestiary's detail view: one enemy's record scaled as a battle would
 ;  load it -- its group's ranges, its rolls, opt_scalerecord -- so the page

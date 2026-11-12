@@ -1,0 +1,8 @@
+--- OLD
+      LDA #$FF
+      STA btl_enemyIDs, Y       ; otherwise, remove this enemy from the lineup
+--- NEW
+.import opt_bstkilly
+      ;  otherwise, remove this enemy from the lineup -- and mark it defeated,
+      ;  for the Bestiary: an attack's kill, at the end of the turn
+      JSL opt_bstkilly + OPTFAR

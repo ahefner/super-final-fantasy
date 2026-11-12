@@ -1874,11 +1874,22 @@ PLACE_KEYS      = 19
 PLACE_TAIL      = 19
 PLACE_GEAR      = 20
 PLACE_ATTEMPTS  = 32
+;  The Bestiary's defeated mask (user, 2026-11-11: "a 128 bit mask of enemies
+;  defeated in combat", in the game state): bit e & 7 of byte e >> 3 set once
+;  enemy e is killed or turned to stone in a battle (opt_bstkillx/y, the
+;  bstkill patches) -- one that runs away is not.  Saved and loaded with page
+;  0, so Continue brings the save's; zero in every save before it, and New
+;  Game's build clears it with the page (lut_InitUnsramFirstPage).  Past the
+;  cache's tag, which a kill must not make stale.
+BST_KILLS       = $60BE     ; 16 bytes
+BSTKILLSFAR     = (CHUNK0 * $10000) + BST_KILLS
+.assert BST_KILLS >= RANDO_SAVE + RANDO_SAVE_SIZE, error, "the Bestiary's mask in the cache's tag"
 RANDO_TALK      = $60F0     ; nonzero: the reward NPCs run from rando_talk's table
 RANDO_GIVEN     = $60F1     ; 2 bytes: bit n set once table entry n has given
 RANDO_TALKFAR   = (CHUNK0 * $10000) + RANDO_TALK
 RANDO_GIVENFAR  = (CHUNK0 * $10000) + RANDO_GIVEN
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= RANDO_TALK, error, "rando block runs into RANDO_TALK"
+.assert BST_KILLS + 16 <= RANDO_TALK, error, "the Bestiary's mask runs into RANDO_TALK"
 .assert RANDO_GIVEN + 2 <= $60FD, error, "RANDO_GIVEN runs into the checksum"
 
 ;  The settings screen's copy: one byte per setting, in the same order as the

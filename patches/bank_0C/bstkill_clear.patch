@@ -1,0 +1,12 @@
+--- OLD
+ClearEnemyID:
+    LDA #$FF
+    STA btl_enemyIDs, X
+    RTS
+--- NEW
+.import opt_bstkillx
+ClearEnemyID:
+    ;  Marked defeated as it goes, for the Bestiary: a spell's kill or its
+    ;  stone.  An enemy running away no longer comes here (bstkill_run).
+    JSL opt_bstkillx + OPTFAR
+    RTS

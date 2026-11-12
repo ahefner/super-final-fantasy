@@ -3194,12 +3194,10 @@ power-on (the user: "a prototype on a feature branch which jumps directly
 into this menu (since we'll have to do subsequent rework of the main menu to
 make it accessible properly)"); since 2026-11-12 the title's BESTIARY row
 opens it (above, "The title as a two by two"), the title's music playing on,
-and B or START goes back with the hand on BESTIARY.  Still
-to come: the defeated mask itself (a stand-in now,
-`lut_BstFakeSeen`, 57 of 128), the count out of the enemies the seed can
-produce, the seed's colours (Palette swap's `RW_PALPERM` is the cache's, cold
-at the title after power-on).  The detail view on A is built (2026-11-12,
-below).
+and B or START goes back with the hand on BESTIARY.  The detail view on A
+is built (2026-11-12, below), and so are the defeated mask and Palette
+swap's colours (2026-11-12, below).  Still to come: the count out of the
+enemies the seed can produce.
 
   - **Decided (user):** the mask in the game state, unsram's first page
     (`$60BE-$60EF` free, zero in old saves, cleared by New Game's
@@ -3238,7 +3236,7 @@ below).
     under Palette swap's shuffle.  Kept indexed, a pixel's index is read;
     saved as RGB, its colour, the shared ones nudged a step apart in the
     PNG (unseen).  No PIL here: the tool reads and writes PNG itself.  `out/bestiary_preview.png` is the whole
-    grid, seen and with the stand-in mask.
+    grid, seen and with a made-up mask (`fake_seen`, for the picture only).
   - **The screen** (`src/bestiary.asm`, segment `BANK_BESTIARY` in the
     credits' chunk, which had 12KB free -- its own chunk is a line in
     `snes.cfg` and `snesmap.inc`): it takes the PPU from the HAL as the map
@@ -3424,6 +3422,45 @@ below).
         to RockGOL and down into row 23 with the page and without, junk in
         the direct page past the grid's, and finds the grid's VRAM, CGRAM,
         OAM and header characters the same (the old copy fails it).
+  - **The defeated, and Palette swap's colours** (user, 2026-11-12: "Hook
+    up the defeated enemy tracking and color palette swap"; built, not yet
+    played).
+      - **The mask** is `BST_KILLS`, `$60BE-$60CD` of the game state, bit
+        e & 7 of byte e >> 3: past the cache's tag (`RANDO_SAVE`'s $1E bytes,
+        which a kill must not make stale), before `RANDO_TALK`.  Saved and
+        loaded with page 0, so Continue brings the save's; zero in every save
+        before it; New Game's build copies the page from
+        `lut_InitUnsramFirstPage`, zero there, before it writes the seed.
+      - **What marks it:** an enemy leaves a battle three ways, and two are
+        defeats.  An attack's kill, at the end of the turn (`btl_enemyIDs`
+        emptied in `DoBattleRound`'s check: `bstkill_turn.patch`, a JSL to
+        `opt_bstkilly` in place of the store); a spell's kill or its stone,
+        through `ClearEnemyID` (`bstkill_clear.patch`: `opt_bstkillx` and an
+        RTS).  The third, running away, called `ClearEnemyID` too; it empties
+        its slot itself now (`bstkill_run.patch`), so a fleeing enemy is not
+        marked.  The mark (`opt_bstmark`, the options bank) keeps the battle's
+        scratch alone, its bit on the stack, and an empty slot ($FF) marks
+        nothing.  Bank $0C the same size: a byte saved at each kill and two
+        spent at the running away.
+      - **The screen** reads the mask for the silhouettes, A's error sound
+        and the count in the header, "Bestiary (n/128)".
+      - **Colours:** every palette the grid and the pages show goes through
+        `fun_btlpal`, the battle's own (LoadBattlePalette's, palswap.patch):
+        under Palette swap the seed's `RW_PALPERM`, otherwise the cartridge's.
+        A cold cache's `RW_PALPERM` is made with the enemies' tables
+        (`rando_bsttables`'s second step calls `deal_palswap`).  The fiends'
+        and Chaos's ready-made characters hold colour places, not colours,
+        so they take the swapped palettes as they are.
+      - **Checked** (`test_bestiary`): each mark routine with enemies 0, 61,
+        127 and an empty slot, X and Y kept; the battle's wiring in bank $0C
+        by its bytes -- `ClearEnemyID` marking and called once, the end of a
+        turn marking once, the running away storing its own $FF; New Game's
+        page zero there; the count and header from three masks; rows 0-4's
+        colours, silhouettes for the undefeated, through the seed's
+        permutation (randoref's `build_palswap`) with Palette swap on and
+        the cartridge's with it off, the cache cold; a page's six colours the
+        same way.  Mutation: the swap skipped, or the running away's own
+        store taken out, each fails it.
 
 ### Respond rate
 
