@@ -180,6 +180,10 @@ V_ROWS    = BV+$76              ; rows of a cell left
 V_I       = BV+$77              ; a counter
 V_NAMELEN = BV+$78
 V_SEEN    = BV+$79
+V_TR      = BV+$7A              ; the text's character row
+V_TC      = BV+$7B              ; ...and column
+V_C0      = BV+$7C              ; the text's first column to draw
+V_TC1     = BV+$7D              ; ...and the first redrawn round it
 V_ZPSAVE  = BV+$80              ; ZPLEN
 .assert V_ZPSAVE + ZPLEN <= BST_VARS + $100, error, "the Bestiary's variables outgrow their page"
 
@@ -398,10 +402,14 @@ bst_setup:
     BCC @row
     LDA #0
     STA f:V_MAPPEND
-    ;  The text line.
+    ;  The text line, all of it.
+    JSR bst_textclear
+    LDA #0
+    STA f:V_C0
     JSR bst_textline
     JSR bst_textrender
     JSR bst_sendtext
+    JSR bst_audio
     JSR bst_setvofs
     ;  The registers.
     LDA #$09
@@ -943,6 +951,8 @@ bst_input:
     BEQ @none
     STA f:V_SEL
     JSR bst_sfxmove
+    LDA #NAME_C0                ; the name's part of the line
+    STA f:V_C0
     JSR bst_textline
     JSR bst_textrender
     LDA #1
@@ -1324,6 +1334,7 @@ bst_convcell:
     BEQ @special
   @rtile:
     JSR bst_convreg
+    JSR bst_tileaudio
     LDA f:V_TILES
     DEC A
     STA f:V_TILES
@@ -1331,6 +1342,7 @@ bst_convcell:
     BRA @done
   @special:
     JSR bst_convspecial
+    JSR bst_tileaudio
     LDA f:V_TILES
     DEC A
     STA f:V_TILES
@@ -1342,6 +1354,20 @@ bst_convcell:
     STA f:V_N
     SEP #$20
     .a8
+    RTS
+
+;;  The music's turn between characters: a large picture is more than a
+;;  frame's work, and a turn only between pictures left the music a frame or
+;;  more behind on every scroll (user, 2026-11-11: "The music lags when
+;;  cursoring").  X and Y kept; DBR this chunk, as CallMusicPlay leaves it.
+    .a8
+    .i16
+bst_tileaudio:
+    PHX
+    PHY
+    JSR bst_audio
+    PLY
+    PLX
     RTS
 
 ;;  SEL from lut_BstCellSel for slot cell V_K: SEL + j * 6 + w - 1 is $FF
@@ -2107,12 +2133,37 @@ bst_textline:
   @done:
     RTS
 
-;;  BST_LINE drawn: its glyphs into BST_G (16 rows of TEXT_STRIDE, a blank
-;;  row and column round them), widened a pixel each way into BST_H, then
-;;  the 60 characters: plane 0 the glyph and its outline (H, a row up and
-;;  down), plane 1 the glyph -- colour 3 the letter, colour 1 the black
-;;  round it.  The font's glyphs are its colour 3, both planes.  A8 I16.
+;;  BST_G and BST_H blank: rows of TEXT_STRIDE, a blank row above the line's
+;;  and below, a blank column either side of its 30, which nothing writes
+;;  after.  A8 I16.
 BST_GROWS = 18                  ; a blank row, 16, a blank row
+    .a8
+    .i16
+bst_textclear:
+    REP #$20
+    .a16
+    LDX #$0000
+    LDA #0
+  @clear:
+    STA f:BST_G, X
+    STA f:BST_H, X
+    INX
+    INX
+    CPX #BST_GROWS * TEXT_STRIDE
+    BCC @clear
+    SEP #$20
+    .a8
+    RTS
+
+;;  BST_LINE drawn, from column V_C0 on -- 0 the whole line, NAME_C0 the
+;;  name's part, as a move redraws it (redrawing it all took two frames, and
+;;  the music lagged on every move: user, 2026-11-11).  Its glyphs into
+;;  BST_G's rows 1-8, widened a pixel each way into BST_H, then its
+;;  characters: plane 0 the glyph and its outline (H, a row up and down),
+;;  plane 1 the glyph -- colour 3 the letter, colour 1 the black round it.
+;;  The font's glyphs are its colour 3, both planes.  A8 I16.
+NAME_C0 = 20                    ; the name ends the line, 22-29 at the most
+.assert BST_TITLE_LEN + 3 + BST_OF_LEN < NAME_C0 - 1, error, "the count runs into the name's columns"
     .a8
     .i16
 bst_textrender:
@@ -2120,25 +2171,11 @@ bst_textrender:
     LDA #^BSTRAM
     PHA
     PLB                         ; absolute = bank $7F
-    REP #$20
-    .a16
-    LDX #$0000
-    LDA #0
-  @clear:
-    STA a:.LOWORD(BST_G), X
-    STA a:.LOWORD(BST_H), X
-    INX
-    INX
-    CPX #BST_GROWS * TEXT_STRIDE
-    BCC @clear
-    SEP #$20
-    .a8
-    ;  The glyphs: column i of row r at (r + 1) * TEXT_STRIDE + i -- X the
-    ;  glyph's bytes, long; Y BST_G's place.
-    LDA #0
-    STA f:V_I                   ; the column
+    ;  The glyphs: X the glyph's bytes, long; Y BST_G's place, row 1 on.
+    LDA f:V_C0
+    STA f:V_TC
   @col:
-    LDA f:V_I
+    LDA f:V_TC
     REP #$20
     .a16
     AND #$00FF
@@ -2148,6 +2185,8 @@ bst_textrender:
     TAY
     SEP #$20
     .a8
+    LDA #8
+    STA CNT
     LDA f:BST_LINE, X
     CMP #CH_LPAREN
     BCC @font
@@ -2164,8 +2203,6 @@ bst_textrender:
     TAX
     SEP #$20
     .a8
-    LDA #8
-    STA f:V_TMP
   @cust:
     LDA f:BESTIARYFAR + lut_BstGlyphs, X
     STA a:.LOWORD(BST_G), Y
@@ -2174,7 +2211,14 @@ bst_textrender:
     BRA @next
   @font:
     CMP #$80
-    BCC @next                   ; (nothing below the font)
+    BCS @fontglyph
+  @nil:                         ; (nothing below the font: blank)
+    LDA #0
+    STA a:.LOWORD(BST_G), Y
+    JSR @down
+    BNE @nil
+    BRA @next
+  @fontglyph:
     SEC
     SBC #$80
     REP #$20
@@ -2187,8 +2231,6 @@ bst_textrender:
     TAX                         ; the glyph's 16 bytes
     SEP #$20
     .a8
-    LDA #8
-    STA f:V_TMP
   @glyph:
     LDA f:MENUCHR, X
     AND f:MENUCHR + 8, X        ; colour 3: the glyph
@@ -2196,13 +2238,13 @@ bst_textrender:
     JSR @down
     BNE @glyph
   @next:
-    LDA f:V_I
+    LDA f:V_TC
     INC A
-    STA f:V_I
+    STA f:V_TC
     CMP #TEXT_COLS
     BCC @col
     BRA @widen
-  ;  The next byte of the glyph, a row down BST_G; Z set after the eighth.
+  ;  The glyph's next byte, a row down BST_G; Z set after the eighth.
   @down:
     INX
     REP #$20
@@ -2213,65 +2255,116 @@ bst_textrender:
     TAY
     SEP #$20
     .a8
-    LDA f:V_TMP
-    DEC A
-    STA f:V_TMP
+    DEC CNT
     RTS
+
   @widen:
-    ;  H: each glyph byte widened a pixel left and right, carrying across
-    ;  the bytes; the blank column either side of the line makes that safe.
-    LDX #TEXT_STRIDE
-  @wide:
-    LDA a:.LOWORD(BST_G), X
-    STA f:V_TMP
-    LSR A
-    ORA f:V_TMP
-    STA f:V_TMP + 1
-    LDA f:V_TMP
-    ASL A
-    ORA f:V_TMP + 1
-    STA f:V_TMP + 1
-    LDA a:.LOWORD(BST_G) - 1, X
-    LSR A                       ; its pixel 7 into C
-    LDA #0
-    ROR A                       ; ...into pixel 0
-    ORA f:V_TMP + 1
-    STA f:V_TMP + 1
-    LDA a:.LOWORD(BST_G) + 1, X
-    ASL A                       ; its pixel 0 into C
-    LDA #0
-    ROL A                       ; ...into pixel 7
-    ORA f:V_TMP + 1
-    STA a:.LOWORD(BST_H), X
-    INX
-    CPX #(BST_GROWS - 1) * TEXT_STRIDE
-    BCC @wide
-    ;  The characters: n = row of characters * 30 + column, 16 bytes each.
-    LDX #$0000                  ; into BST_TCHR
-    LDA #0
-    STA f:V_I                   ; the character
-  @chr:
-    ;  Its first BST_G place: (tr * 8 + 1) * TEXT_STRIDE + column.
-    LDA f:V_I
-    LDY #$0000
-    CMP #TEXT_COLS
-    BCC :+
-    SBC #TEXT_COLS
-    LDY #8 * TEXT_STRIDE
-:   REP #$20
+    ;  H, rows 1-8 from a column before V_C0 (its right edge takes from
+    ;  V_C0's): each byte widened a pixel left and right, carrying across
+    ;  the bytes; a byte with nothing near it stays blank.
+    LDA f:V_C0
+    BEQ :+
+    DEC A
+:   STA f:V_TC1
+    REP #$20
     .a16
+    LDA #TEXT_STRIDE
+    STA f:V_DST                 ; the row's start
+  @wrow:
+    REP #$20                    ; (the loop comes back 8-bit)
+    .a16
+    LDA f:V_TC1
     AND #$00FF
-    STA f:V_DST
-    TYA
     CLC
     ADC f:V_DST
+    TAX
+    LDA f:V_DST
+    CLC
+    ADC #TEXT_COLS
+    STA SRC16                   ; the row's end
+    SEP #$20
+    .a8
+  @wb:
+    LDA a:.LOWORD(BST_G) - 1, X
+    ORA a:.LOWORD(BST_G), X
+    ORA a:.LOWORD(BST_G) + 1, X
+    BEQ @wz
+    LDA a:.LOWORD(BST_G), X
+    STA TT
+    LSR A
+    ORA TT
+    STA P0
+    LDA TT
+    ASL A
+    ORA P0
+    STA P0
+    LDA a:.LOWORD(BST_G) - 1, X
+    LSR A                       ; its right pixel into C...
+    LDA #0
+    ROR A                       ; ...onto this one's left
+    ORA P0
+    STA P0
+    LDA a:.LOWORD(BST_G) + 1, X
+    ASL A                       ; its left pixel into C...
+    LDA #0
+    ROL A                       ; ...onto this one's right
+    ORA P0
+  @wz:
+    STA a:.LOWORD(BST_H), X
+    INX
+    CPX SRC16
+    BCC @wb
+    REP #$20
+    .a16
+    LDA f:V_DST
     CLC
     ADC #TEXT_STRIDE
+    STA f:V_DST
+    CMP #9 * TEXT_STRIDE
+    SEP #$20
+    .a8
+    BCC @wrow
+    ;  The characters, both rows of them, from the same column: n = row *
+    ;  30 + column, 16 bytes each in BST_TCHR; BST_G's and BST_H's place
+    ;  (row * 8 + 1) * TEXT_STRIDE + column.
+    LDA #0
+    STA f:V_TR
+  @trow:
+    LDA f:V_TC1
+    STA f:V_TC
+  @tch:
+    LDA f:V_TR
+    BEQ :+
+    LDA #TEXT_COLS
+:   CLC
+    ADC f:V_TC
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    TAX
+    SEP #$20
+    .a8
+    LDA f:V_TR
+    REP #$20
+    .a16
+    AND #$00FF
+    XBA                         ; x 8 x TEXT_STRIDE
+    CLC
+    ADC #TEXT_STRIDE
+    STA SRC16
+    LDA f:V_TC
+    AND #$00FF
+    CLC
+    ADC SRC16
     TAY
     SEP #$20
     .a8
     LDA #8
-    STA f:V_TMP
+    STA CNT
   @line:
     LDA a:.LOWORD(BST_H) - TEXT_STRIDE, Y
     ORA a:.LOWORD(BST_H), Y
@@ -2289,15 +2382,18 @@ bst_textrender:
     TAY
     SEP #$20
     .a8
-    LDA f:V_TMP
-    DEC A
-    STA f:V_TMP
+    DEC CNT
     BNE @line
-    LDA f:V_I
+    LDA f:V_TC
     INC A
-    STA f:V_I
-    CMP #2 * TEXT_COLS
-    BCC @chr
+    STA f:V_TC
+    CMP #TEXT_COLS
+    BCC @tch
+    LDA f:V_TR
+    INC A
+    STA f:V_TR
+    CMP #2
+    BCC @trow
     PLB
     RTS
 

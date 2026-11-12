@@ -3219,7 +3219,16 @@ at the title after power-on), the detail view on A with the seed's stats.
     down, before the tail going up -- 1000 at the worst, which the tool
     checks.  A row is converted on the CPU (`bst_convcell`) into a WRAM
     buffer, sent 2KB a vblank, then its tilemap; a row leaving gives its
-    characters back and its tilemap rows are cleared.
+    characters back and its tilemap rows are cleared.  The music gets a
+    turn after every character (`bst_tileaudio`): a large picture is more
+    than a frame's work, and with turns only between pictures a scroll left
+    the music up to six frames behind.
+  - **The music while cursoring** (user, 2026-11-11: "The music lags when
+    cursoring"): redrawing the whole outlined line took two frames, so
+    every move dropped two frames of music.  A move redraws only the name's
+    columns (`NAME_C0` on); the count's part is drawn once.  Measured on
+    the harness's timed `Clock`: one music call every frame through moves
+    and scrolls, where there had been gaps of two to six.
   - **Colours:** each of BG1's eight palettes is five groups of three
     (CGRAM p * 16 + 3g + 1..3), a picture in one group, a fiend's or Chaos's
     in two of one palette.  Grid row r is in slot r mod 6, and a slot's
