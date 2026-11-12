@@ -72,6 +72,7 @@
 .export opt_dpadnew, opt_orbgoal
 .export opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair   ; orbshards.patch
 .export opt_orbattr             ; orbbox_shards.patch
+.import bst_show                ; PROTOTYPE (bestiary branch)
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
@@ -651,6 +652,15 @@ opt_drawpresetbox:
     LDA cur_bank
     PHA
     LDA #CHUNK_OPT
+    STA cur_bank
+    ;  PROTOTYPE (bestiary branch): the Bestiary first, once a power-on, the
+    ;  title's music playing on; B or START comes back here.
+    LDA f:BST_SHOWN
+    BNE :+
+    LDA #1
+    STA f:BST_SHOWN
+    JSL bst_show + BESTIARYFAR
+:   LDA #CHUNK_OPT              ; (said again, where the bank-swap check sees it)
     STA cur_bank
     LDA #$00
     STA menustall

@@ -3150,6 +3150,92 @@ minimap, the title and description beside the zoom.
     first.  The harness now keeps OAM too, for the pictures the screen was
     judged from before it went to the user.
 
+### The Bestiary (prototype, the bestiary branch)
+
+**Built 2026-11-11; not yet played.**  A page of every enemy, the ones
+defeated in their battle colours and the rest as silhouettes, with a count
+(user, 2026-11-11: "a Bestiary page which displayed images and stats for each
+monster defeated").  The prototype is the grid alone: the title shows it
+first, once a power-on (`opt_drawpresetbox`, `BST_SHOWN`), the title's music
+playing on, and B or START goes on to the title -- the user: "a prototype on
+a feature branch which jumps directly into this menu (since we'll have to do
+subsequent rework of the main menu to make it accessible properly)".  Still
+to come: the menu's way in, the defeated mask itself (a stand-in now,
+`lut_BstFakeSeen`, 57 of 128), the count out of the enemies the seed can
+produce, the seed's colours (Palette swap's `RW_PALPERM` is the cache's, cold
+at the title after power-on), the detail view on A with the seed's stats.
+
+  - **Decided (user):** the mask in the game state, unsram's first page
+    (`$60BE-$60EF` free, zero in old saves, cleared by New Game's
+    `rando_build` before it writes the new seed, so a New Game backed out of
+    leaves an empty bestiary, not the old one against the new world);
+    Continue overwrites it with the save's ("I don't care if the copy from
+    save to current game wipes those previous victories out"); the title
+    shows the game state as last played, which the battery keeps through
+    reset and power-off.  The count out of what the seed can produce ("If
+    you can count how many are reachable, that makes more sense"): Short
+    ToFR, for one, leaves WORM, PHANTOM, JIMERA and IronGOL nowhere, their
+    only zones the Temple of Fiends (past)'s floors.  Uniform 48 x 48 cells,
+    the fiends and Chaos scaled down, retouched by hand as PNGs; on black,
+    as in battle; silhouettes "a dark grey or blue" (`SILHOUETTE`, a slate
+    blue, (40, 48, 72)); the header's letters outlined, the grid scrolling
+    beneath ("a black border around the text rather than a solid black
+    rectangle").  The selected enemy's name is on the header's line, at the
+    right, "?????" for one not defeated -- the user asked whether to show it;
+    this is the prototype's answer, to judge.
+  - **The pictures** (`tools/genbestiary.py`): every enemy has one picture
+    and one palette in every formation it is in (checked; a second is an
+    error).  A formation's picture number is bit 0 large, bit 1 which of the
+    two -- the small at PPU tiles $12 and $22 (`DrawSmallEnemy`), the large
+    at $32 and $56 (`DrawLargeEnemy`) -- read by the screen straight from
+    the battle CHR (banks $07-$08, a set every $800): 62 small, 57 large.
+    The four fiend pictures (64 x 64, eight entries with the refights) and
+    Chaos's (112 x 96) are drawn as battle draws them (`data_FiendTSA`,
+    `data_ChaosTSA`, their attributes over rows 4-19, two palettes each),
+    scaled once into `art/bestiary/*.png` -- the colour covering most of each
+    pixel's source, the picture's colours weighted over black -- with a
+    `-orig.png` beside each.  A PNG that exists is never overwritten; its
+    pixels are matched to the nearest of the picture's seven colours, so a
+    retouch in the game's colours reads back exactly.  No PIL here: the tool
+    reads and writes PNG itself.  `out/bestiary_preview.png` is the whole
+    grid, seen and with the stand-in mask.
+  - **The screen** (`src/bestiary.asm`, segment `BANK_BESTIARY` in the
+    credits' chunk, which had 12KB free -- its own chunk is a line in
+    `snes.cfg` and `snesmap.inc`): it takes the PPU from the HAL as the map
+    edit screen does and gives it back through `hal_ppureclaim`.  Mode 1:
+    the grid on BG1 4bpp, five columns from x 8, rows of 48; the text on
+    BG3, in front, its 60 characters drawn per change -- the font's glyphs,
+    widened a pixel each way for the outline (colour 1, black) round the
+    letter (colour 3); the font has no brackets or slash, so three glyphs
+    are the screen's own.  The hand (OBJ, the game's) over the selected
+    cell's left edge.  Four rows in the clear, lines 18-209, the row above
+    showing 18 lines under the text and the row below 14.  A move chirps
+    (`PlaySFX_MenuMove`), B or START with `PlaySFX_MenuSel`; a held
+    direction repeats after 20 frames, every 6.  Moving out of the clear
+    rows makes the next row and scrolls 8 lines a frame.  L + X and L + Y
+    reset from it.
+  - **Characters:** a ring of BG1's 1023 (character 0 blank), the rows on
+    screen and the one coming in contiguous in it -- at the head going
+    down, before the tail going up -- 1000 at the worst, which the tool
+    checks.  A row is converted on the CPU (`bst_convcell`) into a WRAM
+    buffer, sent 2KB a vblank, then its tilemap; a row leaving gives its
+    characters back and its tilemap rows are cleared.
+  - **Colours:** each of BG1's eight palettes is five groups of three
+    (CGRAM p * 16 + 3g + 1..3), a picture in one group, a fiend's or Chaos's
+    in two of one palette.  Grid row r is in slot r mod 6, and a slot's
+    cells keep their groups (the tool assigns them: all 39 free, palette 0's
+    first being BG3's text colours, which share CGRAM 1-3).  It fits because
+    the nine that need two groups are the last nine.  A pixel of value v
+    becomes colour 3g + v, so each of the four planes is an OR of the
+    pixels whose value has that bit (`lut_BstCellSel`): no lookup, no
+    per-pixel work.  A row coming in shares its slot with the one going
+    out, so its colours are written 24 lines into the scroll, either way,
+    when neither shows.
+  - **Checked** in the harness by a scratch script driving the pad and
+    rendering VRAM, CGRAM and OAM (not yet a test): scrolling to the end and
+    back, the ring's head and tail, the pictures against their names, the
+    hand, the outlined header, the fiends' and Chaos's two palettes.
+
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen

@@ -29,6 +29,7 @@ python3 tools/genseedart.py
 python3 tools/genpresets.py
 python3 tools/dwarfref.py
 python3 tools/genscream.py
+python3 tools/genbestiary.py
 python3 tools/convert.py
 
 #  FFDEBUG=...,dark blackens the town's grass so the altar beam can be judged
@@ -115,6 +116,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 -I ../gen optshop.asm -o ../out/bank_OPTSHOP.o
            $CA65 -I ../gen nones.asm -o ../out/bank_NONES.o
            $CA65 -I ../gen credits.asm -o ../out/bank_CREDITS.o
+           $CA65 -I ../gen bestiary.asm -o ../out/bestiary.o
            $CA65 -I ../gen rando.asm -o ../out/bank_RANDO.o
            $CA65 -I ../gen opttext.asm -o ../out/bank_OPTTEXT.o
            $CA65 logicdata.asm -o ../out/bank_LOGIC.o
@@ -135,7 +137,7 @@ ld65 -C snes.cfg -o /dev/null -Ln out/labels.txt \
     out/bank_0D.o out/bank_0E.o out/bank_0F.o out/bank_OPT.o out/bank_OPTMENU.o out/seedscreen.o out/sumscreen.o \
     out/bank_OPTDATA.o out/bank_OPTSHOP.o out/bank_NONES.o out/bank_CREDITS.o out/bank_RANDO.o \
     out/bank_OPTTEXT.o out/bank_LOGIC.o out/bank_WORLD.o out/bank_ROLL.o \
-    out/bank_TACTICS.o out/bank_OWS.o out/bank_NEWGAME.o out/bank_TAVERN.o out/fun.o out/bank_OPTTEXT2.o
+    out/bank_TACTICS.o out/bank_OWS.o out/bank_NEWGAME.o out/bank_TAVERN.o out/fun.o out/bank_OPTTEXT2.o out/bestiary.o
 
 #  HAL_VARS is hand-allocated, so two names can land on one byte and assemble
 #  without complaint.  Two branches each taking the same free offset is the

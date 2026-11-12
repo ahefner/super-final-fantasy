@@ -72,6 +72,10 @@ FUNFAR          = TAVERNFAR
 ;  mkrom.py's LOWHALF lays out/fundata.bin there.
 FUNDATAFAR      = $C00000 + (1 + CHUNK_TAVERN) * $10000
 CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the first bank's
+;  The Bestiary (bestiary.asm), a segment of its own in the credits' chunk,
+;  which had 12KB free: its own chunk is one line in snes.cfg and here.
+CHUNK_BESTIARY  = CHUNK_CREDITS
+BESTIARYFAR     = (CHUNK0 + CHUNK_BESTIARY) * $10000
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
 NGNAV_FORWARD   = 0             ; what a screen of the New Game flow answers:
@@ -124,6 +128,23 @@ NGF_BUILT       = MENURAM+$1C   ; nonzero: this pass of the flow built the world
 ;  the game over's, which the roll screen plays when no world is rolled.
 TRACK_TITLE     = $41
 TRACK_GAMEOVER  = $52
+;  PROTOTYPE (bestiary branch): nonzero once the Bestiary has been shown since
+;  power-on, so the title shows it first, once (opt_drawpresetbox).
+BST_SHOWN       = MENURAM+$1D
+
+;  The Bestiary's (bestiary.asm), in the map edit screen's place: the
+;  Bestiary is the title's, never up with New Game's screens.  Reset zeroes it.
+BSTRAM          = OWSRAM
+BST_CONV        = BSTRAM+$0000  ; $1800: a grid row's characters, 4bpp, converted
+BST_G           = BSTRAM+$1800  ; $200: the text line, 16 rows of 30 glyph bytes...
+BST_H           = BSTRAM+$1A00  ; $200: ...the same widened a pixel each way...
+BST_TCHR        = BSTRAM+$1C00  ; $3C0: ...and as BG3's 60 characters, outlined
+BST_LINE        = BSTRAM+$1FC0  ; $20: the text line, 30 characters
+BST_MAPROW      = BSTRAM+$2000  ; $180: a grid row's six tilemap rows
+BST_CGBUF       = BSTRAM+$2180  ; $60: a grid row's colours, 3 bytes each
+BST_VARS        = BSTRAM+$2200  ; $100: the screen's variables
+BSTRAM_END      = BSTRAM+$2300
+.assert BSTRAM_END <= OWSRAM_END, error, "the Bestiary's WRAM outgrows the map edit screen's"
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
 
