@@ -3218,12 +3218,24 @@ at the title after power-on), the detail view on A with the seed's stats.
   - **Characters:** a ring of BG1's 1023 (character 0 blank), the rows on
     screen and the one coming in contiguous in it -- at the head going
     down, before the tail going up -- 1000 at the worst, which the tool
-    checks.  A row is converted on the CPU (`bst_convcell`) into a WRAM
-    buffer, sent 2KB a vblank, then its tilemap; a row leaving gives its
-    characters back and its tilemap rows are cleared.  The music gets a
-    turn after every character (`bst_tileaudio`): a large picture is more
-    than a frame's work, and with turns only between pictures a scroll left
-    the music up to six frames behind.
+    checks.  A row leaving gives its characters back and its tilemap rows
+    are cleared.  The incoming row is built as it scrolls (user,
+    2026-11-12: "some delay before initiating scrolling" -- it had been
+    built first, 8-23 frames, the scroll after): `bst_begin` places it, the
+    scroll starts that frame, and `bst_work` converts it into a WRAM buffer
+    in what is left of each frame, a character at a time, stopping at line
+    200 (`bst_late`, the V counter) so the vblank is not missed; the vblank
+    sends what is converted, 2KB at most, then the tilemap.  The scroll
+    waits at 24 lines, where the incoming row does not show yet, only if
+    the row is not all in; its colours go with the next step.  A small or
+    large picture's conversion is its group's own routine (`bst_convg0`-`4`,
+    each plane of colour 3g + v a plain function of the NES's two planes),
+    a third of the general masks' work; the fiends' and Chaos's keep the
+    general one (`bst_convspecial`).  Measured on the timed `Clock`: every
+    row but the last three scrolls in 6 frames from the press with no wait;
+    the rows with the fiends wait 3, 16 and 9 frames halfway; held DOWN
+    from the top to the last row, 319 frames, where it had been 517; one
+    music call every frame throughout.
   - **The music while cursoring** (user, 2026-11-11: "The music lags when
     cursoring"): redrawing the whole outlined line took two frames, so
     every move dropped two frames of music.  A move redraws only the name's

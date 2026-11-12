@@ -25,9 +25,11 @@
 ;
 ;  The grid's rows, 48 lines each: four in the clear (lines 18-209), the
 ;  row above showing 18 lines under the text and the row below 14.  Moving
-;  past them scrolls a row, 8 lines a frame.  A row's characters are made
-;  when it is about to show (bst_prepare) -- converted from the NES's 2bpp
-;  into the cell's colour group, see below -- into a ring of BG1's 1023
+;  past them scrolls a row, 8 lines a frame, at once: the incoming row's
+;  characters are made as it scrolls (bst_begin, bst_work) -- converted
+;  from the NES's 2bpp into the cell's colour group, see below, in what is
+;  left of each frame -- the scroll waiting halfway, before the row shows,
+;  only if they are not all made and sent yet.  Into a ring of BG1's 1023
 ;  characters, the rows on screen and the one coming in contiguous in it
 ;  (1000 at the worst; genbestiary.py checks it); a row leaving gives its
 ;  characters back and its tilemap rows are cleared.
@@ -112,8 +114,8 @@ PAD_RIGHT = $01
 PAD_DIRS  = $0F
 
 ST_IDLE   = 0
-ST_LOAD   = 1
-ST_SCROLL = 2
+ST_SCROLL = 2                   ; a row coming in, built and sent as it comes
+WORK_LAST = 200                 ; the conversion stops for the frame from this line
 
 ;  Direct page scratch, the battle's ($80-$AF), saved and put back: nothing
 ;  of a battle is live at the title, and the music driver keeps to tmp.
@@ -133,6 +135,7 @@ M6        = $91
 TT        = $92
 CNT       = $93
 SEL       = $94                 ; 24: plane j's mask for value w at SEL + j * 6 + w - 1
+CONVVEC   = $AC                 ; 2: the cell's character conversion
 ZPLEN     = $30
 
 ;  The variables, in bank $7F, long.
@@ -184,7 +187,11 @@ V_TR      = BV+$7A              ; the text's character row
 V_TC      = BV+$7B              ; ...and column
 V_C0      = BV+$7C              ; the text's first column to draw
 V_TC1     = BV+$7D              ; ...and the first redrawn round it
-V_ZPSAVE  = BV+$80              ; ZPLEN
+V_PDONE   = BV+$80              ; nonzero: the made row is all converted
+V_CGDONE  = BV+$81              ; nonzero: this scroll's colours are written
+V_NOBUDGET = BV+$82             ; nonzero: convert without stopping (setup)
+V_SRCY    = BV+$84              ; 2: the cell's picture, how far converted
+V_ZPSAVE  = BV+$C0              ; ZPLEN
 .assert V_ZPSAVE + ZPLEN <= BST_VARS + $100, error, "the Bestiary's variables outgrow their page"
 
 
@@ -388,7 +395,12 @@ bst_setup:
     LDA #0
   @row:
     STA f:V_LROW
-    JSR bst_prepare
+    JSR bst_begin
+    LDA #1
+    STA f:V_NOBUDGET            ; all of it, the music's turns between
+    JSR bst_work
+    LDA #0
+    STA f:V_NOBUDGET
   @send:
     LDX #$FFFF
     JSR bst_dmachunk
@@ -603,6 +615,7 @@ bst_loop:
     JSR bst_playframe
     JSR bst_reset
     JSR bst_logic
+    JSR bst_work                ; the incoming row's conversion, the rest of the frame
     LDA f:V_LEAVE
     BEQ @frame
     RTS
@@ -752,7 +765,7 @@ bst_vblank:
     BRA @hand                   ; that is the vblank's worth
   @tiles:
     LDA f:V_STATE
-    CMP #ST_LOAD
+    CMP #ST_SCROLL
     BNE @hand
     LDX #TILES_PER_VBL
     JSR bst_dmachunk
@@ -828,32 +841,33 @@ bst_logic:
     CMP #ST_SCROLL
     BNE :+
     JMP bst_scroll
-:   CMP #ST_LOAD
-    BEQ :+
-    JMP bst_input
-:   LDA f:V_MAPPEND             ; sent, characters and tilemap: scroll
-    BNE @wait
-    LDA #0
-    STA f:V_D
-    LDA #ST_SCROLL
-    STA f:V_STATE
-  @wait:
-    RTS
+:   JMP bst_input
 
-;;  A scroll's frame: SCROLL_STEP lines further, the incoming row's colours
-;;  at CG_AT, and at the end the row left behind given up.  A8 I16.
+;;  A scroll's frame: SCROLL_STEP lines further -- but at CG_AT, where
+;;  neither the incoming row nor the one leaving shows, only once the
+;;  incoming row is converted and sent, its colours then written with the
+;;  next step (user, 2026-11-12: "some delay before initiating scrolling":
+;;  the row was built first, 8-23 frames, and only then scrolled) -- and at
+;;  the end the row left behind given up.  A8 I16.
     .a8
     .i16
 bst_scroll:
     LDA f:V_D
+    CMP #CG_AT
+    BNE @step
+    LDA f:V_CGDONE
+    BNE @step
+    JSR bst_loaded
+    BCS :+
+    RTS                         ; not yet: held here
+:   LDA #1
+    STA f:V_CGPEND
+    STA f:V_CGDONE
+  @step:
+    LDA f:V_D
     CLC
     ADC #SCROLL_STEP
     STA f:V_D
-    CMP #CG_AT
-    BNE :+
-    LDA #1
-    STA f:V_CGPEND
-:   LDA f:V_D
     CMP #CELLPX
     BCS :+
     JMP bst_setvofs
@@ -993,8 +1007,11 @@ bst_input:
     SBC #2
   @load:
     STA f:V_LROW
-    JSR bst_prepare
-    LDA #ST_LOAD
+    JSR bst_begin               ; built as it scrolls (bst_work)
+    LDA #0
+    STA f:V_D
+    STA f:V_CGDONE
+    LDA #ST_SCROLL
     STA f:V_STATE
   @none:
     RTS
@@ -1088,23 +1105,25 @@ bst_setvofs:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  A grid row made: V_LROW's characters into the ring -- at its head going
-;;  down (V_DIR 0), before its tail going up -- converted into BST_CONV, its
-;;  tilemap into BST_MAPROW, its colours into BST_CGBUF; the sending set up
-;;  (V_DMAPOS, V_DMALEN, V_MAPPEND).  A row off the grid (-1, 26) is none of
-;;  it but its tilemap, blank.  The music kept going between the cells.  A8
-;;  I16.
+;;  A grid row made: bst_begin places V_LROW's characters in the ring -- at
+;;  its head going down (V_DIR 0), before its tail going up -- and sets the
+;;  sending up (V_DMAPOS, V_DMALEN, V_MAPPEND); bst_work converts them into
+;;  BST_CONV, a character at a time, each cell's tilemap into BST_MAPROW and
+;;  its colours into BST_CGBUF as it finishes.  The vblank sends what is
+;;  converted as it goes (bst_dmachunk).  A row off the grid (-1, 26) is
+;;  none of it but its tilemap, blank.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
     .i16
-bst_prepare:
+bst_begin:
     REP #$20
     .a16
     LDA #0
     STA f:V_DMAPOS
     STA f:V_DMALEN
     STA f:V_CGO
+    STA f:V_N
     LDX #$0000                  ; the tilemap blank
   @blank:
     STA f:BST_MAPROW, X
@@ -1114,13 +1133,20 @@ bst_prepare:
     BCC @blank
     SEP #$20
     .a8
+    LDA #0
+    STA f:V_C
+    STA f:V_TILES
     LDA #1
     STA f:V_MAPPEND
+    STA f:V_PDONE
     LDA f:V_LROW
     JSR bst_rowvalid
     BCS :+
     RTS
-:   JSR bst_rowcount            ; A16 = its characters
+:   LDA #0
+    STA f:V_PDONE
+    LDA f:V_LROW
+    JSR bst_rowcount            ; A16 = its characters
     .a16
     STA f:V_TMP
     SEP #$20
@@ -1154,14 +1180,80 @@ bst_prepare:
     STA f:V_DMALEN
     LDA f:V_LSTART
     STA f:V_ROWBASE
-    LDA #0
-    STA f:V_N
     SEP #$20
     .a8
-    LDA #0
+    RTS
+
+;;  The made row's conversion, from where it left off, until it is done --
+;;  or, unless V_NOBUDGET, until the picture is nearly over (bst_late), so
+;;  the frame's vblank is not missed; with V_NOBUDGET the music gets its
+;;  turn after each character instead.  A8 I16, DBR this chunk.
+    .a8
+    .i16
+bst_work:
+    LDA f:V_PDONE
+    BNE @out
+    LDA f:V_TILES
+    BEQ @next
+    JSR bst_cellsrc             ; a cell part done: its picture and masks again
+  @tile:
+    REP #$20
+    .a16
+    LDA f:V_N
+    TAX
+    LDA f:V_SRCY
+    TAY
+    SEP #$20
+    .a8
+    JSR @conv
+    REP #$20
+    .a16
+    TXA
+    STA f:V_N
+    TYA
+    STA f:V_SRCY
+    SEP #$20
+    .a8
+    LDA f:V_TILES
+    DEC A
+    STA f:V_TILES
+    BNE @budget
+    JSR bst_cellmap             ; the cell done: its tilemap and colours
+    JSR bst_cellcg
+    LDA f:V_C
+    INC A
     STA f:V_C
-  @cell:
-    LDA f:V_LROW                ; the enemy: row * 5 + column
+  @budget:
+    LDA f:V_NOBUDGET
+    BEQ :+
+    JSR bst_audio
+    BRA @more
+:   JSR bst_late
+    BCS @out
+  @more:
+    LDA f:V_TILES
+    BNE @tile
+  @next:
+    JSR bst_cellstart           ; C set: no cell left
+    BCC @tile
+    LDA #1
+    STA f:V_PDONE
+  @out:
+    RTS
+  @conv:
+    JMP (CONVVEC)
+
+;;  The next cell, V_C, begun: its enemy, its slot cell, its first ring
+;;  place, its characters to convert; C set if the row has no more.  A8 I16.
+    .a8
+    .i16
+bst_cellstart:
+    LDA f:V_C
+    CMP #BST_COLS
+    BCC :+
+    SEC                         ; no cell left
+    RTS
+:   LDA f:V_LROW                ; the enemy: row * 5 + column
     STA f:V_TMP
     ASL A
     ASL A
@@ -1170,7 +1262,7 @@ bst_prepare:
     CLC
     ADC f:V_C
     CMP #BST_NENEMY
-    BCS @cellsdone
+    BCS @none
     STA f:V_E
     ;  The slot's cell: (row mod 6) * 5 + column.
     LDA f:V_LROW
@@ -1206,18 +1298,131 @@ bst_prepare:
     TAX
     PLA
     STA f:V_CELLPOS, X
+    LDA #0
+    STA f:V_SRCY
+    LDA f:V_E
+    AND #$00FF
+    TAX
     SEP #$20
     .a8
-    JSR bst_convcell
-    JSR bst_cellmap
-    JSR bst_cellcg
-    JSR bst_audio
-    LDA f:V_C
-    INC A
-    STA f:V_C
-    CMP #BST_COLS
-    BCC @cell
-  @cellsdone:
+    LDA lut_BstKind, X
+    STA f:V_KIND
+    BEQ :+                      ; KIND_SMALL: 16 characters, else 36
+    LDA #36
+    BRA :++
+:   LDA #16
+:   STA f:V_TILES
+    JSR bst_cellsrc
+    CLC
+    RTS
+  @none:
+    SEC
+    RTS
+
+;;  The cell's picture, long, at SRC and +8 and +16 (the CHR and the
+;;  specials never cross a bank); its conversion in CONVVEC: a special's
+;;  with its masks (SEL), else its group's own (bst_convg0-4).  A8 I16.
+    .a8
+    .i16
+bst_cellsrc:
+    LDA f:V_E
+    REP #$20
+    .a16
+    AND #$00FF
+    STA f:V_TMP
+    ASL A
+    ADC f:V_TMP                 ; x 3
+    TAX
+    LDA lut_BstSrc, X
+    STA SRC
+    CLC
+    ADC #8
+    STA SRC8
+    CLC
+    ADC #8
+    STA SRC16
+    SEP #$20
+    .a8
+    LDA lut_BstSrc + 2, X
+    STA SRC + 2
+    STA SRC8 + 2
+    STA SRC16 + 2
+    LDA f:V_KIND
+    CMP #KIND_SPECIAL
+    BNE @group
+    JSR bst_selmasks
+    REP #$20
+    .a16
+    LDA #.LOWORD(bst_convspecial)
+    STA CONVVEC
+    SEP #$20
+    .a8
+    RTS
+  @group:
+    LDA f:V_K
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA lut_BstCellGA, X
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAX
+    LDA lut_BstConvG, X
+    STA CONVVEC
+    SEP #$20
+    .a8
+    RTS
+
+;;  C set if the picture is near its end, lines WORK_LAST-224: time to stop
+;;  the frame's work and wait for the vblank.  A8; DBR this chunk.
+    .a8
+bst_late:
+    LDA a:STAT78                ; the counter's read toggle reset
+    LDA a:SLHV                  ; H and V latched
+    LDA a:OPVCT
+    XBA
+    LDA a:OPVCT
+    AND #$01
+    XBA
+    REP #$20
+    .a16
+    CMP #WORK_LAST
+    BCC @no
+    CMP #225
+    BCS @no
+    SEP #$20
+    .a8
+    SEC
+    RTS
+  @no:
+    SEP #$20
+    .a8
+    CLC
+    RTS
+
+;;  C set once the incoming row is in: converted, its characters and its
+;;  tilemap sent.  A8 I16.
+    .a8
+    .i16
+bst_loaded:
+    LDA f:V_PDONE
+    BEQ @no
+    LDA f:V_MAPPEND
+    BNE @no
+    REP #$20
+    .a16
+    LDA f:V_DMAPOS
+    CMP f:V_DMALEN
+    SEP #$20
+    .a8
+    RTS                         ; C set: all sent
+  @no:
+    CLC
     RTS
 
 ;;  C set if row A is on the grid (0-25; -1 is $FF).  A kept.
@@ -1290,98 +1495,6 @@ bst_ringmod:
 :   RTS
     .a8
 
-;;  Cell V_C of row V_LROW, enemy V_E, slot cell V_K: its characters
-;;  converted into BST_CONV at V_N, which moves past them.  A8 I16.
-    .a8
-    .i16
-bst_convcell:
-    JSR bst_selmasks
-    ;  The picture, long, and +8, +16 (the CHR and the specials never cross
-    ;  a bank).
-    LDA f:V_E
-    REP #$20
-    .a16
-    AND #$00FF
-    STA f:V_TMP
-    ASL A
-    ADC f:V_TMP                 ; x 3
-    TAX
-    LDA lut_BstSrc, X
-    STA SRC
-    CLC
-    ADC #8
-    STA SRC8
-    CLC
-    ADC #8
-    STA SRC16
-    SEP #$20
-    .a8
-    LDA lut_BstSrc + 2, X
-    STA SRC + 2
-    STA SRC8 + 2
-    STA SRC16 + 2
-    LDA f:V_E
-    REP #$20
-    .a16
-    AND #$00FF
-    TAX
-    SEP #$20
-    .a8
-    LDA lut_BstKind, X
-    STA f:V_KIND
-    BEQ :+                      ; KIND_SMALL: 16 characters, else 36
-    LDA #36
-    BRA :++
-:   LDA #16
-:   STA f:V_TILES
-    REP #$20
-    .a16
-    LDA f:V_N
-    TAX                         ; into BST_CONV here
-    SEP #$20
-    .a8
-    LDY #$0000
-    LDA f:V_KIND
-    CMP #KIND_SPECIAL
-    BEQ @special
-  @rtile:
-    JSR bst_convreg
-    JSR bst_tileaudio
-    LDA f:V_TILES
-    DEC A
-    STA f:V_TILES
-    BNE @rtile
-    BRA @done
-  @special:
-    JSR bst_convspecial
-    JSR bst_tileaudio
-    LDA f:V_TILES
-    DEC A
-    STA f:V_TILES
-    BNE @special
-  @done:
-    REP #$20
-    .a16
-    TXA
-    STA f:V_N
-    SEP #$20
-    .a8
-    RTS
-
-;;  The music's turn between characters: a large picture is more than a
-;;  frame's work, and a turn only between pictures left the music a frame or
-;;  more behind on every scroll (user, 2026-11-11: "The music lags when
-;;  cursoring").  X and Y kept; DBR this chunk, as CallMusicPlay leaves it.
-    .a8
-    .i16
-bst_tileaudio:
-    PHX
-    PHY
-    JSR bst_audio
-    PLY
-    PLX
-    RTS
-
 ;;  SEL from lut_BstCellSel for slot cell V_K: SEL + j * 6 + w - 1 is $FF
 ;;  where bit w of plane j's byte is set.  A8 I16.
     .a8
@@ -1452,38 +1565,11 @@ bst_selmasks:
 .endmacro
 
 ;;  One small or large character: 16 NES bytes at [SRC], Y into 32 SNES
-;;  bytes at BST_CONV + X, its value v's pixels colour 3g + v.  Y and X move
-;;  past it.  A8 I16.
-    .a8
-    .i16
-bst_convreg:
-    LDA #8
-    STA CNT
-  @row:
-    LDA [SRC], Y
-    STA P0
-    LDA [SRC8], Y
-    STA P1
-    AND P0
-    STA M3                      ; value 3: both planes
-    EOR P0
-    STA M1                      ; value 1: plane 0 alone
-    LDA P1
-    EOR M3
-    STA M2                      ; value 2: plane 1 alone
-    PLANE3 0
-    STA f:BST_CONV, X
-    PLANE3 1
-    STA f:BST_CONV + 1, X
-    PLANE3 2
-    STA f:BST_CONV + 16, X
-    PLANE3 3
-    STA f:BST_CONV + 17, X
-    INX
-    INX
-    INY
-    DEC CNT
-    BNE @row
+;;  bytes at BST_CONV + X, value v's pixels colour 3g + v -- each group g
+;;  its own routine, each plane of colour 3g + v a plain function of the
+;;  NES's two (worked out below), the general masks' work being three times
+;;  this.  Y and X move past it.  A8 I16.
+.macro CONVTAIL
     REP #$20
     .a16
     TXA
@@ -1497,6 +1583,127 @@ bst_convreg:
     SEP #$20
     .a8
     RTS
+.endmacro
+
+;;  g 0, colours 1-3 (01, 10, 11): planes 0 and 1 the NES's.
+    .a8
+    .i16
+bst_convg0:
+    LDA #8
+    STA CNT
+  @row:
+    LDA [SRC], Y
+    STA f:BST_CONV, X
+    LDA [SRC8], Y
+    STA f:BST_CONV + 1, X
+    LDA #0
+    STA f:BST_CONV + 16, X
+    STA f:BST_CONV + 17, X
+    INX
+    INX
+    INY
+    DEC CNT
+    BNE @row
+    CONVTAIL
+
+;;  g 1, colours 4-6 (0100, 0101, 0110): plane 0 value 2, plane 1 value 3,
+;;  plane 2 any.
+bst_convg1:
+    LDA #8
+    STA CNT
+  @row:
+    LDA [SRC], Y
+    STA P0
+    LDA [SRC8], Y
+    STA P1
+    AND P0
+    STA f:BST_CONV + 1, X       ; value 3
+    EOR P1
+    STA f:BST_CONV, X           ; value 2: plane 1 alone
+    LDA P0
+    ORA P1
+    STA f:BST_CONV + 16, X
+    LDA #0
+    STA f:BST_CONV + 17, X
+    INX
+    INX
+    INY
+    DEC CNT
+    BNE @row
+    CONVTAIL
+
+;;  g 2, colours 7-9 (0111, 1000, 1001): plane 0 the NES's plane 0, planes
+;;  1 and 2 value 1, plane 3 the NES's plane 1.
+bst_convg2:
+    LDA #8
+    STA CNT
+  @row:
+    LDA [SRC], Y
+    STA P0
+    STA f:BST_CONV, X
+    LDA [SRC8], Y
+    STA f:BST_CONV + 17, X
+    AND P0
+    EOR P0                      ; value 1: plane 0 alone
+    STA f:BST_CONV + 1, X
+    STA f:BST_CONV + 16, X
+    INX
+    INX
+    INY
+    DEC CNT
+    BNE @row
+    CONVTAIL
+
+;;  g 3, colours 10-12 (1010, 1011, 1100): plane 0 value 2, plane 1 values 1
+;;  and 2, plane 2 value 3, plane 3 any.
+bst_convg3:
+    LDA #8
+    STA CNT
+  @row:
+    LDA [SRC], Y
+    STA P0
+    LDA [SRC8], Y
+    STA P1
+    AND P0
+    STA f:BST_CONV + 16, X      ; value 3
+    EOR P1
+    STA f:BST_CONV, X           ; value 2
+    LDA P0
+    EOR P1
+    STA f:BST_CONV + 1, X       ; values 1 and 2
+    LDA P0
+    ORA P1
+    STA f:BST_CONV + 17, X
+    INX
+    INX
+    INY
+    DEC CNT
+    BNE @row
+    CONVTAIL
+
+;;  g 4, colours 13-15 (1101, 1110, 1111): planes 0 and 1 the NES's, 2 and 3
+;;  any.
+bst_convg4:
+    LDA #8
+    STA CNT
+  @row:
+    LDA [SRC], Y
+    STA P0
+    STA f:BST_CONV, X
+    LDA [SRC8], Y
+    STA f:BST_CONV + 1, X
+    ORA P0
+    STA f:BST_CONV + 16, X
+    STA f:BST_CONV + 17, X
+    INX
+    INX
+    INY
+    DEC CNT
+    BNE @row
+    CONVTAIL
+
+lut_BstConvG:
+  .WORD bst_convg0, bst_convg1, bst_convg2, bst_convg3, bst_convg4
 
 ;;  One special character: 24 bytes at [SRC], Y -- three planes of w, 0-6 --
 ;;  into 32 at BST_CONV + X, w's pixels colour 3gA + w (1-3) or 3gB + w - 3
@@ -1791,8 +1998,8 @@ bst_group:
 ;;  forced blank.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;  Up to X bytes of the made row's characters, as far as the ring's end at
-;;  most.  C set once all are sent.
+;;  Up to X bytes of the made row's characters, as many as are converted
+;;  and as far as the ring's end at most.  C set once all are sent.
     .a8
     .i16
 bst_dmachunk:
@@ -1828,10 +2035,16 @@ bst_dmachunk:
     CMP f:V_TMP
     BCS :+
     STA f:V_TMP
-:   LDA f:V_DMALEN
+:   LDA f:V_N                   ; what is converted and not yet sent
     SEC
     SBC f:V_DMAPOS
-    CMP f:V_TMP
+    BNE :+
+    SEP #$20                    ; none yet
+    .a8
+    CLC
+    RTS
+    .a16
+:   CMP f:V_TMP
     BCS :+
     STA f:V_TMP
 :   LDA f:V_PLACE

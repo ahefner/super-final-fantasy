@@ -453,6 +453,10 @@ def main():
     o.append("  .BYTE " + ", ".join(("%d" % (groups[(s, c)][0] * 16 + 3 * groups[(s, c)][2] + 1))
                                     if groups[(s, c)][2] is not None else "$FF"
                                     for s in range(SLOTS) for c in range(COLS)))
+    o.append(";  ...and its first group's number in the palette, 0-4, for the fast")
+    o.append(";  conversion a small or large picture's characters get (bst_convg0-4).")
+    o.append("lut_BstCellGA:")
+    o.append("  .BYTE " + ", ".join("%d" % groups[(s, c)][1] for s in range(SLOTS) for c in range(COLS)))
     o.append("lut_BstCellSel:")
     for s in range(SLOTS):
         for c in range(COLS):
