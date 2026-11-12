@@ -451,7 +451,10 @@ bst_setup:
     RTS
 
 ;;  The hand, OBJ characters 2, 3, 18 and 19: the game's (battle object CHR
-;;  $F0-$F3, which DrawCursor draws), NES 2bpp as planes 0 and 1.  A8 I16.
+;;  $F0-$F3, which DrawCursor draws), NES 2bpp as planes 0 and 1 -- without
+;;  its shadow, as the seed screen's (seed_hand; user, 2026-11-12: "That
+;;  would look better here"): the slab under it, the bottom four rows of the
+;;  lower two tiles, the bytes whose index has $24 set.  A8 I16.
     .a8
     .i16
 bst_handchr:
@@ -479,10 +482,19 @@ bst_handchr:
     LDA #8
     STA f:V_I
   @row:
+    TXA
+    AND #$24
+    CMP #$24
+    BEQ @shadow
     LDA f:HANDCHR, X
     STA a:VMDATAL
     LDA f:HANDCHR + 8, X
     STA a:VMDATAH
+    BRA @rowdone
+  @shadow:
+    STZ a:VMDATAL               ; the shadow's rows: nothing
+    STZ a:VMDATAH
+  @rowdone:
     INX
     LDA f:V_I
     DEC A

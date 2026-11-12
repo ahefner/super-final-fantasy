@@ -3213,7 +3213,8 @@ at the title after power-on), the detail view on A with the seed's stats.
     (`PlaySFX_MenuMove`), B or START with `PlaySFX_MenuSel`; a held
     direction repeats after 20 frames, every 6.  Moving out of the clear
     rows makes the next row and scrolls 8 lines a frame.  L + X and L + Y
-    reset from it.
+    reset from it.  The hand is shadowless, as the seed screen's (`seed_hand`'s
+    rows; user, 2026-11-12).
   - **Characters:** a ring of BG1's 1023 (character 0 blank), the rows on
     screen and the one coming in contiguous in it -- at the head going
     down, before the tail going up -- 1000 at the worst, which the tool
