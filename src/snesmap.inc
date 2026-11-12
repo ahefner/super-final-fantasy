@@ -147,7 +147,15 @@ BST_LINE        = BSTRAM+$1FC0  ; $20: the text line, 30 characters
 BST_MAPROW      = BSTRAM+$2000  ; $180: a grid row's six tilemap rows
 BST_CGBUF       = BSTRAM+$2180  ; $60: a grid row's colours, 3 bytes each
 BST_VARS        = BSTRAM+$2200  ; $100: the screen's variables
-BSTRAM_END      = BSTRAM+$2300
+;  The detail view (bstdetail.inc): the page, built here and then sent.
+BST_DMAP        = BSTRAM+$2300  ; $700: its BG3 tilemap, 28 rows of 32
+BST_OAM         = BSTRAM+$2A00  ; $220: its sprites, the whole OAM
+BST_DREC        = BSTRAM+$2C20  ; $14: its enemy's record, the world's, then scaled
+BST_DSCR        = BSTRAM+$2C40  ; $10: its script
+BST_DWORD       = BSTRAM+$2C50  ; $10: a word being written
+BST_DPCG        = BSTRAM+$2C60  ; $0C: the picture's six colours
+BST_DOPT        = BSTRAM+$2D00  ; $100: OPTWORK, kept round the scaling
+BSTRAM_END      = BSTRAM+$2E00
 .assert BSTRAM_END <= OWSRAM_END, error, "the Bestiary's WRAM outgrows the map edit screen's"
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
@@ -2308,6 +2316,7 @@ FUN_GREY        = RANDOWRAM+$3F28 ; ...and the map's grey ramp's hue
 .assert RW_TINT >= RW_PALPERM + 64 && RW_TONE >= RW_TINT + PALSWAP_TINTS, error, "Palette swap's tables overlap"
 .assert RW_GREY >= RW_TONE + PALSWAP_TONES && FUN_CODE >= RW_GREY + PALSWAP_TONES, error, "Palette swap's tables overlap"
 OWS_TICKFRAME   = 2
+BST_TICKFRAME   = 4               ; OWS_TICKON's other owner: the Bestiary's tables (bst_tables)
 OWS_CANBACK     = $40             ; ows_choose's A: B leaves, answering NGNAV_BACK
 OWS_KEEP        = $20             ; ...and start from RANDO_OWEDITS as given, not the save's
 .assert OWS_TICKON + 2 <= RP_BASE, error, "OWS_TICKON runs into placement's memory"

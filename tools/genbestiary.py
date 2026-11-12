@@ -237,6 +237,31 @@ def special_px(look):
     return img
 
 
+def special_tiles(look):
+    """The fiend's or Chaos's picture as battle's nametable has it, for the
+    detail view's full size: (width, height, a byte a cell) -- the cell's
+    PPU tile, bit 7 set if its attribute is the second palette, 0 a cell
+    with nothing (no tile below $12 is the enemy's, nor any whose
+    attribute is neither enemy palette: special_px drops those too)."""
+    shape, gfx = look[0], look[2]
+    if shape == 3:
+        tsa = FIENDTSA[gfx * 0x50:gfx * 0x50 + 0x50]
+        nt, attr, r0, c0, h, w = tsa[:0x40], tsa[0x40:0x50], 8, 4, 8, 8
+    else:
+        nt, attr, r0, c0, h, w = CHAOSTSA[:0xA8], CHAOSTSA[0xA8:0xB8], 6, 2, 12, 14
+    out = []
+    for ty in range(h):
+        for tx in range(w):
+            R, C = r0 + ty, c0 + tx
+            k = ((R - 4) // 4) * 4 + C // 4
+            pal = (attr[k] >> (((R % 4) // 2) * 4 + ((C % 4) // 2) * 2)) & 3
+            t = nt[ty * w + tx]
+            if t >= 0x80:
+                sys.exit("a fiend's tile $%02X past its set's 128" % t)
+            out.append(0 if t < 0x12 or pal not in (1, 2) else t | (0x80 if pal == 2 else 0))
+    return w, h, out
+
+
 def special_colours(look):
     """Black, the first palette's three, the second's -- every one of the
     four fiends' and Chaos's palette pairs shares a colour or two, and a
@@ -474,6 +499,40 @@ def main():
     o.append("lut_BstPalB:")
     for i in range(0, NENEMY, 16):
         o.append("  .BYTE " + ", ".join("$%02X" % palb[e] for e in range(i, i + 16)))
+    o.append("")
+    o.append(";  The detail view's full-size fiends and Chaos (special_tiles): each special's")
+    o.append(";  battle CHR set, its size in characters, and where its cells start in")
+    o.append(";  lut_BstBigMap -- a byte a cell, row by row: the set's tile, bit 7 the")
+    o.append(";  second palette, 0 nothing.  lut_BstBigOf: the special of enemy")
+    o.append(";  BST_BIGFIRST on.")
+    firsts = [e for e in range(NENEMY) if kinds[e] == KIND_SPECIAL]
+    if firsts != list(range(firsts[0], NENEMY)):
+        sys.exit("genbestiary: the fiends and Chaos are not the last enemies")
+    o.append("BST_BIGFIRST = %d" % firsts[0])
+    o.append("lut_BstBigOf:")
+    o.append("  .BYTE " + ", ".join("%d" % special_of[e] for e in firsts))
+    bigmap, at = [], []
+    sizes = []
+    for i, (_, look) in enumerate(specials):
+        w, h, cells = special_tiles(look)
+        if w > 16 or w * h > 192 or w % 2 or h % 2:
+            sys.exit("genbestiary: special %d is %d x %d, past the sprite sheet" % (i, w, h))
+        at.append(len(bigmap))
+        bigmap += cells
+        sizes.append((look[1], w, h))
+    o.append("lut_BstBigSet:")
+    for set_, w, h in sizes:
+        o.append("  .FARADDR (CHUNK0 + BANK_BATTLECHR + %d) * $10000 + $%04X"
+                 % (set_ // 8, 0x8000 + (set_ % 8) * 0x800))
+    o.append("lut_BstBigW:")
+    o.append("  .BYTE " + ", ".join("%d" % w for _, w, _ in sizes))
+    o.append("lut_BstBigH:")
+    o.append("  .BYTE " + ", ".join("%d" % h for _, _, h in sizes))
+    o.append("lut_BstBigAt:")
+    o.append("  .WORD " + ", ".join("%d" % a for a in at))
+    o.append("lut_BstBigMap:")
+    for i in range(0, len(bigmap), 16):
+        o.append("  .BYTE " + ", ".join("$%02X" % b for b in bigmap[i:i + 16]))
     o.append("")
     o.append(";  The slots' cells, slot * 5 + column: the BG palette, the CGRAM index of")
     o.append(";  its first group's first colour and of its second's ($FF: none).")

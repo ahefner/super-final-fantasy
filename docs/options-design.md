@@ -3163,7 +3163,8 @@ subsequent rework of the main menu to make it accessible properly)".  Still
 to come: the menu's way in, the defeated mask itself (a stand-in now,
 `lut_BstFakeSeen`, 57 of 128), the count out of the enemies the seed can
 produce, the seed's colours (Palette swap's `RW_PALPERM` is the cache's, cold
-at the title after power-on), the detail view on A with the seed's stats.
+at the title after power-on).  The detail view on A is built (2026-11-12,
+below).
 
   - **Decided (user):** the mask in the game state, unsram's first page
     (`$60BE-$60EF` free, zero in old saves, cleared by New Game's
@@ -3279,6 +3280,101 @@ at the title after power-on), the detail view on A with the seed's stats.
     rendering VRAM, CGRAM and OAM (not yet a test): scrolling to the end and
     back, the ring's head and tail, the pictures against their names, the
     hand, the outlined header, the fiends' and Chaos's two palettes.
+  - **The detail view** (`src/bstdetail.inc`; built 2026-11-12, not yet
+    played).  A on a defeated enemy opens its page; B goes back to the
+    grid, the hand where it was; the music plays on throughout.  A on one
+    not defeated is the game's error sound, as the map edit and seed screens
+    play it (sixteen frames of `PlaySFX_Error`'s writes struck in place of
+    the music, the music held meanwhile, as the game holds it).  **Decided
+    (user, 2026-11-12):** the full-size picture at the upper left, the name
+    and the stats in a column at the right, everything on one screen (the
+    mock-up passed: "the mock-ups look really good"); the page follows the
+    scaling and the randomization; no paging with left and right ("The user
+    can 'B' button back"); the wording as mocked -- Accuracy and Critical,
+    no %, being no percentages in FF1; Magic def; Paralysis, Blind, Silence,
+    Confusion; Lightning spelled out; six or more resistances "all but"
+    the rest, eight "everything"; Kind for the category bits; the hit's
+    element in brackets after what it inflicts.  The user may move the text
+    a row down once it is seen on a CRT; held until then.
+      - **Layout** (30 x 26 in the safe area): the picture centred in the
+        box of columns 1-14, rows 2-13 -- Chaos's 112 x 96 fills it --
+        the name on row 1 at column 16, eleven stats on rows 3-13 (HP,
+        Damage, Hits, Accuracy, Critical, Absorb, Evade, Magic def, Morale,
+        Exp, Gold), values right-aligned to column 30.  From row 15, labels
+        at column 1 and values from 11, wrapping by words at column 30:
+        Weak to, Resists ("nothing" dimmed), Kind and Inflicts when there is
+        one, then a row's gap and Magic and Skills, each with its share of
+        the turns under its label, the script's slots in casting order with
+        their repeats, 19 wide.  The last row any enemy needs is 25 (Wizard
+        Vampire's, vanilla); a script's halves are two rows each at most, so
+        no shuffle can push it further.
+      - **The numbers are the battle's.**  The record, touch and script
+        come from the randomizer's tables (`RW_ENEMIES`, `RW_TOUCH`,
+        `RW_ESCRIPT`, `RW_SCRIPTS`); the seven scaled stats through the
+        battle's own code (`opt_bstscale`: `opt_statrange`, `rando_dice`,
+        `opt_scalerecord`), the dials as they are now, through
+        `OPTBTLENEMIES` with OPTWORK kept round the call; gold and
+        experience times the setting's halves, halved, pegged at $FFFF, as
+        `opt_scalereward` scales a battle's sum.  The bracketed element is
+        the one armour must resist to stop the ailment: the touch's under
+        Weapon Stats, otherwise the record's weakness, as vanilla reads it.
+        The shares: `EnemyAi_ShouldPerformAction` rolls 0-128 and acts below
+        the rate, so a rate r is r/129 of the turns; magic first, skills
+        only when it fails, so skills are (129 - m)/129 x k/129 -- rounded
+        half up.  With Boss tactics on, a boss plays its script as a deck,
+        not in this order.
+      - **A cold cache.**  At the title after power-on the cache is not
+        built, and building it is placement too, seconds with the music
+        stopped.  The tables the page needs are each their own stream of
+        the seed, so `rando_bsttables` makes them alone at the screen's
+        start, build's own code in two steps (`build_touch`, `build_ai`,
+        which build itself now calls), leaving the tag as it is: a stale
+        cache stays stale and the next `ensure` builds all of it.  A
+        matching cache is used as it is.  With every shuffle on it is a
+        quarter of a million instructions, so the deals' draws tick the
+        music: `rando_yield` calls `bst_tick` while `OWS_TICKON` is
+        `BST_TICKFRAME` (the map edit screen's byte, a second owner), and
+        `deal_group`'s write-back, a scan of the pool for each script with
+        no draw in it, yields once a script.  `copy_enemies` is a block move
+        now, a third of a frame where the loop was a whole one with no draw.
+      - **The screen.**  The page is a second BG3 tilemap (`VR_DMAP`, $5C00)
+        in the font's characters, loaded at the start as BG3 $80-$FF so the
+        game's text codes are the characters; colours are BG3 palettes 0-3,
+        each a colour 3 -- the line's white, and CGRAM 7, 11 and 15 for the
+        labels, the name and "nothing", which are the grid's (palette 0's
+        groups 2-4), read back and kept while the page is up.  The picture
+        is 16 x 16 sprites (OBJ palette 2) from the OBJ sheet's rows 2-13:
+        a small or large one's characters converted from the battle CHR as
+        the grid's are, a fiend's or Chaos's from battle's nametable for it
+        (`lut_BstBigMap`, the tool's: each cell's tile and which palette, 424
+        bytes).  BG1 is off while the page shows, so the grid stays in VRAM
+        untouched and going back is three registers, three colours and the
+        sprites.  A builds the page a frame at a time, the music's turns
+        between, sends the picture 2KB a vblank and the tilemap, and then
+        shows it at once: five or six frames from the press in ares, a few
+        more for Chaos's 6KB of characters.
+      - **Two frame-timing fixes on the way** (the harness's `Clock` with
+        the sound send charged, and ares).  A cursor move's name redraw can
+        end near line 218; `bst_wait` called that late made `hal_vblaudio`
+        send through the vblank and wait a whole frame more, a frame of
+        music lost.  From `SEND_LAST` (185) `bst_wait` now waits for the
+        vblank alone, marked played, and the sound it owes goes out ahead of
+        the next frame's music (`V_OWED`, `bst_playframe`).  And `bst_work`
+        asks `bst_late` before its first character, not only after each, so
+        a frame whose logic ran late builds nothing.  The scroll-only
+        control at the last played build (1f60f0e) lost nothing in that
+        script and this build lost one frame before the fixes; after them,
+        none at three paces.  In ares (2026-11-12, muted): the cold opening,
+        five pages opened and closed, and the scrolls between them, one
+        music call a frame throughout -- 1781 frames, none lost.
+      - **Checked** (`test_bestiary`): the tables made cold in two steps,
+        or left as the cache built them, against randoref's, under three
+        seeds and settings; every enemy's page against a reference layout
+        built from randoref, each word where the wrapping puts it; OPTWORK
+        as it was; every enemy's picture decoded from its characters under
+        its sprites against `genbestiary.py`'s own render.  Mutation: the
+        picture a pixel over, or the magic share's divisor 256, each fails
+        it.
 
 ### Respond rate
 

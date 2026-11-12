@@ -15009,6 +15009,263 @@ def test_rando_ai():
               len(worlds), 1 if sc == sk == 0 else 2)
 
 
+def test_bestiary():
+    """The Bestiary's detail view (src/bstdetail.inc).  rando_bsttables's
+    two steps, from a cold cache, make the enemies' tables as the reference
+    deals them, and with the cache built leave them be.  Then every enemy's
+    page, bst_dgather and bst_dtext called as A calls them, against the
+    layout the user passed (2026-11-12), built here from randoref: the
+    world's record scaled by the enemy's rolls and the dials, the touch
+    (its element the battle's: the touch's under Weapon Stats, else the
+    weakness), the script and its shares of the turns (r/129, skills after
+    magic), gold and XP as the end of a battle scales them, each word where
+    the wrapping puts it.  OPTWORK, the title's scratch the scaling borrows,
+    as it was.  And bst_dpicture's characters, decoded, every enemy's
+    picture full size (genbestiary's own), its sprites over them."""
+    import genbestiary as G
+    BANK0A = (1 + 0x0A) * 0x10000
+    bst_bank = bank_of("bst_show")
+    bv = K["BST_VARS"] - RW_BASE
+
+    def raw(bank, table, i, n):
+        p = bank + table + 2 * i
+        at = bank + (ROMDATA[p] | ROMDATA[p + 1] << 8)
+        out = bytearray()
+        for b in ROMDATA[at:at + n]:
+            if b == 0:
+                break
+            out.append(b)
+        return bytes(out)
+    font = {" ": 0xFF, "%": 0xE0, "(": 0xF0, ")": 0xF1}
+    font.update({str(i): 0x80 + i for i in range(10)})
+    font.update({chr(65 + i): 0x8A + i for i in range(26)})
+    font.update({chr(97 + i): 0xA4 + i for i in range(26)})
+    enc = lambda t: bytes(font[c] for c in t)
+    VAL, LBL, HEAD, DIM = 0x2000, 0x2400, 0x2800, 0x2C00
+    stats = [("HP", 4, 1), ("Damage", 12, 0), ("Hits", 10, 0), ("Accuracy", 11, 0), ("Critical", 13, 0),
+             ("Absorb", 9, 0), ("Evade", 8, 0), ("Magic def", 17, 0), ("Morale", 6, 0), ("Exp", 0, 1),
+             ("Gold", 2, 1)]
+    els = ["Status", "Poison", "Time", "Death", "Fire", "Ice", "Lightning", "Earth"]
+    ails = ["Death", "Stone", "Poison", "Blind", "Paralysis", "Sleep", "Silence", "Confusion"]
+    kinds = ["Magical", "Dragon", "Giant", "Undead", "Were", "Aquatic", "Mage", "Regenerates"]
+    bits = lambda v, names: [names[i] for i in range(8) if v >> i & 1]
+
+    def page(e, cfg, world):
+        recs, touch, (eai, table) = world
+        rec = bytearray(recs[e * 20:e * 20 + 20])
+        rec[15] = touch[2 * e + 1]
+        rec[14] = touch[2 * e] if cfg["ws"] else rec[18]
+        boss = e >= 118 or e in (15, 105, 113)
+        rec = bytearray(R.scale_record(rec, cfg["bsteps"] if boss else cfg["esteps"], R.enemy_dice(cfg["seed"], e)))
+        for off in (0, 2):
+            v = min((rec[off] | rec[off + 1] << 8) * cfg["goldxp"] >> 1, 0xFFFF)
+            rec[off], rec[off + 1] = v & 0xFF, v >> 8
+        cells = {}
+
+        def put(c, r, bs, pal):
+            for i, b in enumerate(bs):
+                cells[(r, c + i)] = b | pal
+        put(16, 1, raw(R.BANK0B, 0x94E0, e, 8), HEAD)
+        for i, (lbl, off, wide) in enumerate(stats):
+            put(16, 3 + i, enc(lbl), LBL)
+            v = rec[off] | (rec[off + 1] << 8 if wide else 0)
+            put(31 - len(str(v)), 3 + i, enc(str(v)), VAL)
+        st, wr = {"y": 15}, {}
+
+        def line(lbl):
+            put(1, st["y"], enc(lbl), LBL)
+            wr.update(x=11, y=st["y"], first=True, end=31, pal=VAL)
+
+        def word(b):
+            if not wr["first"]:
+                if wr["x"] + 1 + len(b) > wr["end"]:
+                    wr["y"], wr["x"] = wr["y"] + 1, 11
+                else:
+                    wr["x"] += 1
+            wr["first"] = False
+            put(wr["x"], wr["y"], b, wr["pal"])
+            wr["x"] += len(b)
+
+        def elems(v):
+            if v == 0:
+                wr["pal"] = DIM
+                word(enc("nothing"))
+            elif v == 0xFF:
+                word(enc("everything"))
+            elif bin(v).count("1") >= 6:
+                word(enc("all"))
+                word(enc("but"))
+                for i, n in enumerate(bits(v ^ 0xFF, els)):
+                    if i:
+                        word(enc("and"))
+                    word(enc(n))
+            else:
+                for n in bits(v, els):
+                    word(enc(n))
+            st["y"] = wr["y"] + 1
+        line("Weak to")
+        elems(rec[18])
+        line("Resists")
+        elems(rec[19])
+        if rec[16]:
+            line("Kind")
+            for n in bits(rec[16], kinds):
+                word(enc(n))
+            st["y"] = wr["y"] + 1
+        if rec[15]:
+            line("Inflicts")
+            for n in bits(rec[15], ails):
+                word(enc(n))
+            es = bits(rec[14], els)
+            for i, n in enumerate(es):
+                word(enc(("(" if i == 0 else "") + n + (")" if i == len(es) - 1 else "")))
+            st["y"] = wr["y"] + 1
+        if eai[e] != 0xFF:
+            scr = table[eai[e] * 16:eai[e] * 16 + 16]
+            sp = [x for x in scr[2:10] if x != 0xFF]
+            sk = [x for x in scr[11:15] if x != 0xFF]
+            if sp or sk:
+                st["y"] += 1
+                m = min(scr[0], 129) if sp else 0
+                k = min(scr[1], 129)
+
+                def half(lbl, pct, words):
+                    y0 = st["y"]
+                    put(2, y0 + 1, enc("%d%%" % pct), VAL)
+                    put(1, y0, enc(lbl), LBL)
+                    wr.update(x=11, y=y0, first=True, end=30, pal=VAL)
+                    for b in words:
+                        word(b)
+                    st["y"] = max(wr["y"] + 1, y0 + 2)
+                if sp:
+                    half("Magic", (200 * m + 129) // 258,
+                         [raw(BANK0A, 0xB700, 0xB0 + x, 8).rstrip(b"\xff") for x in sp])
+                if sk:
+                    half("Skills", (200 * ((129 - m) * k) + 16641) // 33282,
+                         [raw(BANK0A, 0xB600, x, 8).rstrip(b"\xff") for x in sk])
+        return cells, st["y"] - 1
+
+    def native(cpu, name):
+        cpu.e = False
+        cpu.p = (cpu.p | FLAG_M) & ~FLAG_X
+        cpu.dbr, cpu.d = bst_bank, 0
+        s = cpu.s
+        cpu.run(bst_bank, SYM[name], limit=5_000_000)
+        cpu.s = s
+
+    looks = G.looks()
+    pics = {}
+    for e in range(128):
+        lk = looks[e]
+        pics[e] = G.special_px(lk) if lk[0] >= 3 else G.regular_px(lk[1], lk[2])
+    cfgs = [dict(seed=0x12345678, status=0, pirates=0, scripts=0, skills=0, esteps=(3, 3, 3, 3),
+                 bsteps=(3, 3, 3, 3), goldxp=2, ws=0),
+            dict(seed=0xDEADBEEF, status=1, pirates=2, scripts=3, skills=3, esteps=(1, 9, 0, 12),
+                 bsteps=(5, 19, 2, 19), goldxp=10, ws=1),
+            dict(seed=0x00C0FFEE, status=1, pirates=1, scripts=1, skills=2, esteps=(19, 19, 19, 19),
+                 bsteps=(0, 0, 0, 0), goldxp=0, ws=0)]
+    bad_tabs, bad_page, bad_pic, bad_work, last = [], [], [], [], 0
+    for ci, cfg in enumerate(cfgs):
+        world = (R.build_enemies(ROMDATA, cfg["pirates"]),
+                 R.build_touch(ROMDATA, cfg["seed"], cfg["status"], cfg["pirates"]),
+                 R.build_ai(ROMDATA, cfg["seed"], cfg["scripts"], cfg["skills"], pirates=cfg["pirates"]))
+        for warm in (False, True):
+            bus, cpu = machine()
+            sv = bus.sram
+            sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = cfg["seed"].to_bytes(4, "little")
+            sv[K["RANDO_STATUS"] - 0x6000] = cfg["status"] | cfg["pirates"] << K["PIRATES_SHIFT"]
+            sv[K["RANDO_SCRIPTS"] - 0x6000] = cfg["scripts"]
+            sv[K["RANDO_SKILLS"] - 0x6000] = cfg["skills"]
+            for at, v in zip(("OPT_ENEMY", "OPT_ENEMYTO", "OPT_ENEMYHP", "OPT_ENEMYHPTO"), cfg["esteps"]):
+                sv[K[at] - 0x6000] = v
+            for at, v in zip(("OPT_BOSS", "OPT_BOSSTO", "OPT_BOSSHP", "OPT_BOSSHPTO"), cfg["bsteps"]):
+                sv[K[at] - 0x6000] = v
+            sv[K["OPT_GOLDXP"] - 0x6000] = cfg["goldxp"]
+            ws = K["OPTFB_WEAPONSTATS"] - 0x6000
+            sv[ws] = (sv[ws] | K["OPTFM_WEAPONSTATS"]) if cfg["ws"] else (sv[ws] & ~K["OPTFM_WEAPONSTATS"] & 0xFF)
+            if warm:
+                call(cpu, "rando_ensure", bank=RANDO_BANK)
+            #  Junk where the cold steps write, so a table left unwritten shows.
+            if not warm:
+                for name, n in (("RW_ENEMIES", 2560), ("RW_TOUCH", 256), ("RW_ESCRIPT", 128), ("RW_SCRIPTS", 704)):
+                    bus.wram[rw(name):rw(name) + n] = bytes((i * 37 + 11) & 0xFF for i in range(n))
+            step, steps = 0, 0
+            while True:
+                cpu.e = True
+                cpu.p |= FLAG_M | FLAG_X
+                cpu.a = step
+                s = cpu.s
+                cpu.run(RANDO_BANK, SYM["rando_bsttables"], limit=20_000_000)
+                cpu.s = s
+                steps += 1
+                step = cpu.a & 0xFF
+                if step == 0 or steps > 4:
+                    break
+            got = tuple(bytes(bus.wram[rw(n):rw(n) + k]) for n, k in
+                        (("RW_ENEMIES", 2560), ("RW_TOUCH", 256), ("RW_ESCRIPT", 128), ("RW_SCRIPTS", 704)))
+            want = (world[0], world[1], bytes(world[2][0]), bytes(world[2][1]))
+            if got != want or steps != (1 if warm else 2):
+                bad_tabs.append((ci, warm, steps, [g == w for g, w in zip(got, want)]))
+            for i in range(256):
+                bus.wram[K["OPTWORK"] + i] = (i * 13 + 5) & 0xFF
+            work = bytes(bus.wram[K["OPTWORK"]:K["OPTWORK"] + 256])
+            for e in range(128) if not warm else (0, 15, 61, 119, 127):
+                bus.wram[bv + 0x88] = e
+                native(cpu, "bst_dgather")
+                native(cpu, "bst_dtext")
+                dmap = bus.wram[rw("BST_DMAP"):rw("BST_DMAP") + 28 * 64]
+                cells = {(r, c): dmap[(r * 32 + c) * 2] | dmap[(r * 32 + c) * 2 + 1] << 8
+                         for r in range(28) for c in range(32)}
+                cells = {k: v for k, v in cells.items() if v}
+                want_cells, used = page(e, cfg, world)
+                last = max(last, used)
+                if cells != want_cells:
+                    diff = sorted(set(cells) ^ set(want_cells) |
+                                  {k for k in cells if k in want_cells and cells[k] != want_cells[k]})
+                    bad_page.append((ci, e, len(diff), diff[0]))
+                if bytes(bus.wram[K["OPTWORK"]:K["OPTWORK"] + 256]) != work:
+                    bad_work.append((ci, e))
+                if ci or warm:
+                    continue
+                native(cpu, "bst_dpicture")
+                #  The sheet's characters decoded, each sprite's 16 x 16 at
+                #  its place against the picture centred in the box.
+                conv = bus.wram[rw("BST_CONV"):rw("BST_CONV") + 0x1800]
+                oam = bus.wram[rw("BST_OAM"):rw("BST_OAM") + 544]
+                img = pics[e]
+                h, w = len(img), len(img[0])
+                ox, oy = 8 + (112 - w) // 2, 16 + (96 - h) // 2
+                shown = [[0] * w for _ in range(h)]
+                n = 0
+                for k in range(1, 128):
+                    x, y, ch, attr = oam[4 * k:4 * k + 4]
+                    if y == 224:
+                        continue
+                    n += 1
+                    if attr != 0x34 or not (oam[512 + k // 4] >> (2 * (k % 4))) & 2:
+                        bad_pic.append((e, "sprite", k))
+                        break
+                    for dy in range(16):
+                        for dx in range(16):
+                            c = ch - 32 + (dy >> 3) * 16 + (dx >> 3)
+                            a = c * 32 + (dy & 7) * 2
+                            b = 7 - (dx & 7)
+                            v = sum(((conv[a + o] >> b) & 1) << sh for o, sh in ((0, 0), (1, 1), (16, 2), (17, 3)))
+                            py, px = y - oy + dy, x - ox + dx
+                            if 0 <= py < h and 0 <= px < w:
+                                shown[py][px] = v
+                            elif v:
+                                bad_pic.append((e, "outside", px, py))
+                if shown != img or n != (w // 16) * (h // 16) or oam[1] != 224:
+                    bad_pic.append((e, "pixels" if shown != img else "count", n))
+    check("the enemies' tables, cold in two steps or left as the cache built them, as the reference's",
+          bad_tabs, [])
+    check("every enemy's page, as the reference lays it out", bad_page[:4], [])
+    check("...its last row in the safe area (26)", last <= 26, True)
+    check("...OPTWORK as it was", bad_work[:4], [])
+    check("every enemy's picture full size, its sprites over it, the hand under the screen", bad_pic[:4], [])
+
+
 def test_rando_enemyai():
     """Enemy_DoAi's lookup, through rando_enemyai, for every enemy: carry set
     for one without a script, and otherwise the cache's script in the shadow
@@ -18935,7 +19192,7 @@ def main():
              test_rando_gear, test_rando_gearstats, test_rando_gearnames,
              test_enemyelement, test_rando_formations, test_rando_formload,
              test_rando_runs, test_rando_formdata, test_rando_touch,
-             test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai,
+             test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
              test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
              test_stackshift)

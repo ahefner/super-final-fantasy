@@ -52,7 +52,7 @@
 .export opt_shopmax, opt_shopscale
 .export opt_scaleenemies, opt_scaleatk
 .export opt_scalestat, opt_isboss, opt_statrange, lut_StatLog   ; for the tests
-.export opt_isbossfar
+.export opt_isbossfar, opt_bstscale
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
@@ -2408,6 +2408,28 @@ opt_scaleenemies:
     LDA OPTSTATSLOT
     CMP #$09
     BCC @slot
+    RTL
+
+;  The Bestiary's detail view: one enemy's record scaled as a battle would
+;  load it -- its group's ranges, its rolls, opt_scalerecord -- so the page
+;  shows what the player would fight, the dials as they are now.  In: A =
+;  the enemy id, its record (the world's) at OPTBTLENEMIES.  Out: that
+;  record scaled.  By JSL, emulation mode; A, X, Y not kept.  OPTSTAT*,
+;  OPTBTLRANGE and OPTBTLDICE are scratch, which the Bestiary keeps round
+;  the call.
+opt_bstscale:
+    PHB
+    PHK
+    PLB                         ; the option block, this bank's view of SRAM
+    PHA
+    JSR opt_statrange
+    PLA
+    BCS @out                    ; all 100%: the record as it is
+    JSL rando_dice + RANDOFAR
+    LDX #$00
+    JSR opt_scalerecord
+  @out:
+    PLB
     RTL
 
 ;  One kind's record in OPTBTLENEMIES, at X, scaled by its group's ranges

@@ -60,12 +60,15 @@
 .include "nesio.inc"
 
 .export bst_show
+.export bst_tick
+.export bst_dgather, bst_dtext, bst_dpicture    ; for the tests
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue
 .import opt_padreset
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_BattlePalettes
+.import opt_bstscale, rando_bsttables
 
 .segment "BANK_BESTIARY"
 
@@ -108,6 +111,7 @@ CH_LPAREN = $F0
 CH_RPAREN = $F1
 CH_SLASH  = $F2
 
+PAD_A     = $80
 PAD_B     = $40
 PAD_START = $10
 PAD_UP    = $08
@@ -125,6 +129,8 @@ WORK_LAST = 165                 ; the conversion stops for the frame from this l
                                 ;   missed one, and its music, every frame a row was
                                 ;   being built (user, 2026-11-12: "vertical
                                 ;   scrolling lags the music")
+SEND_LAST = 185                 ; bst_wait from this line sends the sound after
+                                ;   the vblank instead (the send's 20-36 lines)
 
 ;  Direct page scratch, the battle's ($80-$AF), saved and put back: nothing
 ;  of a battle is live at the title, and the music driver keeps to tmp.
@@ -199,6 +205,7 @@ V_PDONE   = BV+$80              ; nonzero: the made row is all converted
 V_CGDONE  = BV+$81              ; nonzero: this scroll's colours are written
 V_NOBUDGET = BV+$82             ; nonzero: convert without stopping (setup)
 V_SRCY    = BV+$84              ; 2: the cell's picture, how far converted
+V_OWED    = BV+$86              ; nonzero: the last frame's sound not sent (bst_wait)
 V_ZPSAVE  = BV+$C0              ; ZPLEN
 .assert V_ZPSAVE + ZPLEN <= BST_VARS + $100, error, "the Bestiary's variables outgrow their page"
 
@@ -226,6 +233,9 @@ bst_show:
     STA f:V_ZPSAVE, X
     DEX
     BPL @save
+    LDA #0
+    STA f:V_ERR                 ; no error sound playing
+    STA f:V_OWED
     CLC
     XCE
     REP #$10
@@ -311,6 +321,7 @@ bst_setup:
     DEC A
     BNE @zero
     JSR bst_handchr
+    JSR bst_fontchr             ; the detail view's (bstdetail.inc)
     ;  CGRAM: black, then the text's and the hand's.
     STZ a:CGADD
     LDX #256
@@ -399,6 +410,7 @@ bst_setup:
     SEP #$20
     .a8
     JSR bst_count
+    JSR bst_tables              ; the enemies as the world has them, for A
     ;  The rows on screen at the top: -1 (none) to 4, each made and sent.
     LDA #0
   @row:
@@ -654,12 +666,56 @@ bst_wait:
     SEC
     XCE
     JSR UpdateJoy
+    CLC
+    XCE
+    REP #$10
+    .i16
+    JSR bst_line
+    .a16
+    CMP #SEND_LAST
+    BCC @send
+    CMP #225
+    BCS @send
+    ;  Too late to send the frame's sound and still meet the vblank, which
+    ;  hal_vblaudio would then let go by and wait a whole frame more,
+    ;  losing that frame's music (a cursor move's name, redrawn, ran to
+    ;  line 218): the vblank first, marked played, and the sound owed to
+    ;  the frame's music (bst_playframe).
+    SEP #$20
+    .a8
+  @spin:
+    JSL hal_framedue + HALFAR
+    BCC @spin
+    LDA #1
+    STA f:V_OWED
+    RTS
+  @send:
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
     JSL hal_vblaudio + HALFAR
     CLC
     XCE
     REP #$10
     .i16
     RTS
+
+;;  The V counter's line, A16 out (A8 in).  A8 in; DBR this chunk.
+    .a8
+bst_line:
+    LDA a:STAT78                ; the counter's read toggle reset
+    LDA a:SLHV                  ; H and V latched
+    LDA a:OPVCT
+    XBA
+    LDA a:OPVCT
+    AND #$01
+    XBA
+    REP #$20
+    .a16
+    RTS
+    .a8
 
 ;;  A frame of music, if one has begun that nobody has played (the HAL's
 ;;  framedue), with the HAL's frame of sound: for work longer than a frame.
@@ -687,10 +743,19 @@ bst_playframe:
     .i8
     SEC
     XCE
-    LDA #CHUNK_BESTIARY
+    LDA f:V_OWED
+    BEQ :+
+    LDA #0                      ; the last frame's sound, which bst_wait was
+    STA f:V_OWED                ;   too late to send
+    JSL hal_audioframe + HALFAR
+:   LDA #CHUNK_BESTIARY
     STA cur_bank                ; CallMusicPlay comes back through it
-    JSR CallMusicPlay
-    CLC
+    LDA f:V_ERR
+    BEQ :+
+    JSR bst_errframe            ; the error sound's frame, the music held
+    BRA :++
+:   JSR CallMusicPlay
+:   CLC
     XCE
     REP #$10
     .i16
@@ -784,7 +849,11 @@ bst_vblank:
     STA f:V_MAPPEND
     JSR bst_sendmap
   @hand:
-    JMP bst_sprites
+    LDA f:V_STATE
+    CMP #ST_DETAIL
+    BNE :+
+    RTS                         ; the page's sprites stay as they are
+:   JMP bst_sprites
 
 ;;  OAM: the hand, at the selected cell's left, halfway down it -- or under
 ;;  the picture, if the scroll has it off the screen.  A8 I16.
@@ -849,6 +918,9 @@ bst_logic:
     CMP #ST_SCROLL
     BNE :+
     JMP bst_scroll
+:   CMP #ST_DETAIL
+    BNE :+
+    JMP bst_dinput
 :   JMP bst_input
 
 ;;  A scroll's frame: SCROLL_STEP lines further -- but at CG_AT, where
@@ -951,11 +1023,15 @@ bst_input:
     STA f:V_PREV
     LDA f:V_TMP
     AND #PAD_B | PAD_START
-    BEQ @dirs
+    BEQ :+
     JSR bst_sfxsel
     LDA #1
     STA f:V_LEAVE
     RTS
+:   LDA f:V_TMP
+    AND #PAD_A
+    BEQ @dirs
+    JMP bst_detail              ; the enemy's page (bstdetail.inc)
   @dirs:
     LDA joy
     AND #PAD_DIRS
@@ -1201,7 +1277,11 @@ bst_begin:
 bst_work:
     LDA f:V_PDONE
     BNE @out
-    LDA f:V_TILES
+    LDA f:V_NOBUDGET
+    BNE :+
+    JSR bst_late                ; a frame whose logic ran late (a cursor
+    BCS @out                    ;   move's name, redrawn): none of it
+:   LDA f:V_TILES
     BEQ @next
     JSR bst_cellsrc             ; a cell part done: its picture and masks again
   @tile:
@@ -1390,14 +1470,7 @@ bst_cellsrc:
 ;;  the frame's work and wait for the vblank.  A8; DBR this chunk.
     .a8
 bst_late:
-    LDA a:STAT78                ; the counter's read toggle reset
-    LDA a:SLHV                  ; H and V latched
-    LDA a:OPVCT
-    XBA
-    LDA a:OPVCT
-    AND #$01
-    XBA
-    REP #$20
+    JSR bst_line
     .a16
     CMP #WORK_LAST
     BCC @no
@@ -2521,6 +2594,9 @@ bst_textrender:
     BCC @trow
     PLB
     RTS
+
+
+.include "bstdetail.inc"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

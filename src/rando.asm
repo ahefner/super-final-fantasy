@@ -44,7 +44,7 @@
 .include "fftext.inc"
 
 .export rando_newgame, rando_build, rando_stir, rando_tileprop, rando_shopinv, rando_caravan
-.export rando_chest
+.export rando_chest, rando_bsttables
 .export rando_spell, rando_slot, rando_ibspell, rando_obspell, rando_oobspell
 .export rando_menuspell, rando_shopspell, rando_shopmagic
 .export rando_weaprec, rando_armrec, rando_weapbyte, rando_armbyte
@@ -71,6 +71,7 @@
 ;  New Game's roll screen (roll.asm), up while rando_build works.
 .import roll_begin, roll_tick, roll_end, roll_fail
 .import ows_tick
+.import bst_tick
 .import hal_framedue
 
 .segment "BANK_RANDO"
@@ -804,7 +805,13 @@ rando_yield:
     BEQ @roll                   ;   its music, every frame
     JSL hal_framedue + HALFAR
     BCC @out
+    LDA f:OWS_TICKON
+    CMP #BST_TICKFRAME
+    BEQ @bst
     JSL ows_tick + OWSFAR
+    BRA @out
+  @bst:
+    JSL bst_tick + BESTIARYFAR  ; the Bestiary's tables (rando_bsttables): its music
     BRA @out
   @roll:
     LDA f:RDNMI                 ; the roll screen: when a look sees the latch
@@ -1312,15 +1319,7 @@ build:
     LDA #ROLLSTAGE_BUILD        ; the roll screen's tune, while New Game's
     STA f:ROLL_STAGE
 
-    ;  The deals' counters are words read whole into X and Y and only ever
-    ;  stored a byte at a time, so their high bytes are zeroed here, once.
-    LDX #wWORDS
-  @words:
-    STZ a:0, X
-    INX
-    INX
-    CPX #wWORDSEND
-    BCC @words
+    JSR zero_words
 
     ;  All eight property tables, with every random-encounter tile's formation
     ;  byte rewritten from $80 to $00.  SMMove_Battle tests that byte with BNE
@@ -1457,39 +1456,9 @@ build:
     JSR deal_surprise
 
   @touch:
-    JSR copy_enemies
-    JSR copy_touch
-    LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
-    AND #STATUS_FIELD           ; Pirates shares the byte
-    BEQ @ai                     ; STATUS_OFF
-    JSR deal_touch
-
-    ;  Scripts, then what is in them; each half of each row its own stream.
-  @ai:
-    JSR copy_ai
-    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
-    CMP #AI_MODES
-    BCS @skills                 ; no mode: as off
-    AND #AI_ENEMIES
-    BEQ @bscripts
-    JSR deal_escripts
-  @bscripts:
-    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
-    AND #AI_BOSSES
-    BEQ @skills
-    JSR deal_bscripts
-  @skills:
-    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
-    CMP #AI_MODES
-    BCS @done
-    AND #AI_ENEMIES
-    BEQ @bskills
-    JSR deal_eskills
-  @bskills:
-    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
-    AND #AI_BOSSES
-    BEQ @rng
-    JSR deal_bskills
+    JSR build_touch
+    JSR build_ai
+    BCS @done                   ; Enemy skills with no mode: the rest unbuilt
 
   @rng:
     JSR copy_rng
@@ -1517,6 +1486,69 @@ build:
     JSL es_tables + WORLDFAR
   @done:
     PLP
+    RTS
+
+;;  The deals' counters are words read whole into X and Y and only ever
+;;  stored a byte at a time, so their high bytes are zeroed first.  A16, I16,
+;;  DBR = $7F.
+zero_words:
+    .a16
+    .i16
+    LDX #wWORDS
+  @words:
+    STZ a:0, X
+    INX
+    INX
+    CPX #wWORDSEND
+    BCC @words
+    RTS
+
+;;  The enemies' records and touches (build's, and rando_bsttables').  A8,
+;;  I16, DBR = $7F.
+build_touch:
+    .a8
+    .i16
+    JSR copy_enemies
+    JSR copy_touch
+    LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
+    AND #STATUS_FIELD           ; Pirates shares the byte
+    BEQ :+                      ; STATUS_OFF
+    JSR deal_touch
+:   RTS
+
+;;  Scripts, then what is in them; each half of each row its own stream
+;;  (build's, and rando_bsttables').  Out: C set if Enemy skills has no mode,
+;;  on which build stops here, as it always has.  A8, I16, DBR = $7F.
+build_ai:
+    .a8
+    .i16
+    JSR copy_ai
+    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
+    CMP #AI_MODES
+    BCS @skills                 ; no mode: as off
+    AND #AI_ENEMIES
+    BEQ @bscripts
+    JSR deal_escripts
+  @bscripts:
+    LDA f:RANDO_SAVEFAR + (RANDO_SCRIPTS - RANDO_SAVE)
+    AND #AI_BOSSES
+    BEQ @skills
+    JSR deal_bscripts
+  @skills:
+    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
+    CMP #AI_MODES
+    BCS @out
+    AND #AI_ENEMIES
+    BEQ @bskills
+    JSR deal_eskills
+  @bskills:
+    LDA f:RANDO_SAVEFAR + (RANDO_SKILLS - RANDO_SAVE)
+    AND #AI_BOSSES
+    BEQ @end
+    JSR deal_bskills
+  @end:
+    CLC
+  @out:
     RTS
 
 
@@ -5554,13 +5586,14 @@ copy_touch:
 copy_enemies:
     .a8
     .i16
-    LDX #$0000
-  @copy:
-    LDA f:ROMENEMIES, X
-    STA a:wENEMIES, X
-    INX
-    CPX #128 * ENEMY_RECORD
-    BCC @copy
+    REP #$20                    ; a block move: a third of a frame, where the
+    .a16                        ;   loop it replaces was a whole one, with no
+    LDA #128 * ENEMY_RECORD - 1 ;   draw in it to tick (rando_bsttables)
+    LDX #.LOWORD(ROMENEMIES)
+    LDY #wENEMIES
+    MVN #^ROMENEMIES, #^RANDOWRAM   ; (source first; DBR left $7F, as it was)
+    SEP #$20
+    .a8
     LDA f:RANDO_SAVEFAR + (RANDO_STATUS - RANDO_SAVE)
     AND #PIRATES_FIELD
     BEQ @done                   ; Off
@@ -6221,6 +6254,7 @@ deal_group:
     STZ a:wAKI
     STZ a:wAGI
   @write:
+    JSR rando_yield             ; each script: the pool's scan below has no draw
     JSR rec_of_gi
     LDA a:wSCH, Y
     STA a:wSCRIPTS, X
@@ -6418,6 +6452,52 @@ rando_dice:
     SEP #$20
     .a8
     PLA
+    JMP leave
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  rando_bsttables -- the enemies' part of the world, for the Bestiary
+;;
+;;  The Bestiary's detail view shows each enemy as the world has it: its
+;;  record (RW_ENEMIES), its touch (RW_TOUCH), its script (RW_ESCRIPT,
+;;  RW_SCRIPTS).  At the title after power-on the cache is cold, and
+;;  building all of it is placement too, a pause of seconds with the music
+;;  stopped (rando_coldbuild).  These tables need none of that -- each deal
+;;  is its own stream of the seed, as the build makes them -- so this makes
+;;  them alone, in steps the Bestiary gives the music turns between.  The
+;;  tag is left as it is: a stale cache stays stale, and the next ensure
+;;  builds all of it, these included.  A cache that matches is used as it
+;;  is.
+;;
+;;  Two steps, build's own (build_touch, build_ai), so the Bestiary can give
+;;  the music its turn between them.  In: A = the step, 0 first.  Out: A =
+;;  the next step, 0 when done.  By JSL, emulation mode.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+rando_bsttables:
+    .a8
+    .i8
+    PHB
+    PHA
+    JSR enter
+    PLA
+    BNE @ai
+    JSR stale                   ; step 0: nothing to do if the cache matches
+    LDA #0
+    BCC @out
+    REP #$30
+    JSR zero_words
+    SEP #$20
+    .a8
+    JSR build_touch
+    LDA #1
+    BRA @out
+  @ai:
+    REP #$10
+    .i16
+    JSR build_ai
+    LDA #0
+  @out:
     JMP leave
 
 
