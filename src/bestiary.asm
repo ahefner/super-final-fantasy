@@ -118,7 +118,13 @@ PAD_DIRS  = $0F
 
 ST_IDLE   = 0
 ST_SCROLL = 2                   ; a row coming in, built and sent as it comes
-WORK_LAST = 200                 ; the conversion stops for the frame from this line
+WORK_LAST = 165                 ; the conversion stops for the frame from this line:
+                                ;   hal_vblaudio sends the frame's sound before it
+                                ;   waits -- 20-36 lines in ares, mid-picture -- and
+                                ;   then waits for a fresh vblank, so from 200 it
+                                ;   missed one, and its music, every frame a row was
+                                ;   being built (user, 2026-11-12: "vertical
+                                ;   scrolling lags the music")
 
 ;  Direct page scratch, the battle's ($80-$AF), saved and put back: nothing
 ;  of a battle is live at the title, and the music driver keeps to tmp.
@@ -2350,6 +2356,7 @@ bst_textrender:
     STA f:V_TC
     CMP #TEXT_COLS
     BCC @col
+    JSR @turn
     BRA @widen
   ;  The glyph's next byte, a row down BST_G; Z set after the eighth.
   @down:
@@ -2363,6 +2370,16 @@ bst_textrender:
     SEP #$20
     .a8
     DEC CNT
+    RTS
+  ;  The music's turn between the stages: the whole line, as the screen
+  ;  comes up, is more than a frame's work (ares, 2026-11-12: a frame of
+  ;  music lost there).  bst_audio wants a bank with low RAM: this chunk's.
+  @turn:
+    PHB
+    PHK
+    PLB
+    JSR bst_audio
+    PLB
     RTS
 
   @widen:
@@ -2431,6 +2448,7 @@ bst_textrender:
     SEP #$20
     .a8
     BCC @wrow
+    JSR @turn
     ;  The characters, both rows of them, from the same column: n = row *
     ;  30 + column, 16 bytes each in BST_TCHR; BST_G's and BST_H's place
     ;  (row * 8 + 1) * TEXT_STRIDE + column.

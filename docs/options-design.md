@@ -3229,7 +3229,17 @@ at the title after power-on), the detail view on A with the seed's stats.
     scroll starts that frame, and `bst_work` converts it into a WRAM buffer
     in what is left of each frame, a character at a time, stopping at line
     200 (`bst_late`, the V counter) so the vblank is not missed; the vblank
-    sends what is converted, 2KB at most, then the tilemap.  The scroll
+    sends what is converted, 2KB at most, then the tilemap.  Line 165, not
+    200 (user, 2026-11-12: "vertical scrolling lags the music"):
+    `hal_vblaudio` sends the frame's sound to the SPC700 before it waits --
+    20-36 lines in ares when it starts mid-picture -- and then waits for a
+    fresh vblank, so work stopping at 200 had it miss one, and that frame's
+    music, every frame a row was being built: 47 frames of 633 lost in
+    ares.  The harness's `Clock` does not charge that send; charged 32
+    lines (a scratch model), it showed the same loss, and none from 165.
+    In ares since: none of 1062 frames, the screen's opening through some
+    fifty scrolls -- the opening's whole text line given the music a turn
+    between its three stages, being more than a frame's work.  The scroll
     waits at 24 lines, where the incoming row does not show yet, only if
     the row is not all in; its colours go with the next step.  A small or
     large picture's conversion is its group's own routine (`bst_convg0`-`4`,
