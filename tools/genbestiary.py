@@ -11,10 +11,13 @@ bigger than the grid's 48 x 48 cells, so they are scaled down -- once, here,
 into art/bestiary/*.png, which the user retouches by hand (user, 2026-11-11:
 "Putting the rescaled enemies into a PNG or similar for manual retouching is
 the best way").  A PNG that exists is never overwritten; delete one to have it
-scaled afresh.  Its pixels are matched to the nearest of the picture's seven
-colours (black, and its two palettes' three each), so a retouch in the game's
-colours reads back exactly.  Each <name>-orig.png beside it is the picture at
-its own size, for reference.
+scaled afresh.  They are palette PNGs of the picture's seven colours (black,
+and its two palettes' three each, a colour the two share nudged a step so
+they stay apart): kept indexed, a pixel's index is read; saved as RGB, a
+pixel's colour, exactly or the nearest.  Each <name>-orig.png beside it is
+the picture at its own size, for reference.  The nine fiend and Chaos
+entries' characters are made here, each for its own cell's two colour
+groups, into out/bestiary.bin, the low half of the Bestiary's chunk.
 
 The grid's colours (src/bestiary.asm): BG1 4bpp, eight palettes of fifteen
 colours, each split into five groups of three, an enemy's picture in one group
@@ -72,9 +75,22 @@ def png_write(path, w, h, rgb):
     open(path, "wb").write(data)
 
 
-def png_read(path):
+def png_write_indexed(path, w, h, idx, pal):
+    """idx: h rows of w palette indices; pal: (r, g, b) each."""
+    raw = b"".join(b"\0" + bytes(row) for row in idx)
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 3, 0, 0, 0)) +
+            chunk(b"PLTE", bytes(c for rgb in pal for c in rgb)) +
+            chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    open(path, "wb").write(data)
+
+
+def png_read(path, want_index=False):
     """-> (w, h, rows of (r, g, b)); 8-bit grey, RGB, RGBA and palette (1-8 bit),
-    non-interlaced -- what an editor saves."""
+    non-interlaced -- what an editor saves.  With want_index, also the rows
+    of palette indices for a palette PNG, else None."""
     d = open(path, "rb").read()
     if d[:8] != b"\x89PNG\r\n\x1a\n":
         sys.exit("%s: not a PNG" % path)
@@ -98,6 +114,7 @@ def png_read(path):
     stride = (w * chans * depth + 7) // 8
     raw = zlib.decompress(idat)
     rows, prev, p = [], bytearray(stride), 0
+    indices = [] if ctype == 3 else None
     for _ in range(h):
         f, line = raw[p], bytearray(raw[p + 1:p + 1 + stride])
         p += 1 + stride
@@ -115,9 +132,12 @@ def png_read(path):
             per = 8 // depth
             idx = [(line[x // per] >> (8 - depth * (x % per + 1))) & ((1 << depth) - 1) for x in range(w)]
             rows.append([plte[i] for i in idx])
+            indices.append(idx)
         else:
             rows.append([tuple(line[x * chans:x * chans + chans][:3]) if chans >= 3 else
                          (line[x * chans],) * 3 for x in range(w)])
+    if want_index:
+        return w, h, rows, (indices, plte)
     return w, h, rows
 
 
@@ -218,8 +238,17 @@ def special_px(look):
 
 
 def special_colours(look):
+    """Black, the first palette's three, the second's -- every one of the
+    four fiends' and Chaos's palette pairs shares a colour or two, and a
+    pixel read back by colour alone would take the first's, wrong under
+    Palette swap's shuffle.  So a repeat is nudged a step per channel:
+    unseen, and still told apart once an editor has made the PNG RGB."""
     a, b = pal_rgb(look[3]), pal_rgb(look[4])
-    return [(0, 0, 0)] + a[1:] + b[1:]
+    cols = [(0, 0, 0)] + a[1:] + b[1:]
+    for i in range(1, len(cols)):
+        while cols[i] in cols[:i]:
+            cols[i] = tuple(c + 1 if c < 255 else c - 1 for c in cols[i])
+    return cols
 
 
 def downscale(img, tw, th):
@@ -270,30 +299,38 @@ def special_art(idx, look):
     cols = special_colours(look)
     full = special_px(look)
     path = os.path.join(ART, name + ".png")
-    png_write(os.path.join(ART, name + "-orig.png"), len(full[0]), len(full), render(full, cols))
+    png_write_indexed(os.path.join(ART, name + "-orig.png"), len(full[0]), len(full), full, cols)
     if not os.path.exists(path):
-        png_write(path, CELL, CELL, render(fit48(full), cols))
+        png_write_indexed(path, CELL, CELL, fit48(full), cols)
         print("genbestiary: wrote %s, scaled from the game's; retouch it as you like" % os.path.relpath(path, ROOT))
-    w, h, rows = png_read(path)
+    w, h, rows, (idx, plte) = png_read(path, want_index=True)
     if (w, h) != (CELL, CELL):
         sys.exit("%s: %dx%d, not %dx%d" % (path, w, h, CELL, CELL))
-    return [[nearest(px, cols) for px in row] for row in rows]
+    #  Kept indexed, a pixel's index is its colour; else its colour says,
+    #  exactly if it is one of the seven, or the nearest.
+    if idx is not None and plte[:len(cols)] == cols:
+        return [[v if v < len(cols) else nearest(row_rgb[x], cols) for x, v in enumerate(row)]
+                for row, row_rgb in zip(idx, rows)]
+    return [[cols.index(px) if px in cols else nearest(px, cols) for px in row] for row in rows]
 
 
-def special_tiles(img):
-    """36 tiles, each 8 rows of plane 0, 8 of plane 1, 8 of plane 2 (w's bits)."""
-    out = []
+def special_4bpp(img, ga, gb):
+    """36 SNES 4bpp characters: w 1-3 colour 3ga + w, 4-6 colour 3gb + w - 3."""
+    out = bytearray()
     for ty in range(6):
         for tx in range(6):
-            planes = [[0] * 8 for _ in range(3)]
+            t = bytearray(32)
             for r in range(8):
                 for x in range(8):
-                    v = img[ty * 8 + r][tx * 8 + x]
-                    for j in range(3):
-                        if v >> j & 1:
-                            planes[j][r] |= 0x80 >> x
-            out += planes[0] + planes[1] + planes[2]
-    return out
+                    w = img[ty * 8 + r][tx * 8 + x]
+                    if not w:
+                        continue
+                    i = 3 * ga + w if w <= 3 else 3 * gb + w - 3
+                    for j in range(4):
+                        if i >> j & 1:
+                            t[(j // 2) * 16 + r * 2 + (j & 1)] |= 0x80 >> x
+            out += t
+    return bytes(out)
 
 
 # --- the colour groups ---------------------------------------------------------
@@ -319,22 +356,6 @@ def assign_groups(kinds):
                 sys.exit("genbestiary: more cells than colour groups")
             out[cell] = (p, free[p].pop(0), None)
     return out
-
-
-def sel_bytes(ga, gb):
-    """For each of the four planes, bit w (1-6) set if colour index of w has it."""
-    sel = [0] * 4
-    for w in range(1, 7):
-        if w <= 3:
-            idx = 3 * ga + w
-        elif gb is not None:
-            idx = 3 * gb + w - 3
-        else:
-            continue
-        for j in range(4):
-            if idx >> j & 1:
-                sel[j] |= 1 << w
-    return sel
 
 
 def fake_seen():
@@ -378,6 +399,18 @@ def main():
         sys.exit("genbestiary: seven rows need %d characters, past the ring's 1023" % worst)
     groups = assign_groups(kinds)
     seen = fake_seen()
+    #  The fiends' and Chaos's characters, each made for its own cell's two
+    #  groups (user, 2026-11-12: the rows with them waited for their
+    #  conversion): 36 characters, 1152 bytes, a special entry.  The colours
+    #  stay the screen's to write, so Palette swap's palettes fill the same
+    #  groups.  Into the low half of the Bestiary's chunk (BSTDATAFAR).
+    bstdata, special_at = bytearray(), {}
+    for e in range(NENEMY):
+        if kinds[e] == KIND_SPECIAL:
+            _, ga, gb = groups[((e // COLS) % SLOTS, e % COLS)]
+            special_at[e] = len(bstdata)
+            bstdata += special_4bpp(art[special_of[e]], ga, gb)
+    open(os.path.join(ROOT, "out", "bestiary.bin"), "wb").write(bstdata)
 
     # The preview: every cell as the screen draws it.
     def cell_img(e, silhouette):
@@ -421,15 +454,16 @@ def main():
     o.append("KIND_SPECIAL = %d" % KIND_SPECIAL)
     o.append("")
     o.append(";  Each enemy: its kind; its picture's first tile, far -- the battle CHR")
-    o.append(";  (banks $07-$08, a set every $800, PPU tile t at t * 16) or a special's")
-    o.append(";  36 tiles here, 24 bytes each; and its palettes (the second a special's).")
+    o.append(";  (banks $07-$08, a set every $800, PPU tile t at t * 16), or a special's")
+    o.append(";  36 SNES characters ready made (out/bestiary.bin, BSTDATAFAR); and its")
+    o.append(";  palettes (the second a special's).")
     o.append("lut_BstKind:")
     for i in range(0, NENEMY, 16):
         o.append("  .BYTE " + ", ".join("%d" % kinds[e] for e in range(i, i + 16)))
     o.append("lut_BstSrc:")
     for e in range(NENEMY):
         if kinds[e] == KIND_SPECIAL:
-            o.append("  .FARADDR BESTIARYFAR + lut_BstSpecial + %d    ; $%02X" % (special_of[e] * 36 * 24, e))
+            o.append("  .FARADDR BSTDATAFAR + %d    ; $%02X" % (special_at[e], e))
         else:
             set_, tile, _ = src[e]
             o.append("  .FARADDR (CHUNK0 + BANK_BATTLECHR + %d) * $10000 + $%04X    ; $%02X"
@@ -442,8 +476,7 @@ def main():
         o.append("  .BYTE " + ", ".join("$%02X" % palb[e] for e in range(i, i + 16)))
     o.append("")
     o.append(";  The slots' cells, slot * 5 + column: the BG palette, the CGRAM index of")
-    o.append(";  its first group's first colour and of its second's ($FF: none), and the")
-    o.append(";  four planes' selections, bit w set if colour index of w has that bit.")
+    o.append(";  its first group's first colour and of its second's ($FF: none).")
     o.append("lut_BstCellPal:")
     o.append("  .BYTE " + ", ".join("%d" % groups[(s, c)][0] for s in range(SLOTS) for c in range(COLS)))
     o.append("lut_BstCellCgA:")
@@ -457,25 +490,12 @@ def main():
     o.append(";  conversion a small or large picture's characters get (bst_convg0-4).")
     o.append("lut_BstCellGA:")
     o.append("  .BYTE " + ", ".join("%d" % groups[(s, c)][1] for s in range(SLOTS) for c in range(COLS)))
-    o.append("lut_BstCellSel:")
-    for s in range(SLOTS):
-        for c in range(COLS):
-            p, ga, gb = groups[(s, c)]
-            o.append("  .BYTE " + ", ".join("$%02X" % b for b in sel_bytes(ga, gb)))
     o.append("")
     o.append(";  The prototype's stand-in for the defeated mask, bit e & 7 of byte e >> 3.")
     o.append("lut_BstFakeSeen:")
     o.append("  .BYTE " + ", ".join("$%02X" % sum(1 << b for b in range(8) if i * 8 + b in seen)
                                     for i in range(16)))
     o.append("")
-    o.append(";  The fiends' and Chaos's pictures, art/bestiary/*.png: 36 tiles each, a")
-    o.append(";  tile 8 rows of each of w's three bits.")
-    o.append("lut_BstSpecial:")
-    for i, img in enumerate(art):
-        t = special_tiles(img)
-        o.append(";  %s" % SPECIAL_NAMES[i])
-        for k in range(0, len(t), 24):
-            o.append("  .BYTE " + ", ".join("$%02X" % b for b in t[k:k + 24]))
     open(OUT, "w").write("\n".join(o) + "\n")
     used = len({(p, g) for p, a, b in groups.values() for g in (a, b) if g is not None})
     print("bestiary: %d colour groups of 39, %d characters of 1023 at the worst, preview in %s"

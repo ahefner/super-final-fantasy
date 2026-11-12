@@ -41,9 +41,12 @@
 ;  all 39 that are free, palette 0's first being the text's).  A row coming
 ;  in shares its slot with the one going out, so its colours are written at
 ;  the vblank where neither shows: 24 lines into the scroll, either way.
-;  A character's colour bits are its group's: a pixel of value v (w for a
-;  special's three planes) becomes colour 3g + v, so each of the four planes
-;  is an OR of the pixels whose value has that bit (lut_BstCellSel).
+;  A character's colour bits are its group's: a pixel of value v becomes
+;  colour 3g + v, each plane a plain function of the NES's two, a routine
+;  for each group (bst_convg0-4).  The fiends' and Chaos's characters come
+;  ready made for their cells (genbestiary.py, BSTDATAFAR): the colours
+;  being the screen's to write, a seed's shuffled palettes fill the same
+;  groups.
 ; ---------------------------------------------------------------------------
 .p816
 .a8
@@ -134,7 +137,6 @@ M5        = $90
 M6        = $91
 TT        = $92
 CNT       = $93
-SEL       = $94                 ; 24: plane j's mask for value w at SEL + j * 6 + w - 1
 CONVVEC   = $AC                 ; 2: the cell's character conversion
 ZPLEN     = $30
 
@@ -1320,8 +1322,9 @@ bst_cellstart:
     RTS
 
 ;;  The cell's picture, long, at SRC and +8 and +16 (the CHR and the
-;;  specials never cross a bank); its conversion in CONVVEC: a special's
-;;  with its masks (SEL), else its group's own (bst_convg0-4).  A8 I16.
+;;  specials never cross a bank); its conversion in CONVVEC: a special's a
+;;  copy, it being made for its cell (bst_convcopy), else its group's own
+;;  (bst_convg0-4).  A8 I16.
     .a8
     .i16
 bst_cellsrc:
@@ -1350,10 +1353,9 @@ bst_cellsrc:
     LDA f:V_KIND
     CMP #KIND_SPECIAL
     BNE @group
-    JSR bst_selmasks
     REP #$20
     .a16
-    LDA #.LOWORD(bst_convspecial)
+    LDA #.LOWORD(bst_convcopy)
     STA CONVVEC
     SEP #$20
     .a8
@@ -1494,75 +1496,6 @@ bst_ringmod:
     SBC #RING
 :   RTS
     .a8
-
-;;  SEL from lut_BstCellSel for slot cell V_K: SEL + j * 6 + w - 1 is $FF
-;;  where bit w of plane j's byte is set.  A8 I16.
-    .a8
-    .i16
-bst_selmasks:
-    LDA f:V_K
-    REP #$20
-    .a16
-    AND #$00FF
-    ASL A
-    ASL A
-    TAX
-    SEP #$20
-    .a8
-    LDY #$0000
-  @plane:
-    LDA lut_BstCellSel, X
-    LSR A                       ; bit 0: no value 0
-    STA f:V_TMP + 1
-    LDA #6
-    STA f:V_I
-  @w:
-    LDA f:V_TMP + 1
-    LSR A
-    STA f:V_TMP + 1
-    LDA #0
-    BCC :+
-    LDA #$FF
-:   STA a:SEL, Y
-    INY
-    LDA f:V_I
-    DEC A
-    STA f:V_I
-    BNE @w
-    INX
-    CPY #4 * 6
-    BCC @plane
-    RTS
-
-;;  A plane's byte: the OR of value w's pixels where its mask says so, for
-;;  values 1-3 (a small or large picture's), or 1-6 (a special's).
-.macro PLANE3 j
-    LDA M1
-    AND SEL + j * 6 + 0
-    STA TT
-    LDA M2
-    AND SEL + j * 6 + 1
-    ORA TT
-    STA TT
-    LDA M3
-    AND SEL + j * 6 + 2
-    ORA TT
-.endmacro
-.macro PLANE6 j
-    PLANE3 j
-    STA TT
-    LDA M4
-    AND SEL + j * 6 + 3
-    ORA TT
-    STA TT
-    LDA M5
-    AND SEL + j * 6 + 4
-    ORA TT
-    STA TT
-    LDA M6
-    AND SEL + j * 6 + 5
-    ORA TT
-.endmacro
 
 ;;  One small or large character: 16 NES bytes at [SRC], Y into 32 SNES
 ;;  bytes at BST_CONV + X, value v's pixels colour 3g + v -- each group g
@@ -1705,75 +1638,24 @@ bst_convg4:
 lut_BstConvG:
   .WORD bst_convg0, bst_convg1, bst_convg2, bst_convg3, bst_convg4
 
-;;  One special character: 24 bytes at [SRC], Y -- three planes of w, 0-6 --
-;;  into 32 at BST_CONV + X, w's pixels colour 3gA + w (1-3) or 3gB + w - 3
-;;  (4-6).  Y and X move past it.  A8 I16.
+;;  One special character, ready made for its cell (genbestiary.py): 32
+;;  bytes from [SRC], Y to BST_CONV + X.  Y and X move past it.  A8 I16.
     .a8
     .i16
-bst_convspecial:
-    LDA #8
+bst_convcopy:
+    LDA #16
     STA CNT
-  @row:
-    LDA [SRC16], Y
-    STA P2
-    LDA [SRC8], Y
-    STA P1
+    REP #$20
+    .a16
+  @word:
     LDA [SRC], Y
-    STA P0
-    AND P1
-    STA TT                      ; c: planes 0 and 1 both
-    LDA P0
-    EOR TT
-    STA M1                      ; a: plane 0 alone
-    LDA P1
-    EOR TT
-    STA M2                      ; b: plane 1 alone
-    LDA P0
-    ORA P1
-    EOR #$FF
-    AND P2
-    STA M4                      ; 4: neither, and plane 2
-    LDA M1
-    AND P2
-    STA M5                      ; 5: a and plane 2
-    LDA M2
-    AND P2
-    STA M6                      ; 6: b and plane 2
-    LDA P2
-    EOR #$FF
-    STA P2                      ; not plane 2
-    AND TT
-    STA M3                      ; 3: c alone
-    LDA P2
-    AND M1
-    STA M1                      ; 1: a alone
-    LDA P2
-    AND M2
-    STA M2                      ; 2: b alone
-    PLANE6 0
     STA f:BST_CONV, X
-    PLANE6 1
-    STA f:BST_CONV + 1, X
-    PLANE6 2
-    STA f:BST_CONV + 16, X
-    PLANE6 3
-    STA f:BST_CONV + 17, X
     INX
     INX
     INY
+    INY
     DEC CNT
-    BEQ :+
-    JMP @row
-:   REP #$20
-    .a16
-    TXA
-    CLC
-    ADC #16
-    TAX
-    TYA
-    CLC
-    ADC #16                     ; past planes 1 and 2
-    TAY
+    BNE @word
     SEP #$20
     .a8
     RTS

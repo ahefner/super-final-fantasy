@@ -76,6 +76,10 @@ CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the f
 ;  which had 12KB free: its own chunk is one line in snes.cfg and here.
 CHUNK_BESTIARY  = CHUNK_CREDITS
 BESTIARYFAR     = (CHUNK0 + CHUNK_BESTIARY) * $10000
+;  ...and its data in that chunk's low half, long through HiROM's $C0+N
+;  (mkrom.py's LOWHALF, out/bestiary.bin): the fiends' and Chaos's
+;  characters, ready made (tools/genbestiary.py).
+BSTDATAFAR      = $C00000 + (1 + CHUNK_BESTIARY) * $10000
 NGPICK_CUSTOM   = $FF           ; what the New Game list answers: Custom Game,
 NGPICK_BACK     = $FE           ;   or B, back to the title; else the preset
 NGNAV_FORWARD   = 0             ; what a screen of the New Game flow answers:

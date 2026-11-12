@@ -48,7 +48,8 @@ EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x
 #  chunk runs at $8000 up, and banks $A1+N decode that range as I/O and RAM,
 #  so it is reached only long, through HiROM's $C0+N (snesmap.inc's
 #  FUNDATAFAR) -- 32KB a chunk otherwise left a mirror.  {chunk: out/<file>}.
-LOWHALF = {0x1C: "fundata.bin"}             # FUN%: the scream's sample
+LOWHALF = {0x1C: "fundata.bin",             # FUN%: the scream's sample
+           0x12: "bestiary.bin"}            # CHUNK_BESTIARY's: the fiends' and Chaos's characters
 
 
 def read(path, want):

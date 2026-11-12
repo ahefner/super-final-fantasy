@@ -3194,10 +3194,14 @@ at the title after power-on), the detail view on A with the seed's stats.
     `data_ChaosTSA`, their attributes over rows 4-19, two palettes each),
     scaled once into `art/bestiary/*.png` -- the colour covering most of each
     pixel's source, the picture's colours weighted over black -- with a
-    `-orig.png` beside each.  A PNG that exists is never overwritten; its
-    pixels are matched to the nearest of the picture's seven colours, so a
-    retouch in the game's colours reads back exactly.  No PIL here: the tool
-    reads and writes PNG itself.  `out/bestiary_preview.png` is the whole
+    `-orig.png` beside each (the user, 2026-11-12, is keeping them as
+    scaled).  A PNG that exists is never overwritten.  They are palette PNGs
+    of the picture's seven colours: every fiend's palette pair, and
+    Chaos's, shares a colour or two, so a pixel read back by colour alone
+    took the first palette's -- invisible in the cartridge's colours, wrong
+    under Palette swap's shuffle.  Kept indexed, a pixel's index is read;
+    saved as RGB, its colour, the shared ones nudged a step apart in the
+    PNG (unseen).  No PIL here: the tool reads and writes PNG itself.  `out/bestiary_preview.png` is the whole
     grid, seen and with the stand-in mask.
   - **The screen** (`src/bestiary.asm`, segment `BANK_BESTIARY` in the
     credits' chunk, which had 12KB free -- its own chunk is a line in
@@ -3230,12 +3234,20 @@ at the title after power-on), the detail view on A with the seed's stats.
     the row is not all in; its colours go with the next step.  A small or
     large picture's conversion is its group's own routine (`bst_convg0`-`4`,
     each plane of colour 3g + v a plain function of the NES's two planes),
-    a third of the general masks' work; the fiends' and Chaos's keep the
-    general one (`bst_convspecial`).  Measured on the timed `Clock`: every
-    row but the last three scrolls in 6 frames from the press with no wait;
-    the rows with the fiends wait 3, 16 and 9 frames halfway; held DOWN
-    from the top to the last row, 319 frames, where it had been 517; one
-    music call every frame throughout.
+    a third of the general masks' work.  The nine fiend and Chaos entries'
+    characters are made by the tool, each for its own cell's two groups
+    (user, 2026-11-12, of the rows with them waiting for their conversion:
+    "I'd opt for 3, but it's worth considering the ultimate interaction with
+    palette shuffle"): 1152 bytes each, 10KB in the low half of the
+    Bestiary's chunk (`BSTDATAFAR`, `mkrom.py`'s `LOWHALF`), copied
+    (`bst_convcopy`).  Palette swap is no matter: a character holds a
+    colour's place in its group, not the colour, and the screen writes the
+    groups' colours as a row comes in -- the seed's palettes would fill the
+    same places, as the battle's attributes take them.  Measured on the
+    timed `Clock`: every row scrolls in 6 or 7 frames from the press, the
+    fiends' waiting a frame at most; held DOWN from the top to the last
+    row, 289 frames, where it had been 517; one music call every frame
+    throughout.
   - **The music while cursoring** (user, 2026-11-11: "The music lags when
     cursoring"): redrawing the whole outlined line took two frames, so
     every move dropped two frames of music.  A move redraws only the name's
