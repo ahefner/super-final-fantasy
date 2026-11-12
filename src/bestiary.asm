@@ -2,12 +2,13 @@
 ;  bestiary.asm -- the Bestiary: every enemy in a grid, the ones defeated in
 ;  their battle colours and the rest as silhouettes, a count across the top.
 ;
-;  PROTOTYPE (user, 2026-11-11), on the bestiary branch: the title shows it
-;  first, once a power-on (opt_drawpresetbox), the title's music playing on;
-;  B or START goes on to the title.  The defeated mask is a stand-in
-;  (lut_BstFakeSeen, 57 of 128), the count is out of 128 rather than out of
-;  those the seed can produce, and the colours are the cartridge's rather
-;  than Palette swap's.  A does nothing yet: the detail view is to come.
+;  PROTOTYPE (user, 2026-11-11), on the bestiary branch: the title's
+;  BESTIARY row opens it (opt_titlechoose, 2026-11-12), the title's music
+;  playing on; B or START goes back to the title, the hand on BESTIARY.  The
+;  defeated mask is a stand-in (lut_BstFakeSeen, 57 of 128), the count is
+;  out of 128 rather than out of those the seed can produce, and the colours
+;  are the cartridge's rather than Palette swap's.  A opens an enemy's page
+;  (bstdetail.inc).
 ;
 ;  The grid (user): five columns of 48 x 48 cells, every enemy in its id
 ;  order, on black as in battle; the small ones (32 x 32) and the large (48 x

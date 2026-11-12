@@ -4,7 +4,7 @@
     LDA #10
     STA box_y
 --- NEW
-    LDA #11          ; first box is at 11,6  with dims 10x4
-    STA box_x        ;  and contains "Continue" text
-    LDA #6           ; four rows up from 10, to make room for the Credits row
-    STA box_y        ;  below the mode box -- see opt_drawpresetbox
+    LDA #4           ; first box is at 4,6  with dims 10x4 -- the top left of
+    STA box_x        ;  the title's two by two (opt_drawpresetbox draws its
+    LDA #6           ;  second row, Bestiary and Help) -- and contains
+    STA box_y        ;  "Continue" text

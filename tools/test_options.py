@@ -7432,7 +7432,8 @@ def test_chirps():
     stubbed = bytearray(ROMDATA)
     MARK = 0x1FF0
     for name, bank in (("opt_saveview", OPTMENU_BANK), ("opt_settings", OPTMENU_BANK),
-                       ("credits_screen", CREDITS), ("ng_flow", 0xA1 + K["CHUNK_NEWGAME"])):
+                       ("credits_screen", CREDITS), ("ng_flow", 0xA1 + K["CHUNK_NEWGAME"]),
+                       ("bst_show", 0xA1 + K["CHUNK_BESTIARY"]), ("help_show", OPTMENU_BANK)):
         at = (bank & 0x1F) * 0x10000 + SYM[name]
         stubbed[at:at + 9] = bytes([0xA9, 0x01, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0xA9, K["NGNAV_BACK"], 0x6B])
 
@@ -7459,13 +7460,15 @@ def test_chirps():
         count[0] = 0
         cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
         return seen, count[0]
-    rows = {"Continue": (0, A_, True), "New Game": (1, START, True), "the options row": (2, A_, True),
-            "Credits": (3, A_, True), "Select on Continue": (0, 0x20, True),
+    rows = {"Continue": (0, A_, True), "New Game": (1, START, True), "the options row": (T_MODE, A_, True),
+            "Credits": (T_CRED, A_, True), "Bestiary": (T_BEST, A_, True), "Help": (T_HELP, START, True),
+            "the respond rate's row": (T_RESP, A_, True), "Select on Continue": (0, 0x20, True),
             "Continue with no save (a New Game)": (0, A_, False), "Select with no save": (0, 0x20, False)}
     check("the title: one chirp as a row that opens a screen is chosen, before the screen; none for "
           "Continue to a game or a Select that opens nothing",
           {k: title(*v) for k, v in rows.items()},
           {"Continue": ([], 0), "New Game": ([1], 1), "the options row": ([1], 1), "Credits": ([1], 1),
+           "Bestiary": ([1], 1), "Help": ([1], 1), "the respond rate's row": ([], 0),
            "Select on Continue": ([1], 1), "Continue with no save (a New Game)": ([1], 1),
            "Select with no save": ([], 0)})
 
@@ -7878,7 +7881,7 @@ def test_menumusic():
         cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
         return bus.wram[TICKON], bus.wram[KEEP]
     check("the title: a screen opened turns the ticks on, and its rebuild keeps the music",
-          (title(2), title(1, back_from_flow=True)), ((1, 1), (1, 1)))
+          (title(T_MODE), title(1, back_from_flow=True)), ((1, 1), (1, 1)))
     check("...New Game through its screens, for a game: the ticks off", title(1, back_from_flow=False), (0, 0))
     #  IntroTitlePrepare's LDA #$41 / STA music_track is a JSL to
     #  opt_titlemusic now, its four bytes; run from there to past it.
@@ -11961,38 +11964,87 @@ def test_cur4():
 
 
 # --- the title screen's rows -------------------------------------------------
-#  Four rows now: Continue, New Game, the mode, and Credits.  Up and down wrap
-#  over all four, and left and right are the preset on the mode row and the
-#  respond rate everywhere else -- Credits included, which has nothing of its
-#  own to the side.  A wrap still sized for three rows sends Down from the
-#  mode row back to Continue, and Credits can never be reached.
+#  Seven rows (user, 2026-11-12): a two by two, Continue and New Game over
+#  Bestiary and Help, then the mode, Credits and the respond rate.  Up and
+#  down go by rows, wrapping, landing in the two by two from below in the
+#  column the hand was last in; left and right move between the columns, cycle
+#  the mode on its row and change the respond rate on its own, and do nothing
+#  on Credits -- with the move chirp only when something moved.  Back from a
+#  screen the title opened, the hand is on the row it was opened from.
 TITLE_CURSOR, RESPONDRATE = 0x62, 0xFA
-DIR_RIGHT, DIR_DOWN, DIR_UP = 0x01, 0x04, 0x08
+DIR_RIGHT, DIR_LEFT, DIR_DOWN, DIR_UP = 0x01, 0x02, 0x04, 0x08
+T_CONT, T_NEWG, T_BEST, T_HELP, T_MODE, T_CRED, T_RESP = range(7)
 
 
 def test_titlerows():
-    for row in range(4):
-        for name, d, want in (("down", DIR_DOWN, (row + 1) % 4),
-                              ("up", DIR_UP, (row - 1) % 4)):
-            bus, cpu = machine()
-            bus.wram[TITLE_CURSOR] = row
-            cpu.a = d
-            call(cpu, "opt_titleupdown")
-            check("title row %d, %s" % (row, name), bus.wram[TITLE_CURSOR], want)
+    down = {T_CONT: T_BEST, T_NEWG: T_HELP, T_BEST: T_MODE, T_HELP: T_MODE, T_MODE: T_CRED, T_CRED: T_RESP}
+    up = {T_CONT: T_RESP, T_NEWG: T_RESP, T_BEST: T_CONT, T_HELP: T_NEWG, T_CRED: T_MODE, T_RESP: T_CRED}
+    lastcol = rw("TITLE_LASTCOL")
+    bad = []
+    for row in range(7):
+        for col in (0, 1):
+            for name, d, table in (("down", DIR_DOWN, down), ("up", DIR_UP, up)):
+                bus, cpu = machine()
+                bus.wram[TITLE_CURSOR], bus.wram[lastcol] = row, col
+                cpu.a = d
+                call(cpu, "opt_titleupdown")
+                want = table.get(row, (T_CONT if name == "down" else T_BEST) + col)
+                wcol = want & 1 if want < T_MODE else col
+                if (bus.wram[TITLE_CURSOR], bus.wram[lastcol]) != (want, wcol):
+                    bad.append((row, col, name, bus.wram[TITLE_CURSOR], bus.wram[lastcol]))
+    check("up and down: by rows, wrapping, into the two by two in the last column", bad, [])
 
-    for row, rate_moves in ((0, True), (1, True), (2, False), (3, True)):
+    move = SYM["PlaySFX_MenuMove"]
+    bad = []
+    for row in range(7):
+        for d, step in ((DIR_RIGHT, 1), (DIR_LEFT, -1)):
+            bus, cpu = machine()
+            call(cpu, "opt_init")
+            bus.wram[TITLE_CURSOR], bus.wram[lastcol] = row, 1 - (row & 1)
+            bus.wram[RESPONDRATE] = 3
+            setblk(bus, OPT_RESPOND, 3)
+            preset = blk(bus, OPT_PRESET)
+            chirps = []
+            st = cpu.step
+            def spy():
+                if cpu.pbr == BANK_0E and cpu.pc == move:
+                    chirps.append(1)
+                st()
+            cpu.step = spy
+            cpu.a = d
+            call(cpu, "opt_titleleftright")
+            got = (bus.wram[TITLE_CURSOR], bus.wram[lastcol], bus.wram[RESPONDRATE],
+                   blk(bus, OPT_PRESET), len(chirps))
+            if row < T_MODE:
+                want = (row ^ 1, (row ^ 1) & 1, 3, preset, 1)
+            elif row == T_MODE:
+                want = (row, 1 - (row & 1), 3, (preset + step) % 4, 1)
+            elif row == T_RESP:
+                want = (row, 1 - (row & 1), 3 + step, preset, 1)
+            else:
+                want = (row, 1 - (row & 1), 3, preset, 0)
+            if got != want:
+                bad.append((row, d, got, want))
+    check("left and right: the column, the mode, the respond rate on its row; Credits nothing, no chirp",
+          bad, [])
+
+    #  The rebuild (opt_drawpresetbox): the hand on the row a screen was
+    #  opened from, taken once; with none, Continue as IntroTitlePrepare left
+    #  it.  The column follows a row of the two by two.
+    back = rw("TITLE_BACKROW")
+    bad = []
+    for row in [None] + list(range(7)):
         bus, cpu = machine()
-        call(cpu, "opt_init")
-        bus.wram[TITLE_CURSOR] = row
-        bus.wram[RESPONDRATE] = 3
-        setblk(bus, OPT_RESPOND, 3)
-        preset = blk(bus, OPT_PRESET)
-        cpu.a = DIR_RIGHT
-        call(cpu, "opt_titleleftright")
-        check("title row %d, right: respond rate" % row,
-              bus.wram[RESPONDRATE], 4 if rate_moves else 3)
-        check("title row %d, right: preset" % row,
-              blk(bus, OPT_PRESET), preset if rate_moves else (preset + 1) % 4)
+        bus.wram[TITLE_CURSOR], bus.wram[lastcol] = 0, 1
+        bus.wram[back] = 0 if row is None else row + 1
+        cpu.dbr = BANK_0E
+        call(cpu, "opt_drawpresetbox")
+        cur = 0 if row is None else row
+        got = (bus.wram[TITLE_CURSOR], bus.wram[back], bus.wram[lastcol])
+        want = (cur, 0, cur & 1 if cur < T_MODE else 1)
+        if got != want:
+            bad.append((row, got, want))
+    check("the title's rebuild: the hand on the row it came back from, once", bad, [])
 
 
 # --- the equip box takes the cursor off the screen -------------------------
@@ -16142,7 +16194,9 @@ def test_saveview():
     stubbed = bytearray(ROMDATA)
     MARK = 0x1FF0
     for name, bank, v in (("opt_saveview", OPTMENU_BANK, 0x11), ("opt_settings", OPTMENU_BANK, 0x22),
-                          ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33)):
+                          ("credits_screen", K["CHUNK0"] + K["CHUNK_CREDITS"], 0x33),
+                          ("bst_show", K["CHUNK0"] + K["CHUNK_BESTIARY"], 0x55),
+                          ("help_show", OPTMENU_BANK, 0x66)):
         at = (bank & 0x1F) * 0x10000 + SYM[name]
         stubbed[at:at + 7] = bytes([0xA9, v, 0x8F, MARK & 0xFF, MARK >> 8, 0x7E, 0x6B])
     ngl = (0xA1 + K["CHUNK_NEWGAME"] & 0x1F) * 0x10000 + SYM["ng_flow"]
@@ -16164,7 +16218,7 @@ def test_saveview():
             got = cpu.run(BANK_0E, at, stop=stop)
         p = cpu.p
         return dict(shown=bus.wram[MARK], N=bool(p & 0x80), Z=bool(p & 0x02), C=bool(p & C),
-                    select=bus.wram[K["joy_select"]], stopped=got)
+                    select=bus.wram[K["joy_select"]], stopped=got, back=bus.wram[rw("TITLE_BACKROW")])
 
     def flags(r, *keys):
         return tuple(r[k] for k in keys)
@@ -16175,7 +16229,7 @@ def test_saveview():
     r = title(0, SELECT, save=False)
     check("...with no save: nothing, back to the loop, the press used up",
           flags(r, "shown", "N", "select"), (0, True, 0))
-    for cur in (1, 2, 3):
+    for cur in range(1, 7):
         r = title(cur, SELECT)
         check("Select on row %d: nothing" % cur, flags(r, "shown", "N", "select"), (0, True, 0))
     for b in (A_, START):
@@ -16193,9 +16247,21 @@ def test_saveview():
           flags(title(0, A_, save=False, pick=K["NGNAV_BACK"]), "shown", "Z", "N"), (0x44, True, False))
     #  (What the screens do, and the presets they apply: test_ngflow.)
     check("A on the mode row: the settings, then rebuild",
-          flags(title(2, A_), "shown", "Z", "N"), (0x22, True, False))
+          flags(title(T_MODE, A_), "shown", "Z", "N"), (0x22, True, False))
     check("A on Credits: the credits, then rebuild",
-          flags(title(3, START), "shown", "Z", "N"), (0x33, True, False))
+          flags(title(T_CRED, START), "shown", "Z", "N"), (0x33, True, False))
+    check("A on Bestiary: the Bestiary, then rebuild",
+          flags(title(T_BEST, A_), "shown", "Z", "N"), (0x55, True, False))
+    check("A on Help: the Help page, then rebuild",
+          flags(title(T_HELP, START), "shown", "Z", "N"), (0x66, True, False))
+    check("A on the respond rate's row: nothing, back to the loop",
+          flags(title(T_RESP, A_), "shown", "N", "back"), (0, True, 0))
+    #  The row the hand comes back to, set as each screen returns.
+    check("...the hand's row to come back to, from each screen -- Continue's when it has no save and "
+          "New Game's screens are backed out of, or from the save view; none when Continue loads",
+          [title(0, A_, save=False, pick=K["NGNAV_BACK"])["back"]] +
+          [title(cur, A_, pick=K["NGNAV_BACK"])["back"] for cur in range(6)] + [title(0, SELECT)["back"]],
+          [1, 0, 2, 3, 4, 5, 6, 1])
     check("A with Select on Continue: Continue",
           flags(title(0, A_ | SELECT), "shown", "N", "Z", "C"), (0, False, False, False))
 
@@ -17788,7 +17854,7 @@ def test_stereo():
     check("...an intact one kept as it is, and the HAL told", (blk(bus, FUN), bus.wram[K["h_stereo"]] != 0),
           (STEREO | 3, True))
     bus, cpu = fresh(STEREO | 3)
-    bus.wram[TITLE_CURSOR], bus.wram[RESPONDRATE] = 0, 3
+    bus.wram[TITLE_CURSOR], bus.wram[RESPONDRATE] = T_RESP, 3
     cpu.a = DIR_RIGHT
     call(cpu, "opt_titleleftright")
     check("the title's respond rate: its three bits moved, Stereo Sound kept",

@@ -72,8 +72,8 @@
 .export opt_dpadnew, opt_orbgoal
 .export opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair   ; orbshards.patch
 .export opt_orbattr             ; orbbox_shards.patch
-.import bst_show                ; PROTOTYPE (bestiary branch)
-.import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel
+.import bst_show, help_show
+.import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel, PlaySFX_MenuMove
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
 .import DrawItemTargetMenu
@@ -574,18 +574,28 @@ opt_setbattlerate:
     RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The title screen's preset and credits rows
+;;  The title screen's rows (user, 2026-11-12: "reworking the layout into
+;;  more of a matrix")
 ;;
-;;  Two boxes between "New Game" and "Respond Rate": the mode at (8,16) and
-;;  Credits at (8,20), each four rows tall, with the respond rate below them
-;;  at (8,24) ending on row 27 -- the last of the 28 rows the 224-line crop
-;;  actually shows.  Continue and New Game moved up four rows to make room
-;;  (the two optcredits patches), keeping their one-row gaps.
+;;      CONTINUE    NEW GAME        a two by two: Continue and New Game the
+;;      BESTIARY      HELP          game's boxes, moved (the optcredits
+;;           (mode)                 patches), Bestiary and Help drawn here
+;;          CREDITS
+;;       RESPOND RATE
 ;;
-;;  The cursor has four positions.  Left and right cycle the preset on the
-;;  mode row and go on adjusting the respond rate everywhere else, which
-;;  leaves the existing controls exactly as they were for anyone who never
-;;  moves down.  A on either new row opens a screen; see opt_titlechoose.
+;;  Each box four rows tall: the two by two's at columns 4 and 18, ten wide,
+;;  rows 6 and 11; the mode at (8,16), Credits at (8,20) and the respond rate
+;;  at (8,24), sixteen wide, ending on row 27 -- the last of the 28 rows the
+;;  224-line crop shows.  The hand sits left of each box, as the game's.
+;;
+;;  The cursor has seven positions, Continue and New Game still 0 and 1, which
+;;  the game's code knows them by.  Up and down go by rows, wrapping; into the
+;;  two by two from below they land in the column the hand was last in.  Left
+;;  and right move between the two by two's columns, cycle the mode on its
+;;  row and change the respond rate on its own, and do nothing on Credits
+;;  (user, 2026-11-12: the respond rate "its own row").  A opens Bestiary,
+;;  Help, the settings and the credits; see opt_titlechoose.  Coming back
+;;  from any screen the title opened, the hand is on the row it opened from.
 ;;
 ;;  The name is redrawn every frame from a fixed nametable address, the way
 ;;  TitleScreen_DrawRespondRate redraws its digit, rather than through
@@ -600,12 +610,25 @@ PRESETBOX_X  = 8
 PRESETBOX_Y  = 16
 CREDITSBOX_Y = PRESETBOX_Y + 4          ; directly below, sharing an edge row
 CREDITSTEXT_PPU = $2000 + (CREDITSBOX_Y + 2) * 32 + PRESETBOX_X + 1 + 3
+;  The two by two: Continue and New Game's boxes (bank $0E's, the optcredits
+;  patches put them here) above Bestiary's and Help's (drawn here).
+GRID_LX      = 4
+GRID_RX      = 18
+GRID_Y0      = 6
+GRID_Y1      = 11
+GRID_W       = 10
+BESTIARYTEXT_PPU = $2000 + (GRID_Y1 + 2) * 32 + GRID_LX + 1
+HELPTEXT_PPU     = $2000 + (GRID_Y1 + 2) * 32 + GRID_RX + 1 + 2
 
 ;  The title screen's cursor rows.  0 and 1 are the game's own, Continue and
 ;  New Game, and the game's code knows them by number.
-TITLEROW_MODE    = 2
-TITLEROW_CREDITS = 3
-TITLE_ROWS       = 4
+TITLEROW_BESTIARY = 2
+TITLEROW_HELP     = 3
+TITLEROW_MODE     = 4
+TITLEROW_CREDITS  = 5
+TITLEROW_RESPOND  = 6
+TITLE_ROWS        = 7
+TITLE_GRID        = 4                   ; rows below this are the two by two's
 PRESETTEXT_ROW = PRESETBOX_Y + 2        ; DrawBox puts its text two rows down
 PRESETNAME_PPU = $2000 + PRESETTEXT_ROW * 32 + PRESETBOX_X + 1
 PRESETNAME_LEN = 14                     ; the box's whole interior
@@ -625,21 +648,39 @@ lut_PresetNames:
   .BYTE $FF, $8C, $9E, $9C, $9D, $98, $96, $FF   ; " CUSTOM MODE  "
   .BYTE $96, $98, $8D, $8E, $FF, $FF, $FF, $FF
 
-;  Cursor sprite position per row.  Y is one tile row below the box's top, as
-;  the game's own two entries were.  X has to vary now: the first two boxes
-;  start at column 11 and the two below them at column 8, so a single fixed X
-;  either sits too far from one or overlaps the other.  Sixteen pixels clear
-;  of the box edge in both cases.
+;  Cursor sprite position per row: Y one tile row below the box's top, as
+;  the game's own entries were; X sixteen pixels left of the box's edge.
 lut_TitleCursorY:
-  .BYTE $38, $60, (PRESETBOX_Y + 1) * 8, (CREDITSBOX_Y + 1) * 8
+  .BYTE (GRID_Y0 + 1) * 8, (GRID_Y0 + 1) * 8, (GRID_Y1 + 1) * 8, (GRID_Y1 + 1) * 8
+  .BYTE (PRESETBOX_Y + 1) * 8, (CREDITSBOX_Y + 1) * 8, (CREDITSBOX_Y + 5) * 8
 lut_TitleCursorX:
-  .BYTE $48, $48, $30, $30
+  .BYTE (GRID_LX - 2) * 8, (GRID_RX - 2) * 8, (GRID_LX - 2) * 8, (GRID_RX - 2) * 8
+  .BYTE (PRESETBOX_X - 2) * 8, (PRESETBOX_X - 2) * 8, (PRESETBOX_X - 2) * 8
+.assert * - lut_TitleCursorX = TITLE_ROWS, error, "a cursor position per title row"
+
+;  Up and down, by row: the row the hand goes to, or GRIDTO plus a row of the
+;  two by two, where the column is the one the hand was last in (TITLE_LASTCOL).
+GRIDTO = $80
+lut_TitleDown:
+  .BYTE TITLEROW_BESTIARY, TITLEROW_HELP, TITLEROW_MODE, TITLEROW_MODE
+  .BYTE TITLEROW_CREDITS, TITLEROW_RESPOND, GRIDTO | 0
+lut_TitleUp:
+  .BYTE TITLEROW_RESPOND, TITLEROW_RESPOND, 0, 1
+  .BYTE GRIDTO | TITLEROW_BESTIARY, TITLEROW_MODE, TITLEROW_CREDITS
 
 ;  Centred in the box's fourteen columns as nearly as seven letters can be,
 ;  leaning left by the half column the way the mode names do.
 lut_CreditsLabel:
   FFTEXT "CREDITS"
 CREDITSLABEL_LEN = * - lut_CreditsLabel
+;  The two by two's second row: filling the box as CONTINUE and NEW GAME do,
+;  and centred.
+lut_BestiaryLabel:
+  FFTEXT "BESTIARY"
+BESTIARYLABEL_LEN = * - lut_BestiaryLabel
+lut_HelpLabel:
+  FFTEXT "HELP"
+HELPLABEL_LEN = * - lut_HelpLabel
 
 ;;  Drawn once, with the PPU off, alongside the other three boxes -- and the
 ;;  credits box with it, whose label never changes and so is written here
@@ -653,26 +694,36 @@ opt_drawpresetbox:
     PHA
     LDA #CHUNK_OPT
     STA cur_bank
-    ;  PROTOTYPE (bestiary branch): the Bestiary first, once a power-on, the
-    ;  title's music playing on; B or START comes back here.
-    LDA f:BST_SHOWN
-    BNE :+
-    LDA #1
-    STA f:BST_SHOWN
-    JSL bst_show + BESTIARYFAR
-:   LDA #CHUNK_OPT              ; (said again, where the bank-swap check sees it)
-    STA cur_bank
     LDA #$00
     STA menustall
+
+    ;  The two by two's second row, Bestiary and Help, as Continue and New
+    ;  Game above them.
+    LDA #GRID_LX
+    STA box_x
+    LDA #GRID_Y1
+    STA box_y
+    LDA #4
+    STA box_ht
+    LDA #GRID_W
+    STA box_wd
+    LDA #CHUNK_OPT              ; (said again, where the bank-swap check sees it)
+    STA cur_bank
+    JSR DrawBox
+    LDA #GRID_RX
+    STA box_x
+    LDA #CHUNK_OPT              ; still this bank, said again where the
+    STA cur_bank                ;   bank-swap check can see it
+    JSR DrawBox
 
     LDA #PRESETBOX_X
     STA box_x
     LDA #PRESETBOX_Y
     STA box_y
-    LDA #4
-    STA box_ht
     LDA #16
     STA box_wd
+    LDA #CHUNK_OPT
+    STA cur_bank
     JSR DrawBox
 
     LDA #CREDITSBOX_Y           ; same x and size, four rows down
@@ -696,8 +747,49 @@ opt_drawpresetbox:
     INX
     CPX #CREDITSLABEL_LEN
     BNE @label
+    bPPUSTATUS
+    LDA #>BESTIARYTEXT_PPU
+    wPPUADDR
+    LDA #<BESTIARYTEXT_PPU
+    wPPUADDR
+    LDX #0
+  @bestiary:
+    LDA lut_BestiaryLabel, X
+    wPPUDATA
+    INX
+    CPX #BESTIARYLABEL_LEN
+    BNE @bestiary
+    bPPUSTATUS
+    LDA #>HELPTEXT_PPU
+    wPPUADDR
+    LDA #<HELPTEXT_PPU
+    wPPUADDR
+    LDX #0
+  @help:
+    LDA lut_HelpLabel, X
+    wPPUDATA
+    INX
+    CPX #HELPLABEL_LEN
+    BNE @help
     PLB
 
+    ;  Back from a screen the title opened: the hand on the row it opened
+    ;  from (user, 2026-11-12), IntroTitlePrepare having zeroed it.  Set
+    ;  only as a screen returns (opt_titlechoose), so a reset taken inside
+    ;  one comes back to Continue.
+    LDA f:TITLE_BACKROW
+    BEQ @row
+    DEC A
+    STA cursor
+    LDA #0
+    STA f:TITLE_BACKROW
+  @row:
+    LDA cursor
+    CMP #TITLE_GRID
+    BCS :+
+    AND #1
+    STA f:TITLE_LASTCOL             ; the column, for coming back up into it
+:
     PLA
     STA cur_bank                ; the title screen wants its own value back
     RTL
@@ -741,22 +833,34 @@ opt_titlecursor:
     PLB
     RTL
 
-;;  In: A = the direction bits.  Moves the cursor between the rows, wrapping.
+;;  In: A = the direction bits.  Moves the cursor between the rows, wrapping;
+;;  into the two by two from below, or round from the bottom, in the column
+;;  the hand was last in.
 opt_titleupdown:
+    PHB
+    PHK
+    PLB
     LDX cursor
     CMP #DOWN
     BNE @up
-    INX
-    CPX #TITLE_ROWS
-    BCC @set
-    LDX #0
-    BRA @set
+    LDA lut_TitleDown, X
+    BRA @to
   @up:
-    DEX
+    LDA lut_TitleUp, X
+  @to:
     BPL @set
-    LDX #TITLE_ROWS - 1
+    AND #$7F
+    STA cursor
+    LDA f:TITLE_LASTCOL
+    AND #1
+    ORA cursor                  ; the row's column
   @set:
-    STX cursor
+    STA cursor
+    CMP #TITLE_GRID
+    BCS :+
+    AND #1
+    STA f:TITLE_LASTCOL
+:   PLB
     RTL
 
 ;;  A, Start or Select on the title screen: every decision the title loop
@@ -793,6 +897,7 @@ opt_titlechoose:
     BCS @nothing
     JSR opt_titlechirp
     JSL opt_saveview + OPTMENUFAR
+    LDA #0                      ; Continue's row
     BRA @shown
   @nothing:
     LDA #$FF                    ; N set
@@ -800,7 +905,8 @@ opt_titlechoose:
 
   @chosen:
     LDA cursor
-    CMP #TITLEROW_MODE
+    STA f:TITLE_OPENROW             ; kept, for the hand coming back
+    CMP #TITLEROW_BESTIARY
     BCS @screen
     CMP #1
     BEQ @newgame
@@ -818,22 +924,41 @@ opt_titlechoose:
     JSR opt_titlechirp
     JSL ng_flow + NEWGAMEFAR
     CMP #NGNAV_BACK
-    BEQ @shown
+    BEQ @back
     JSR opt_titleleave
     SEC                         ; C: New Game...
     LDA #$01                    ; ...and Z and N clear
     RTL
   @screen:
+    CMP #TITLEROW_RESPOND
+    BEQ @nothing                ; nothing to open: left and right are its
     JSR opt_titlechirp          ; (A, the row, kept)
+    CMP #TITLEROW_BESTIARY
+    BEQ @bestiary
+    CMP #TITLEROW_HELP
+    BEQ @help
     CMP #TITLEROW_CREDITS
     BEQ @credits
     JSL opt_settings + OPTMENUFAR
-    BRA @shown
+    BRA @back
+  @bestiary:
+    JSL bst_show + BESTIARYFAR
+    BRA @back
+  @help:
+    JSL help_show + OPTMENUFAR
+    BRA @back
   @credits:
     JSL credits_screen + CREDITSFAR
+  @back:
+    LDA f:TITLE_OPENROW
   @shown:
-    ;  Every screen of the title's leaves its music playing, so the rebuild
-    ;  need not start it again (opt_titlemusic).
+    ;  The row the screen was opened from, for the title's rebuild to put
+    ;  the hand on (opt_drawpresetbox) -- set only now, as the screen comes
+    ;  back, so a reset taken inside it comes back to Continue.  Every
+    ;  screen of the title's leaves its music playing, so the rebuild need
+    ;  not start it again (opt_titlemusic).
+    INC A
+    STA f:TITLE_BACKROW
     LDA #1
     STA f:MENU_KEEPMUSIC
     LDA #$00                    ; Z set
@@ -1175,18 +1300,34 @@ opt_savevalid:
     SEC
     RTS
 
-;;  In: A = the direction bits.  On the preset row this cycles the preset and
-;;  reseals the block; anywhere else it is the respond rate, as before -- and
-;;  that now writes through to the block so the setting survives a power cycle.
-;;  "Anywhere else" includes the Credits row, which has nothing to the side.
+;;  In: A = the direction bits.  In the two by two it moves the hand to the
+;;  other column; on the mode row it cycles the preset and reseals the block;
+;;  on the respond rate's own row (user, 2026-11-12) it is the respond rate,
+;;  written through to the block so the setting survives a power cycle.  On
+;;  Credits nothing.  The move chirp, the title's call site's until the
+;;  two by two (bank $0E has no byte to spare for a branch round it), here,
+;;  and only when something moved.
 opt_titleleftright:
     PHB
     PHK
     PLB
     LDX cursor
-    CPX #TITLEROW_MODE
+    CPX #TITLE_GRID
+    BCS :+
+    TXA                         ; the two by two: the other column
+    EOR #1
+    STA cursor
+    AND #1
+    STA f:TITLE_LASTCOL
+    BRA @out
+:   CPX #TITLEROW_MODE
     BEQ @preset
+    CPX #TITLEROW_RESPOND
+    BEQ @rate
+    PLB                         ; Credits: nothing, and no chirp
+    RTL
 
+  @rate:
     CMP #RIGHT
     BNE @rateleft
     LDA #1
@@ -1231,6 +1372,7 @@ opt_titleleftright:
     STA OPT_PRESET
     JSR opt_commit_body
   @out:
+    CALL0E PlaySFX_MenuMove     ; something moved: the chirp
     PLB
     RTL
 

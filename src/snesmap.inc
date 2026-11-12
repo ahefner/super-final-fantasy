@@ -132,9 +132,13 @@ NGF_BUILT       = MENURAM+$1C   ; nonzero: this pass of the flow built the world
 ;  the game over's, which the roll screen plays when no world is rolled.
 TRACK_TITLE     = $41
 TRACK_GAMEOVER  = $52
-;  PROTOTYPE (bestiary branch): nonzero once the Bestiary has been shown since
-;  power-on, so the title shows it first, once (opt_drawpresetbox).
-BST_SHOWN       = MENURAM+$1D
+;  The title's hand (optbank.asm): the row a screen it opened was opened from,
+;  plus one, set as the screen comes back and taken by the title's rebuild
+;  (0: none, so Continue); the two by two's column the hand was last in; and
+;  the row chosen, kept while its screen is up.
+TITLE_BACKROW      = MENURAM+$1D
+TITLE_LASTCOL       = MENURAM+$1E
+TITLE_OPENROW       = MENURAM+$1F
 
 ;  The Bestiary's (bestiary.asm), in the map edit screen's place: the
 ;  Bestiary is the title's, never up with New Game's screens.  Reset zeroes it.

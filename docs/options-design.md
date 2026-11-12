@@ -42,6 +42,40 @@ row sees a behaviour change.
 Pressing A or Start on the Options row opens the settings screen rather than
 starting the game.
 
+### The title as a two by two (2026-11-12; built, not yet played)
+
+User, 2026-11-12, on the bestiary branch: "hooking this into the main menu
+... the bestiary, and also a HELP (instructions) page.  Requires reworking the
+layout into more of a matrix":
+
+    row  6    CONTINUE    NEW GAME      columns 4 and 18, ten wide
+    row 11    BESTIARY      HELP
+    row 16         (mode)                 column 8, sixteen wide, as before
+    row 20        CREDITS
+    row 24     RESPOND RATE
+
+Continue and New Game are the game's boxes, moved (the `optcredits` patches);
+Bestiary's and Help's are drawn by `opt_drawpresetbox` with the mode's and
+Credits'.  The hand sits sixteen pixels left of each box.  Seven cursor rows,
+Continue and New Game still 0 and 1 (`TITLEROW_*`).  **Decided (user):** the
+respond rate is a row of its own, left and right changing it only there --
+they move between the columns in the two by two, cycle the mode on its row,
+and do nothing on Credits; up into the two by two from the mode row lands in
+the column the hand was last in (`TITLE_LASTCOL`); coming back from any
+screen the title opened, the hand is on the row it opened from
+(`TITLE_BACKROW`, set by `opt_titlechoose` only as the screen returns, so a
+reset taken inside one still comes back to Continue).  The move chirp is
+`opt_titleleftright`'s now, played only when something moved: bank $0E had
+no byte for a branch round its own (the call site is a JSL and a JMP).  A on
+the respond rate's row does nothing.  Help (`src/helpscreen.asm`, the settings
+screen's chunk) is a placeholder page: "HELP" and "Instructions will go
+here.", A, B or START back; the user's text for it is to come
+(`lut_HelpLines`).  The Bestiary no longer shows itself at power-on.
+
+Returning from a screen, the title's own rebuild misses one frame of music in
+one of its frame waits -- from Credits as from the Bestiary (the harness's
+timed `Clock`), so not new; not looked into yet.
+
 ### Settings screen
 
 **Decision: one scrolling list, not two columns and not category pages.**  Two
@@ -3155,12 +3189,13 @@ minimap, the title and description beside the zoom.
 **Built 2026-11-11; not yet played.**  A page of every enemy, the ones
 defeated in their battle colours and the rest as silhouettes, with a count
 (user, 2026-11-11: "a Bestiary page which displayed images and stats for each
-monster defeated").  The prototype is the grid alone: the title shows it
-first, once a power-on (`opt_drawpresetbox`, `BST_SHOWN`), the title's music
-playing on, and B or START goes on to the title -- the user: "a prototype on
-a feature branch which jumps directly into this menu (since we'll have to do
-subsequent rework of the main menu to make it accessible properly)".  Still
-to come: the menu's way in, the defeated mask itself (a stand-in now,
+monster defeated").  The prototype jumped straight into the grid at
+power-on (the user: "a prototype on a feature branch which jumps directly
+into this menu (since we'll have to do subsequent rework of the main menu to
+make it accessible properly)"); since 2026-11-12 the title's BESTIARY row
+opens it (above, "The title as a two by two"), the title's music playing on,
+and B or START goes back with the hand on BESTIARY.  Still
+to come: the defeated mask itself (a stand-in now,
 `lut_BstFakeSeen`, 57 of 128), the count out of the enemies the seed can
 produce, the seed's colours (Palette swap's `RW_PALPERM` is the cache's, cold
 at the title after power-on).  The detail view on A is built (2026-11-12,

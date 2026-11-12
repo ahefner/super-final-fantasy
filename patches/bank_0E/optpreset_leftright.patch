@@ -10,8 +10,13 @@
     ADC respondrate         ; add/subtract 1 from respond rate
     AND #7                  ; mask to wrap it from 0<->7
     STA respondrate
+
+    JSR PlaySFX_MenuMove    ; play the move sound effect, and continue looping!
+    JMP @Loop
 --- NEW
   @LeftRight:
-    ;  Contextual now: the preset on the new row, the respond rate everywhere
-    ;  else -- so nobody who never moves the cursor down sees a change.
+    ;  Contextual: the column in the two by two, the mode on its row, the
+    ;  respond rate on its own, and on Credits nothing -- the move chirp
+    ;  opt_titleleftright's, played only when something moved.
     JSL opt_titleleftright + OPTFAR
+    JMP @Loop
