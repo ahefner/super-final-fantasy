@@ -1724,19 +1724,19 @@ lut_BstConvG:
 bst_convcopy:
     LDA #16
     STA CNT
-    REP #$20
-    .a16
   @word:
-    LDA [SRC], Y
-    STA f:BST_CONV, X
+    REP #$20                    ; a word at a time, the count a byte: DEC
+    .a16                        ;   CNT sixteen bits wide counted $94 in too,
+    LDA [SRC], Y                ;   which the detail view's arithmetic left
+    STA f:BST_CONV, X           ;   nonzero, and a fiend's row copied on
+    SEP #$20                    ;   through BST_TCHR and BST_CGBUF (user,
+    .a8                         ;   2026-11-12: RockGOL's page, then down)
     INX
     INX
     INY
     INY
     DEC CNT
     BNE @word
-    SEP #$20
-    .a8
     RTS
 
 ;;  Cell V_C's tilemap entries in BST_MAPROW: a small picture's 4 x 4 in the

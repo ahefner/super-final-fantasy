@@ -97,6 +97,13 @@ class Bus:
                 self.vhigh ^= 1
                 return v
             return 0
+        if self.vram is not None and addr == 0x213B:
+            #  RDCGRAM: CGRAM at the address the writes use, a word's low
+            #  byte then its high, stepping after each as $2122 does.  The
+            #  high byte's top bit is open bus on the hardware; 0 here.
+            v = self.cgram[self.caddr & 0x1FF]
+            self.caddr += 1
+            return v if self.caddr & 1 else v & 0x7F
         if addr < 0x6000:
             return self.io.get(addr, 0)
         if addr < 0x8000:

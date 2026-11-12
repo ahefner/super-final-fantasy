@@ -15265,6 +15265,51 @@ def test_bestiary():
     check("...OPTWORK as it was", bad_work[:4], [])
     check("every enemy's picture full size, its sprites over it, the hand under the screen", bad_pic[:4], [])
 
+    #  The page leaves no trace (user, 2026-11-12: RockGOL's page, B, then
+    #  down a row -- the backdrop dark green and the header garbled).  The
+    #  screen driven by the pad to RockGOL and down into row 23, a fiend's,
+    #  with the page opened and closed on the way and without: the grid's
+    #  VRAM, CGRAM, OAM and header characters the same.  Junk in the direct
+    #  page past the grid's (the page's arithmetic leaves its own there): the
+    #  fiends' copy counted $94 into its count, and copied on through the
+    #  header's characters and the incoming row's colours.
+    def drive(page):
+        bus, cpu = machine()
+        bus.ppu()
+        bus.dma = True
+        Clock(bus, cpu)
+        for a in range(0x94, 0xAC):
+            bus.wram[a] = 0xFF
+        def pad(nes):
+            bus.io[0x4218] = nes & 0x80
+            bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+        script = [0] * 10
+        for _ in range(21):
+            script += [0x04] + [0] * 14
+        for _ in range(4):
+            script += [0x01] + [0] * 8
+        script += [0] * 20
+        script += ([0x80] + [0] * 40 + [0x40] + [0] * 20) if page else [0] * 62
+        script += [0x04] + [0] * 40
+        cpu.pbr, cpu.pc = bst_bank, SYM["bst_show"]
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        frame, uj = 0, SYM["UpdateJoy"]
+        while frame < len(script) and cpu.pc != 0xFFFE:
+            if cpu.pc == uj:
+                pad(script[frame])
+                frame += 1
+            cpu.step()
+        tch = rw("BST_TCHR")
+        return (bus.wram[bv] , bus.wram[bv + 2],
+                bytes(bus.vram[:0xB800]),              # BG1, BG3's line and font, its map
+                bytes(bus.vram[0xC000:0xC400]),        # the hand's OBJ characters
+                bytes(bus.cgram[:2 * 161]) + bytes(bus.cgram[2 * 167:]),
+                bytes(bus.oam), bytes(bus.wram[tch:tch + 960]))
+    with_page, without = drive(True), drive(False)
+    check("RockGOL's page and back, then down into a fiend's row: as without the page",
+          [n for n, a, b in zip(("sel", "state", "VRAM", "hand", "CGRAM", "OAM", "header"), with_page, without)
+           if a != b] + [with_page[:2]], [(114, 0)])
+
 
 def test_rando_enemyai():
     """Enemy_DoAi's lookup, through rando_enemyai, for every enemy: carry set

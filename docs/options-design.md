@@ -3375,6 +3375,20 @@ below).
         its sprites against `genbestiary.py`'s own render.  Mutation: the
         picture a pixel over, or the magic share's divisor 256, each fails
         it.
+      - **Fixed (user, 2026-11-12):** RockGOL's page, B, then down a row
+        turned the backdrop dark green and garbled the header but for the
+        name.  `bst_convcopy`, the fiends' and Chaos's ready-made
+        characters' copy, ran sixteen bits wide and decremented its one-byte
+        count, CNT ($93), as a word: $94 counted too.  Zero until the page's
+        arithmetic used $94, and then the next row with a fiend (row 23, the
+        first Lich's) copied on through the header's characters and the
+        incoming row's colours.  The count is a byte now.  The harness had
+        no CGRAM read (`$213B`), so the page's keeping of CGRAM 7, 11 and 15
+        read zeros there and passed: `cpu65816.py` reads it now.  The page
+        puts OAM's high table back as well.  `test_bestiary` drives the pad
+        to RockGOL and down into row 23 with the page and without, junk in
+        the direct page past the grid's, and finds the grid's VRAM, CGRAM,
+        OAM and header characters the same (the old copy fails it).
 
 ### Respond rate
 

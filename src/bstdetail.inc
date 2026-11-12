@@ -1916,6 +1916,13 @@ bst_doff:
     STZ a:OAMDATA
     DEX
     BNE @hide
+    LDA #$02                    ; the high table as the grid set it: the
+    STA a:OAMDATA               ;   hand large, the rest small
+    LDX #31
+  @hi:
+    STZ a:OAMDATA
+    DEX
+    BNE @hi
     JMP bst_sprites
 
 
