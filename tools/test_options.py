@@ -15637,8 +15637,10 @@ def test_bestiary():
     cpu.step = spy
     cpu.dbr = BANK_0E
     cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
-    check("the title's Bestiary row with no game and no save: the error sound, nothing opened",
-          (len(errs), len(shown), bool(cpu.p & 0x80)), (1, 0, True))
+    check("the title's Bestiary row with no game and no save: the error sound once, nothing opened, the "
+          "press used up (left set, the loop chose the row again every frame)",
+          (len(errs), len(shown), bool(cpu.p & 0x80), bus.wram[K["joy_a"]], bus.wram[K["joy_start"]]),
+          (1, 0, True, 0, 0))
 
     #  The count, out of what the game can produce (user, 2026-11-12: "If
     #  you can count how many are reachable, that makes more sense").  The
@@ -16703,7 +16705,8 @@ def test_saveview():
             got = cpu.run(BANK_0E, at, stop=stop)
         p = cpu.p
         return dict(shown=bus.wram[MARK], N=bool(p & 0x80), Z=bool(p & 0x02), C=bool(p & C),
-                    select=bus.wram[K["joy_select"]], stopped=got, back=bus.wram[rw("TITLE_BACKROW")])
+                    select=bus.wram[K["joy_select"]], stopped=got, back=bus.wram[rw("TITLE_BACKROW")],
+                    pressed=(bus.wram[K["joy_a"]], bus.wram[K["joy_start"]]))
 
     def flags(r, *keys):
         return tuple(r[k] for k in keys)
@@ -16739,8 +16742,12 @@ def test_saveview():
           flags(title(T_BEST, A_), "shown", "Z", "N"), (0x55, True, False))
     check("A on Help: the Help page, then rebuild",
           flags(title(T_HELP, START), "shown", "Z", "N"), (0x66, True, False))
-    check("A on the respond rate's row: nothing, back to the loop",
-          flags(title(T_RESP, A_), "shown", "N", "back"), (0, True, 0))
+    #  ...with the press used up (user, 2026-11-13: A on the Respond Rate row
+    #  froze the menu -- joy_a holds a press until it is cleared, so the
+    #  loop chose the row again every frame and never read the d-pad).
+    check("A or START on the respond rate's row: nothing, back to the loop, the press used up",
+          [flags(title(T_RESP, b), "shown", "N", "back", "pressed") for b in (A_, START)],
+          [(0, True, 0, (0, 0))] * 2)
     #  The row the hand comes back to, set as each screen returns.
     check("...the hand's row to come back to, from each screen -- Continue's when it has no save and "
           "New Game's screens are backed out of, or from the save view; none when Continue loads",
@@ -16771,6 +16778,9 @@ def test_saveview():
             r = title(cur, A_, at=site, stop=ets)
             check("A on row %d: out of the title screen, New Game %s" % (cur, bool(cur)),
                   flags(r, "stopped", "C"), (None, bool(cur)))
+        check("A on the respond rate's row: back into the loop, the press used up, so the loop reads "
+              "the d-pad next rather than choosing the row again",
+              flags(title(T_RESP, A_, at=site, stop=loop), "stopped", "pressed"), (True, (0, 0)))
 
     #  ...and the loop hears Select: TitleScreen_Music answers it with A.
     for a_, sel, want in ((0, 0, 0), (1, 0, 1), (0, 1, 1)):

@@ -933,12 +933,20 @@ opt_titlechoose:
     RTL
   @screen:
     CMP #TITLEROW_RESPOND
-    BEQ @nothing                ; nothing to open: left and right are its
+    BEQ @refused                ; nothing to open: left and right are its
     CMP #TITLEROW_BESTIARY
     BNE :+
     JSR opt_bstready            ; a game to show, the page's or the save's?
     BCC :+
     JSR PlaySFX_Error           ; neither: the game's error sound, and stay
+  @refused:
+    ;  A or START that opens nothing is used up, as Select is above: the
+    ;  game's joy_a and joy_start hold a press until something clears them,
+    ;  so the loop found it again every frame and never reached the d-pad
+    ;  (user, 2026-11-13: A on the Respond Rate row froze the menu).
+    LDA #0
+    STA joy_a
+    STA joy_start
     BRA @nothing
 :   LDA f:TITLE_OPENROW
     JSR opt_titlechirp          ; (A, the row, kept)

@@ -67,7 +67,15 @@ screen the title opened, the hand is on the row it opened from
 reset taken inside one still comes back to Continue).  The move chirp is
 `opt_titleleftright`'s now, played only when something moved: bank $0E had
 no byte for a branch round its own (the call site is a JSL and a JMP).  A on
-the respond rate's row does nothing.  Help (`src/helpscreen.asm`, the settings
+the respond rate's row does nothing.  **Fixed (user, 2026-11-13: "I hit 'A'
+on the Respond Rate line and the menu froze. Music kept playing."):** the
+game's `joy_a` and `joy_start` hold a press until something clears them,
+and this row's "nothing" -- like the Bestiary row's error sound with no game
+and no save -- left them set, so the loop chose the row again every frame,
+playing its music and never reading the d-pad.  Both now clear them, as
+Select's "nothing" always cleared `joy_select`; the tests that passed it had
+checked that nothing opened, not that the press was used up, and now check
+both, at the call site too.  Help (`src/helpscreen.asm`, the settings
 screen's chunk) is a placeholder page: "HELP" and "Instructions will go
 here.", A, B or START back; the user's text for it is to come
 (`lut_HelpLines`).  The Bestiary no longer shows itself at power-on.
