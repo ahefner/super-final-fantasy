@@ -5,7 +5,7 @@
   @Begin:
     JSR ClearZeroPage               ; clear Zero Page for good measure
 
-.import rando_stale, rando_coldbuild
+.import opt_begin, rando_coldbuild
 .export DisableAPU                  ; for the randomizer and the harness
     ;  The randomizer's world, built here from the save Continue just loaded
     ;  -- before any game code runs, so the build's pause falls in the
@@ -20,7 +20,9 @@
     ;  it, the save's own sprite, and its fanfare.  A soft reset's Continue
     ;  keeps its music and its frames.  PrepOverworld starts the overworld's
     ;  track next, and a new track turns the channels back on.
-    JSL rando_stale + RANDOFAR
+    ;  opt_begin marks the game state a game's first (the Bestiary's: a
+    ;  reset keeps it), then asks rando_stale.
+    JSL opt_begin + OPTFAR
     BCC :+
       JSL rando_coldbuild + RANDOFAR
   :

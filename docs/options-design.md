@@ -3209,8 +3209,9 @@ enemies the seed can produce.
     reset and power-off.  **Wrong (found 2026-11-12):** `GameStart` fills
     the game state's first page from `lut_InitUnsramFirstPage` at every
     power-on and every reset, soft ones too, before the title -- so at the
-    title the save is the only game there is, and the screen shows the
-    save's (below, "The save is the game").  The count out of what the seed can produce ("If
+    title the game state was the start-up table's.  Since then GameStart
+    keeps the game state's settings and defeated through a reset when a mark
+    says they are a game's (below, "The working state kept through reset").  The count out of what the seed can produce ("If
     you can count how many are reachable, that makes more sense"): Short
     ToFR, for one, leaves WORM, PHANTOM, JIMERA and IronGOL nowhere, their
     only zones the Temple of Fiends (past)'s floors.  Uniform 48 x 48 cells,
@@ -3447,8 +3448,7 @@ enemies the seed can produce.
         nothing.  Bank $0C the same size: a byte saved at each kill and two
         spent at the running away.
       - **The screen** reads the mask for the silhouettes, A's error sound
-        and the count in the header, "Bestiary (n/128)" -- the save's copy
-        (below).
+        and the count in the header, "Bestiary (n/128)".
       - **Colours:** every palette the grid and the pages show goes through
         `fun_btlpal`, the battle's own (LoadBattlePalette's, palswap.patch):
         under Palette swap the seed's `RW_PALPERM`, otherwise the cartridge's.
@@ -3466,38 +3466,62 @@ enemies the seed can produce.
         the cartridge's with it off, the cache cold; a page's six colours the
         same way.  Mutation: the swap skipped, or the running away's own
         store taken out, each fails it.
-  - **The save is the game** (user, 2026-11-12: "enemies aren't being
-    marked ... saved, reset, and they weren't lit"; and "a visit to the
-    bestiary screen causes the colors to change").  Both were one mistake.
-    The battles marked the kills and the save kept them, but `GameStart`
-    fills the game state's first page afresh at every reset and power-on, so
-    the screen read the start-up table's mask and settings.  And with those
-    settings the cache -- a soft reset keeps it, the world of the game being
-    played -- did not match, so `rando_bsttables` rebuilt the enemies' and
-    Palette swap's tables in it for the start-up table's settings, leaving
-    its tag as it was; Continue then loaded the save, found the tag matching,
-    and played on with them: the overworld's tint gone, the towns' changed,
-    the enemies' scripts and touches another seed's for the session.  Now:
-      - `bst_game` reads the save, the game the title would Continue: its
-        defeated into `BST_GKILLS`, and its settings block into the first
-        page's place, where the randomizer's code reads a game's settings
-        (the tables, the rolls, the cache's match), the page's own kept in
-        `BST_GKEEP` and put back as the screen ends (`bst_ungame`).  With no
-        save Continue would load, nothing is defeated and nothing is built.
-        Kills not saved before a reset are lost with the rest of the play
-        since the save, as the game itself loses them.
-      - `rando_bsttables` clears the tag before it writes over a cache that
-        does not match.  Against the save's block, a cache that does not
-        match is one a Continue would rebuild anyway, so the soft reset's
-        Continue is never slower for a visit to the Bestiary; a cache that
-        matches is used as it is.
-      - **Checked** (`test_bestiary`, games set up by `SaveGame` with junk
-        in the first page after): the save's defeated and colours; a cache
-        matching the save untouched, its tag kept; another game's cache
-        tagged stale and the save's tables made; no save, nothing defeated
-        and the cache untouched; the first page as the screen found it at
-        the end.  Without the fix (the save's block not swapped in, the tag
-        not cleared) four checks fail, both cache checks among them.
+  - **The working state kept through reset** (user, 2026-11-12: "enemies
+    aren't being marked ... saved, reset, and they weren't lit"; "a visit to
+    the bestiary screen causes the colors to change"; then, of showing
+    Chaos, whom no save can follow: "a sentinel byte that indicates whether
+    the working state is valid ... favors approach A", over a separate
+    "last played" record, which would have spent SRAM).
+      - **What went wrong.**  The battles marked the kills and the save kept
+        them, but `GameStart` fills the game state's first page afresh at
+        every power-on and every reset, soft ones too, so the title read the
+        start-up table's mask and settings.  And with those settings the
+        cache -- a soft reset keeps it, the world of the game being played --
+        did not match, so `rando_bsttables` rebuilt the enemies' and Palette
+        swap's tables in it for the start-up table's settings with its tag
+        untouched; Continue then matched the tag and played on with them:
+        the overworld's tint gone, the towns' changed, another seed's
+        scripts and touches for the session.
+      - **The mark.**  `BST_VALID`, `$60CE`, right after the defeated:
+        `BST_VALIDVAL` ($5A, neither a fresh cartridge's likely 0 nor $FF)
+        once a game begins -- `opt_begin`, which `@Begin` now calls in place
+        of `rando_stale` and which goes on into it -- and cleared as New
+        Game's flow starts (`ng_flow`), whose `ng_settings` and map edits
+        write the page's settings before the world is built.
+      - **GameStart keeps the game.**  Its four-page fill is
+        `opt_resetpages` now (optreset.patch: a JSL where the loop was): the
+        first page from `lut_InitUnsramFirstPage`, the stats and magic pages
+        zero, the game flags from `lut_InitGameFlags`, as before -- but with
+        the mark set, `RANDO_SAVE` through the mark (`GAMEKEEP_LEN`, 47
+        bytes: the settings, the defeated, the mark) kept as they were.  So
+        the title holds the game last played, through any number of resets
+        and power-offs: beat Chaos, sit through the ending, reset, and he is
+        in the Bestiary; kills never saved too.  Continue replaces it with
+        the save's, New Game's build with the new world's.  A word at a
+        time, native: 1,800 instructions with the game kept, against the
+        game's own loop's 2,800, so a soft reset's way to Continue is no
+        slower.
+      - **The title's row** (`opt_bstready`): a marked page is shown as it
+        is; an unmarked one -- a fresh cartridge, a New Game backed out of
+        -- takes the save's settings and defeated and is marked (user:
+        "copy the saved game over to the working state"); with no save
+        either, the game's error sound (`PlaySFX_Error`) and the title
+        stays.  The screen reads the page directly; the randomizer's code
+        reads a game's settings there anyway (the tables, the rolls, the
+        cache's match).
+      - **The cache.**  `rando_bsttables` clears the tag before it writes
+        over a cache that does not match the page's settings.  A soft
+        reset's Continue of the game last played finds its cache as it was;
+        of another, it rebuilds, as it would have anyway.
+      - **Checked** (`test_bestiary`): a matching cache untouched, its tag
+        kept; another game's tagged stale and the game's tables made;
+        `opt_resetpages` with the mark set, 0 and $FF -- the game kept or
+        all of it the start-up's, and the other three pages -- and the
+        fixed bank calling it once, its own fill gone; `opt_begin` marking
+        and answering as `rando_stale`; New Game's flow, backed out of,
+        unmarking; `opt_bstready`'s three cases; the title's row with no
+        game and no save sounding the error and opening nothing; the
+        start-up table's mark clear.
 
 ### Respond rate
 

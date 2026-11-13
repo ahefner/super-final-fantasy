@@ -15205,10 +15205,9 @@ def test_bestiary():
         cpu.run(bst_bank, SYM[name], limit=5_000_000)
         cpu.s = s
 
-    #  A game saved, as the title finds it: the save's copy whole, and the
-    #  game state's first page GameStart's -- here junk, to tell apart.
-    PAGE0_JUNK = bytes((i * 29 + 7) & 0xFF for i in range(0x30))
-    def save_game(bus, cpu, seed, mask=bytes(16), status=0, pirates=0, scripts=0, skills=0):
+    #  A game in the game state's first page, as the title finds one: its
+    #  settings, its defeated, and the mark that it is a game's (opt_begin).
+    def save_game(bus, cpu, seed, mask=bytes(16), status=0, pirates=0, scripts=0, skills=0, save=False):
         sv = bus.sram
         base = K["RANDO_SAVE"] - 0x6000
         sv[base:base + 4] = seed.to_bytes(4, "little")
@@ -15216,11 +15215,12 @@ def test_bestiary():
         sv[K["RANDO_SCRIPTS"] - 0x6000] = scripts
         sv[K["RANDO_SKILLS"] - 0x6000] = skills
         sv[K["BST_KILLS"] - 0x6000:K["BST_KILLS"] - 0x6000 + 16] = mask
-        cpu.dbr = BANK_0E
-        s = cpu.s
-        cpu.run(BANK_0E, SYM["SaveGame"])
-        cpu.s = s
-        sv[base:base + 0x30] = PAGE0_JUNK
+        sv[K["BST_VALID"] - 0x6000] = K["BST_VALIDVAL"]
+        if save:
+            cpu.dbr = BANK_0E
+            s = cpu.s
+            cpu.run(BANK_0E, SYM["SaveGame"])
+            cpu.s = s
 
     looks = G.looks()
     pics = {}
@@ -15518,43 +15518,127 @@ def test_bestiary():
                 bad.append((swap, e, got, want))
     check("a page's picture in the palettes its battles show, under Palette swap the seed's", bad[:3], [])
 
-    #  The save is the game (user, 2026-11-12: kills saved, a reset, nothing
-    #  lit -- GameStart fills the first page afresh at every reset).  And the
-    #  cache: one that matches the save is used as it is; one that does not
-    #  is another game's, written over, so its tag is cleared -- left set, a
-    #  Continue of that game played on with the Bestiary's tables (user: the
-    #  overworld's tint gone after a reset, the towns' changed).
+    #  The cache (user, 2026-11-12: "a visit to the bestiary screen causes
+    #  the colors to change"): one that matches the game shown is used as it
+    #  is; one that does not is another game's, written over, so its tag is
+    #  cleared -- left set, a Continue of that game played on with the
+    #  Bestiary's tables.
     tagat, tagval = rw("RW_TAG"), K["RW_TAG_VAL"]
     palat = rw("RW_PALPERM")
     SENT = bytes(range(64, 128))
-    def cached(seed_cache, seed_save, valid=True):
+    def cached(seed_cache, seed_game):
         def prep(bus, cpu):
             base = K["RANDO_SAVE"] - 0x6000
-            save_game(bus, cpu, seed_save, bytes([0x5A]) * 16)
-            if not valid:
-                bus.sram[K["sram_assert_55"] - 0x6000] = 0
-            bus.sram[base:base + 4] = seed_cache.to_bytes(4, "little")
-            for k in range(4, K["RANDO_SAVE_SIZE"]):
-                bus.sram[base + k] = bus.sram[base + 0x400 + k]
+            save_game(bus, cpu, seed_cache)
             call(cpu, "rando_ensure", bank=RANDO_BANK)
             bus.wram[palat:palat + 64] = SENT
-            bus.sram[base:base + 0x30] = PAGE0_JUNK
+            save_game(bus, cpu, seed_game, bytes([0x5A]) * 16)
         return prep
     bus, cpu = opened(None, True, prep=cached(seed, seed))
-    check("a cache that matches the save: untouched, its tag kept",
+    check("a cache that matches the game: untouched, its tag kept",
           (bytes(bus.wram[palat:palat + 64]) == SENT, bus.wram[tagat] == tagval), (True, True))
     bus, cpu = opened(None, True, prep=cached(0x00C0FFEE, seed))
-    check("another game's cache: its tag cleared, the save's tables made",
+    check("another game's cache: its tag cleared, the game's tables made",
           (bus.wram[tagat] == tagval, list(bus.wram[palat:palat + 64]) == R.build_palswap(seed)[0],
            bus.wram[bv + 0x17]), (False, True, 16 * 4))   # $5A: four bits a byte
-    bus, cpu = opened(None, True, prep=cached(seed, seed, valid=False))
-    check("no save: nothing defeated, nothing built, the cache untouched",
-          (bus.wram[bv + 0x17], bytes(bus.wram[palat:palat + 64]) == SENT, bus.wram[tagat] == tagval),
-          (0, True, True))
-    base = K["RANDO_SAVE"] - 0x6000
-    bus, cpu = opened(b"\xff" * 16, False, script=[0] * 6 + [0x40, 0, 0, 0])
-    check("...and the first page as the screen found it, once it ends",
-          (cpu.pc, bytes(bus.sram[base:base + 0x30])), (0xFFFE, PAGE0_JUNK))
+
+    #  The working copy kept through reset (user, 2026-11-12: "a sentinel byte
+    #  that indicates whether the working state is valid"), so the Bestiary
+    #  shows the game last played -- Chaos's fall, kills never saved.
+    #  GameStart's pages (opt_resetpages): with the mark, the first page's
+    #  RANDO_SAVE through the mark kept and the rest as the game filled it;
+    #  without, all of it the game's.
+    base, valid = K["RANDO_SAVE"] - 0x6000, K["BST_VALID"] - 0x6000
+    klen = K["GAMEKEEP_LEN"]
+    init = (1 + K["BANK_STARTUPINFO"]) * 0x10000
+    initpage = bytes(ROMDATA[init + K["lut_InitUnsramFirstPage"]:][:256])
+    initflags = bytes(ROMDATA[init + K["lut_InitGameFlags"]:][:256])
+    check("the start-up page: the mark clear, so a fresh game is no game", initpage[valid], 0)
+    bad = []
+    for mark in (K["BST_VALIDVAL"], 0x00, 0xFF):
+        bus, cpu = machine()
+        junk = bytes((i * 37 + 11) & 0xFF for i in range(0x400))
+        bus.sram[0:0x400] = junk
+        bus.sram[valid] = mark
+        call(cpu, "opt_resetpages", bank=CHUNK_OPT_BANK, dbr=0xA7)
+        want0 = bytearray(initpage)
+        if mark == K["BST_VALIDVAL"]:
+            want0[base:base + klen] = bytes(junk[base:base + klen - 1]) + bytes([mark])
+        got = (bytes(bus.sram[0:0x100]) == bytes(want0), bytes(bus.sram[0x100:0x200]) == bytes(256),
+               bytes(bus.sram[0x200:0x300]) == initflags, bytes(bus.sram[0x300:0x400]) == bytes(256))
+        if got != (True, True, True, True):
+            bad.append((hex(mark), got))
+    check("GameStart's pages: the game kept with the mark, all the start-up's without", bad, [])
+    #  ...the fixed bank's loop gone for it, once.
+    rp = SYM["opt_resetpages"]
+    fixed = bytes(ROMDATA[(0xA7 & 0x1F) * 0x10000 + 0xC000:][:0x4000])
+    ip = K["lut_InitUnsramFirstPage"]
+    check("GameStart calls opt_resetpages once, its own fill gone",
+          (fixed.count(bytes([0x22, rp & 0xFF, rp >> 8, CHUNK_OPT_BANK])),
+           fixed.count(bytes([0xBD, ip & 0xFF, ip >> 8]))), (1, 0))
+
+    #  opt_begin, at @Begin: the mark set, and rando_stale's answer.
+    bad = []
+    for match in (True, False):
+        bus, cpu = machine()
+        save_game(bus, cpu, seed)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        if not match:
+            bus.sram[base] ^= 1
+        bus.sram[valid] = 0
+        call(cpu, "opt_begin", bank=CHUNK_OPT_BANK, dbr=0xA7)
+        if (bus.sram[valid], bool(cpu.p & 1)) != (K["BST_VALIDVAL"], not match):
+            bad.append((match, bus.sram[valid], cpu.p & 1))
+    check("opt_begin: the page marked a game's, and the cache's answer", bad, [])
+
+    #  New Game's flow clears it as it starts: backed out of, the page is no
+    #  game's.  (The list stubbed to answer B.)
+    stub = bytearray(ROMDATA)
+    nl = (OPTMENU_BANK & 0x1F) * 0x10000 + SYM["opt_newgamelist"]
+    stub[nl:nl + 3] = bytes([0xA9, K["NGPICK_BACK"], 0x6B])
+    bus, cpu = machine()
+    bus.rom = bytes(stub)
+    save_game(bus, cpu, seed)
+    call(cpu, "ng_flow", bank=0xA1 + K["CHUNK_NEWGAME"])
+    check("New Game's flow, backed out of: the page no longer a game's", bus.sram[valid], 0)
+
+    #  The title's row (opt_bstready): a marked game as it is; none, the
+    #  save's copied in and marked; neither, the error sound and nothing.
+    def ready(mark, save):
+        bus, cpu = machine()
+        save_game(bus, cpu, 0x5AFE5AFE, b"\x33" * 16, save=save)
+        save_game(bus, cpu, seed, b"\xcc" * 16)
+        bus.sram[valid] = mark
+        cpu.dbr = 0xA7
+        cpu.run(CHUNK_OPT_BANK, SYM["opt_bstready"])
+        return bool(cpu.p & 1), bytes(bus.sram[base:base + 4]), bytes(bus.sram[K["BST_KILLS"] - 0x6000:][:16]), \
+            bus.sram[valid]
+    check("opt_bstready: a marked game as it is",
+          ready(K["BST_VALIDVAL"], True), (False, seed.to_bytes(4, "little"), b"\xcc" * 16, K["BST_VALIDVAL"]))
+    check("...unmarked, the save's settings and defeated copied in, marked",
+          ready(0, True), (False, (0x5AFE5AFE).to_bytes(4, "little"), b"\x33" * 16, K["BST_VALIDVAL"]))
+    check("...unmarked and no save: C set, the page untouched",
+          ready(0, False), (True, seed.to_bytes(4, "little"), b"\xcc" * 16, 0))
+    bus, cpu = machine()
+    save_game(bus, cpu, seed)
+    bus.sram[valid] = 0
+    bus.wram[K["cursor"]], bus.wram[K["joy_a"]] = T_BEST, 1
+    errs, shown = [], []
+    st, err, bsts = cpu.step, SYM["PlaySFX_Error"], SYM["bst_show"]
+    def spy():
+        if cpu.pc == err:
+            errs.append(1)
+            lo = cpu.pull(); hi = cpu.pull()          # stood in for: its RTS
+            cpu.pc = ((hi << 8) | lo) + 1
+            return
+        if cpu.pc == bsts and cpu.pbr == bst_bank:
+            shown.append(1)
+        st()
+    cpu.step = spy
+    cpu.dbr = BANK_0E
+    cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
+    check("the title's Bestiary row with no game and no save: the error sound, nothing opened",
+          (len(errs), len(shown), bool(cpu.p & 0x80)), (1, 0, True))
 
 
 def test_rando_enemyai():
@@ -15883,12 +15967,12 @@ def test_rando_begin():
     during one, and only then: a warm Continue keeps its music.  The code is
     found by its bytes and run alone, from where it sits."""
     fixed = (0xA7 & 0x1F) * 0x10000
-    a, e, d = SYM["rando_stale"], SYM["rando_ensure"], SYM["DisableAPU"]
+    a, e, d = SYM["opt_begin"], SYM["rando_ensure"], SYM["DisableAPU"]
     cb = SYM["rando_coldbuild"]
-    op = bytes([0x22, a & 0xFF, a >> 8, RANDO_BANK])
+    op = bytes([0x22, a & 0xFF, a >> 8, CHUNK_OPT_BANK])   # opt_begin: the mark, then rando_stale
     img = ROMDATA[fixed + 0xC000:fixed + 0x10000]
     at = [i for i in range(len(img) - 3) if img[i:i + 4] == op]
-    check("the fixed bank asks rando_stale once", len(at), 1)
+    check("the fixed bank asks rando_stale once, through opt_begin", len(at), 1)
     if len(at) != 1:
         return
     pc = 0xC000 + at[0]

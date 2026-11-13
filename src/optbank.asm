@@ -53,6 +53,7 @@
 .export opt_scaleenemies, opt_scaleatk
 .export opt_scalestat, opt_isboss, opt_statrange, lut_StatLog   ; for the tests
 .export opt_isbossfar, opt_bstscale, opt_bstkillx, opt_bstkilly
+.export opt_begin, opt_resetpages, opt_bstready
 .export opt_magicdata, opt_healroll, opt_magictarget
 .export opt_spellbuffed, opt_spelltarget, opt_spellfixed, opt_lockroll
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
@@ -74,6 +75,7 @@
 .export opt_orbattr             ; orbbox_shards.patch
 .import bst_show, help_show
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel, PlaySFX_MenuMove
+.import PlaySFX_Error, rando_stale
 .import rando_stir, rando_newgame, rando_caster
 .import opt_weapbyte, opt_armbyte, opt_spellbytefar
 .import DrawItemTargetMenu
@@ -932,6 +934,13 @@ opt_titlechoose:
   @screen:
     CMP #TITLEROW_RESPOND
     BEQ @nothing                ; nothing to open: left and right are its
+    CMP #TITLEROW_BESTIARY
+    BNE :+
+    JSR opt_bstready            ; a game to show, the page's or the save's?
+    BCC :+
+    JSR PlaySFX_Error           ; neither: the game's error sound, and stay
+    BRA @nothing
+:   LDA f:TITLE_OPENROW
     JSR opt_titlechirp          ; (A, the row, kept)
     CMP #TITLEROW_BESTIARY
     BEQ @bestiary
@@ -2551,6 +2560,101 @@ opt_scaleenemies:
     CMP #$09
     BCC @slot
     RTL
+
+;;  The game state's first page as the Bestiary's (user, 2026-11-12: the
+;;  working copy, kept through reset, a mark saying it is a game's).
+;;
+;;  opt_begin -- @Begin, where New Game and Continue meet: the page is a
+;;  game's from here.  Then rando_stale, whose answer @Begin asks for.  By
+;;  JSL, emulation mode.
+opt_begin:
+    LDA #BST_VALIDVAL
+    STA f:BST_VALIDFAR
+    JML rando_stale + RANDOFAR
+
+;;  opt_resetpages -- GameStart's four pages (optreset.patch), as its loop
+;;  filled them: the first from lut_InitUnsramFirstPage, the stats and magic
+;;  pages zero, the game flags from lut_InitGameFlags -- but with the mark
+;;  set, the first page's game kept, RANDO_SAVE through the mark (the
+;;  settings, the defeated): a reset no longer forgets the game last played.
+;;  By JSL from GameStart, emulation mode; A, X, Y not kept.
+INITPAGEFAR  = (CHUNK0 + BANK_STARTUPINFO) * $10000 + lut_InitUnsramFirstPage
+INITFLAGSFAR = (CHUNK0 + BANK_STARTUPINFO) * $10000 + lut_InitGameFlags
+UNSRAMFAR    = CHUNK0 * $10000 + unsram
+opt_resetpages:
+    LDA f:BST_VALIDFAR
+    CMP #BST_VALIDVAL
+    PHP                         ; Z: the game kept
+    BNE @fill
+    LDX #GAMEKEEP_LEN - 1
+  @keep:
+    LDA f:UNSRAMFAR + (RANDO_SAVE - unsram), X
+    STA f:GAMEKEEP, X
+    DEX
+    BPL @keep
+  @fill:
+    ;  A word at a time, native: cheaper than the game's byte loop it
+    ;  replaces even with the keeping, so the soft reset's way to Continue
+    ;  gains nothing (soft-reset path: no frames added).
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    LDX #$0000
+  @page:
+    LDA f:INITPAGEFAR, X
+    STA f:UNSRAMFAR, X
+    LDA f:INITFLAGSFAR, X
+    STA f:CHUNK0 * $10000 + game_flags, X
+    LDA #0
+    STA f:CHUNK0 * $10000 + ch_stats, X
+    STA f:CHUNK0 * $10000 + ch_magicdata, X
+    INX
+    INX
+    CPX #$0100
+    BCC @page
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLP
+    BNE @out
+    LDX #GAMEKEEP_LEN - 1
+  @back:
+    LDA f:GAMEKEEP, X
+    STA f:UNSRAMFAR + (RANDO_SAVE - unsram), X
+    DEX
+    BPL @back
+  @out:
+    RTL
+
+;;  opt_bstready -- the title's Bestiary row: is there a game to show?  The
+;;  first page's, marked one; or with none, the save's, its settings and
+;;  defeated copied into the page and the page marked (user: "copy the saved
+;;  game over to the working state"); or neither, C set, and the title plays
+;;  the error sound.  Emulation mode, the title's DBR.  A, X not kept.
+opt_bstready:
+    LDA f:BST_VALIDFAR
+    CMP #BST_VALIDVAL
+    BEQ @ok
+    JSR opt_savevalid
+    BCS @none
+    LDX #BST_VALID - RANDO_SAVE - 1
+  @copy:
+    LDA f:BSTSAVEFAR + RANDO_SAVE, X
+    STA f:UNSRAMFAR + (RANDO_SAVE - unsram), X
+    DEX
+    BPL @copy
+    LDA #BST_VALIDVAL
+    STA f:BST_VALIDFAR
+  @ok:
+    CLC
+    RTS
+  @none:
+    SEC
+    RTS
 
 ;;  An enemy defeated in a battle (the bstkill patches): its bit set in the
 ;;  game state's mask, BST_KILLS, for the Bestiary, and its slot emptied as

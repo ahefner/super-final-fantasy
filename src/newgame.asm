@@ -187,6 +187,8 @@ lut_NgpBit:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ng_flow:
+    LDA #0                      ; the flow writes the game state's first page
+    STA f:BST_VALIDFAR          ;   from here: no longer a game's (opt_begin)
   @list:
     LDA #0
     STA f:NGF_HAVE              ; a choice here starts the map edits afresh

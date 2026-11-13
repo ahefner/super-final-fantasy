@@ -1,0 +1,23 @@
+--- OLD
+    LDX #$00                        ; Loop $100 times to fill each page of unsram
+    : LDA lut_InitUnsramFirstPage, X; Page 0 of unsram is loaded from this table
+      STA unsram, X
+      
+      LDA #0                        ; stat page filled with zeros (proper stats will be assigned
+      STA ch_stats, X               ;   later after party generation)
+      
+      LDA lut_InitGameFlags, X      ; game flags page loaded from this table
+      STA game_flags, X
+      
+      LDA #0                        ; zero magic data page (proper MP assigned after
+      STA ch_magicdata, X           ; party generation
+      
+      INX                           ; loop for the full page
+      BNE :-
+--- NEW
+.import opt_resetpages
+    ;  The four pages as this loop filled them -- the first from
+    ;  lut_InitUnsramFirstPage, the stats and magic pages zero, the game flags
+    ;  from lut_InitGameFlags -- but the first page's game kept when it is
+    ;  marked one: its settings, the Bestiary's defeated (optreset).
+    JSL opt_resetpages + OPTFAR
