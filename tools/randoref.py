@@ -2177,6 +2177,14 @@ def incentive_counts(keyitems, items3, gear2, early, owedits):
     return len(inc), len(inclocs), len(inclocs & reach)
 
 
+def loose_count(items3):
+    """The key items their rows place loose (owscreen.asm's ows_loose): every
+    item placed that is no incentive.  The screens' Loose Items line is these
+    and the incentives past the locations (user, 2026-11-13)."""
+    _, items, inc, _, _ = place_setup(KEYITEMS_STANDARD, items3, [0, 0], 0)
+    return len(items) - len(inc)
+
+
 def seed_summary(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=GOAL_4ORBS, rebel=False):
     """The Seed Summary's (sumscreen.asm, from place.inc's pl_summary): the
     incentive items, the spots the settings name, those the party reaches

@@ -67,6 +67,7 @@
 .export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
 .export lut_OwsName, lut_OwsBit16       ; for tools/test_options.py: the screen's edits as the presets name them
 .export lut_OwsIncLabel          ; the Seed Summary's labels too (sumscreen.asm)
+.export ows_loosefar             ; ...and its loose count
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue
@@ -192,11 +193,12 @@ V_BACK    = OWV+$4E             ; nonzero: B ended it, not START
 V_INCUP   = OWV+$4F             ; nonzero: the numbers are where the description goes
 V_INCV    = OWV+$50             ; 5: the numbers, lut_OwsIncLabel's order: the incentive
 V_INCN    = V_INCV + 0          ;   items, the locations, those reachable (the check's
-V_INCS    = V_INCV + 1          ;   ES_NREACH), the excess loose, and the unreachable
-V_INCR    = V_INCV + 2          ;   loose
+V_INCS    = V_INCV + 1          ;   ES_NREACH), the loose (set Loose, and the excess),
+V_INCR    = V_INCV + 2          ;   and the unreachable loose
 V_INCL1   = V_INCV + 3
 V_INCL2   = V_INCV + 4
-.assert V_INCV + 5 <= OWS_VARS + $100, error, "the screen's variables outgrow their page"
+V_INCLOOSE = OWV+$55            ; the key items their rows set Loose (ows_loose)
+.assert V_INCLOOSE < OWS_VARS + $100, error, "the screen's variables outgrow their page"
 
 ;  The same, with DBR = $7F.
 aACTIVE   = .LOWORD(V_ACTIVE)
@@ -2533,7 +2535,58 @@ ows_incinit:
     CLC
     ADC f:V_INCN
     STA f:V_INCN
+    JSR ows_loose
+    STA f:V_INCLOOSE
     RTS
+
+;;  The key items placed loose by their rows, as pl_items places them
+;;  (randoref.loose_count): each row set Loose, and the Other items row's
+;;  nine at once.  A removed row's item is nowhere, a Free row's held, and
+;;  a value the build does not know an incentive.  The Loose Items line is
+;;  these and the incentives past the locations (user, 2026-11-13: Oops All
+;;  Loose read 0 with nineteen loose).  Out: A.  A8 I16; X kept.
+    .a8
+    .i16
+ows_loose:
+    PHX
+    LDA #0
+    PHA                         ; the count
+    LDX #$0000                  ; the row
+  @row:
+    JSR ows_rowval
+    CMP #ITEM_LOOSE
+    BNE :+
+    LDA 1, S
+    INC A
+    STA 1, S
+:   INX
+    CPX #ITEMROW_OTHER
+    BCC @row
+    JSR ows_rowval              ; Other items: all nine, or none
+    CMP #ITEM_LOOSE
+    BNE :+
+    LDA 1, S
+    CLC
+    ADC #OTHER_ITEMS_N
+    STA 1, S
+:   PLA
+    PLX
+    RTS
+
+;;  ows_loose for the Seed Summary (sumscreen.asm), from the menus'
+;;  emulation mode by JSL.  Out: A.
+ows_loosefar:
+    CLC
+    XCE
+    REP #$10
+    .i16
+    JSR ows_loose
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    RTL
+    .i16
 
 ;;  Item row X's value (RANDO_ITEMS, two bits a row).  A8 I16; X kept.
     .a8
@@ -2570,9 +2623,10 @@ ows_rowval:
 ;;  The numbers, where the description goes, until the hand moves (user,
 ;;  2026-10-26): Select shows them.  Each line a label and two cells
 ;;  (lut_OwsIncLabel): the incentive items, the locations the settings name,
-;;  those reachable at all (pl_reachspots's count), the excess loose (FFR's
-;;  rule: incentives past the locations) and the unreachable loose (those
-;;  loose besides for want of reachable locations).  Under Map shuffle the
+;;  those reachable at all (pl_reachspots's count), the loose items (those
+;;  their rows set Loose, and FFR's excess: incentives past the locations)
+;;  and the unreachable loose (those loose besides for want of reachable
+;;  locations).  Under Map shuffle the
 ;;  reachable and the unreachable loose are not shown: the wiring is the
 ;;  seed's, not yet chosen (user: "Hide always").  A8 I16.
     .a8
@@ -2597,6 +2651,10 @@ ows_incdesc:
 :   SEC
     SBC f:V_INCL1               ; ...less the excess
     STA f:V_INCL2
+    LDA f:V_INCL1               ; the loose: the excess and those set Loose
+    CLC
+    ADC f:V_INCLOOSE
+    STA f:V_INCL1
     LDX #.LOWORD(lut_OwsIncOrder)
     LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
     BEQ :+

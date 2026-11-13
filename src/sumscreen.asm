@@ -39,6 +39,7 @@
 .import opt_sfx_sel, opt_waitrelease
 .import lut_ValGoal, lut_ValMapShuffle
 .import lut_OwsIncLabel         ; the map edit screen's (owscreen.asm)
+.import ows_loosefar
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
 .import hal_clearnt, hal_ntblit
 
@@ -284,9 +285,9 @@ sum_readout:
 
 ;;  The five numbers, worked out as the map edit screen's Select works its
 ;;  out (ows_incdesc), from placement's (pl_summary): the incentive items;
-;;  the locations the setting names; those reached; the excess loose, past
-;;  the locations; and the unreachable loose, past those reached, less the
-;;  excess.  Each a line: its label, from the map edit screen's own table,
+;;  the locations the setting names; those reached; the loose, those their
+;;  rows set Loose (ows_loosefar) and the excess past the locations; and the
+;;  unreachable loose, past those reached, less the excess.  Each a line: its label, from the map edit screen's own table,
 ;;  and two cells.
 sum_numbers:
     LDA f:RW_SUMINC
@@ -314,6 +315,10 @@ sum_numbers:
 :   SEC
     SBC f:SUM_N + 3             ; ...less the excess
     STA f:SUM_N + 4
+    JSL ows_loosefar + OWSFAR   ; the loose: the excess and those set Loose
+    CLC
+    ADC f:SUM_N + 3
+    STA f:SUM_N + 3
     LDA #0
   @line:
     PHA

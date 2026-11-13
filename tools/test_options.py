@@ -1259,7 +1259,7 @@ def owsinc_cart(job):
             cpu.step()
         if not bus.wram[rw("OWS_TICKON")] and not bus.wram[V + 0x49]:
             break
-    return (bus.wram[V + 0x46],) + tuple(bus.wram[V + 0x50:V + 0x53])
+    return (bus.wram[V + 0x46],) + tuple(bus.wram[V + 0x50:V + 0x53]) + (bus.wram[V + 0x55],)
 
 
 def test_owsinc():
@@ -1273,13 +1273,16 @@ def test_owsinc():
     shuffle the reachable and the unreachable loose are not shown; under
     Key items Vanilla, Select shows nothing.  The column is the edits
     alone."""
-    rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x29, 0x96, 0x15]]
+    oops = [0x65, 0x55, 0x55]           # Oops All Loose: every row Loose, the BRIDGE free
+    rows = [[0x00, 0, 0], [0x2C, 0, 0], [0x23, 0, 0], [0x2F, 0, 0], [0x29, 0x96, 0x15], oops,
+            [0x2D, 0x55, 0x45]]
     jobs = [(ki, r, g, 0x0F, f) for ki in (1, 2) for r in rows for g in ([0x81, 0], [0xFF, 0x01])
             for f in (0, 0x1341, 0x0004)]
     jobs += [(0, [0x2C, 0, 0], [0x81, 0], 0x0F, 0), (2, [0x2C, 0, 0], [0, 0], 0x00, 0x0BFF)]
     got = pmap(owsinc_cart, jobs)
-    want = [(0,) if ki == 0 else (1,) + R.incentive_counts(ki, r, g, e, f) for ki, r, g, e, f in jobs]
-    check("the numbers: randoref's, every setting tried",
+    want = [(0,) if ki == 0 else (1,) + R.incentive_counts(ki, r, g, e, f) + (R.loose_count(r),)
+            for ki, r, g, e, f in jobs]
+    check("the numbers, the key items set Loose among them: randoref's, every setting tried",
           [(j, c, w) for j, c, w in zip(jobs, got, want) if c[:len(w)] != w][:3], [])
     check("...reachable short of the locations among them, and incentives past them",
           (any(w[3] < w[2] for w in want if len(w) > 1), any(w[1] > w[2] for w in want if len(w) > 1)), (True, True))
@@ -1358,6 +1361,17 @@ def test_owsinc():
     bus, lines, _ = up(1, [0x2C, 0, 0], [0xFF, 0x01], [0, 0, 0x20, 0], entrances=1)
     check("Map shuffle: the reachable and the unreachable loose not shown",
           lines, ["Incentive Items   27", "Locations         21", "Loose Items        6", "", ""])
+    #  Loose Items: the key items set Loose and the excess (user, 2026-11-13:
+    #  Oops All Loose read 0, nineteen loose).
+    bus, lines, _ = up(1, oops, [0, 0], [0, 0, 0x20, 0])
+    check("Oops All Loose's rows: every key item loose, none an incentive",
+          lines, ["Incentive Items    0", "Locations         21", "Reachable         21",
+                  "Loose Items       19", "Unreachable Loose  0"])
+    #  The FLOATER removed, the BRIDGE free, the CANAL and the ROD incentives
+    #  with every gear row, the rest Loose and Other items too: 16 set Loose.
+    bus, lines, _ = up(1, [0x2D, 0x55, 0x45], [0xFF, 0x01], [0, 0, 0x20, 0])
+    check("...some set Loose, the rest incentives: those set Loose counted",
+          lines[3], "Loose Items       %d" % R.loose_count([0x2D, 0x55, 0x45]))
     bus, lines, _ = up(0, [0x00, 0, 0], [0x81, 0x00], [0, 0, 0x20, 0])
     check("Key items Vanilla: Select shows nothing, the description stays",
           (lines, bus.wram[V + 0x4F]), (desc(0), 0))
@@ -8048,13 +8062,13 @@ def test_sumscreen():
     check("...each name its place's: the NPC's, the chest's map, the caravan",
           [(n, L.LOCS[c][5]) for c, n in recs if within.get(n, n) not in L.LOCS[c][5].replace(" ", "")], [])
 
-    def model(seed, goal, ent, items0, wide, n, r, shown):
+    def model(seed, goal, ent, items0, wide, n, r, shown, items12=(0, 0)):
         """The screen as the user approved it: the rows 2-26 drawn, as text."""
         S = 25 if wide else 21
         line = lambda left, right="": "  " + left + " " * (28 - len(left) - len(right)) + right
         removed = ["None", "SHIP", "AIRSHIP", "SHIP, AIRSHIP"][(items0 & 3 == 3) | (items0 >> 2 & 3 == 3) << 1]
         l1 = max(n - S, 0)
-        nums = [n, S, r, l1, max(n - r, 0) - l1]
+        nums = [n, S, r, l1 + R.loose_count([items0] + list(items12)), max(n - r, 0) - l1]
         rows = {2: " " * 10 + "SEED %08X" % seed,
                 4: line("Goal", (["4 orbs", "3 orbs", "2 orbs", "1 orb", "0 orbs"] +
                                  ["%d shards" % k for k in range(16, 40, 4)])[goal if goal < 11 else 0]),
@@ -8084,13 +8098,13 @@ def test_sumscreen():
         bus.io[0x4218] = nes & 0x80
         bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
 
-    def made_up(seed, goal, ent, items0, wide, n, r, shown, junk=0):
+    def made_up(seed, goal, ent, items0, wide, n, r, shown, junk=0, items12=(0, 0)):
         """The screen over a record made up, no world built: what it drew."""
         bus, cpu = machine()
         in_vblank(bus)
         bus.sram[SAVE:SAVE + 4] = seed.to_bytes(4, "little")
         bus.sram[sv("RANDO_GOAL")] = goal
-        bus.sram[sv("RANDO_ITEMS")] = items0
+        bus.sram[sv("RANDO_ITEMS"):sv("RANDO_ITEMS") + 3] = bytes([items0] + list(items12))
         bus.sram[sv("RANDO_KEYITEMS")] = K["KEYITEMS_WIDE"] if wide else K["KEYITEMS_STANDARD"]
         bus.wram[rw("RW_ENTRANCES")] = ent
         bus.wram[rw("RW_SUMINC")] = n
@@ -8109,10 +8123,12 @@ def test_sumscreen():
              (0x80706050, 3, 3, 0x2F, True, 29, 22, wide - {2, 69, 134}, 0xFF),
              (0x12345678, 4, 0xFF, 0x0B, False, 29, 15, set(locs[::3]) & std, 1),
              (0x9ABCDEF0, 5, 0, 0x0E, True, 0, 0, set(), 1),
-             (0xFFFFFFFF, 0xFF, 1, 0xFF, False, 9, 21, {234, 246, 2, 247}, 0)]
+             (0xFFFFFFFF, 0xFF, 1, 0xFF, False, 9, 21, {234, 246, 2, 247}, 0),
+             (0x0D0D0D0D, 0, 0, 0x65, False, 0, 21, std, 0, (0x55, 0x55)),     # Oops All Loose's rows
+             (0x0E0E0E0E, 1, 0, 0x2D, True, 30, 22, wide - {2, 69, 134}, 0, (0x55, 0x45))]
     bad = []
     for case in cases:
-        got, want = made_up(*case), model(*case[:8])
+        got, want = made_up(*case), model(*case[:8], items12=case[9] if len(case) > 9 else (0, 0))
         if got != want:
             bad.append((hex(case[0]), [(k, got.get(k), want.get(k)) for k in sorted(set(got) | set(want))
                                        if got.get(k) != want.get(k)][:3]))
@@ -8129,6 +8145,8 @@ def test_sumscreen():
               20: "  Nerrick       Ordeals", 21: "  Smith         Sea Shrine", 22: "  Sarda         Sky Palace",
               23: "  Canoe Sage    Titan's Trove", 24: "  Fairy         Cardia", 25: "  Cube Robot    Caravan",
               26: "  Lefein"})
+    check("...Oops All Loose's rows: 19 Loose Items, none an incentive",
+          made_up(*cases[7])[11], "  Loose Items               19")
     check("...inside the cells a CRT shows: columns 1-30, rows 2-27",
           [k for case in cases for k, t in made_up(*case).items() if not (2 <= k <= 27 and len(t) <= 31
                                                                         and not t[:1].strip())], [])
@@ -8220,7 +8238,7 @@ def test_sumscreen():
         n, S, r, reached = R.seed_summary(seed, g("RANDO_KEYITEMS"), items3, gear2, g("RANDO_EARLY"),
                                           g("RANDO_ENTRANCES"), owedits, g("RANDO_GOAL"))
         want = model(seed, g("RANDO_GOAL"), bus.wram[rw("RW_ENTRANCES")], items3[0],
-                     g("RANDO_KEYITEMS") == K["KEYITEMS_WIDE"], n, r, reached)
+                     g("RANDO_KEYITEMS") == K["KEYITEMS_WIDE"], n, r, reached, items3[1:])
         #  The colours: the menus' palette (cur_pal) as the HAL makes it, the
         #  roll's own gone.
         pal = bus.wram[K["cur_pal"]:K["cur_pal"] + 16]

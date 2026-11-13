@@ -815,9 +815,10 @@ are off through the build (`MENU_TICKON`); the roll screen plays its own.
         labels (`lut_OwsIncLabel`, read from its chunk) and worked as its
         Select works them: the incentive items, the locations the setting
         names (21 or 25), those the party reaches holding every key item,
-        the excess loose (past the locations) and the unreachable loose
-        (past those reached, less the excess).  All five here, Map shuffle
-        or not: the wiring is chosen;
+        the loose items (those set Loose, and the excess past the
+        locations; below, "The numbers, on Select") and the unreachable
+        loose (past those reached, less the excess).  All five here, Map
+        shuffle or not: the wiring is chosen;
       - from row 14, the incentive places the party can reach, by name:
         the thirteen people on the left (King, Princess, Bikke, Astos,
         Matoya, Elf Prince, Nerrick, Smith, Sarda, Canoe Sage, Fairy, Cube
@@ -3074,8 +3075,9 @@ minimap, the title and description beside the zoom.
     `lut_OwsIncLabel`, the user's labels): Incentive Items, as placement
     takes them (`pl_items`); Locations, the settings' 21 or 25; Reachable,
     holding every key item to place (`pl_reachspots`'s count); Loose Items
-    ("Excess Loose" until 2026-10-27, user), FFR's rule, the incentives past
-    the locations; and Unreachable Loose,
+    ("Excess Loose" until 2026-10-27, user), the key items their rows set
+    Loose and, FFR's rule, the incentives past the locations; and
+    Unreachable Loose,
     those loose besides for want of reachable locations -- the removals and
     the edits.  They stay until the hand moves, and are drawn again after
     every check while they are up.  A Select pressed while a check runs is
@@ -3092,6 +3094,20 @@ minimap, the title and description beside the zoom.
     the numbers to `randoref.incentive_counts` over 62 settings, the text,
     a tick redrawing them, Select during a check, a move undoing it, Map
     shuffle's three lines, and the Vanilla screen without them.
+  - **Loose Items counts every loose key item** (user, 2026-11-13: "on the
+    seed stats screen, it reads 0 loose" for Oops All Loose; asked, "Every
+    loose item").  It had been the excess alone, FFR's "excess loose", so a
+    preset that sets every row Loose -- no incentive items, nothing to
+    overflow -- read 0 with nineteen key items loose (ten rows, the BRIDGE
+    free, and Other items' nine).  Now it is those their rows set Loose,
+    counted as `pl_items` places them (`ows_loose`: a row set Loose, Other
+    items' nine at once; removed, Free and unknown values not), and the
+    excess on top; Unreachable Loose is as it was.  The Seed Summary calls
+    the same count (`ows_loosefar`, from the menus' emulation mode), the
+    randomizer's chunk having no room for it in `pl_summary`.  Built, not
+    yet played.  `test_owsinc` holds the count to `randoref.loose_count`
+    over every setting it tries, Oops All Loose's rows among them ("Loose
+    Items 19"), and `test_sumscreen`'s model adds it.
   - **Blue is red** while the ticked edits cannot be won (user, 2026-10-18;
     played 2026-10-28): the backdrop, which the minimap's ocean and the
     boxes are, and the selection's flashing ocean (`lut_OwsBack`), checked
