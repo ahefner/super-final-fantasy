@@ -22,6 +22,7 @@
 .include "optmenu.inc"
 
 .export help_show
+.export help_draw, lut_HelpLines    ; for the tests
 .import opt_menu_breathe, opt_menu_fillbg, opt_menu_descppu
 .import opt_sfx_sel, opt_waitrelease
 .import ClearOAM, CallMusicPlay, UpdateJoy, WaitForVBlank_L
@@ -72,30 +73,38 @@ help_show:
     PLB
     RTL
 
-;;  Each line of lut_HelpLines at its row.
+;;  Each line of lut_HelpLines at its row.  A pointer walks the table a line
+;;  at a time (the description's, unused here): an 8-bit index ran out in the
+;;  ninth line, wrapped to the title's text, and stopped at its first space.
 help_draw:
-    LDY #0
+    LDA #<lut_HelpLines
+    STA OPTMENU_DESC
+    LDA #>lut_HelpLines
+    STA OPTMENU_DESC + 1
   @line:
-    LDA lut_HelpLines, Y        ; its row, or $FF at the end
+    LDY #0
+    LDA (OPTMENU_DESC), Y       ; its row, or $FF at the end
     CMP #$FF
     BEQ @done
-    PHA
+    STA OPTMENU_ROWNUM
     INY
     LDX #0
   @c:
-    LDA lut_HelpLines, Y
+    LDA (OPTMENU_DESC), Y
     STA f:NTSTAGE, X
     INY
     INX
     CPX #HELP_LINEW
     BCC @c
-    PLA
-    PHY
-    STA OPTMENU_ROWNUM
     JSR opt_menu_descppu
     LDX #HELP_LINEW
     JSL hal_ntblit + HALFAR
-    PLY
+    LDA OPTMENU_DESC            ; on to the next line
+    CLC
+    ADC #HELP_LINEW + 1
+    STA OPTMENU_DESC
+    BCC @line
+    INC OPTMENU_DESC + 1
     BRA @line
   @done:
     RTS

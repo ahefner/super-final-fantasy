@@ -80,6 +80,15 @@ screen's chunk) is a placeholder page: "HELP" and "Instructions will go
 here.", A, B or START back; the user's text for it is to come
 (`lut_HelpLines`).  The Bestiary no longer shows itself at power-on.
 
+The Help page drew only eight lines (user, 2026-11-13, writing its text: the
+ninth came out garbled and the page stopped there).  `help_draw` walked the
+table with an 8-bit index; a line is 29 bytes, so the ninth ran past 255,
+wrapped into the title's line, and took its first space -- $FF, the end
+marker's byte -- for the end.  It walks a pointer a line at a time now
+(`OPTMENU_DESC`, which the page otherwise leaves alone), so the table can be
+any length.  `test_helpdraw` draws a made-up table of all 26 rows, bottom
+first, as well as the real one.
+
 Returning from a screen, the title's own rebuild misses one frame of music in
 one of its frame waits -- from Credits as from the Bestiary (the harness's
 timed `Clock`), so not new; not looked into yet.

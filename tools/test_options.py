@@ -16395,6 +16395,66 @@ def test_stackshift():
     check("...eighteen of them", len(chain or []), 18)
 
 
+# --- the Help page ------------------------------------------------------------
+def test_helpdraw():
+    """Every line of lut_HelpLines at its row, all of it (user, 2026-11-13:
+    the ninth line came out garbled and the page stopped there -- an 8-bit
+    index ran past 255 bytes into the title's line, whose first space, $FF,
+    read as the end).  A made-up table of all 26 rows, each line its full
+    width with spaces in it, rows out of order, laid where the real table is;
+    and the real table as it stands."""
+    W = K["DESC_W"]
+    nt = K["NESNT"] - 0x7E0000
+    base = rom_at("lut_HelpLines")
+    code = {_decode(b): b for b in range(256) if _decode(b)}
+    JUNK = 0x55                         # no glyph: a cell nobody wrote
+
+    def table(raw):
+        """(row, text) for each line of a table's bytes, to its $FF."""
+        out, i = [], 0
+        while raw[i] != 0xFF:
+            out.append((raw[i], "".join(_decode(b) or "?" for b in raw[i + 1:i + 1 + W])))
+            i += 1 + W
+        return out, i + 1
+
+    def draw(rom):
+        bus, cpu = machine()
+        bus.rom = rom
+        bus.wram[nt:nt + 32 * 32] = bytes([JUNK]) * (32 * 32)
+        call(cpu, "help_draw", dbr=OPTMENU_BANK)
+        return bus.wram[nt:nt + 32 * 32]
+
+    def drawn(screen, lines, what):
+        rows = dict(lines)
+        got = {r: "".join(_decode(b) or "?" for b in screen[r * 32 + 2:r * 32 + 2 + W])
+               for r in range(32)}
+        check(what + ": each line at its row", {r: got[r] for r in rows}, rows)
+        check(what + ": nothing written anywhere else",
+              [(r, c) for r in range(32) for c in range(32) if screen[r * 32 + c] != JUNK
+               and not (r in rows and 2 <= c < 2 + W)], [])
+
+    real, size = table(ROMDATA[base:])
+    check("the real table: a line or more", len(real) > 0, True)
+    drawn(draw(ROMDATA), real, "the real table")
+
+    words = "the quick brown fox jumps over a lazy dog, then L+X or L+Y"
+    rows = list(range(27, 1, -1))                       # 26 lines, bottom first
+    made = []
+    for n, r in enumerate(rows):
+        text = ("%02d " % r + words[n:] + " " + words)[:W]
+        made.append((r, text))
+    raw = b"".join(bytes([r]) + bytes(code[ch] for ch in t) for r, t in made) + b"\xFF"
+    end = (base & ~0xFFFF) + 0xC000                     # the bank's last byte, +1
+    check("the made-up table fits before the bank's end", base + len(raw) <= end, True)
+    check("past the real table, only the fill: nothing to overwrite",
+          set(ROMDATA[base + size:base + len(raw)]) <= {0}, True)
+    check("the made-up table: over 255 bytes, spaces in its first line",
+          (len(raw) > 255, " " in made[0][1]), (True, True))
+    rom = bytearray(ROMDATA)
+    rom[base:base + len(raw)] = raw
+    drawn(draw(rom), made, "26 lines")
+
+
 # --- the save view ------------------------------------------------------------
 def test_saveview():
     """Select on Continue shows the saved game's seed and RANDOMIZATION rows:
@@ -19818,7 +19878,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_helpdraw, test_saveview,
              test_stackshift)
 
     global JOBS
