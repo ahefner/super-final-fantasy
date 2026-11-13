@@ -355,11 +355,9 @@ lut_Desc_33:  ; TREASURES
   FFPAD {"are not affected."}, 28
 
 lut_Desc_100:  ; Item magic
-  FFLINES 4
-  FFPAD {"Each item that casts a spell"}, 28
-  FFPAD {"casts another, and is named"}, 28
-  FFPAD {"for it. Balanced leaves out"}, 28
-  FFPAD {"the strongest and weakest."}, 28
+  FFLINES 2
+  FFPAD {"Caster items can be shuffled"}, 28
+  FFPAD {"to different spells."}, 28
 
 lut_Desc_99:  ; Thief lockpicking
   FFLINES 4

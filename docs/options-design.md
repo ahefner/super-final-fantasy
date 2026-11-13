@@ -310,7 +310,11 @@ this and go."; Astos "HA, HA, HA! I am Astos! / I possess the [item] / Soon
 I'll have the CROWN!" -- both the user's, Astos's also the fix for his
 padded name before a full stop (`randomization-notes.md` §3).  The rest as
 FFR wrote them.  Played 2026-10-28 in part (user: "partially verified the
-text audit"); Bikke's and Astos's lines seen.  The game's lines that say
+text audit"); Bikke's and Astos's lines seen.  Later (user, 2026-11-13,
+"obnoxious AI verbal fluff"): Item magic's description is "Caster items can
+be shuffled to different spells." in place of "Each item that casts a spell
+casts another, and is named for it. Balanced leaves out the strongest and
+weakest."  The game's lines that say
 where a key item is give way to neutral ones under Key items Standard or
 Wide (user, 2026-10-28; played 2026-10-28 in Improved Vanilla and under
 Entrances, "Seems to work"): fourteen, each approved by the user, listed in
