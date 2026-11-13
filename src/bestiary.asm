@@ -5,8 +5,10 @@
 ;  PROTOTYPE (user, 2026-11-11), on the bestiary branch: the title's
 ;  BESTIARY row opens it (opt_titlechoose, 2026-11-12), the title's music
 ;  playing on; B or START goes back to the title, the hand on BESTIARY.  The
-;  defeated are the game state's (BST_KILLS, which battles mark: the
-;  bstkill patches), and the colours its seed's under Palette swap
+;  defeated are the save's (BST_KILLS, which battles mark in the game state:
+;  the bstkill patches -- read from the save, since GameStart fills the game
+;  state's first page afresh at every reset, so at the title the save is the
+;  game: bst_game), and the colours its seed's under Palette swap
 ;  (fun_btlpal), as its battles show them.  The count is out of 128 rather
 ;  than out of those the seed can produce.  A opens an enemy's page
 ;  (bstdetail.inc).
@@ -70,7 +72,7 @@
 .import opt_padreset
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_BattlePalettes
-.import opt_bstscale, rando_bsttables, fun_btlpal
+.import opt_bstscale, rando_bsttables, fun_btlpal, opt_savevalidfar
 
 .segment "BANK_BESTIARY"
 
@@ -245,6 +247,7 @@ bst_show:
     JSR bst_setup
     JSR bst_loop
     JSR bst_release             ; nothing carries on to the title
+    JSR bst_ungame              ; the first page's settings back as they were
     SEP #$30
     .i8
     SEC
@@ -411,8 +414,9 @@ bst_setup:
     STA f:V_TAIL
     SEP #$20
     .a8
+    JSR bst_game                ; the save's game: its defeated, its settings
     JSR bst_count
-    JSR bst_tables              ; the enemies as the world has them, for A
+    JSR bst_tables              ; the enemies as its world has them, for A
     ;  The rows on screen at the top: -1 (none) to 4, each made and sent.
     LDA #0
   @row:
@@ -553,7 +557,7 @@ bst_count:
     STA f:V_COUNT
     LDX #$0000
   @byte:
-    LDA f:BSTKILLSFAR, X        ; the game state's defeated
+    LDA f:BST_GKILLS, X         ; the save's defeated (bst_game)
   @bit:
     BEQ @next
     LSR A
@@ -586,7 +590,7 @@ bst_seen:
     TAY
     SEP #$20
     .a8
-    LDA f:BSTKILLSFAR, X
+    LDA f:BST_GKILLS, X
   @shift:
     DEY
     BMI @have

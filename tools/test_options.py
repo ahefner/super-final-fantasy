@@ -15205,6 +15205,23 @@ def test_bestiary():
         cpu.run(bst_bank, SYM[name], limit=5_000_000)
         cpu.s = s
 
+    #  A game saved, as the title finds it: the save's copy whole, and the
+    #  game state's first page GameStart's -- here junk, to tell apart.
+    PAGE0_JUNK = bytes((i * 29 + 7) & 0xFF for i in range(0x30))
+    def save_game(bus, cpu, seed, mask=bytes(16), status=0, pirates=0, scripts=0, skills=0):
+        sv = bus.sram
+        base = K["RANDO_SAVE"] - 0x6000
+        sv[base:base + 4] = seed.to_bytes(4, "little")
+        sv[K["RANDO_STATUS"] - 0x6000] = status | pirates << K["PIRATES_SHIFT"]
+        sv[K["RANDO_SCRIPTS"] - 0x6000] = scripts
+        sv[K["RANDO_SKILLS"] - 0x6000] = skills
+        sv[K["BST_KILLS"] - 0x6000:K["BST_KILLS"] - 0x6000 + 16] = mask
+        cpu.dbr = BANK_0E
+        s = cpu.s
+        cpu.run(BANK_0E, SYM["SaveGame"])
+        cpu.s = s
+        sv[base:base + 0x30] = PAGE0_JUNK
+
     looks = G.looks()
     pics = {}
     for e in range(128):
@@ -15332,8 +15349,7 @@ def test_bestiary():
         Clock(bus, cpu)
         for a in range(0x94, 0xAC):
             bus.wram[a] = 0xFF
-        kills = K["BST_KILLS"] - 0x6000
-        bus.sram[kills:kills + 16] = b"\xff" * 16
+        save_game(bus, cpu, 0x12345678, b"\xff" * 16)
         def pad(nes):
             bus.io[0x4218] = nes & 0x80
             bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
@@ -15428,14 +15444,30 @@ def test_bestiary():
     fun = K["OPT_FUN"] - 0x6000
     seed = 0x0D15EA5E
     perm = R.build_palswap(seed)[0]
-    def opened(mask, swap):
+    def opened(mask, swap, prep=None, script=None):
         bus, cpu = machine()
         bus.ppu()
         bus.dma = True
         bus.frames()
-        bus.sram[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
-        bus.sram[kills:kills + 16] = mask
+        if prep:
+            prep(bus, cpu)
+        else:
+            save_game(bus, cpu, seed, mask)
         bus.sram[fun] = (bus.sram[fun] & ~K["FUN_PALSWAP"] & 0xFF) | (K["FUN_PALSWAP"] if swap else 0)
+        if script is not None:                  # to the end, by the pad
+            cpu.pbr, cpu.pc = bst_bank, SYM["bst_show"]
+            cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+            f = 0
+            for _ in range(100_000_000):
+                if cpu.pc == 0xFFFE:
+                    break
+                if cpu.pc == SYM["UpdateJoy"]:
+                    nes = script[f] if f < len(script) else 0
+                    bus.io[0x4218] = nes & 0x80
+                    bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+                    f += 1
+                cpu.step()
+            return bus, cpu
         cpu.pbr, cpu.pc = bst_bank, SYM["bst_show"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
         reads = 0                   # the setup's own wait reads the pad first
@@ -15485,6 +15517,44 @@ def test_bestiary():
             if got != want:
                 bad.append((swap, e, got, want))
     check("a page's picture in the palettes its battles show, under Palette swap the seed's", bad[:3], [])
+
+    #  The save is the game (user, 2026-11-12: kills saved, a reset, nothing
+    #  lit -- GameStart fills the first page afresh at every reset).  And the
+    #  cache: one that matches the save is used as it is; one that does not
+    #  is another game's, written over, so its tag is cleared -- left set, a
+    #  Continue of that game played on with the Bestiary's tables (user: the
+    #  overworld's tint gone after a reset, the towns' changed).
+    tagat, tagval = rw("RW_TAG"), K["RW_TAG_VAL"]
+    palat = rw("RW_PALPERM")
+    SENT = bytes(range(64, 128))
+    def cached(seed_cache, seed_save, valid=True):
+        def prep(bus, cpu):
+            base = K["RANDO_SAVE"] - 0x6000
+            save_game(bus, cpu, seed_save, bytes([0x5A]) * 16)
+            if not valid:
+                bus.sram[K["sram_assert_55"] - 0x6000] = 0
+            bus.sram[base:base + 4] = seed_cache.to_bytes(4, "little")
+            for k in range(4, K["RANDO_SAVE_SIZE"]):
+                bus.sram[base + k] = bus.sram[base + 0x400 + k]
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+            bus.wram[palat:palat + 64] = SENT
+            bus.sram[base:base + 0x30] = PAGE0_JUNK
+        return prep
+    bus, cpu = opened(None, True, prep=cached(seed, seed))
+    check("a cache that matches the save: untouched, its tag kept",
+          (bytes(bus.wram[palat:palat + 64]) == SENT, bus.wram[tagat] == tagval), (True, True))
+    bus, cpu = opened(None, True, prep=cached(0x00C0FFEE, seed))
+    check("another game's cache: its tag cleared, the save's tables made",
+          (bus.wram[tagat] == tagval, list(bus.wram[palat:palat + 64]) == R.build_palswap(seed)[0],
+           bus.wram[bv + 0x17]), (False, True, 16 * 4))   # $5A: four bits a byte
+    bus, cpu = opened(None, True, prep=cached(seed, seed, valid=False))
+    check("no save: nothing defeated, nothing built, the cache untouched",
+          (bus.wram[bv + 0x17], bytes(bus.wram[palat:palat + 64]) == SENT, bus.wram[tagat] == tagval),
+          (0, True, True))
+    base = K["RANDO_SAVE"] - 0x6000
+    bus, cpu = opened(b"\xff" * 16, False, script=[0] * 6 + [0x40, 0, 0, 0])
+    check("...and the first page as the screen found it, once it ends",
+          (cpu.pc, bytes(bus.sram[base:base + 0x30])), (0xFFFE, PAGE0_JUNK))
 
 
 def test_rando_enemyai():

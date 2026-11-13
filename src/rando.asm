@@ -6465,9 +6465,15 @@ rando_dice:
 ;;  placement too, a pause of seconds with the music stopped
 ;;  (rando_coldbuild).  These tables need none of that -- each deal is its
 ;;  own stream of the seed, as the build makes them -- so this makes them
-;;  alone, in steps the Bestiary gives the music turns between.  The tag is
-;;  left as it is: a stale cache stays stale, and the next ensure builds all
-;;  of it, these included.  A cache that matches is used as it is.
+;;  alone, in steps the Bestiary gives the music turns between.  A cache that
+;;  matches is used as it is.  One that does not is another game's -- after a
+;;  soft reset, the world of a game played since the save -- and these steps
+;;  write over part of it, so its tag is cleared first: the next ensure
+;;  builds all of it.  (Left set, a Continue of that other game found its tag
+;;  matching and played on with the Bestiary's tables: user, 2026-11-12, the
+;;  overworld's tint gone after a reset, the towns' changed.)  The Bestiary
+;;  only calls this with the save's block in RANDO_SAVE, the game Continue
+;;  would load, so a Continue the cache would serve never pays for it.
 ;;
 ;;  Two steps, build's own (build_touch; build_ai and deal_palswap), so the
 ;;  Bestiary can give the music its turn between them.  In: A = the step, 0
@@ -6485,7 +6491,8 @@ rando_bsttables:
     JSR stale                   ; step 0: nothing to do if the cache matches
     LDA #0
     BCC @out
-    REP #$30
+    STZ a:wTAG                  ; another game's: written over now, so no
+    REP #$30                    ;   longer to be trusted (rando_coldbuild's)
     JSR zero_words
     SEP #$20
     .a8

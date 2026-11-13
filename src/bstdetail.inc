@@ -104,7 +104,8 @@ V_DGAP    = BV+$A0              ; 2: the sheet's bytes past a row of it
 V_DMAGP   = BV+$A2              ; 2: magic, percent of turns
 V_DSKLP   = BV+$A4              ; 2: skills, percent
 V_DCG     = BV+$A6              ; 6: CGRAM 7, 11 and 15, the grid's
-.assert V_DCG + 6 <= V_ZPSAVE, error, "the detail view's variables run into the saved direct page"
+V_NOGAME  = BV+$AC              ; nonzero: no save to show (bst_game)
+.assert V_NOGAME < V_ZPSAVE, error, "the detail view's variables run into the saved direct page"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -188,12 +189,84 @@ bst_palof:
     PLX
     RTS
 
+;;  The save's game, the one the title would Continue: GameStart fills the
+;;  game state's first page afresh at every power-on and every reset, soft
+;;  ones too, so at the title its settings and defeated are the start-up
+;;  table's, and the save is the only game there is (user, 2026-11-12:
+;;  kills saved, then a reset, and nothing lit).  Its defeated into
+;;  BST_GKILLS, and its settings block into the first page's place -- where
+;;  the randomizer's code reads a game's settings, for the tables, the rolls
+;;  and the cache's match -- the page's own kept in BST_GKEEP until the screen
+;;  ends (bst_ungame).  With no save Continue would load, nothing is defeated
+;;  and nothing is built.  A8 I16.
+    .a8
+    .i16
+bst_game:
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    JSL opt_savevalidfar + OPTFAR
+    LDA #0
+    ROL A                       ; 1: no save
+    CLC
+    XCE
+    REP #$10
+    .i16
+    STA f:V_NOGAME
+    CMP #0
+    BEQ @save
+    LDX #15
+    LDA #0
+  @zero:
+    STA f:BST_GKILLS, X
+    DEX
+    BPL @zero
+    RTS
+  @save:
+    LDX #$0000
+  @kills:
+    LDA f:BSTSAVEFAR + BST_KILLS, X
+    STA f:BST_GKILLS, X
+    INX
+    CPX #16
+    BCC @kills
+    LDX #$0000
+  @block:
+    LDA f:RANDO_SAVEFAR, X
+    STA f:BST_GKEEP, X
+    LDA f:BSTSAVEFAR + RANDO_SAVE, X
+    STA f:RANDO_SAVEFAR, X
+    INX
+    CPX #RANDO_SAVE_SIZE
+    BCC @block
+    RTS
+
+;;  The first page's settings block back as the screen found it.  A8 I16.
+    .a8
+    .i16
+bst_ungame:
+    LDA f:V_NOGAME
+    BNE @out
+    LDX #$0000
+  @block:
+    LDA f:BST_GKEEP, X
+    STA f:RANDO_SAVEFAR, X
+    INX
+    CPX #RANDO_SAVE_SIZE
+    BCC @block
+  @out:
+    RTS
+
 ;;  The enemies' tables, if the cache does not hold this game's: the
 ;;  randomizer's steps, the music's turn after each.  A8 I16.
     .a8
     .i16
 bst_tables:
-    LDA #BST_TICKFRAME
+    LDA f:V_NOGAME
+    BEQ :+
+    RTS                         ; no save: nothing defeated, nothing to show
+:   LDA #BST_TICKFRAME
     STA f:OWS_TICKON            ; the deals' draws tick the music (bst_tick)
     LDA #0
   @step:

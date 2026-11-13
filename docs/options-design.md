@@ -3206,7 +3206,11 @@ enemies the seed can produce.
     Continue overwrites it with the save's ("I don't care if the copy from
     save to current game wipes those previous victories out"); the title
     shows the game state as last played, which the battery keeps through
-    reset and power-off.  The count out of what the seed can produce ("If
+    reset and power-off.  **Wrong (found 2026-11-12):** `GameStart` fills
+    the game state's first page from `lut_InitUnsramFirstPage` at every
+    power-on and every reset, soft ones too, before the title -- so at the
+    title the save is the only game there is, and the screen shows the
+    save's (below, "The save is the game").  The count out of what the seed can produce ("If
     you can count how many are reachable, that makes more sense"): Short
     ToFR, for one, leaves WORM, PHANTOM, JIMERA and IronGOL nowhere, their
     only zones the Temple of Fiends (past)'s floors.  Uniform 48 x 48 cells,
@@ -3443,7 +3447,8 @@ enemies the seed can produce.
         nothing.  Bank $0C the same size: a byte saved at each kill and two
         spent at the running away.
       - **The screen** reads the mask for the silhouettes, A's error sound
-        and the count in the header, "Bestiary (n/128)".
+        and the count in the header, "Bestiary (n/128)" -- the save's copy
+        (below).
       - **Colours:** every palette the grid and the pages show goes through
         `fun_btlpal`, the battle's own (LoadBattlePalette's, palswap.patch):
         under Palette swap the seed's `RW_PALPERM`, otherwise the cartridge's.
@@ -3461,6 +3466,38 @@ enemies the seed can produce.
         the cartridge's with it off, the cache cold; a page's six colours the
         same way.  Mutation: the swap skipped, or the running away's own
         store taken out, each fails it.
+  - **The save is the game** (user, 2026-11-12: "enemies aren't being
+    marked ... saved, reset, and they weren't lit"; and "a visit to the
+    bestiary screen causes the colors to change").  Both were one mistake.
+    The battles marked the kills and the save kept them, but `GameStart`
+    fills the game state's first page afresh at every reset and power-on, so
+    the screen read the start-up table's mask and settings.  And with those
+    settings the cache -- a soft reset keeps it, the world of the game being
+    played -- did not match, so `rando_bsttables` rebuilt the enemies' and
+    Palette swap's tables in it for the start-up table's settings, leaving
+    its tag as it was; Continue then loaded the save, found the tag matching,
+    and played on with them: the overworld's tint gone, the towns' changed,
+    the enemies' scripts and touches another seed's for the session.  Now:
+      - `bst_game` reads the save, the game the title would Continue: its
+        defeated into `BST_GKILLS`, and its settings block into the first
+        page's place, where the randomizer's code reads a game's settings
+        (the tables, the rolls, the cache's match), the page's own kept in
+        `BST_GKEEP` and put back as the screen ends (`bst_ungame`).  With no
+        save Continue would load, nothing is defeated and nothing is built.
+        Kills not saved before a reset are lost with the rest of the play
+        since the save, as the game itself loses them.
+      - `rando_bsttables` clears the tag before it writes over a cache that
+        does not match.  Against the save's block, a cache that does not
+        match is one a Continue would rebuild anyway, so the soft reset's
+        Continue is never slower for a visit to the Bestiary; a cache that
+        matches is used as it is.
+      - **Checked** (`test_bestiary`, games set up by `SaveGame` with junk
+        in the first page after): the save's defeated and colours; a cache
+        matching the save untouched, its tag kept; another game's cache
+        tagged stale and the save's tables made; no save, nothing defeated
+        and the cache untouched; the first page as the screen found it at
+        the end.  Without the fix (the save's block not swapped in, the tag
+        not cleared) four checks fail, both cache checks among them.
 
 ### Respond rate
 

@@ -159,7 +159,12 @@ BST_DSCR        = BSTRAM+$2C40  ; $10: its script
 BST_DWORD       = BSTRAM+$2C50  ; $10: a word being written
 BST_DPCG        = BSTRAM+$2C60  ; $0C: the picture's six colours
 BST_DOPT        = BSTRAM+$2D00  ; $100: OPTWORK, kept round the scaling
-BSTRAM_END      = BSTRAM+$2E00
+;  The save's game, which the screen shows (bst_game): its defeated, and the
+;  first page's settings block, kept while the save's is in its place.
+BST_GKILLS      = BSTRAM+$2E00  ; $10
+BST_GKEEP       = BSTRAM+$2E10  ; $20
+BSTRAM_END      = BSTRAM+$2E30
+.assert RANDO_SAVE_SIZE <= $20, error, "the settings block outgrows BST_GKEEP"
 .assert BSTRAM_END <= OWSRAM_END, error, "the Bestiary's WRAM outgrows the map edit screen's"
 .assert MENURAM >= CREDITSRAM_END && MENURAM_END <= OWSRAM, error, "the menu engine's WRAM overlaps another screen's"
 .assert OWSRAM_END <= $7F0000 + THEENDBUF_AT, error, "the map edit screen's WRAM runs into the ending's"
@@ -1883,6 +1888,10 @@ PLACE_ATTEMPTS  = 32
 ;  cache's tag, which a kill must not make stale.
 BST_KILLS       = $60BE     ; 16 bytes
 BSTKILLSFAR     = (CHUNK0 * $10000) + BST_KILLS
+;  ...and the save's copies, which the title's Bestiary reads: GameStart fills
+;  the game state's first page afresh at every power-on and every reset, so
+;  at the title the save is the only game there is (bst_game).
+BSTSAVEFAR      = (CHUNK0 * $10000) + $400  ; + a page 0 address: its save copy
 .assert BST_KILLS >= RANDO_SAVE + RANDO_SAVE_SIZE, error, "the Bestiary's mask in the cache's tag"
 RANDO_TALK      = $60F0     ; nonzero: the reward NPCs run from rando_talk's table
 RANDO_GIVEN     = $60F1     ; 2 bytes: bit n set once table entry n has given
