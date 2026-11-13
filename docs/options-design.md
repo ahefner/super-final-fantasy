@@ -3196,8 +3196,8 @@ make it accessible properly)"); since 2026-11-12 the title's BESTIARY row
 opens it (above, "The title as a two by two"), the title's music playing on,
 and B or START goes back with the hand on BESTIARY.  The detail view on A
 is built (2026-11-12, below), and so are the defeated mask and Palette
-swap's colours (2026-11-12, below).  Still to come: the count out of the
-enemies the seed can produce.
+swap's colours (2026-11-12, below), and the header's count out of the
+enemies the game can produce (2026-11-12, below).
 
   - **Decided (user):** the mask in the game state, unsram's first page
     (`$60BE-$60EF` free, zero in old saves, cleared by New Game's
@@ -3211,10 +3211,9 @@ enemies the seed can produce.
     power-on and every reset, soft ones too, before the title -- so at the
     title the game state was the start-up table's.  Since then GameStart
     keeps the game state's settings and defeated through a reset when a mark
-    says they are a game's (below, "The working state kept through reset").  The count out of what the seed can produce ("If
-    you can count how many are reachable, that makes more sense"): Short
-    ToFR, for one, leaves WORM, PHANTOM, JIMERA and IronGOL nowhere, their
-    only zones the Temple of Fiends (past)'s floors.  Uniform 48 x 48 cells,
+    says they are a game's (below, "The working state kept through
+    reset").  The count out of what the game can produce (below, "The
+    count").  Uniform 48 x 48 cells,
     the fiends and Chaos scaled down, retouched by hand as PNGs; on black,
     as in battle; silhouettes "a dark grey or blue" (`SILHOUETTE`, a slate
     blue, (40, 48, 72)); the header's letters outlined, the grid scrolling
@@ -3522,6 +3521,71 @@ enemies the seed can produce.
         unmarking; `opt_bstready`'s three cases; the title's row with no
         game and no save sounding the error and opening nothing; the
         start-up table's mark clear.
+  - **The count** (built 2026-11-12, not yet played; user: "If you can
+    count how many are reachable, that makes more sense"; "will you store
+    this or is it easily recomputed?" -- recomputed).  The header reads
+    "Bestiary (57/124)": the defeated, out of the enemies this game can put
+    in front of the party.  Nothing stored: `bst_reach` works it out as the
+    screen opens from the world's own tables, which `bst_tables` has just
+    made this game's.
+      - **What can be met.**  Every formation side some fight can start:
+        the eight of every zone that fights (`RW_DOMAINS`), the formation on
+        every trap tile a map places (`RW_PROPS`), and the bosses' thirteen,
+        $73-$7F -- Garland, the pirates, Astos, the Vampire, the fiends,
+        their refights, Chaos -- each always somewhere, the refights on
+        Chaos's floor under Short ToFR.  Then every enemy in those sides'
+        groups that can show up: an A-side's four, a B-side's first two
+        (`PrepareEnemyFormation`), a fiend or Chaos its one.  A defeated
+        enemy counts whatever the settings say now: it was met, and Short
+        ToFR can be turned on mid-game, which would have put the count past
+        the total.
+      - **Which zones fight** (`tools/genbestiary.py`, `lut_BstZone`).  Not
+        "every zone that is not all zero": on the overworld a zone fights if
+        a party can stand in its square and step onto a tile that starts a
+        fight (`OWCanMove`: the zone is the square stepped from; the river's
+        two halves, $40 and $41, and the sea, $42, by the tile's kind); on a
+        standard map, if the map has random-encounter tiles and a rate.  So
+        five all-zero squares fight formation 0's IMPs, and zone formations
+        dealt there are met (Totally Random fills them); Sea Shrine B1's and
+        Chaos's floor's zones hold formations no tile starts.  One square,
+        $19, has fighting tiles no party reaches (`UNREACHED`).  The edits:
+        the Cardia land bridge turns square $13's fighting land to sea, so
+        that zone is marked as fighting only without it; no edit makes a
+        zone fight.  Short ToFR skips the long Temple's seven floors before
+        Chaos's, their zones and their one trap tile.  Nothing under Map
+        shuffle is counted out: a floor it strands still counts.
+      - **Which traps** (`lut_BstTraps`): the 30 of deal_traps's 34 that a
+        map places -- four, on formations $2E, $50, $04 and $10, are on no
+        map, so a formation Shuffle deals them is never met.
+      - **Which groups** (`lut_BstGroups`): those with a maximum past zero
+        and a slot left once the groups before them took their minimum.  No
+        formation in the cartridge has a group the slots crowd out, so that
+        half never bites; the tool keeps the game's rule.
+      - **Some counts:** 128 with nothing shuffled; 124 under Short ToFR
+        (WORM, PHANTOM, JIMERA and IronGOL, whose only zones are the long
+        Temple's floors); 127 in some seeds under Trap shuffle or Totally Random.
+      - **The cold cache.**  `rando_bsttables` has a third step for it,
+        `build_props`, which the build now calls too: the property tables
+        with the traps dealt, then on into `build_forms`, the zones'
+        formations -- moved up the build, which changes no deal, each
+        drawing from its own stream.  The property copy yields every 256
+        bytes, being a frame's work with no draw in it (a frame of music
+        lost in the harness without; none with it, the sound send charged
+        32 lines as ares profiles it).  With every encounter shuffle on, the
+        cold opening is some 80 frames where it was 35; the count itself
+        some 44,000 instructions, the music given its turns throughout.  The
+        randomizer's chunk has 13 bytes left.
+      - **Checked** (`test_bestiary`): the three tables against the
+        cartridge read other ways -- the overworld's zones by worldgraph's
+        reach, unedited, under every edit alone and all of them, the maps'
+        by their tiles and rates, the traps by the maps placing them, the
+        groups by their counts; `bst_reach`'s marks on made-up tables (each
+        zone's slots its own side, each trap its own formation) under Short
+        ToFR and the edits; the total on eight real worlds, cold and built,
+        against the reference, with defeated enemies the settings leave out;
+        `bst_putnum` over every byte; and the opening's header, "Bestiary
+        (2/126)", with one music call a frame on the timed clock.  Mutation:
+        twelve, each caught.
 
 ### Respond rate
 

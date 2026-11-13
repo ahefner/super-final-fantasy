@@ -1320,54 +1320,8 @@ build:
     STA f:ROLL_STAGE
 
     JSR zero_words
-
-    ;  All eight property tables, with every random-encounter tile's formation
-    ;  byte rewritten from $80 to $00.  SMMove_Battle tests that byte with BNE
-    ;  where the game used BPL, which is FFR's UpdateTrapTilesCode: zero means
-    ;  a random encounter, and anything else is a full formation number, so a
-    ;  trap can hold a B-side.  FFR applies both halves whatever its trap mode,
-    ;  and so does this -- the rewrite runs with the randomizer off too.  The
-    ;  one behaviour BNE could change is a trap on formation 0, which would
-    ;  turn into a random tile; five tile types are that, and no map places
-    ;  any of them.
-    LDX #$0000
-  @copy:
-    LDA f:ROMPROPS, X           ; function low, formation high
-    AND #$80FF
-    CMP #$8000 | TP_SPEC_BATTLE
-    BEQ @random
-    LDA f:ROMPROPS, X
-    BRA @store
-  @random:
-    LDA f:ROMPROPS, X
-    AND #$00FF                  ; the formation byte becomes zero
-  @store:
-    STA a:wPROPS, X
-    INX
-    INX
-    CPX #PROPS_SIZE
-    BCC @copy
-
-    SEP #$20
+    JSR build_props             ; and the zones' formations; A16 in, A8 out
     .a8
-    ;  Early Ordeals: FFR's EnableEarlyOrdeals clears the special code of the
-    ;  Castle tileset's two thrones, the only crown tiles, so each is a plain
-    ;  teleport and the CROWN is not asked for.
-    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
-    AND #EARLY_ORDEALS
-    BEQ @traps
-    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
-    AND #<~TP_SPEC_MASK
-    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
-    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
-    AND #<~TP_SPEC_MASK
-    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
-  @traps:
-    LDA f:RANDO_SAVEFAR + (RANDO_TRAPS - RANDO_SAVE)
-    BEQ @shops                  ; TRAPS_OFF
-    CMP #TRAPS_MODES
-    BCS @shops                  ; a mode this build does not know: as off
-    JSR deal_traps
 
   @shops:
     JSR copy_shops
@@ -1419,25 +1373,10 @@ build:
   @itemmagic:
     LDA f:RANDO_SAVEFAR + (RANDO_MAGIC - RANDO_SAVE)
     AND #ITEMMAGIC_FIELD
-    BEQ @forms                  ; ITEMMAGIC_OFF
+    BEQ @runs                   ; ITEMMAGIC_OFF
     CMP #ITEMMAGIC_MODES << ITEMMAGIC_SHIFT
-    BCS @forms                  ; a mode this build does not know: as off
+    BCS @runs                   ; a mode this build does not know: as off
     JSR deal_itemmagic
-
-    ;  Formations: zones first, then rarity, each its own pass and stream.
-  @forms:
-    JSR copy_domains
-    LDA f:RANDO_SAVEFAR + (RANDO_ZONES - RANDO_SAVE)
-    BEQ @rarity                 ; ZONES_OFF
-    CMP #ZONES_MODES
-    BCS @rarity
-    JSR deal_zones
-  @rarity:
-    LDA f:RANDO_SAVEFAR + (RANDO_FORMS - RANDO_SAVE)
-    BEQ @runs                   ; FORMS_OFF
-    CMP #FORMS_MODES
-    BCS @runs
-    JSR deal_rarity
 
   @runs:
     JSR copy_runs
@@ -1501,6 +1440,87 @@ zero_words:
     INX
     CPX #wWORDSEND
     BCC @words
+    RTS
+
+;;  Where the enemies are met (build's, and rando_bsttables', for the
+;;  Bestiary's count): the tileset property tables with the traps dealt in
+;;  them, then the zones' formations (build_forms, run into).  A16 I16 in;
+;;  A8 I16 out; DBR = $7F.
+build_props:
+    .a16
+    .i16
+    ;  All eight property tables, with every random-encounter tile's formation
+    ;  byte rewritten from $80 to $00.  SMMove_Battle tests that byte with BNE
+    ;  where the game used BPL, which is FFR's UpdateTrapTilesCode: zero means
+    ;  a random encounter, and anything else is a full formation number, so a
+    ;  trap can hold a B-side.  FFR applies both halves whatever its trap mode,
+    ;  and so does this -- the rewrite runs with the randomizer off too.  The
+    ;  one behaviour BNE could change is a trap on formation 0, which would
+    ;  turn into a random tile; five tile types are that, and no map places
+    ;  any of them.
+    LDX #$0000
+  @copy:
+    LDA f:ROMPROPS, X           ; function low, formation high
+    AND #$80FF
+    CMP #$8000 | TP_SPEC_BATTLE
+    BEQ @random
+    LDA f:ROMPROPS, X
+    BRA @store
+  @random:
+    LDA f:ROMPROPS, X
+    AND #$00FF                  ; the formation byte becomes zero
+  @store:
+    STA a:wPROPS, X
+    INX
+    INX
+    TXA
+    AND #$00FF
+    BNE :+
+    JSR rando_yield             ; a frame's work without a draw: the music's turn
+:   CPX #PROPS_SIZE
+    BCC @copy
+
+    SEP #$20
+    .a8
+    ;  Early Ordeals: FFR's EnableEarlyOrdeals clears the special code of the
+    ;  Castle tileset's two thrones, the only crown tiles, so each is a plain
+    ;  teleport and the CROWN is not asked for.
+    LDA f:RANDO_SAVEFAR + (RANDO_EARLY - RANDO_SAVE)
+    AND #EARLY_ORDEALS
+    BEQ @traps
+    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
+    AND #<~TP_SPEC_MASK
+    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE1 * 2
+    LDA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
+    AND #<~TP_SPEC_MASK
+    STA a:wPROPS + TS_CASTLE * 256 + THRONE_TILE2 * 2
+  @traps:
+    LDA f:RANDO_SAVEFAR + (RANDO_TRAPS - RANDO_SAVE)
+    BEQ build_forms             ; TRAPS_OFF
+    CMP #TRAPS_MODES
+    BCS build_forms             ; a mode this build does not know: as off
+    JSR deal_traps
+    ;  Then on into the zones' formations.
+
+;;  The zones' formations: zones first, then rarity, each its own pass and
+;;  stream.  Every deal draws from a stream of its own, so the order of the
+;;  build's deals changes none of them.  A8, I16, DBR = $7F.
+build_forms:
+    .a8
+    .i16
+    JSR copy_domains
+    LDA f:RANDO_SAVEFAR + (RANDO_ZONES - RANDO_SAVE)
+    BEQ @rarity                 ; ZONES_OFF
+    CMP #ZONES_MODES
+    BCS @rarity
+    JSR deal_zones
+  @rarity:
+    LDA f:RANDO_SAVEFAR + (RANDO_FORMS - RANDO_SAVE)
+    BEQ @out                    ; FORMS_OFF
+    CMP #FORMS_MODES
+    BCS @out
+    JSR deal_rarity
+  @out:
     RTS
 
 ;;  The enemies' records and touches (build's, and rando_bsttables').  A8,
@@ -6472,12 +6492,14 @@ rando_dice:
 ;;  builds all of it.  (Left set, a Continue of that other game found its tag
 ;;  matching and played on with the Bestiary's tables: user, 2026-11-12, the
 ;;  overworld's tint gone after a reset, the towns' changed.)  The Bestiary
-;;  only calls this with the save's block in RANDO_SAVE, the game Continue
-;;  would load, so a Continue the cache would serve never pays for it.
+;;  calls this with the game last played in RANDO_SAVE, the game state a
+;;  reset keeps (opt_resetpages).  For the Bestiary's count (bst_reach) it makes where the enemies are met
+;;  as well: the zones' formations (RW_DOMAINS) and the traps' (RW_PROPS).
 ;;
-;;  Two steps, build's own (build_touch; build_ai and deal_palswap), so the
-;;  Bestiary can give the music its turn between them.  In: A = the step, 0
-;;  first.  Out: A = the next step, 0 when done.  By JSL, emulation mode.
+;;  Three steps, build's own (build_touch; build_ai and deal_palswap;
+;;  build_props, which runs into build_forms), so the Bestiary can give the
+;;  music its turn between them.  In: A = the step, 0 first.  Out: A = the
+;;  next step, 0 when done.  By JSL, emulation mode.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 rando_bsttables:
@@ -6487,7 +6509,7 @@ rando_bsttables:
     PHA
     JSR enter
     PLA
-    BNE @ai
+    BNE @later
     JSR stale                   ; step 0: nothing to do if the cache matches
     LDA #0
     BCC @out
@@ -6499,11 +6521,20 @@ rando_bsttables:
     JSR build_touch
     LDA #1
     BRA @out
-  @ai:
+  @later:
     REP #$10
     .i16
-    JSR build_ai
+    CMP #2
+    BEQ @world
+    JSR build_ai                ; step 1
     JSL deal_palswap + FUNFAR   ; Palette swap's, for its enemy colours
+    LDA #2
+    BRA @out
+  @world:                       ; step 2: where they are met, for the count
+    REP #$20
+    .a16
+    JSR build_props             ; and build_forms
+    .a8
     LDA #0
   @out:
     JMP leave

@@ -18,7 +18,7 @@
 ;  48) as battle draws them, read from the battle CHR, the fiends and Chaos
 ;  scaled down into art/bestiary/*.png (tools/genbestiary.py).  The hand
 ;  points at the selected cell from its left, as battle's does at an enemy.
-;  The text line -- "Bestiary (57/128)" and the selected enemy's name, or
+;  The text line -- "Bestiary (57/124)" and the selected enemy's name, or
 ;  "?????" -- is BG3, in front, each letter outlined in black (user: "a
 ;  black border around the text rather than a solid black rectangle"), and
 ;  the grid scrolls beneath it.
@@ -66,6 +66,7 @@
 .export bst_show
 .export bst_tick
 .export bst_dgather, bst_dtext, bst_dpicture    ; for the tests
+.export bst_reach, bst_putnum, lut_BstZone, lut_BstTraps, lut_BstGroups    ; ...and these
 
 .import UpdateJoy, CallMusicPlay
 .import hal_vblaudio, hal_audioframe, hal_auxdetect, hal_ppureclaim, hal_framedue
@@ -73,6 +74,7 @@
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_BattlePalettes
 .import opt_bstscale, rando_bsttables, fun_btlpal
+.import lut_BattleFormations
 
 .segment "BANK_BESTIARY"
 
@@ -83,6 +85,11 @@ HANDCHR   = (CHUNK0 + BANK_BTLCHR) * $10000 + lut_BatObjCHR + ($F0 - $80) * 16
 NAMESFAR  = (CHUNK0 + BANK_ENEMYNAMES) * $10000 + $94E0  ; the enemies' names' pointers
 NAMEBANK  = CHUNK0 + BANK_ENEMYNAMES
 BTLPALFAR = (CHUNK0 + BANK_BTLPALETTES) * $10000 + lut_BattlePalettes
+FORMSFAR  = BANK0BFAR + lut_BattleFormations             ; 16 bytes a formation
+;  bst_reach's scratch while the grid opens, the detail view's tilemap later:
+;  a byte per formation side (the id, the side in bit 7), then per enemy.
+BST_RSIDE = BST_DMAP
+BST_REN   = BST_DMAP + $100
 
 ;  VRAM, in words.
 VR_BG1CHR = $0000               ; 1024 characters: 0 blank, 1-1023 the ring
@@ -210,6 +217,11 @@ V_CGDONE  = BV+$81              ; nonzero: this scroll's colours are written
 V_NOBUDGET = BV+$82             ; nonzero: convert without stopping (setup)
 V_SRCY    = BV+$84              ; 2: the cell's picture, how far converted
 V_OWED    = BV+$86              ; nonzero: the last frame's sound not sent (bst_wait)
+V_TOTAL   = BV+$AC              ; what this game can produce, and the defeated (bst_reach)
+V_ZOK     = BV+$AD              ; bst_reach: nonzero while the zone fights
+V_SHORT   = BV+$AE              ; ...nonzero under Short ToFR
+V_GRP     = BV+$AF              ; ...a formation's groups still to mark
+V_LEAD    = BV+$B0              ; bst_putnum: $80 once a digit is out
 V_ZPSAVE  = BV+$C0              ; ZPLEN
 .assert V_ZPSAVE + ZPLEN <= BST_VARS + $100, error, "the Bestiary's variables outgrow their page"
 
@@ -415,6 +427,7 @@ bst_setup:
     .a8
     JSR bst_count
     JSR bst_tables              ; the enemies as its world has them, for A
+    JSR bst_reach               ; ...and how many it can put in the party's way
     ;  The rows on screen at the top: -1 (none) to 4, each made and sent.
     LDA #0
   @row:
@@ -569,6 +582,255 @@ bst_count:
     INX
     CPX #16
     BCC @byte
+    RTS
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  bst_reach -- V_TOTAL: the enemies this game can put in front of the
+;;  party, the header's count out of (user, 2026-11-12: "If you can count how
+;;  many are reachable, that makes more sense").
+;;
+;;  Worked out as the screen opens, never stored: the world's own tables say
+;;  it, and bst_tables has just made sure they are this game's.  Every
+;;  formation side that can be fought is marked -- the eight of every zone
+;;  that fights (RW_DOMAINS, lut_BstZone), the formation on every trap tile a
+;;  map places (RW_PROPS, lut_BstTraps), and the bosses' thirteen, $73-$7F,
+;;  each always somewhere -- then every enemy in a marked side's groups that
+;;  can show up (lut_BstGroups, from the cartridge's formation records).  Short
+;;  ToFR skips the long Temple's floors, their zones and their one trap; the
+;;  Cardia land bridge turns a square's fighting land to sea.  A defeated
+;;  enemy counts whatever the settings say now -- it was met -- so the count
+;;  never passes the total when Short ToFR is turned on mid-game.
+;;
+;;  Some forty thousand instructions, the music given its turns throughout.
+;;  A8 I16.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    .a8
+    .i16
+bst_reach:
+    REP #$20
+    .a16
+    LDA #0
+    LDX #$0000
+  @clear:                       ; no side and no enemy yet
+    STA f:BST_RSIDE, X
+    INX
+    INX
+    CPX #$180
+    BCC @clear
+    SEP #$20
+    .a8
+    LDA f:CHUNK0 * $10000 + OPTFB_SHORTTOFR   ; SRAM's
+    AND #OPTFM_SHORTTOFR
+    STA f:V_SHORT
+    ;  The bosses' fights: Garland, the pirates, Astos, the Vampire, the four
+    ;  fiends and their refights, and Chaos.
+    LDA #1
+    LDX #$0073
+  @boss:
+    STA f:BST_RSIDE, X
+    INX
+    CPX #$0080
+    BCC @boss
+    ;  Every fighting zone's eight.
+    LDX #$0000                  ; the slot, zone * 8 + k
+  @slot:
+    TXA
+    AND #$07
+    BNE @have
+    JSR bst_zoneok
+    STA f:V_ZOK
+    JSR bst_audioxy
+  @have:
+    LDA f:V_ZOK
+    BEQ @snext
+    LDA f:RW_DOMAINS, X
+    JSR bst_markside
+  @snext:
+    INX
+    CPX #128 * 8
+    BCC @slot
+    ;  Every placed trap tile's.
+    LDY #$0000
+  @trap:
+    REP #$20
+    .a16
+    LDA lut_BstTraps, Y
+    BPL @tile                   ; bit 15: only on the long Temple's floors
+    SEP #$20
+    .a8
+    LDA f:V_SHORT
+    BNE @tnext
+    REP #$20
+    .a16
+    LDA lut_BstTraps, Y
+  @tile:
+    AND #$07FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:RW_PROPS + 1, X       ; its formation
+    JSR bst_markside
+  @tnext:
+    SEP #$20
+    .a8
+    INY
+    INY
+    CPY #BST_NTRAPS * 2
+    BCC @trap
+    ;  The marked sides' enemies.
+    LDX #$0000
+  @side:
+    LDA f:BST_RSIDE, X
+    BEQ @sdone
+    JSR bst_sideenemies
+  @sdone:
+    TXA
+    AND #$1F
+    BNE :+
+    JSR bst_audioxy
+:   INX
+    CPX #256
+    BCC @side
+    ;  Counted, with the defeated.
+    LDA #0
+    STA f:V_TOTAL
+    LDX #$0000
+  @enemy:
+    PHX
+    TXA
+    JSR bst_seen
+    PLX
+    LDA f:V_SEEN
+    ORA f:BST_REN, X
+    BEQ @enext
+    LDA f:V_TOTAL
+    INC A
+    STA f:V_TOTAL
+  @enext:
+    INX
+    CPX #128
+    BCC @enemy
+    RTS
+
+;;  bst_audio, X and Y kept (it may leave them eight bits wide).  A8 I16.
+bst_audioxy:
+    PHX
+    PHY
+    JSR bst_audio
+    PLY
+    PLX
+    RTS
+
+;;  A: 1 if zone X / 8 fights in this game, else 0.  A8 I16; X kept.
+bst_zoneok:
+    PHX
+    REP #$20
+    .a16
+    TXA
+    LSR A
+    LSR A
+    LSR A
+    TAX
+    SEP #$20
+    .a8
+    LDA lut_BstZone, X
+    BEQ @out                    ; never
+    CMP #BST_ZONE_LONGTOFR
+    BCC @out                    ; always: 1
+    BNE @edit
+    LDA f:V_SHORT               ; the long Temple's floors
+    BNE @no
+    BRA @yes
+  @edit:                        ; not under overworld edit k
+    AND #$0F
+    REP #$20
+    .a16
+    AND #$000F
+    TAX
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+  @shift:
+    DEX
+    BMI @bit
+    LSR A
+    BRA @shift
+  @bit:
+    SEP #$20
+    .a8
+    AND #1
+    BNE @no
+  @yes:
+    LDA #1
+    BRA @out
+  @no:
+    LDA #0
+  @out:
+    PLX
+    RTS
+
+;;  Side A marked.  A8 I16; X kept.
+bst_markside:
+    PHX
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA #1
+    STA f:BST_RSIDE, X
+    PLX
+    RTS
+
+;;  The enemies of side X marked, the groups that can show up: an A-side's
+;;  four, a B-side's first two.  A8 I16; X kept.
+bst_sideenemies:
+    PHX
+    REP #$20
+    .a16
+    TXA
+    AND #$007F
+    TAY                         ; the formation...
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    TAX                         ; ...and its record
+    SEP #$20
+    .a8
+    LDA lut_BstGroups, Y
+    STA f:V_GRP
+    LDA 1, S                    ; the side
+    BMI @b
+    LDA f:V_GRP
+    AND #$0F                    ; the A-side's
+    BRA @groups
+  @b:
+    LDA f:V_GRP
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; the B-side's
+  @groups:
+    LSR A
+    STA f:V_GRP
+    BCC @next
+    LDA f:FORMSFAR + 2, X       ; the group's enemy
+    PHX
+    REP #$20
+    .a16
+    AND #$007F
+    TAX
+    SEP #$20
+    .a8
+    LDA #1
+    STA f:BST_REN, X
+    PLX
+  @next:
+    INX
+    LDA f:V_GRP
+    BNE @groups
+    PLX
     RTS
 
 ;;  V_SEEN nonzero if enemy A is defeated.  A8 I16; A, X and Y not kept.
@@ -2200,7 +2462,7 @@ bst_sendtext:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The text line: "Bestiary (57/128)" at the left, the selected enemy's
+;;  The text line: "Bestiary (57/124)" at the left, the selected enemy's
 ;;  name at the right -- or "?????" -- drawn into BG3's 60 characters, each
 ;;  letter outlined.  A8 I16.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -2221,52 +2483,16 @@ bst_textline:
     INX
     CPX #BST_TITLE_LEN
     BCC @title
-    ;  The count, without leading zeros.
+    ;  The defeated, out of what this game can produce.
     LDA f:V_COUNT
-    LDY #$0000                  ; hundreds
-  @h:
-    CMP #100
-    BCC :+
-    SBC #100
-    INY
-    BRA @h
-:   PHA
-    TYA
-    BEQ :+
-    ORA #$80
+    JSR bst_putnum
+    LDA #CH_SLASH
     STA f:BST_LINE, X
     INX
-:   PLA
-    LDY #$0000                  ; tens
-  @t:
-    CMP #10
-    BCC :+
-    SBC #10
-    INY
-    BRA @t
-:   PHA
-    CPX #BST_TITLE_LEN          ; a ten, or a zero after a hundred
-    BNE @tens
-    TYA
-    BEQ @ones
-  @tens:
-    TYA
-    ORA #$80
+    LDA f:V_TOTAL
+    JSR bst_putnum
+    LDA #CH_RPAREN
     STA f:BST_LINE, X
-    INX
-  @ones:
-    PLA
-    ORA #$80
-    STA f:BST_LINE, X
-    INX
-    LDY #$0000
-  @rest:
-    LDA lut_BstOf, Y
-    STA f:BST_LINE, X
-    INX
-    INY
-    CPY #BST_OF_LEN
-    BCC @rest
     ;  The name, at the right.
     LDA f:V_SEL
     JSR bst_seen
@@ -2346,6 +2572,50 @@ bst_textclear:
     .a8
     RTS
 
+;;  Number A, 0-255, into BST_LINE from column X without leading zeros, X
+;;  past it.  A8 I16; Y not kept.
+    .a8
+    .i16
+bst_putnum:
+    LDY #$0000
+  @h:
+    CMP #100
+    BCC :+
+    SBC #100
+    INY
+    BRA @h
+:   PHA
+    TYA
+    BEQ @lead                   ; no hundreds: A is zero
+    ORA #$80
+    STA f:BST_LINE, X
+    INX
+    LDA #$80                    ; the tens follow, zero or not
+  @lead:
+    STA f:V_LEAD
+    PLA
+    LDY #$0000
+  @t:
+    CMP #10
+    BCC :+
+    SBC #10
+    INY
+    BRA @t
+:   PHA
+    TYA
+    ORA f:V_LEAD
+    BEQ @ones
+    TYA
+    ORA #$80
+    STA f:BST_LINE, X
+    INX
+  @ones:
+    PLA
+    ORA #$80
+    STA f:BST_LINE, X
+    INX
+    RTS
+
 ;;  BST_LINE drawn, from column V_C0 on -- 0 the whole line, NAME_C0 the
 ;;  name's part, as a move redraws it (redrawing it all took two frames, and
 ;;  the music lagged on every move: user, 2026-11-11).  Its glyphs into
@@ -2354,7 +2624,7 @@ bst_textclear:
 ;;  plane 1 the glyph -- colour 3 the letter, colour 1 the black round it.
 ;;  The font's glyphs are its colour 3, both planes.  A8 I16.
 NAME_C0 = 20                    ; the name ends the line, 22-29 at the most
-.assert BST_TITLE_LEN + 3 + BST_OF_LEN < NAME_C0 - 1, error, "the count runs into the name's columns"
+.assert BST_TITLE_LEN + 3 + 1 + 3 + 1 < NAME_C0 - 1, error, "the count runs into the name's columns"
     .a8
     .i16
 bst_textrender:
@@ -2638,11 +2908,6 @@ lut_BstTitle:
   FFTEXT "Bestiary "
   .BYTE CH_LPAREN
 BST_TITLE_LEN = * - lut_BstTitle
-lut_BstOf:
-  .BYTE CH_SLASH
-  FFTEXT "128"
-  .BYTE CH_RPAREN
-BST_OF_LEN = * - lut_BstOf
 lut_BstUnknown:
   FFTEXT "?????"
 BST_UNKNOWN_LEN = * - lut_BstUnknown

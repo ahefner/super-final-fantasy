@@ -550,6 +550,7 @@ def main():
     o.append("lut_BstCellGA:")
     o.append("  .BYTE " + ", ".join("%d" % groups[(s, c)][1] for s in range(SLOTS) for c in range(COLS)))
     o.append("")
+    o += reach_tables()
     o.append("")
     open(OUT, "w").write("\n".join(o) + "\n")
     used = len({(p, g) for p, a, b in groups.values() for g in (a, b) if g is not None})
@@ -560,6 +561,183 @@ def main():
 #  Unseen enemies: a dark slate blue, showing against the black (user: "a dark
 #  grey or blue").  Kept with the screen's own value (src/bestiary.asm).
 SILHOUETTE_RGB = (40, 48, 72)
+
+
+# --- what a seed can produce (bst_reach) ---------------------------------------
+#  The header's count is out of the enemies a seed can put in front of the
+#  party (user, 2026-11-12: "If you can count how many are reachable, that
+#  makes more sense").  The screen works it out as it opens from the world's
+#  own tables -- every zone's eight formations (RW_DOMAINS) and every trap
+#  tile's (RW_PROPS) -- so these say only which zones and trap tiles can start
+#  a fight at all, and which of a formation's groups can show up.
+#
+#  A zone fights if a party can stand somewhere and step onto a tile that
+#  starts one there: on the overworld the zone is the square the party steps
+#  from, of the kind the tile it steps onto says (OWCanMove: land by the
+#  square, the river by the map's half, $40 and $41, the sea $42); on a
+#  standard map, if the map has random-encounter tiles (SMMove_Battle).  Being
+#  all zero is not the test: five such squares fight formation 0's IMPs, and
+#  Sea Shrine B1's zone and Chaos's floor's hold formations no tile starts.
+#  The tile test alone says squares a party never reaches fight; those are
+#  UNREACHED, checked against worldgraph's reach by test_bestiary.
+ZONE_NEVER, ZONE_FIGHTS, ZONE_LONGTOFR = 0, 1, 2
+ZONE_UNLESSEDIT = 0x80          # + the overworld edit (RANDO_OWEDITS's bit)
+UNREACHED = {0x19}              # all zero; land no party reaches
+SHORT_TOFR_MAPS = range(52, 59) # the Temple of Fiends (past)'s floors before Chaos's
+NMAPS = 61
+OWP_FIGHT = 0x40                # the second property byte's: steps can fight
+
+
+def bank(n):
+    return open(os.path.join(ROOT, "game", "bank_%02X.dat" % n), "rb").read()
+
+
+def decode_rle(src, off, count):
+    out = []
+    while src[off] != 0xFF and len(out) < count:
+        b = src[off]
+        if b < 0x80:
+            out.append(b)
+            off += 1
+        else:
+            out += [b & 0x7F] * (src[off + 1] or 256)
+            off += 2
+    return out[:count]
+
+
+def ow_fighting(tiles):
+    """The zones a step on the overworld can fight in, by the tiles alone."""
+    props = bank(0)[0x0000:0x0100]
+    p0 = [props[(t & 0x7F) * 2] for t in tiles]
+    p1 = [props[(t & 0x7F) * 2 + 1] for t in tiles]
+    live = set()
+    for a in range(65536):
+        x, y = a & 255, a >> 8
+        for veh in (1, 2, 4):                   # foot, canoe, ship
+            if p0[a] & veh:
+                continue
+            for b in (((x + 1) & 255) | y << 8, ((x - 1) & 255) | y << 8,
+                      x | ((y + 1) & 255) << 8, x | ((y - 1) & 255) << 8):
+                if p0[b] & veh or not p1[b] & OWP_FIGHT:
+                    continue
+                kind = p1[b] & 3
+                live.add((y >> 5) * 8 + (x >> 5) if kind == 0 else
+                         0x42 if kind == 2 else 0x40 | (y >> 7))
+    return live - UNREACHED
+
+
+def map_tiles():
+    """Each standard map's tileset and its tiles."""
+    b0 = bank(0)
+    banks = b"".join(bank(n) for n in (4, 5, 6, 7))
+    out = []
+    for m in range(NMAPS):
+        p = banks[m * 2] | banks[m * 2 + 1] << 8
+        out.append((b0[0x2CC0 + m], set(decode_rle(banks, p, 4096))))
+    return out
+
+
+def zone_kinds():
+    import owedits
+    from genows import vanilla
+    van = vanilla()
+    live = ow_fighting(van)
+    kinds = [ZONE_FIGHTS if z in live else ZONE_NEVER for z in range(128)]
+    for k, name in enumerate(owedits.SETTINGS):
+        edited = ow_fighting(owedits.apply(van, 1 << k))
+        if edited - live:
+            sys.exit("genbestiary: %s makes zones fight: %s" % (name, sorted(edited - live)))
+        for z in live - edited:
+            if kinds[z] != ZONE_FIGHTS:
+                sys.exit("genbestiary: zone $%02X has two conditions" % z)
+            kinds[z] = ZONE_UNLESSEDIT + k
+    props = bank(0)[0x0800:0x1000]
+    rates = rd("0B_8C00_mapencounterrates.bin")
+    for m, (ts, tiles) in enumerate(map_tiles()):
+        rnd = any(props[ts * 256 + t * 2] == TP_SPEC_BATTLE and props[ts * 256 + t * 2 + 1] & 0x80
+                  for t in tiles)
+        if not (rnd and rates[m]):
+            continue
+        z = 64 + m
+        if kinds[z] != ZONE_NEVER:
+            sys.exit("genbestiary: map %d's zone is the overworld's too" % m)
+        kinds[z] = ZONE_LONGTOFR if m in SHORT_TOFR_MAPS else ZONE_FIGHTS
+    return kinds
+
+
+TP_SPEC_BATTLE = 0x0A
+TRAP_LONGTOFR = 0x8000          # lut_BstTraps: only on floors Short ToFR skips
+
+
+def trap_tiles():
+    """The trap tiles some map places -- FFR's IsNonBossTrapTile, formation
+    1-$72, as deal_traps deals them -- each a property offset, with
+    TRAP_LONGTOFR if every map placing it is one Short ToFR skips.  The fiends'
+    refights ($73-$76) are battle tiles too but never dealt; with the other
+    bosses' fights they are the screen's own (bst_reach)."""
+    props = bank(0)[0x0800:0x1000]
+    where = {}
+    for m, (ts, tiles) in enumerate(map_tiles()):
+        for t in tiles:
+            o = ts * 256 + (t & 0x7F) * 2
+            if props[o] == TP_SPEC_BATTLE and 0 < props[o + 1] < 0x73:
+                where.setdefault(o, set()).add(m)
+    return [o | (TRAP_LONGTOFR if maps <= set(SHORT_TOFR_MAPS) else 0)
+            for o, maps in sorted(where.items())]
+
+
+def form_groups(f):
+    """Which of formation f's groups can show up, as PrepareEnemyFormation
+    fills its slots: a group of max 0 never does, nor one whose size has no
+    slot left once the groups before it took their minimum.  Bits 0-3 the
+    A-side's four, bits 4-5 the B-side's two (its first two groups, with
+    bytes 14-15's counts).  A fiend or Chaos is its first group alone, whatever
+    the counts (FinalizeEnemyFormation_FiendChaos)."""
+    rec = FORM[f * 16:f * 16 + 16]
+    kind, gfx = rec[0] >> 4, rec[1]
+    out = 0
+    for side, qty, shift in ((0, rec[6:10], 0), (1, rec[14:16], 4)):
+        if kind >= 3:
+            out |= 1 << shift
+            continue
+        if any(q >> 4 > q & 0x0F for q in qty):
+            sys.exit("genbestiary: formation $%02X has a group's minimum past its maximum"
+                     % (f | side << 7))
+        slots = {0: [9, 0], 1: [0, 4], 2: [6, 2]}[kind]
+        for g, q in enumerate(qty):
+            size = gfx >> (2 * g) & 1           # the picture's bit 0: large
+            lo, hi = q >> 4, q & 0x0F
+            if hi and slots[size]:
+                out |= 1 << (shift + g)
+            slots[size] = max(0, slots[size] - min(lo, hi))
+    return out
+
+
+def reach_tables():
+    o = [";  What a seed can produce (bst_reach; tools/genbestiary.py's zone_kinds,",
+         ";  trap_tiles and form_groups).  Each zone: 0 it never fights, 1 it does, 2",
+         ";  it does but under Short ToFR, $80 + k but under overworld edit k.",
+         "BST_ZONE_LONGTOFR = %d" % ZONE_LONGTOFR,
+         "BST_ZONE_UNLESSEDIT = $%02X" % ZONE_UNLESSEDIT,
+         "lut_BstZone:"]
+    kinds = zone_kinds()
+    for i in range(0, 128, 16):
+        o.append("  .BYTE " + ", ".join("$%02X" % k for k in kinds[i:i + 16]))
+    traps = trap_tiles()
+    o.append(";  The trap tiles a map places, each its property offset, bit 15 if only")
+    o.append(";  on floors Short ToFR skips.")
+    o.append("BST_NTRAPS = %d" % len(traps))
+    o.append("lut_BstTraps:")
+    for i in range(0, len(traps), 8):
+        o.append("  .WORD " + ", ".join("$%04X" % t for t in traps[i:i + 8]))
+    o.append(";  Each formation's groups that can show up: bits 0-3 the A-side's, 4-5")
+    o.append(";  the B-side's.")
+    o.append("lut_BstGroups:")
+    groups = [form_groups(f) for f in range(128)]
+    for i in range(0, 128, 16):
+        o.append("  .BYTE " + ", ".join("$%02X" % g for g in groups[i:i + 16]))
+    o.append("")
+    return o
 
 if __name__ == "__main__":
     main()

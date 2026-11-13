@@ -15273,7 +15273,7 @@ def test_bestiary():
             got = tuple(bytes(bus.wram[rw(n):rw(n) + k]) for n, k in
                         (("RW_ENEMIES", 2560), ("RW_TOUCH", 256), ("RW_ESCRIPT", 128), ("RW_SCRIPTS", 704)))
             want = (world[0], world[1], bytes(world[2][0]), bytes(world[2][1]))
-            if got != want or steps != (1 if warm else 2):
+            if got != want or steps != (1 if warm else 3):
                 bad_tabs.append((ci, warm, steps, [g == w for g, w in zip(got, want)]))
             for i in range(256):
                 bus.wram[K["OPTWORK"] + i] = (i * 13 + 5) & 0xFF
@@ -15327,7 +15327,7 @@ def test_bestiary():
                                 bad_pic.append((e, "outside", px, py))
                 if shown != img or n != (w // 16) * (h // 16) or oam[1] != 224:
                     bad_pic.append((e, "pixels" if shown != img else "count", n))
-    check("the enemies' tables, cold in two steps or left as the cache built them, as the reference's",
+    check("the enemies' tables, cold in three steps or left as the cache built them, as the reference's",
           bad_tabs, [])
     check("every enemy's page, as the reference lays it out", bad_page[:4], [])
     check("...its last row in the safe area (26)", last <= 26, True)
@@ -15639,6 +15639,213 @@ def test_bestiary():
     cpu.run(CHUNK_OPT_BANK, SYM["opt_titlechoose"])
     check("the title's Bestiary row with no game and no save: the error sound, nothing opened",
           (len(errs), len(shown), bool(cpu.p & 0x80)), (1, 0, True))
+
+    #  The count, out of what the game can produce (user, 2026-11-12: "If
+    #  you can count how many are reachable, that makes more sense").  The
+    #  screen's tables against the cartridge's data read other ways: the
+    #  overworld's zones by worldgraph's reach, unedited, under every edit on
+    #  its own and under all of them; the maps' zones by their tiles; the
+    #  traps by the maps that place them; each formation's groups by their
+    #  counts alone.
+    import owedits as OE
+    wg = os.path.join(os.path.dirname(HERE), "worldgraph")
+    if wg not in sys.path:
+        sys.path.insert(0, wg)
+    import romdata as WR, build as WB, analysis as WA, model as WM
+    from overworld import _neighbours as wn
+
+    def ow_live(settings):
+        tiles = bytes(OE.apply(WR.vanilla_overworld(), settings))
+        g, ow, _, _ = WB.build(ow_tiles=tiles, pos=OE.positions(WR.VANILLA_POS, settings))
+        seen = WA.reach(g, sum(WM.BIT.values()))
+        live = set()
+        for a in range(65536):
+            x, y = a & 255, a >> 8
+            for veh, lab, nodes in ((1, ow.flabel, ow.fnode), (2, ow.rlabel, ow.rnode), (4, ow.slabel, ow.snode)):
+                if lab[a] < 0 or nodes[lab[a]] not in seen:
+                    continue
+                for b in wn(a):
+                    if not ow.p0[b] & veh and ow.p1[b] & 0x40:
+                        t = ow.p1[b] & 3
+                        live.add((y >> 5) * 8 + (x >> 5) if t == 0 else 0x42 if t == 2 else 0x40 | (y >> 7))
+        return live
+    van = ow_live(0)
+    want_zone = [1 if z in van else 0 for z in range(128)]
+    bad = []
+    for k in range(len(OE.SETTINGS)):
+        lk = ow_live(1 << k)
+        bad += [(OE.SETTINGS[k], "fights", z) for z in lk - van]
+        for z in van - lk:
+            if want_zone[z] != 1:
+                bad.append((OE.SETTINGS[k], "two edits", z))
+            want_zone[z] = 0x80 + k
+    alle = ow_live((1 << len(OE.SETTINGS)) - 1)
+    check("the overworld's fighting zones, worldgraph's reach: no edit makes one, all of them on as each alone",
+          (bad, sorted(alle ^ {z for z in van if want_zone[z] == 1})), ([], []))
+    past = {m for m, n in enumerate(R.MAP_NAMES) if n.startswith("Temple of Fiends (past)") and "Chaos" not in n}
+    banks = b"".join(R.nesbank(ROMDATA, n) for n in (4, 5, 6, 7))
+    props = R.rom_props(ROMDATA)
+    rates = ROMDATA[R.BANK0B + 0x8C00:][:64]
+    trapmaps = {}
+    for m in range(len(R.MAP_NAMES)):
+        p = banks[2 * m] | banks[2 * m + 1] << 8
+        ts = ROMDATA[R.TILESETS + m]
+        offs = {ts * 256 + (t & 0x7F) * 2 for t in R.decode_rle(banks, p, 4096)}
+        if rates[m] and any(props[o] == R.TP_SPEC_BATTLE and props[o + 1] & 0x80 for o in offs):
+            want_zone[64 + m] = 2 if m in past else 1
+        for o in offs:
+            if R.is_trap(props, o):
+                trapmaps.setdefault(o, set()).add(m)
+    want_traps = [o | (0x8000 if ms <= past else 0) for o, ms in sorted(trapmaps.items())]
+
+    def want_groups(f):
+        rec = ROMDATA[R.FORMATIONS_AT + f * 16:][:16]
+        if rec[0] >> 4 >= 3:
+            return 0x11                                 # a fiend or Chaos: its one
+        return (sum(1 << g for g in range(4) if rec[6 + g] & 15) |
+                sum(1 << 4 + g for g in range(2) if rec[14 + g] & 15))
+    img = (bst_bank & 0x1F) * 0x10000
+    rom_traps = ROMDATA[img + SYM["lut_BstTraps"]:][:2 * len(want_traps)]
+    check("lut_BstZone: every zone that fights, the long Temple's floors and the Cardia land bridge's square marked",
+          list(ROMDATA[img + SYM["lut_BstZone"]:][:128]), want_zone)
+    check("lut_BstTraps: the trap tiles a map places, those only on the long Temple's floors marked",
+          [rom_traps[i] | rom_traps[i + 1] << 8 for i in range(0, len(rom_traps), 2)], want_traps)
+    check("lut_BstGroups: the groups of every formation whose counts allow one",
+          list(ROMDATA[img + SYM["lut_BstGroups"]:][:128]), [want_groups(f) for f in range(128)])
+    check("(a few of those: five all-zero squares fight, Sea Shrine B1 and Chaos's floor do not, 30 traps)",
+          ([z for z in range(64) if want_zone[z] and not any(R.rom_domains(ROMDATA)[8 * z:8 * z + 8])],
+           want_zone[64 + 46], want_zone[64 + 59], len(want_traps)), ([0x12, 0x1E, 0x2C, 0x30, 0x31], 0, 0, 30))
+
+    def fights(z, short, edits):
+        k = want_zone[z]
+        return k == 1 or (k == 2 and not short) or (k >= 0x80 and not edits >> (k - 0x80) & 1)
+
+    def setup(bus, short, edits, traps=0, zones=0, forms=0, early=0):
+        so = K["OPTFB_SHORTTOFR"] - 0x6000
+        bus.sram[so] = (bus.sram[so] | K["OPTFM_SHORTTOFR"]) if short else bus.sram[so] & ~K["OPTFM_SHORTTOFR"] & 0xFF
+        eo = K["RANDO_OWEDITS"] - 0x6000
+        bus.sram[eo:eo + 2] = edits.to_bytes(2, "little")
+        for name, v in (("RANDO_TRAPS", traps), ("RANDO_ZONES", zones), ("RANDO_FORMS", forms),
+                        ("RANDO_EARLY", early)):
+            bus.sram[K[name] - 0x6000] = v
+
+    #  bst_reach's wiring, on made-up tables: zone z's eight slots all side
+    #  $80 + z, trap i's formation i + 1, junk everywhere else; the marks are
+    #  then exactly the fighting zones', the placed traps' and the bosses'.
+    zb, pb, rs, total = rw("RW_DOMAINS"), rw("RW_PROPS"), rw("BST_DMAP"), bv + 0xAC
+    bad = []
+    for short, edits in ((0, 0), (1, 0), (0, K["OWEDIT_CARDIABRIDGE"]), (1, 0xFFFF), (0, 0xEFFF)):
+        bus, cpu = machine()
+        save_game(bus, cpu, 0x12345678)
+        setup(bus, short, edits)
+        for z in range(128):
+            bus.wram[zb + 8 * z:zb + 8 * z + 8] = bytes([0x80 | z] * 8)
+        bus.wram[pb:pb + 0x800] = bytes((i * 37 + 11) & 0xFF for i in range(0x800))
+        for i, t in enumerate(want_traps):
+            bus.wram[pb + (t & 0x7FF) + 1] = 1 + i
+        bus.wram[rs:rs + 0x180] = b"\xa5" * 0x180
+        native(cpu, "bst_reach")
+        want = bytearray(256)
+        for z in range(128):
+            want[0x80 | z] = fights(z, short, edits)
+        for i, t in enumerate(want_traps):
+            want[1 + i] = not (t & 0x8000 and short)
+        want[0x73:0x80] = b"\x01" * 13
+        got = bus.wram[rs:rs + 256]
+        if bytes(got) != bytes(want):
+            bad.append((short, hex(edits), [hex(s) for s in range(256) if got[s] != want[s]][:6]))
+    check("bst_reach marks the fighting zones' sides, the placed traps' and the bosses', and nothing else",
+          bad, [])
+
+    #  The total on real worlds, the cold steps making their tables: the
+    #  reference's, the defeated counted too.
+    def ref_total(seed, traps, zones, forms, early, short, edits, mask):
+        d = R.build_domains(ROMDATA, seed, forms, zones)
+        p = R.build_props(ROMDATA, seed, traps, early)
+        sides = set(range(0x73, 0x80))
+        for z in range(128):
+            if fights(z, short, edits):
+                sides |= set(d[8 * z:8 * z + 8])
+        sides |= {p[(t & 0x7FF) + 1] for t in want_traps if not (t & 0x8000 and short)}
+        en = {e for e in range(128) if mask[e >> 3] >> (e & 7) & 1}
+        for s in sides:
+            rec = ROMDATA[R.FORMATIONS_AT + (s & 0x7F) * 16:][:16]
+            g = want_groups(s & 0x7F) >> (4 if s & 0x80 else 0)
+            en |= {rec[2 + i] for i in range(2 if s & 0x80 else 4) if g >> i & 1}
+        return len(en), d, p
+    worm = bytearray(16)
+    for e in range(128):
+        if R.enemy_name(ROMDATA, e) in ("WORM", "IronGOL"):
+            worm[e >> 3] |= 1 << (e & 7)
+    cases = [(0x12345678, 0, 0, 0, 0, 0, 0, bytes(16), False),
+             (0x12345678, 0, 0, 0, 0, 1, 0, bytes(16), False),
+             (0x12345678, 0, 0, 0, 0, 1, 0, bytes(worm), False),
+             (0xDEADBEEF, 1, 2, 1, 0, 0, 0, bytes(16), False),
+             (0x00C0FFEE, 4, 3, 2, 8, 1, K["OWEDIT_CARDIABRIDGE"], b"\x5a" * 16, False),
+             (0x0BADF00D, 2, 1, 2, 0, 1, 0xFFFF, bytes(worm), False),
+             (0x31415926, 3, 3, 0, 8, 0, K["OWEDIT_CARDIABRIDGE"], bytes(16), False),
+             (0x31415926, 3, 3, 0, 8, 0, K["OWEDIT_CARDIABRIDGE"], bytes(16), True)]
+    bad, totals = [], []
+    for seed, traps, zones, forms, early, short, edits, mask, hot in cases:
+        want, d, p = ref_total(seed, traps, zones, forms, early, short, edits, mask)
+        bus, cpu = machine()
+        save_game(bus, cpu, seed, mask)
+        setup(bus, short, edits, traps, zones, forms, early)
+        if hot:
+            call(cpu, "rando_ensure", bank=RANDO_BANK)
+        else:
+            bus.wram[zb:zb + 1024] = bytes((i * 37 + 11) & 0xFF for i in range(1024))
+            bus.wram[pb:pb + 0x800] = bytes((i * 29 + 7) & 0xFF for i in range(0x800))
+        step, steps = 0, 0
+        while True:
+            cpu.e = True
+            cpu.p |= FLAG_M | FLAG_X
+            cpu.a = step
+            s = cpu.s
+            cpu.run(RANDO_BANK, SYM["rando_bsttables"], limit=20_000_000)
+            cpu.s = s
+            steps += 1
+            step = cpu.a & 0xFF
+            if step == 0 or steps > 4:
+                break
+        native(cpu, "bst_reach")
+        totals.append(bus.wram[total])
+        got = (bus.wram[total], steps, bytes(bus.wram[zb:zb + 1024]) == d, bytes(bus.wram[pb:pb + 0x800]) == p)
+        if got != (want, 1 if hot else 3, True, True):
+            bad.append((hex(seed), got, want))
+    check("the total, cold in three steps or from the built cache, as the reference's", bad, [])
+    check("...among them all 128 with nothing shuffled, 124 under Short ToFR, 126 with WORM and IronGOL defeated",
+          totals[:3], [128, 124, 126])
+
+    #  The header: the count out of the total, neither with leading zeros.
+    bad = []
+    bus, cpu = machine()
+    line = rw("BST_LINE")
+    for v in range(256):
+        bus.wram[line:line + 32] = b"\xff" * 32
+        cpu.a, cpu.x = v, 3
+        native(cpu, "bst_putnum")
+        want = b"\xff" * 3 + bytes(0x80 + int(c) for c in str(v))
+        if bytes(bus.wram[line:line + len(want) + 1]) != want + b"\xff" or cpu.x & 0xFFFF != len(want):
+            bad.append(v)
+    check("bst_putnum: every byte's digits, no leading zeros, X past them", bad, [])
+    bus, cpu = machine()
+    bus.ppu()
+    bus.dma = True
+    clock = Clock(bus, cpu)
+    save_game(bus, cpu, 0x12345678, bytes(worm))
+    setup(bus, 1, 0)
+    cpu.pbr, cpu.pc = bst_bank, SYM["bst_show"]
+    cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+    uj, reads = SYM["UpdateJoy"], 0
+    while reads < 10:                   # the screen up and idle a while
+        if cpu.pc == uj:
+            reads += 1
+        cpu.step()
+    music = [clock.music.get(f, 0) for f in range(min(clock.music or [0]), clock.frame())]
+    check("the opening, WORM and IronGOL defeated under Short ToFR: \"Bestiary (2/126)\", one music call a frame",
+          (bytes(bus.wram[line:line + 16]), sorted(set(music))),
+          (enc("Bestiary (") + bytes([0x82, 0xF2, 0x81, 0x82, 0x86, 0xF1]), [1]))
 
 
 def test_rando_enemyai():
