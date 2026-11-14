@@ -12,12 +12,14 @@
 ;                  the 64 battle palettes shuffled, as FFR's PaletteSwap
 ;                  (Fun.cs) shuffles them, a tint for every map, the
 ;                  overworld and each battle backdrop, and a tone for every
-;                  standard map (randoref.build_palswap)
+;                  standard map (randoref.build_palswap), and the fiends'
+;                  refights two separate palettes each (build_palref)
 ;    fun_smpal     a standard map's palettes tinted and toned as they load
 ;                  -- its three background palettes and its three in rooms,
 ;                  the fourth of each the dialogue box's -- then Short ToFR's
 ;    fun_owpal     the overworld's four, likewise tinted, the water kept blue
 ;    fun_bdpal     a battle backdrop's three colours
+;    fun_btlfight   the top of LoadBattlePalette: the fiend refight palettes
 ;    fun_btlpal     an enemy palette's number, through the shuffle
 ;
 ;  A tint moves a colour's hue a few steps round the NES's twelve, the
@@ -39,7 +41,8 @@
 .import rando_warmfar, rando_belowfar, rando_fyfar, rando_smpal
 .import hal_chrdirty, lut_DwarfLine
 .import hal_spcload, hal_spcplay
-.export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal
+.import lut_BattleFormations
+.export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal, fun_btlfight
 .export fun_dwarfline, fun_spared, fun_exit, fun_smframe, fun_frame, fun_init
 .export fun_cover
 .export lut_DwarfGibs, lut_DwarfPals     ; for tools/test_options.py
@@ -51,11 +54,24 @@ PALSWAP_PALS    = 64            ; lut_BattlePalettes' four-colour palettes
 TINT_STEPS      = 7             ; -3..+3
 SRAMFAR_FUN     = CHUNK0 * $10000 + OPT_FUN
 
+;  Fiend refight colors (user, 2026-11-14).  The second fights with Lich,
+;  Kary, Kraken and Tiamat, formations REFIGHT_FORM up, use the same two
+;  palette numbers as the first fights, so shuffling the 64 gave both
+;  fights the same colors.  The refight palettes are numbered past the 64,
+;  PAL_REFIGHT up, in order, both in battle (fun_btlfight) and in the
+;  Bestiary's tables.  fun_btlpal turns them into the seed's RW_PALREF
+;  entries under Palette swap, and into the formation's original two with
+;  the row Off.
+REFIGHT_FORM    = $73
+REFIGHTS        = 4
+PAL_REFIGHT     = PALSWAP_PALS
+FORMSFAR        = BANK0BFAR + lut_BattleFormations   ; 16 bytes a formation
+
 ;;  deal_palswap -- Palette swap's tables for the seed: RW_PALPERM a
 ;;  Fisher-Yates of 0..63, then RW_TINT a draw below TINT_STEPS each, then
-;;  RW_TONE two ends each (tone_end), then RW_GREY one each (grey_hue), all
-;;  on STREAM_PALSWAP.  From build (rando.asm): native, DBR = $7F, A8 I16.
-;;  Out: the same.
+;;  RW_TONE two ends each (tone_end), then RW_GREY one each (grey_hue), then
+;;  RW_PALREF (below), all on STREAM_PALSWAP.  From build (rando.asm):
+;;  native, DBR = $7F, A8 I16.  Out: the same.
 deal_palswap:
     REP #$30
     .a16
@@ -115,7 +131,72 @@ deal_palswap:
     INX
     CPX #PALSWAP_TONES
     BCC @grey
+    ;  Two palettes for each fiend refight, drawn from the 64.  A draw is
+    ;  redone if it matches either palette of the first fight, or if a
+    ;  refight's second draw matches its first.  These come last on the
+    ;  stream, so a seed's other tables are unchanged.
+    LDX #$0000
+  @ref:
+    PHX
+    LDA #PALSWAP_PALS
+    JSL rando_belowfar + RANDOFAR
+    PLX
+    STA a:.LOWORD(FUN_CODE)
+    REP #$20
+    .a16
+    TXA
+    AND #$00FE
+    TAY                         ; the pair's first...
+    SEP #$20
+    .a8
+    JSR ref_first
+    CMP a:.LOWORD(FUN_CODE)
+    BEQ @ref
+    INY                         ; ...and second, as the first fight shows them
+    JSR ref_first
+    CMP a:.LOWORD(FUN_CODE)
+    BEQ @ref
+    TXA
+    LSR A
+    LDA a:.LOWORD(FUN_CODE)
+    BCC @keep
+    CMP a:.LOWORD(RW_PALREF) - 1, X
+    BEQ @ref
+  @keep:
+    STA a:.LOWORD(RW_PALREF), X
+    INX
+    CPX #REFIGHTS * 2
+    BCC @ref
     RTL
+
+;;  Refight palette Y (0-7) as its first fight shows it: its formation's
+;;  number, through RW_PALPERM.  Native, DBR = $7F, A8 I16; X and Y kept.
+ref_first:
+    PHX
+    TYX
+    LDA f:FUNFAR + lut_RefightPalAt, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:FORMSFAR + REFIGHT_FORM * 16, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA a:.LOWORD(RW_PALPERM), X
+    PLX
+    RTS
+
+;;  Each refight palette's byte in the formations, from REFIGHT_FORM's.
+lut_RefightPalAt:
+  .repeat REFIGHTS * 2, i
+    .BYTE (i / 2) * 16 + (btlform_plts - btl_formdata) + (i .MOD 2)
+  .endrepeat
 
 ;;  A map's grey ramp (user, 2026-11-04: "with a low probability, those get
 ;;  remapped to a color ramp instead"): one map in GREY_ODDS has its greys a
@@ -488,9 +569,36 @@ fun_bdpal:
   @out:
     RTL
 
-;;  The top of LoadBattlePalette (palswap.patch): A = a formation's palette
-;;  number, through the shuffle.  Y kept, X not.
+;;  The top of LoadBattlePalette (palswap.patch): A = the formation's
+;;  palette number, Y its slot, 4 the first and 8 the second.  In a fiend
+;;  refight, A becomes a refight number, PAL_REFIGHT up; then on as
+;;  fun_btlpal.  Y kept, X not.
+fun_btlfight:
+    PHA
+    LDA btlformation
+    AND #$7F                    ; (a B side's bit)
+    SEC
+    SBC #REFIGHT_FORM
+    CMP #REFIGHTS
+    BCS @as
+    ASL A
+    CPY #8
+    BNE :+
+    ORA #1
+:   ORA #PAL_REFIGHT
+    PLX                         ; (the formation's number, not needed)
+    BRA fun_btlpal
+  @as:
+    PLA
+    ;  (on into fun_btlpal)
+
+;;  Battle palette A as it shows, in battle and in the Bestiary.  Under
+;;  Palette swap: through the shuffle, or for a refight number (PAL_REFIGHT
+;;  up) the seed's RW_PALREF entry.  Off: A itself, or for a refight number
+;;  the formation's original palette.  Y kept, X not.
 fun_btlpal:
+    CMP #PAL_REFIGHT
+    BCS @refight
     PHA
     JSR palswap_on
     BEQ @off
@@ -501,6 +609,18 @@ fun_btlpal:
     RTL
   @off:
     PLA
+    RTL
+  @refight:
+    SBC #PAL_REFIGHT            ; (C set)
+    AND #REFIGHTS * 2 - 1
+    TAX
+    JSR palswap_on
+    BEQ :+
+    LDA f:RW_PALREF, X
+    RTL
+:   LDA f:FUNFAR + lut_RefightPalAt, X
+    TAX
+    LDA f:FORMSFAR + REFIGHT_FORM * 16, X
     RTL
 
 

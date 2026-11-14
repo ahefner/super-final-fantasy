@@ -15577,23 +15577,32 @@ def test_bestiary():
     check("the count and its header from the mask; rows 0-4's colours, silhouettes for the "
           "undefeated, the seed's palettes under Palette swap", bad[:4], [])
     #  ...and a page's: its palettes through the swap too.
-    bad = []
+    #  The refights, 120 Lich's and 126 Tiamat's, in fiend refight colors
+    #  (user, 2026-11-14), numbered 64-71 in the tables (randoref.palswap_shows).
+    bad, page = [], {}
     for swap in (False, True):
         bus, cpu = opened(b"\xff" * 16, swap)
         palb = table("lut_BstPalB")
-        for e in (0, 61, 109, 119, 127):
+        for e in (0, 61, 109, 119, 120, 126, 127):
             bus.wram[bv + 0x88] = e
             native(cpu, "bst_dpicture")
             got = [bus.wram[rw("BST_DPCG") + 2 * i] | bus.wram[rw("BST_DPCG") + 2 * i + 1] << 8 for i in range(6)]
+            page[swap, e] = got
             pals = [pala[e]] + ([palb[e]] if e >= 119 else [])
             want = []
             for q in pals:
-                q = perm[q & 63] if swap else q
+                q = R.palswap_shows(q, seed, swap)
                 want += [nescol[btlpal[q * 4 + 1 + i] & 0x3F] for i in range(3)]
             want += [0] * (6 - len(want))
             if got != want:
                 bad.append((swap, e, got, want))
     check("a page's picture in the palettes its battles show, under Palette swap the seed's", bad[:3], [])
+    check("...Lich's two pages: different under Palette swap, the same Off",
+          (page[True, 119] != page[True, 120], page[False, 119] == page[False, 120]), (True, True))
+    check("...the four refights' tables: 64-71, theirs alone",
+          ([(pala[e], palb[e]) for e in (120, 122, 124, 126)],
+           sorted(e for e in range(128) if pala[e] >= 64 or palb[e] >= 64)),
+          ([(64, 65), (66, 67), (68, 69), (70, 71)], [120, 122, 124, 126]))
 
     #  The cache (user, 2026-11-12: "a visit to the bestiary screen causes
     #  the colors to change"): one that matches the game shown is used as it
@@ -18603,6 +18612,52 @@ def test_palswap():
     check("...a grey ramp one map in 8, its hue any of the twelve",
           (round(8 * sum(g != 0 for g in greys) / len(greys)), sorted(set(greys))), (1, list(range(13))))
 
+    #  Fiend refight colors (user, 2026-11-14: "why does palette swap give
+    #  the same palettes to both versions of each fiend?").  The premise,
+    #  from the formations: the second fights with Lich, Kary, Kraken and
+    #  Tiamat, $73-$76, use the same two palettes as the first fights, the
+    #  reference's REFIGHT_PALS.
+    FORMS = (1 + 0x0B) * 0x10000 + SYM["lut_BattleFormations"]
+    form = lambda f: ROMDATA[FORMS + 16 * f:][:16]
+    firsts = {0x78: 0x7A, 0x7A: 0x79, 0x7C: 0x78, 0x7E: 0x77}    # each refight's enemy -> its first fight
+    check("the refights $73-$76: the fiends' second fights, their first fights' two palettes, "
+          "the reference's numbers",
+          [(form(0x73 + k)[2], list(form(0x73 + k)[10:12]), list(form(firsts[form(0x73 + k)[2]])[10:12]))
+           for k in range(4)],
+          [(e, R.REFIGHT_PALS[2 * k:2 * k + 2], R.REFIGHT_PALS[2 * k:2 * k + 2])
+           for k, e in enumerate((0x78, 0x7A, 0x7C, 0x7E))])
+    REF = rw("RW_PALREF")
+    def refs_of(seed, fun):
+        bus, cpu = machine()
+        setsave(bus, seed, 0)
+        setblk(bus, FUN, fun)
+        call(cpu, "rando_ensure", bank=RANDO_BANK)
+        return list(bus.wram[REF:REF + 8]), list(bus.wram[PERM:PERM + 64])
+    #  SEEDS seldom draw a palette that must be drawn again, so add the
+    #  first seed past these that makes each kind of redraw.
+    def redrawn(why):
+        for s_ in range(0x5EED0000, 0x5EED0000 + 5000):
+            r = []
+            R._palswap(s_, r)
+            if any(w == why for w, _ in r):
+                return s_
+    extra = [redrawn(w) for w in ("first0", "first1", "pair")]
+    check("...seeds that draw again for each reason", None in extra, False)
+    bad, clash = [], []
+    for k, seed in enumerate(list(SEEDS) + extra):
+        refs, perm_ = refs_of(seed, SWAP if k & 1 else 0)
+        if refs != R.build_palref(seed):
+            bad.append(hex(seed))
+        for i in range(8):
+            first = {perm_[R.REFIGHT_PALS[i & ~1]], perm_[R.REFIGHT_PALS[i | 1]]}
+            if refs[i] in first or not 0 <= refs[i] < 64 or (i & 1 and refs[i] == refs[i - 1]):
+                clash.append((hex(seed), i))
+    check("RW_PALREF: randoref.build_palref's, %d seeds and three that draw again, the row on or off"
+          % len(SEEDS), bad, [])
+    check("...never a palette its first fight shows, nor a pair's two the same", clash[:4], [])
+    drawn = [p for s in range(300) for p in R.build_palref(s)]
+    check("...every one of the 64 drawn", sorted(set(drawn)), list(range(64)))
+
     #  The tint, every colour by every tint, through the cartridge's own
     #  routine (a backdrop's three colours at a time).
     CURPAL = K["cur_pal"]
@@ -18821,6 +18876,43 @@ def test_palswap():
         if on != ([0xEE] * 8 + btl(perm[p]) + [0xEE] * 4, 12) or off != ([0xEE] * 8 + btl(p) + [0xEE] * 4, 12):
             bad.append(p)
     check("every enemy palette: on, the shuffle's into its slot; off, its own; nothing else written", bad, [])
+
+    #  ...and a fight's two, as the battle loads them (btlformation set).  A
+    #  fiend refight shows RW_PALREF's entries in order under Palette swap,
+    #  and the formation's palettes with the row Off.  A B side's number
+    #  counts too, since it is the same record.  Every other fight is as
+    #  above.  So a fiend's two fights differ.
+    refs = R.build_palref(0x600DCAFE)
+    def fight(f, slot, on):
+        bus, cpu = machine()
+        setblk(bus, FUN, SWAP if on else 0)
+        bus.wram[PERM:PERM + 64] = bytes(perm)
+        bus.wram[REF:REF + 8] = bytes(refs)
+        bus.wram[K["btlformation"]] = f
+        bus.sram[BTLPAL:BTLPAL + 16] = bytes([0xEE]) * 16
+        cpu.a, cpu.y = form(f & 0x7F)[10 + slot], 4 + 4 * slot
+        cpu.dbr = 0xA1 + 0x0C
+        cpu.run(0xA1 + 0x0C, SYM["LoadBattlePalette"])
+        out = list(bus.sram[BTLPAL:BTLPAL + 16])
+        return out[4 + 4 * slot:8 + 4 * slot], out[:4 + 4 * slot] + out[8 + 4 * slot:]
+    bad = []
+    for f in list(range(0x73, 0x80)) + [0x00, 0x56, 0xF3]:
+        for slot in (0, 1):
+            pal = form(f & 0x7F)[10 + slot]
+            k = (f & 0x7F) - 0x73
+            ref = 0 <= k < 4
+            for on in (True, False):
+                want = btl(refs[2 * k + slot] if ref and on else perm[pal] if on else pal)
+                got, rest = fight(f, slot, on)
+                if got != want or rest != [0xEE] * 12:
+                    bad.append(("$%02X" % f, slot, on))
+    check("a fight's two palettes: a fiend refight's from RW_PALREF under Palette swap, its formation's Off; "
+          "the rest through the shuffle", bad, [])
+    shows = lambda f: [fight(f, s, True)[0] for s in (0, 1)]
+    check("...each fiend's two fights in different colours under Palette swap, the same Off",
+          [(shows(0x73 + k) != shows(0x7A - k),
+            [fight(0x73 + k, s, False)[0] for s in (0, 1)] == [fight(0x7A - k, s, False)[0] for s in (0, 1)])
+           for k in range(4)], [(True, True)] * 4)
 
 
 # --- FUN%: Exploding Dwarf ------------------------------------------------------

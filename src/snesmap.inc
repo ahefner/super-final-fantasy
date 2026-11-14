@@ -2345,9 +2345,12 @@ FUN_LIGHT       = RANDOWRAM+$3F25 ; ...and its lightest...
 FUN_STEPS       = RANDOWRAM+$3F26 ; ...and a tone's steps to go...
 FUN_TARGET      = RANDOWRAM+$3F27 ; ...toward this hue...
 FUN_GREY        = RANDOWRAM+$3F28 ; ...and the map's grey ramp's hue
+RW_PALREF       = RANDOWRAM+$3F30 ; 8: fiend refight colors, two palettes each (user, 2026-11-14),
+                                  ;   Lich's, Kary's, Kraken's, Tiamat's (fun.asm's PAL_REFIGHT)
 .assert RW_PALPERM >= OWS_TICKON + 2 && FUN_GREY < RP_BASE, error, "Palette swap's tables overlap"
 .assert RW_TINT >= RW_PALPERM + 64 && RW_TONE >= RW_TINT + PALSWAP_TINTS, error, "Palette swap's tables overlap"
 .assert RW_GREY >= RW_TONE + PALSWAP_TONES && FUN_CODE >= RW_GREY + PALSWAP_TONES, error, "Palette swap's tables overlap"
+.assert RW_PALREF > FUN_GREY && RW_PALREF + 8 <= RP_BASE, error, "Palette swap's tables overlap"
 OWS_TICKFRAME   = 2
 BST_TICKFRAME   = 4               ; OWS_TICKON's other owner: the Bestiary's tables (bst_tables)
 OWS_CANBACK     = $40             ; ows_choose's A: B leaves, answering NGNAV_BACK

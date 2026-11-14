@@ -1886,6 +1886,35 @@ user's word, 2026-11-05).  `fun.asm`, in Taverns' chunk.
     backdrop's colours 1-3 (`fun_bdpal`, after `LoadBattleBackdropPalette`).
     An enemy palette's number through the shuffle (`fun_btlpal`, the top of
     `LoadBattlePalette`).
+  - **Fiend refight colors** (user, 2026-11-14: "why does palette swap
+    give the same palettes to both versions of each fiend?", then "make it
+    so").  The second fights with Lich, Kary, Kraken and Tiamat (formations
+    $73-$76) use the same two palette numbers as the first fights
+    ($36-$3D).  FFR's shuffle reassigns palettes by number, so in FFR both
+    fights get the same colors.  This departs from FFR: under Palette swap
+    each refight gets two separate palettes drawn from the 64, kept in
+    `RW_PALREF` (8 bytes, after the tone scratch).  A draw is redone if it
+    matches either palette of the first fight, or if a refight's second
+    draw matches its first.  These draws come last in the random stream,
+    after the grey ramps, so every other color in a seed is unchanged.
+
+    In battle the refight palettes are numbered 64-71, past the 64.
+    `fun_btlfight`, which the patch now calls, gives a refight's two slots
+    those numbers (from `btlformation` with the B-side bit masked off, and
+    the slot in Y), then falls into `fun_btlpal`.  `fun_btlpal` turns 64-71
+    into the `RW_PALREF` entries when Palette swap is on, and into the
+    formation's original two palettes when it is off.  The Bestiary's
+    tables (`genbestiary.py`) use 64-71 for the four refights, so its pages
+    show the same colors as the battles, through the same `fun_btlpal`.
+
+    Tests: `randoref`'s `build_palref` and `palswap_shows` are the model.
+    `test_palswap` checks the formation data this relies on; checks the
+    cache against the model over its seeds plus three seeds picked to
+    trigger each kind of redraw; checks both palettes of every boss fight
+    with the row on and off; and checks that each fiend's two fights differ
+    under the swap and match without it.  `test_bestiary` checks Lich's and
+    Tiamat's refight pages.  Mutations of the slot, the refight check, the
+    Off path, both redraws and the Bestiary's numbers are all caught.
   - `test_palswap`: the row; the tables against the reference, the row on
     and off, and the tones' odds; the tint, every colour by every tint; the
     tone, the ramp and the water by hand (the Dwarf Cave toned three ways,

@@ -49,6 +49,8 @@ SLOTS = 6
 CELL = 48
 KIND_SMALL, KIND_LARGE, KIND_SPECIAL = 0, 1, 2
 SPECIAL_NAMES = ["lich", "kary", "kraken", "tiamat", "chaos"]
+REFIGHT_FORM, REFIGHTS = 0x73, 4    # Lich's, Kary's, Kraken's, Tiamat's second fights
+PAL_REFIGHT = 64                    # their palettes' numbers, past the 64 (fun.asm)
 
 
 def rd(name):
@@ -409,6 +411,15 @@ def main():
             pala[e], palb[e] = look[5], look[5]
     if len(specials) != 5:
         sys.exit("expected five special pictures, found %d" % len(specials))
+    #  Fiend refight colors (user, 2026-11-14): the refight palettes are
+    #  numbered 64-71, past the 64.  The game's fun_btlpal shows them as the
+    #  seed's RW_PALREF entries, or with the row Off as the formation's
+    #  original palettes (fun.asm's PAL_REFIGHT).
+    for k in range(REFIGHTS):
+        e = FORM[(REFIGHT_FORM + k) * 16 + 2]
+        if kinds[e] != KIND_SPECIAL or (pala[e], palb[e]) != tuple(FORM[(REFIGHT_FORM + k) * 16 + 10:][:2]):
+            sys.exit("genbestiary: formation $%02X is not a refight's" % (REFIGHT_FORM + k))
+        pala[e], palb[e] = PAL_REFIGHT + 2 * k, PAL_REFIGHT + 2 * k + 1
     # Name the specials in the order SPECIAL_NAMES expects: Lich, Kary, Kraken, Tiamat, Chaos.
     want = {0x77: 0, 0x79: 1, 0x7B: 2, 0x7D: 3, 0x7F: 4}
     remap = {special_of[e]: want[e] for e in want}

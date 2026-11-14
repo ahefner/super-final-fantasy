@@ -2287,7 +2287,22 @@ def _grey_hue(rng):
     return 1 + rng.below(12) if rng.below(GREY_ODDS) == 0 else 0
 
 
-def build_palswap(seed):
+#  Fiend refight colors (user, 2026-11-14).  Formations $73-$76, the second
+#  fights with Lich, Kary, Kraken and Tiamat, use the same two palette
+#  numbers as the first fights.  REFIGHT_PALS lists them as the cartridge
+#  has them; test_palswap checks them against the formations.  Under Palette
+#  swap each refight draws two separate palettes from the 64, after the grey
+#  ramps.  A draw is redone if it matches either palette of the first fight,
+#  or if a refight's second draw matches its first.  The game numbers them
+#  64-71 (fun.asm's PAL_REFIGHT).
+REFIGHT_FORM, REFIGHTS = 0x73, 4
+REFIGHT_PALS = [0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D]
+
+
+def _palswap(seed, redraws=None):
+    """...and each draw made again, as (why, i) into `redraws` when given:
+    'first0' or 'first1' its first fight's pair's first or second, 'pair'
+    its pair's first -- for test_palswap's seeds."""
     rng = Stream(seed, STREAM_PALSWAP)
     perm = list(range(PALSWAP_PALS))
     _fisher_yates(perm, rng)
@@ -2297,7 +2312,38 @@ def build_palswap(seed):
         dark = _tone_end(rng)
         tones.append(dark | _tone_end(rng) << 4)
     greys = [_grey_hue(rng) for _ in range(PALSWAP_TONES)]
-    return perm, tints, tones, greys
+    refs = []
+    for i in range(REFIGHTS * 2):
+        first = (perm[REFIGHT_PALS[i & ~1]], perm[REFIGHT_PALS[i | 1]])
+        while True:
+            p = rng.below(PALSWAP_PALS)
+            why = ("first0" if p == first[0] else "first1" if p == first[1]
+                   else "pair" if i & 1 and p == refs[i - 1] else None)
+            if why is None:
+                break
+            if redraws is not None:
+                redraws.append((why, i))
+        refs.append(p)
+    return perm, tints, tones, greys, refs
+
+
+def build_palswap(seed):
+    """(perm, tints, tones, greys)."""
+    return _palswap(seed)[:4]
+
+
+def build_palref(seed):
+    """Fiend refight colors, RW_PALREF: two palettes each, in order."""
+    return _palswap(seed)[4]
+
+
+def palswap_shows(pal, seed, on):
+    """Battle palette `pal` as it shows (fun.asm's fun_btlpal): 0-63 through
+    the shuffle when on; 64-71 the refight palettes from build_palref when
+    on, and the formation's (REFIGHT_PALS) when off."""
+    if pal >= PALSWAP_PALS:
+        return build_palref(seed)[pal - PALSWAP_PALS] if on else REFIGHT_PALS[pal - PALSWAP_PALS]
+    return build_palswap(seed)[0][pal] if on else pal
 
 
 def _chroma(colour):
