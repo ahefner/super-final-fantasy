@@ -3189,6 +3189,39 @@ minimap, the title and description beside the zoom.
     up once, with bit 3 marking the selection's tiles.  A tick or a move
     redraws only the rows its edit writes, and of those only the 8-pixel
     characters an edit list writes in (`lut_OwsCharMask`).
+  - What flashes is what ticking changes (user, 2026-11-13: the land
+    bridge's flashing ran past the land it makes, a blue fringe once
+    ticked; they took it for an off-by-one).  It was every tile the
+    selection writes, and FFR's lists also rewrite sea as other sea: the
+    land bridge does it 80 times, around its new land and around the
+    islands it takes away ($17, $27, $16, $18, all water in the art and the
+    minimap's ocean).  `ows_decode` now leaves a write unmarked when the
+    tile there and the tile written are both sea, judged over the map as it
+    stands at the write, so ticked or not.  Land over land still flashes:
+    Bahamut's dock is nine of those and would otherwise show nothing.  The
+    check costs the busiest minimap row 6,095 -> 6,651 instructions and the
+    zoom's two rows about 6,400 -> 6,600.  `test_owscreen` models it
+    (`marks`) and checks that no flashing tile is sea before and after,
+    for every setting, previewed and ticked.
+  - Separately, the dock looked a tile inland, and that was the game's own
+    minimap table: tile $07, the shore along the south side of land, is 96%
+    water in its art but coloured land (459 of them on the map), so every
+    south coast showed a tile too far out.  Bahamut's dock is on the last
+    land row, with a row of $07 below it.  The user chose sea for it on
+    this screen alone (`genows.py`'s `screen_tiles`, which `lut_OwsTiles`
+    and `lut_OwsBaked` are made from); the game's own minimap keeps its
+    table, and `genowedits.py`, which lays that one out, reads the game's.
+    The screen's minimap loses 115 of its 5,733 land pixels; the zoom, at a
+    pixel or two a tile, is where it shows.  It also counts as sea for the
+    flashing, so the land bridge leaves 145 writes unmarked (80 plus 65
+    with the south shore).  `test_owscreen` checks the dock in the zoom as
+    the ROM draws it: each dock pixel flashing land, the one under it sea.
+  - The BRIDGE and the canal are the map's data here, not what the game
+    draws over it: the bridge is a sprite on the sea once you have it, so
+    Bridge to Lefein shows a tile of water at (230, 123) through its land,
+    and Coneria's (152, 152) a tile of river; the canal (102, 164) is water
+    in the map, drawn as land until the CANAL.  Painting them as land was
+    offered; the user chose to leave it (2026-11-13).
   - It comes up whole (user: not drawn in while you watch, as the first
     builds did over about two seconds).  The unedited minimap is in ROM,
     rendered by `genows.py` from bank $01's rows (`lut_OwsBaked`, 8KB); in

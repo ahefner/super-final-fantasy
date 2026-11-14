@@ -2282,7 +2282,11 @@ def test_owscreen():
     at = src9.index("lut_MinimapTileset:")
     tl = bytes(int(v) for l in src9[at:].split("\n")[1:9]
                for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
-    check("its colours are the game's minimap's", bytes(TS), tl)
+    #  The south shore, $07, sea here (user, 2026-11-13): 96% water in the
+    #  art, land in the game's table, so south coasts stood a tile out.
+    check("its colours are the game's minimap's, the south shore sea",
+          bytes(TS), tl[:7] + b"\x00" + tl[8:])
+    check("...which the game's table has as land", tl[7] & 7 != 0, True)
 
     def lists(*names):
         return {(x, y) for n in names for x, y, _ in O.LISTS[n]}
@@ -2324,8 +2328,45 @@ def test_owscreen():
     check("...the land bridge's tiles take in the variant's",
           lists("CardiaLandBridgeBahamutDock") <= lists("CardiaLandBridge"), True)
 
+    def marks(sel, flags):
+        """The tiles that flash: the selection's writes, ticked or not, but
+        not sea written over sea -- over the map as it stands when the
+        write comes, FFR's order, the ticked lists written in as they go."""
+        g, m = GO.view_gates(GO.view(sel, flags)), O.active_lists(flags)
+        t, out = list(van), set()
+        for name, gate in O.ORDER:
+            for x, y, tile in O.LISTS[name]:
+                if g >> gate & 1 and (TS[tile] | TS[t[x + 256 * y]]) & 7:
+                    out.add((x, y))
+                if m >> gate & 1:
+                    t[x + 256 * y] = tile
+        return out
+
+    #  The flashing agrees with what ticking does (user, 2026-11-13: the land
+    #  bridge's flashing ran a tile past its land, a blue fringe once ticked):
+    #  no flashing tile is sea before and after, ticked or not, for any
+    #  setting; the land bridge's 80 sea-over-sea writes are what that
+    #  leaves out; Bahamut's dock, land over land, still flashes all nine.
+    sea = lambda t: TS[t] & 7 == 0
+    fringe = []
+    for s in range(len(O.SETTINGS)):
+        for flags in (0, 1 << s, 0x1FFF):
+            before, after = O.apply(van, flags & ~(1 << s)), O.apply(van, flags | 1 << s)
+            fringe += [(s, flags, xy) for xy in marks(s, flags)
+                       if sea(before[xy[0] + 256 * xy[1]]) and sea(after[xy[0] + 256 * xy[1]])]
+    check("no flashing sea that stays sea, ticked or not", fringe[:4], [])
+    #  The land bridge writes each of its 555 tiles once, so what is left
+    #  out is its sea written over the vanilla map's sea: 80 sea tiles
+    #  rewritten, and 65 with the south shore, which is sea here.
+    check("...the land bridge's writes, less its sea over sea",
+          (len(hls(O.CARDIA_BRIDGE, 0)) - len(marks(O.CARDIA_BRIDGE, 0)),
+           sum(1 for x, y, t in O.LISTS["CardiaLandBridge"] if sea(t) and sea(van[x + 256 * y]))),
+          (145, 145))
+    check("...Bahamut's dock, land over land, all nine",
+          marks(O.BAHAMUT_DOCK, 0x0010), lists("BahamutCardiaDock"))
+
     def expect_minimap(flags, sel):
-        t, hl = O.apply(van, flags), hls(sel, flags)
+        t, hl = O.apply(van, flags), marks(sel, flags)
         rows = []
         for p in range(128):
             row = []
@@ -2368,7 +2409,7 @@ def test_owscreen():
         scale = 1 if w > 28 else 2
         span = 56 // scale
         x0, y0 = (cx - span // 2) & 255, (cy - span // 2) & 255
-        t, hl = O.apply(van, flags), hls(sel, flags)
+        t, hl = O.apply(van, flags), marks(sel, flags)
         rows = []
         for i in range(span):
             y = (y0 + i) & 255
@@ -2388,6 +2429,24 @@ def test_owscreen():
         if got != expect_inset(flags, sel, site):
             bad.append("flags $%04X selection %d place %d" % (flags, sel, site))
     check("the inset: a place of the selection's, at its scale", bad, [])
+
+    #  Bahamut's dock on the coast in the zoom as the ROM draws it (user,
+    #  2026-11-13: it looked a tile inland): each dock pixel flashing land,
+    #  the pixel under it sea.
+    setup(bus, 0x0010, O.BAHAMUT_DOCK)
+    call(cpu, "ows_testinset", bank=OWS)
+    ch = bus.wram[W("OWS_INSETCHR"):W("OWS_INSETCHR") + 49 * 32]
+    def inset_px(x, y):
+        t, r, c = (y // 8) * 7 + x // 8, y % 8, x % 8
+        return sum(((ch[t * 32 + (16 if p >= 2 else 0) + r * 2 + (p & 1)] << c & 0x80) != 0) << p
+                   for p in range(4))
+    cx, cy, w = GO.sites(GO.view(O.BAHAMUT_DOCK, 0x0010))[0]
+    scale = 1 if w > 28 else 2
+    x0, y0 = cx - 28 // scale, cy - 28 // scale
+    docks = [(x, y) for x, y, t in O.LISTS["BahamutCardiaDock"] if t == 0x78]
+    check("...Bahamut's dock: its pixels flashing land, sea under them",
+          [(inset_px((x - x0) * scale, (y - y0) * scale), inset_px((x - x0) * scale, (y + 1 - y0) * scale))
+           for x, y in docks], [(1 | 8, 0)] * len(docks))
     vx = [x for x, _, _ in O.LISTS["CardiaLandBridgeBahamutDock"]]
     vy = [y for _, y, _ in O.LISTS["CardiaLandBridgeBahamutDock"]]
     check("...Bahamut's dock under the land bridge: the variant's, alone",

@@ -37,8 +37,10 @@
 ;  The minimap is the world's, decoded here from the game's own RLE rows and
 ;  edited from world.asm's tables as ow_edit edits the game's, so it shows
 ;  what the game will.  A row decodes straight to the game's minimap colours
-;  (lut_OwsTiles, bank $09's), a run's colour looked up once, with bit 3 set
-;  on each tile the selected setting writes; a pixel ORs its four tiles'.
+;  (lut_OwsTiles, bank $09's, but the south shore sea: genows.py's
+;  screen_tiles), a run's colour looked up once, with bit 3 set
+;  on each tile the selected setting writes, but for sea written over sea,
+;  which shows nothing; a pixel ORs its four tiles'.
 ;  The selection's pixels flash, and rings mark its places.  For Bahamut's
 ;  dock and the land bridge, which the other's box changes, what is marked
 ;  and zoomed follows that box (genows.py's views).
@@ -1818,7 +1820,8 @@ ows_nextrow:
 ;;  ows_decode -- map row A, from the game's RLE rows, into the 256 bytes at
 ;;  bank $7F's X as minimap colours (lut_OwsTiles), edited by V_ACTIVE's
 ;;  lists, with bit 3 set on each tile a list of V_HLMASK's writes, applied
-;;  or not.  A run's colour is looked up once.  A8 I16; out with B zero.
+;;  or not -- but not where it writes sea over sea.  A run's colour is looked
+;;  up once.  A8 I16; out with B zero.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
@@ -1919,36 +1922,54 @@ ows_decode:
     CLC
     ADC a:aDST
     TAY
-    LDA f:WORLDFAR + lut_OweEnt, X      ; ...and its gate
-    AND a:aACTIVE
-    BEQ @mark
-    ;  Applied: the tile's colour, the mark kept.
-    LDA f:WORLDFAR + lut_OweEnt + 2, X
+    LDA f:WORLDFAR + lut_OweEnt + 2, X  ; ...its tile's colour...
     XBA
     AND #$00FF
     PHX
     TAX
     SEP #$20
     .a8
-    LDA a:0, Y
-    AND #8
-    ORA f:OWSFAR + lut_OwsTiles, X
-    STA a:0, Y
+    LDA f:OWSFAR + lut_OwsTiles, X
+    PLX
+    STA a:aT8
+    ;  ...and whether the write shows: sea written over sea changes nothing
+    ;  the map shows, so it is not marked.  The land bridge rewrites the sea
+    ;  around its land and around the islands it takes away, and the
+    ;  flashing there read as a blue fringe the land never filled (user,
+    ;  2026-11-13).  Land over land is marked: Bahamut's dock is that.
+    ORA a:0, Y                  ; with the colour there now, its mark aside
+    AND #7
+    PHA                         ; zero: sea over sea
     REP #$20
     .a16
-    PLX
-  @mark:
-    LDA f:WORLDFAR + lut_OweEnt, X
-    AND a:aHLMASK
-    BEQ @nx
+    LDA f:WORLDFAR + lut_OweEnt, X      ; ...and its gate
+    AND a:aACTIVE
+    BEQ @mark
+    ;  Applied: the tile's colour, the mark kept.
     SEP #$20
     .a8
     LDA a:0, Y
-    ORA #8
+    AND #8
+    ORA a:aT8
     STA a:0, Y
+  @mark:
+    SEP #$20
+    .a8
+    PLA
+    BEQ @nx
     REP #$20
     .a16
+    LDA f:WORLDFAR + lut_OweEnt, X
+    AND a:aHLMASK
+    SEP #$20
+    .a8
+    BEQ @nx
+    LDA a:0, Y
+    ORA #8
+    STA a:0, Y
   @nx:
+    REP #$20
+    .a16
     TXA
     CLC
     ADC #OWE_ENTRY

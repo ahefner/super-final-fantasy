@@ -3,7 +3,8 @@
 
     lut_OwsTiles    the minimap's colour for each overworld tile, as the
                     game's minimap has it (bank $09's lut_MinimapTileset):
-                    bits 0-1 the colour, bit 2 a marker
+                    bits 0-1 the colour, bit 2 a marker -- but for the south
+                    shore, sea here (screen_tiles)
     lut_OwsGates    each view's list gates, as a mask of the active-list
                     bits (owedits.py).  A view is what the screen shows for
                     the selected setting: its own list, but Bahamut's dock
@@ -75,6 +76,21 @@ def minimap_tiles():
             break
     assert len(vals) >= 128
     return vals[:128]
+
+
+#  The shore along the south side of land: 96% water in its art, but the
+#  game's minimap colours it land, so on this screen every south coast stood
+#  a tile out to sea and Bahamut's dock, on the last row of land, looked a
+#  tile inland (user, 2026-11-13: sea on this screen; the game's own minimap
+#  keeps its table).
+SOUTH_SHORE = 0x07
+
+
+def screen_tiles():
+    """This screen's colours: the game's minimap's, the south shore sea."""
+    ts = minimap_tiles()
+    ts[SOUTH_SHORE] = 0
+    return ts
 
 
 #  The view past the settings' own.
@@ -200,7 +216,7 @@ def main():
              "OWS_VIEWS = %d" % OWS_VIEWS,
              "OWS_VIEW_BAHAMUTBRIDGE = %d" % OWS_VIEW_BAHAMUTBRIDGE, "",
              "lut_OwsTiles:"]
-    t = minimap_tiles()
+    t = screen_tiles()
     for i in range(0, 128, 16):
         lines.append("  .BYTE " + ", ".join("$%02X" % v for v in t[i:i + 16]))
     lines.append("lut_OwsGates:")
@@ -265,7 +281,7 @@ def main():
     lines.append("lut_OwsCharMask:")
     for i in range(0, 128, 16):
         lines.append("  .WORD " + ", ".join("$%04X" % m for m in masks[i:i + 16]))
-    bk = baked(minimap_tiles())
+    bk = baked(screen_tiles())
     lines.append("lut_OwsBaked:              ; 256 characters, 32 bytes each")
     for i in range(0, len(bk), 32):
         lines.append("  .BYTE " + ", ".join("$%02X" % b for b in bk[i:i + 32]))
