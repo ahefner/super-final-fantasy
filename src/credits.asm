@@ -716,7 +716,7 @@ lut_CreditsText:
   CRLINE "Music"
   CRLINE "Nobuo Uematsu"
   CRLINE ""
-  CRLINE "Translation"
+  CRLINE "English Translation"
   CRLINE "Phil Sandhop"
   CRLINE ""
   CRLINE ""

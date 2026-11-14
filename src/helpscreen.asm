@@ -116,10 +116,10 @@ lut_HelpLines:
   HELPLINE  5, "base game with improvements,"
   HELPLINE  6, "fixes, and a randomizer.    "
 
-  HELPLINE  8, "In many shops and menus, the"
-  HELPLINE  9, "SELECT button will inspect  "
-  HELPLINE 10, "stats of weapons, armor, and"
-  HELPLINE 11, "spells."
+  HELPLINE  8, "In shops and menus, SELECT  "
+  HELPLINE  9, "will inspect stats of armor,"
+  HELPLINE 10, "weapons, and spells, as well"
+  HELPLINE 11, "as the saved game settings. "
 
   HELPLINE 13, "The left shoulder button    "
   HELPLINE 14, "plus X or Y button reset the"

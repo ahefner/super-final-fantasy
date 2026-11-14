@@ -278,9 +278,9 @@ lut_Desc_102:  ; Short ToFR
   FFLINES 5
   FFPAD {"The Black Orb leads straight"}, 28
   FFPAD {"to Chaos's floor. Seven"}, 28
-  FFPAD {"chests wait by the landing,"}, 28
-  FFPAD {"and the four fiends past the"}, 28
-  FFPAD {"LUTE plate."}, 28
+  FFPAD {"chests wait by the landing."}, 28
+  FFPAD {"The four fiends guard the"}, 28
+  FFPAD {"way to CHAOS."}, 28
 
 lut_Desc_95:  ; RUSE Staff
   FFLINES 4
