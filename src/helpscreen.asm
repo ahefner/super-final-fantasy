@@ -1,11 +1,6 @@
 ; ---------------------------------------------------------------------------
-;  helpscreen.asm -- the title's Help page (user, 2026-11-12), in the
-;  settings screen's chunk (CHUNK_OPTMENU): its background, chirps and text
-;  routines are that engine's, as the Seed Summary's are.
-;
-;  A PLACEHOLDER for now: the page will be "a simple text page display that
-;  explains the new controls (left trigger + x/y, select button in menus,
-;  etc.)" -- the user's text, when it comes, goes in lut_HelpLines.
+;  helpscreen.asm -- the title's Help page, in the settings screen's
+;  chunk (CHUNK_OPTMENU).
 ;
 ;  A, B or START goes back to the title.  No hand: nothing to choose.  The
 ;  title's music plays on, and L + X / L + Y reset from it, through
@@ -49,7 +44,7 @@ help_show:
     JSR opt_menu_breathe        ; ...sent
     LDA #$1E
     wPPUMASK                    ; ...and on
-    JSR opt_waitrelease         ; the A that brought it carries no further
+    JSR opt_waitrelease         ; absorb button release to avoid false trigger
 
   @loop:
     JSR WaitForVBlank_L
@@ -109,13 +104,35 @@ help_draw:
   @done:
     RTS
 
-;  The page: each line its nametable row, then its text padded to the line.
-;  Rows 2-27 are what a CRT shows.
+; HELPLINE defines a row number on the screen and the text to display. 
+; Rows 2-27 are the safe visible area for a CRT.
 .macro HELPLINE row, txt
   .BYTE row
   FFPAD txt, HELP_LINEW
 .endmacro
 lut_HelpLines:
-  HELPLINE  2, "            HELP"
-  HELPLINE  6, "  Instructions will go here."
+  HELPLINE  2, "     SUPER FINAL FANTASY    "
+  HELPLINE  4, "This project enhances the   "
+  HELPLINE  5, "base game with improvements,"
+  HELPLINE  6, "fixes, and a randomizer.    "
+
+  HELPLINE  8, "In many shops and menus, the"
+  HELPLINE  9, "SELECT button will inspect  "
+  HELPLINE 10, "stats of weapons, armor, and"
+  HELPLINE 11, "spells."
+
+  HELPLINE 13, "The left shoulder button    "
+  HELPLINE 14, "plus X or Y button reset the"
+  HELPLINE 15, "game. This enables escaping "
+  HELPLINE 16, "battles and manipulation of "
+  HELPLINE 17, "the encounter table. Prefer "
+  HELPLINE 18, "these shortcuts as it avoids"
+  HELPLINE 19, "the delay of regenerating   "
+  HELPLINE 20, "the seed following reset.   "
+
+  HELPLINE 22, "L+X - Soft Reset"
+  HELPLINE 23, " Encounter table position is"
+  HELPLINE 24, " preserved."
+  HELPLINE 26, "L+Y - Hard Reset"
+  HELPLINE 27, " Encounter position is reset"
   .BYTE $FF
