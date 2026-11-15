@@ -1757,8 +1757,8 @@ for an enemy (user asked, 2026-10-11).
 **Built 2026-11-03; the first three played: Stereo Sound and Palette swap
 "extensively", the latter through its water, tones and grey ramps (the
 user, 2026-11-04), and the Exploding Dwarf on 2026-11-04, all of it to
-the scream 3dB up ("good enough").  Graphics built 2026-11-14, not yet
-played.**  The user's Fun% flags
+the scream 3dB up ("good enough").  Graphics built 2026-11-14, played
+2026-11-15 with the pub's fixes.**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
 gameplay"), a section of their own after VARIATIONS.  **Not part of the
 seed settings** (user, 2026-11-03): they are the player's own, as the
@@ -2110,7 +2110,7 @@ original copyright/trademark notices"; after playing the first build, in
 the pub: no crosses on the pub, and on Japan the priest tends bar):
 USA and Japan; the description a draft
 ("Japan shows the graphics the Japanese release had before the US release
-changed them.").  `fun.asm`, in Taverns' chunk.  **Built, not yet played.**
+changed them.").  `fun.asm`, in Taverns' chunk.  **Played 2026-11-15.**
 
   - **What changes.**  134 tiles, found by comparing the two ROMs tile by
     tile at the same address (they keep every graphic in the same place).
