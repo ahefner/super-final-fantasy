@@ -14,7 +14,7 @@
 .include "optmenu.inc"
 
 .export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
-.export lut_Desc_114
+.export lut_Desc_114, lut_Desc_115
 .export lut_Desc_103            ; the Goal's, moved from the first bank (2026-11-06)
 
 .segment "BANK_OPTTEXT2"
@@ -76,6 +76,12 @@ lut_Desc_114:  ; Exploding Dwarf (draft, 2026-11-03)
   FFPAD {"The Hurray dwarf in the"}, 28
   FFPAD {"Dwarf Cave explodes when"}, 28
   FFPAD {"you talk to him."}, 28
+
+lut_Desc_115:  ; Graphics (draft, 2026-11-14)
+  FFLINES 3
+  FFPAD {"Japan shows the graphics the"}, 28
+  FFPAD {"Japanese release had before"}, 28
+  FFPAD {"the US release changed them."}, 28
 
 lut_Desc_103:  ; Goal, by value (here since Shard Hunt filled the first bank)
   .BYTE DESC_BYVALUE

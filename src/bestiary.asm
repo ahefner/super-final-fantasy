@@ -73,7 +73,8 @@
 .import opt_padreset
 .import OptCallFar, PlaySFX_MenuMove, PlaySFX_MenuSel
 .import lut_BattlePalettes
-.import opt_bstscale, rando_bsttables, fun_btlpal
+.import opt_bstscale, rando_bsttables, fun_btlpal, fun_japanpic
+.export bst_picsrc, lut_BstSrc, lut_BstKind  ; for tools/test_options.py (test_graphics)
 .import lut_BattleFormations
 
 .segment "BANK_BESTIARY"
@@ -1673,6 +1674,30 @@ bst_cellstart:
     SEC
     RTS
 
+;;  An enemy's picture, long, at SRC and +8, X its lut_BstSrc entry: the
+;;  Japanese one under FUN%'s Graphics on Japan (fun_japanpic).  In A16
+;;  I16, out A8; X and Y kept.
+    .a16
+    .i16
+bst_picsrc:
+    PHY
+    LDA lut_BstSrc + 2, X
+    AND #$00FF
+    TAY
+    LDA lut_BstSrc, X
+    JSL fun_japanpic + FUNFAR
+    STA SRC
+    CLC
+    ADC #8
+    STA SRC8
+    SEP #$20
+    .a8
+    TYA
+    STA SRC + 2
+    STA SRC8 + 2
+    PLY
+    RTS
+
 ;;  The cell's picture, long, at SRC and +8 and +16 (the CHR and the
 ;;  specials never cross a bank); its conversion in CONVVEC: a special's a
 ;;  copy, it being made for its cell (bst_convcopy), else its group's own
@@ -1688,19 +1713,17 @@ bst_cellsrc:
     ASL A
     ADC f:V_TMP                 ; x 3
     TAX
-    LDA lut_BstSrc, X
-    STA SRC
+    JSR bst_picsrc
+    .a8                         ; (it returns A8)
+    REP #$20
+    .a16
+    LDA SRC
     CLC
-    ADC #8
-    STA SRC8
-    CLC
-    ADC #8
+    ADC #16
     STA SRC16
     SEP #$20
     .a8
-    LDA lut_BstSrc + 2, X
-    STA SRC + 2
-    STA SRC8 + 2
+    LDA SRC + 2
     STA SRC16 + 2
     LDA f:V_KIND
     CMP #KIND_SPECIAL

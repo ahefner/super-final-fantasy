@@ -19497,6 +19497,302 @@ def test_scream():
           tav.count(jsl("hal_spcplay"))), (1, 1))
 
 
+# --- FUN%: Graphics --------------------------------------------------------------
+def test_graphics():
+    """Graphics (user, 2026-11-14: "Graphics" - "USA", "Japan"; the Japanese
+    tiles from a file in the tree, the build needing no ROM; the pub sign
+    under Taverns as the Japanese town tiles make it; the bridge scene as
+    the US release has it).  The row; game/jtiles.dat against the two ROMs
+    where they are found, and the ROM's table against the file; a CHR load
+    through CHRLoad_Cont, each region whole and in part, on USA exactly as
+    hal_chrload alone leaves things, on Japan with the Japanese tiles where
+    the load put the US ones and nothing else changed, none past pattern
+    space or from another bank, the registers as hal_chrload leaves them;
+    the game's loaders: every tileset, the shop, every class's battle
+    sprites, every enemy page; and the Bestiary's pictures."""
+    import presetdefs as P, genpresets as G, genjtiles as JT
+    FUN, JAPAN = K["OPT_FUN"] - OPTBLOCK, K["FUN_JAPAN"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Graphics")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Graphics: FUN%, after Exploding Dwarf, USA and Japan, the respond rate's byte's bit 6",
+          (row.section, names[names.index("Graphics") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("FUN%", "Exploding Dwarf", ["USA", "Japan"], (FUN, 6, JAPAN)))
+    check("...no preset sets it", [n for n, _, _, s_ in G.resolve(G.load(), rows) if "Graphics" in s_], [])
+    SEL, TOP = 0x6E, 0x6F
+    def desc(r, fun):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setblk(bus, FUN, fun)
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    words = ["Japan shows the graphics the", "Japanese release had before", "the US release changed them."]
+    check("its pane, either value", [desc(optrow("Graphics"), v * JAPAN) for v in range(2)], [words, words])
+
+    #  The file, against the ROMs: the generator's choice, and independently
+    #  of it, what differs between them and is left out -- the font, the
+    #  tilesets' $7B-$7F, the shop's $79 and the bridge scene, nothing else.
+    runs = JT.load()
+    jmap = {(b, f + 16 * k): t[16 * k:16 * k + 16] for b, f, t in runs for k in range(len(t) // 16)}
+    nes = lambda b, a, n=16: bytes(ROMDATA[(1 + b) * 0x10000 + a:][:n])
+    parent = os.environ.get("FF1_ROMS") or os.path.dirname(ROOT)      # mutate.py's copies name it
+    E_NES, J_NES = os.path.join(parent, "ff1e.nes"), os.path.join(parent, "ff1j.nes")
+    if os.path.exists(E_NES) and os.path.exists(J_NES):
+        E, J = open(E_NES, "rb").read()[16:], open(J_NES, "rb").read()[16:]
+        at = lambda rom, b, a: rom[b * 0x4000 + a - 0x8000:][:16]
+        check("game/jtiles.dat: genjtiles.select's, from the two ROMs",
+              JT.select(E, J) == open(JT.DAT, "rb").read(), True)
+        check("...every tile in it the Japanese ROM's at its address",
+              [(b, hex(a)) for (b, a), t in jmap.items() if t != at(J, b, a)], [])
+        left = set()
+        for b, lo, hi in ((0x02, 0x8000, 0xC000), (0x03, 0x8000, 0xC000), (0x07, 0x8000, 0xC000),
+                          (0x08, 0x8000, 0xC000), (0x09, 0x8000, 0xB000), (0x09, 0xB400, 0xB980),
+                          (0x0B, 0xA800, 0xBC00), (0x0D, 0xB600, 0xB800)):
+            for a in range(lo, hi, 16):
+                if at(E, b, a) != at(J, b, a) and (b, a) not in jmap:
+                    left.add((b, a))
+        want = ({(0x09, a) for a in range(0x8800, 0x9000, 16) if at(E, 0x09, a) != at(J, 0x09, a)} |
+                {(0x03, a) for a in range(0x8000, 0xC000, 16)
+                 if (a >> 4) & 0x7F >= 0x7B and at(E, 0x03, a) != at(J, 0x03, a)} |
+                {(0x09, 0x8790)} |
+                {(0x0B, a) for a in range(0xB400, 0xBC00, 16) if at(E, 0x0B, a) != at(J, 0x0B, a)})
+        check("...what differs and is left out: the font, the tilesets' $7B-$7F, the shop's $79, the bridge",
+              sorted(left ^ want), [])
+        check("...the left out ones there to leave (a rule that left out nothing would pass)",
+              (len(want), min(len(x) for x in (
+                  [w for w in want if w[0] == 0x09 and w[1] >= 0x8800], [w for w in want if w[0] == 0x03],
+                  [w for w in want if w[0] == 0x0B]))) > (100, 0), True)
+    else:
+        skipped.append("test_graphics: no ff1e.nes and ff1j.nes beside the tree (or in $FF1_ROMS), "
+                       "so jtiles.dat is not checked against them")
+    check("the tiles: 134, in the tilesets, the EYE's and MEDUSA's pictures, the shop and the battle sprites",
+          (len(jmap), sorted({(b, (a - 0x8000) // 0x800) for b, a in jmap if b in (7, 8)})), (134, [(7, 4), (7, 5)]))
+    #  (jtiles.inc is gen/'s, which bank_of does not read: fun.asm's chunk.)
+    chunk = (bank_of("fun_chrload") & 0x1F) * 0x10000
+    base = chunk + SYM["lut_JapanRuns"]
+    word = lambda at_: ROMDATA[at_] | ROMDATA[at_ + 1] << 8
+    got, flagged, i = [], [], 0
+    while word(base + i):
+        first, end, bank, data = word(base + i), word(base + i + 2), word(base + i + 4), word(base + i + 6)
+        got.append(((bank & 0xFF) - 0xA1, first, bytes(ROMDATA[chunk + data:][:end - first])))
+        if bank >> 8:
+            flagged.append(((bank & 0xFF) - 0xA1, first, end, bank >> 8))
+        i += 8
+    check("the ROM's lut_JapanRuns: the file's runs, tiles and all, each on a 16-byte boundary",
+          (got, {word(base + 8 * k + 6) & 15 for k in range(len(got))}), (runs, {0}))
+    check("...one flagged JAPAN_PUB: the clinic's roof, the town tileset's $45-$48, each tile changed",
+          (flagged, [jmap[(3, 0x8450 + 16 * k)] != nes(3, 0x8450 + 16 * k) for k in range(4)]),
+          ([(3, 0x8450, 0x8490, JT.JAPAN_PUB)], [True] * 4))
+
+    #  A load through CHRLoad_Cont: X rows from (tmp)+Y in a bank, to the
+    #  PPU address the HAL holds.
+    SH = K["CHRSHADOW"] - RW_BASE
+    def tile(bus, t):
+        src = bus.wram[SH + t * 32:SH + t * 32 + 16]
+        return bytes(src[2 * y] for y in range(8)) + bytes(src[2 * y + 1] for y in range(8))
+    def load(bank, ptr, rows_, y, dst, fun, name="CHRLoad_Cont"):
+        bus, cpu = machine()
+        setblk(bus, FUN, fun)
+        bus.wram[0x10], bus.wram[0x11] = ptr & 0xFF, ptr >> 8
+        bus.wram[K["h_addr"]], bus.wram[K["h_addr"] + 1] = dst & 0xFF, dst >> 8
+        cpu.x, cpu.y, cpu.a = rows_, y, 0x5A
+        call(cpu, name, bank=0xC0 if name == "hal_chrload" else 0xA1 + bank, dbr=0xA1 + bank)
+        return bus, cpu
+    regs = lambda bus, cpu: (cpu.a & 0xFF, cpu.x, cpu.y, cpu.p, cpu.s, cpu.e, cpu.dbr, bus.wram[0x10], bus.wram[0x11])
+    span = lambda bus: (bus.wram[K["h_chrlo"]] | bus.wram[K["h_chrlo"] + 1] << 8,
+                        bus.wram[K["h_chrhi"]] | bus.wram[K["h_chrhi"] + 1] << 8)
+    cases = ([(3, 0x8000 + 0x800 * ts, 8, 0, 0x0000) for ts in range(8)] +
+             [(b, 0x8000 + 0x800 * pg, 8, 0, 0x1000) for b in (7, 8) for pg in range(8)] +
+             [(9, a, 8, 0, a & 0x1800) for a in range(0x8000, 0xB800, 0x800)] +
+             [(7, 0xA500, 1, 0x70, 0x1570),     # from inside a run (the EYE's)
+              (7, 0xA400, 2, 0x00, 0x0400),     # to inside it
+              (3, 0x8100, 1, 0xF0, 0x01F0),     # one tile, a run's second
+              (9, 0x9F00, 3, 0x20, 0x0F20),     # across two classes
+              (3, 0x8100, 2, 0x00, 0x1F00),     # out of pattern space partway
+              (3, 0x8100, 1, 0x00, 0x1F80),     # ...with Japanese tiles past it
+              (3, 0x8100, 1, 0xE0, 0x01E8),     # a destination off the tiles' boundaries
+              (3, 0x8100, 1, 0x00, 0x2000),     # a nametable's fill
+              (2, 0x8100, 2, 0x00, 0x0100),     # another bank, at a run's addresses
+              (8, 0xA400, 2, 0x00, 0x0400)])    # ...and the EYE's, a bank over
+    bad_usa, bad_regs, bad_jap, bad_span, changed = [], [], [], [], 0
+    for c in cases:
+        b, ptr, n, y, dst = c
+        first, count = ptr + y, n * 256 - y
+        alone, acpu = load(*c, fun=0, name="hal_chrload")
+        usa, ucpu = load(*c, fun=0)
+        jap, jcpu = load(*c, fun=JAPAN)
+        ram = lambda bus: bytes(bus.wram[:0x100]) + bytes(bus.wram[0x200:])
+        if ram(usa) != ram(alone) or regs(usa, ucpu) != regs(alone, acpu) or usa.sram != alone.sram:
+            bad_usa.append(c)
+        if regs(jap, jcpu) != regs(alone, acpu):
+            bad_regs.append((c, regs(jap, jcpu), regs(alone, acpu)))
+        want = {}
+        if (dst & 15) == (first & 15):
+            for k in range(0, count, 16):
+                a, d = first + k, dst + k
+                if (b, a) in jmap and d < 0x2000 and a % 16 == 0 and jmap[(b, a)] != nes(b, a):
+                    want[d >> 4] = jmap[(b, a)]
+        diff = {t: tile(jap, t) for t in range(512) if tile(jap, t) != tile(usa, t)}
+        upper = lambda bus: b"".join(bytes(bus.wram[SH + t * 32 + 16:SH + t * 32 + 32]) for t in range(512))
+        def others(bus):
+            """WRAM but the stack, the shadow, Graphics' scratch and the dirty span."""
+            m = bytearray(bus.wram)
+            for lo_, n_ in ((0x100, 0x100), (SH, 0x4000), (K["JP_SRC"] - RW_BASE, 10),
+                            (K["h_chrlo"], 2), (K["h_chrhi"], 2), (K["h_chrqn"], 1)):
+                m[lo_:lo_ + n_] = bytes(n_)
+            return bytes(m)
+        fun_at = OPTBLOCK - 0x6000 + FUN
+        sram = lambda bus: bytes(bus.sram[:fun_at]) + bytes(bus.sram[fun_at + 1:])
+        if diff != want or upper(jap) != upper(usa) or others(jap) != others(usa) or sram(jap) != sram(usa):
+            bad_jap.append((c, sorted(diff), sorted(want)))
+        if want:
+            lo, hi = span(jap)
+            if not (lo <= min(want) * 32 and max(want) * 32 + 15 <= hi):     # the NES's 16 of the 32
+                bad_span.append(c)
+        changed += len(want)
+    check("on USA a load is hal_chrload's alone: RAM, registers, tmp and the battery page, %d loads" % len(cases),
+          bad_usa, [])
+    check("...on Japan the registers and tmp too", bad_regs[:2], [])
+    check("...and the shadow the USA load's but for the Japanese tiles, where the load put the US ones "
+          "(%d tiles), none past pattern space, off a boundary or from another bank" % changed, bad_jap[:3], [])
+    check("...those inside the dirty span hal_chrload leaves, whichever path it took", bad_span, [])
+    check("...the loads having something to show: tiles changed", changed > 150, True)
+
+    #  The game's loaders.
+    def classes(bus, cls):
+        for e, c in enumerate(cls):
+            bus.sram[K["ch_stats"] - 0x6000 + e * 0x40] = c
+    def expect(b, a, n, japan):
+        return [jmap.get((b, a + 16 * k), nes(b, a + 16 * k)) if japan else nes(b, a + 16 * k) for k in range(n)]
+    bad = []
+    for japan in (False, True):
+        for ts in range(8):
+            bus, cpu = machine()
+            setblk(bus, FUN, JAPAN if japan else 0)
+            bus.wram[K["cur_tileset"]] = ts
+            call(cpu, "LoadTilesetAndMenuCHR")
+            if [tile(bus, t) for t in range(256)] != expect(3, 0x8000 + 0x800 * ts, 128, japan) + \
+                    expect(9, 0x8800, 128, False):
+                bad.append(("tileset", ts, japan))
+        bus, cpu = machine()
+        setblk(bus, FUN, JAPAN if japan else 0)
+        call(cpu, "LoadShopBGCHRPalettes")
+        if [tile(bus, t) for t in range(256)] != expect(9, 0x8000, 128, japan) + expect(9, 0x8800, 128, False):
+            bad.append(("shop", japan))
+        for party in ((0, 1, 2, 3), (4, 5, 6, 7), (8, 9, 10, 11)):
+            bus, cpu = machine()
+            setblk(bus, FUN, JAPAN if japan else 0)
+            classes(bus, party)
+            call(cpu, "LoadBatSprCHRPalettes")
+            want = [t for c in party for t in expect(9, 0x9000 + 0x200 * c, 32, japan)] + \
+                expect(9, 0xA800, 128, japan)
+            if [tile(bus, 256 + t) for t in range(256)] != want:
+                bad.append(("battle sprites", party, japan))
+        FORMS = (1 + 0x0B) * 0x10000 + SYM["lut_BattleFormations"]
+        for pg in range(16):
+            f = next(f for f in range(128) if ROMDATA[FORMS + 16 * f] & 15 == pg)
+            bus, cpu = machine()
+            setblk(bus, FUN, JAPAN if japan else 0)
+            bus.wram[K["btlformation"]], bus.wram[K["ow_tile"]] = f, 0
+            call(cpu, "LoadBattleBGCHRAndPalettes")
+            if [tile(bus, t) for t in range(0x12, 0x80)] != \
+                    expect(7 + pg // 8, 0x8000 + 0x800 * (pg & 7) + 0x120, 0x6E, japan):
+                bad.append(("enemy page", pg, japan))
+    check("the game's loaders, USA and Japan: every tileset with the font, the shop, every class's battle "
+          "sprites and the battle objects, every enemy page", bad, [])
+
+    #  The pub (user, 2026-11-14: no crosses on the pub; the priest on
+    #  Japan).  Under Taverns, Recruit or Replace, the clinic's roof stays US,
+    #  its lower half being the pub sign's top; and the tavern leaves the
+    #  clinic's priest where it would lay the armourer.
+    NORUN = K["RANDO_NORUN"] - 0x6000
+    bad = []
+    for taverns in (0, K["TAVERNS_RECRUIT"], K["TAVERNS_REPLACE"]):
+        for japan in (False, True):
+            bus, cpu = machine()
+            setblk(bus, FUN, JAPAN if japan else 0)
+            bus.sram[NORUN] = taverns << K["TAVERNS_SHIFT"] | 1      # a runs mode beside it
+            bus.wram[K["cur_tileset"]] = 0
+            call(cpu, "LoadTilesetAndMenuCHR")
+            want = expect(3, 0x8000, 128, japan)
+            if taverns:
+                want[0x45:0x49] = expect(3, 0x8450, 4, False)
+            if [tile(bus, t) for t in range(128)] != want:
+                bad.append((taverns, japan))
+    check("the town tileset under Taverns, Recruit and Replace: the clinic's roof US on Japan too, "
+          "the rest as without Taverns", bad, [])
+    clinic_id = next(i for i in range(128) if ROMDATA[rom_at("lut_ShopTypes") + i] == 4)
+    shop = lambda t, n=1: expect(9, 0x8000 + 16 * t, n, False)
+    bad = []
+    for japan in (False, True):
+        bus, cpu = machine()
+        in_vblank(bus)
+        setblk(bus, FUN, JAPAN if japan else 0)
+        bus.sram[NORUN] = K["TAVERNS_RECRUIT"] << K["TAVERNS_SHIFT"]
+        bus.wram[K["shop_id"]] = clinic_id
+        call(cpu, "LoadShopCHRPal")
+        want = expect(9, 0x8000, 128, japan)
+        want[56:60], want[60:64] = shop(98, 4), shop(88, 4)         # the tablecloth, the barrels
+        if not japan:
+            want[64:70] = shop(22, 6)                               # the armourer
+        if [tile(bus, t) for t in range(128)] != want:
+            bad.append((japan, [t for t in range(128) if tile(bus, t) != want[t]]))
+    check("the tavern: the armourer tends bar on USA, on Japan the clinic's priest in his cross hat",
+          bad, [])
+
+    #  The Bestiary: an enemy's picture, the Japanese copy's on Japan.
+    BST = bank_of("bst_picsrc")
+    src_at = (BST & 0x1F) * 0x10000 + SYM["lut_BstSrc"]       # gen/bestiary.inc's
+    kinds = (BST & 0x1F) * 0x10000 + SYM["lut_BstKind"]
+    def picsrc(e, japan):
+        bus, cpu = machine()
+        setblk(bus, FUN, JAPAN if japan else 0)
+        cpu.e = False
+        cpu.p &= ~(FLAG_M | FLAG_X)
+        cpu.x, cpu.dbr = 3 * e, BST
+        call(cpu, "bst_picsrc", bank=BST)
+        w = bus.wram
+        return (w[0x80] | w[0x81] << 8 | w[0x82] << 16, w[0x83] | w[0x84] << 8 | w[0x85] << 16, cpu.x)
+    bad, swapped = [], []
+    for e in range(128):
+        rec = ROMDATA[src_at + 3 * e] | ROMDATA[src_at + 3 * e + 1] << 8 | ROMDATA[src_at + 3 * e + 2] << 16
+        n = (16, 36, 0)[ROMDATA[kinds + e]]
+        b, a = (rec >> 16) - 0xA1, rec & 0xFFFF
+        japanese = [jmap.get((b, a + 16 * k)) for k in range(n)]
+        usa = picsrc(e, False)
+        jap = picsrc(e, True)
+        if usa != (rec, rec + 8, 3 * e):
+            bad.append(("USA", e))
+        if any(japanese):
+            img = (jap[0] >> 16 & 0x1F) * 0x10000 + (jap[0] & 0xFFFF)
+            if not all(japanese) or jap[1] != jap[0] + 8 or jap[2] != 3 * e or \
+                    bytes(ROMDATA[img:][:16 * n]) != b"".join(japanese):
+                bad.append(("Japan", e))
+            swapped.append(R.enemy_name(ROMDATA, e))
+        elif jap != usa:
+            bad.append(("Japan, unchanged", e))
+    check("the Bestiary's pictures: as they were on USA; on Japan the Japanese copy for an enemy with a "
+          "changed tile, the rest as they were", bad, [])
+    check("...those the EYE, MEDUSA and GrMEDUSA, and the PHANTOM, which has the EYE's picture",
+          sorted(swapped), ["EYE", "GrMEDUSA", "MEDUSA", "PHANTOM"])
+
+    #  The wiring: CHRLoad_Cont calls fun_chrload in every chunk; the
+    #  Bestiary's two readers call bst_picsrc, and only it reads lut_BstSrc.
+    fc = SYM["fun_chrload"]
+    jsl = bytes([0x22, fc & 0xFF, fc >> 8 & 0xFF, bank_of("fun_chrload"), 0x60])
+    check("CHRLoad_Cont: JSL fun_chrload, RTS, in every chunk",
+          {bytes(ROMDATA[k * 0x10000 + SYM["CHRLoad_Cont"]:][:5]) == jsl for k in range(1, 31) if k != 17}, {True})
+    chunk = bytes(ROMDATA[(BST & 0x1F) * 0x10000 + 0x8000:][:0x4000])
+    ps, ls = SYM["bst_picsrc"], SYM["lut_BstSrc"]
+    check("...the Bestiary: JSR bst_picsrc twice, lut_BstSrc read by it alone",
+          (chunk.count(bytes([0x20, ps & 0xFF, ps >> 8])), chunk.count(bytes([0xBD, ls & 0xFF, ls >> 8])),
+           chunk.count(bytes([0xBD, ls + 2 & 0xFF, ls + 2 >> 8]))), (2, 1, 1))
+
+
 # --- None, a party slot left empty ------------------------------------------------
 def test_nones():
     """None: party creation offers it for slots 2-4, and every place the class
@@ -20029,7 +20325,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_rando_namelazy, test_helpdraw, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_rando_namelazy, test_helpdraw, test_saveview,
              test_stackshift)
 
     global JOBS

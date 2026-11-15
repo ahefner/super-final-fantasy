@@ -819,7 +819,9 @@ tavern_title:
 ;;  shop's, and FFR's three borrowings go over the clinic's tiles, the shop
 ;;  CHR having just loaded: the caravan's first four (a tablecloth), the
 ;;  item shop's next four (barrels) and the armour shop's last six (its
-;;  armourer, tending bar).  The PPU is off, as it is for the shop's load.
+;;  armourer, tending bar).  On FUN%'s Graphics Japan the armourer stays
+;;  away and the clinic's priest tends bar in the item shop's colours.
+;;  The PPU is off, as it is for the shop's load.
 ;;  DBR is bank $00's and stays it.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -859,13 +861,17 @@ tav_art:
     INX
     CPX #4 * 16
     BCC @barrels
-    LDX #$00
-  @keeper:
+    LDA f:CHUNK0 * $10000 + OPT_FUN
+    AND #FUN_JAPAN
+    BNE @priest                 ; FUN%'s Graphics on Japan: the clinic's
+    LDX #$00                    ;   priest stays, in his cross hat (user,
+  @keeper:                      ;   2026-11-14)
     LDA f:SHOPCHR + (SHOPTYPE_ARMOR * SHOPTILES + 8) * 16, X
     wPPUDATA
     INX
     CPX #6 * 16
     BCC @keeper
+  @priest:
     RTS
 
 

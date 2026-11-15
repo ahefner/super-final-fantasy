@@ -1437,16 +1437,8 @@ bst_dpicture:
     ASL A
     ADC DT2                     ; x 3
     TAX
-    LDA lut_BstSrc, X
-    STA SRC
-    CLC
-    ADC #8
-    STA SRC8
-    SEP #$20
-    .a8
-    LDA lut_BstSrc + 2, X
-    STA SRC + 2
-    STA SRC8 + 2
+    JSR bst_picsrc
+    .a8                         ; (it returns A8)
     LDX #$0000
     LDY #$0000
     LDA f:V_DH

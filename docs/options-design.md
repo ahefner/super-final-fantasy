@@ -1752,12 +1752,13 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### FUN% (3)
+### FUN% (4)
 
-**Built 2026-11-03; all three played: Stereo Sound and Palette swap
+**Built 2026-11-03; the first three played: Stereo Sound and Palette swap
 "extensively", the latter through its water, tones and grey ramps (the
 user, 2026-11-04), and the Exploding Dwarf on 2026-11-04, all of it to
-the scream 3dB up ("good enough").**  The user's Fun% flags
+the scream 3dB up ("good enough").  Graphics built 2026-11-14, not yet
+played.**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
 gameplay"), a section of their own after VARIATIONS.  **Not part of the
 seed settings** (user, 2026-11-03): they are the player's own, as the
@@ -2100,6 +2101,105 @@ Taverns' chunk; `tools/dwarfref.py` is the model and writes the tables
     for that answer passed.  The harness gained `PEA`, and banks $40+ read
     as ROM from $0000, as HiROM maps them: it had read low WRAM there, and
     the load copied zeros.
+
+**Graphics** (user, 2026-11-14: "Graphics" - "USA", "Japan"; the tiles
+from a file in the tree, "Build must be self-contained"; "There will be
+some humor if it also means the pub's shopkeeper is wearing a priest hat";
+the bridge scene as the US release has it, "I'd rather respect the
+original copyright/trademark notices"; after playing the first build, in
+the pub: no crosses on the pub, and on Japan the priest tends bar):
+USA and Japan; the description a draft
+("Japan shows the graphics the Japanese release had before the US release
+changed them.").  `fun.asm`, in Taverns' chunk.  **Built, not yet played.**
+
+  - **What changes.**  134 tiles, found by comparing the two ROMs tile by
+    tile at the same address (they keep every graphic in the same place).
+    In the town tileset, the crosses in the windows and the clinic sign
+    ($1E-$1F, $45-$48, $55-$56).  In the cave tilesets, a cross on a stand
+    where the US release has a candlestick, and in tilesets 2 and 6 a
+    six-pointed star where it has a triangle.  The EYE's large picture,
+    which the PHANTOM also uses, and MEDUSA's small picture, which GrMEDUSA
+    also uses: 52 tiles, taken whole, of which 40 differ.  The
+    shopkeeper's hat (shop tiles $40-$43).  Battle poses for the Fighter,
+    White Mage, Ninja, Master (every pose), Red Wizard and White Wizard.
+    Four battle object tiles, two weapons.
+  - **What stays.**  The font, which is kana in the Japanese ROM.  Tiles
+    $7B-$7F of every tileset: leftover kana in the Japanese ROM, blank in
+    four of the US tilesets, and $7E-$7F are the lid for Chests Appear
+    Opened.  Shop tile $79, blank in the Japanese ROM, where the US shop
+    screen fills with it.  The bridge scene, where the only differences are
+    the trademark line and the logo's position.
+  - **The pub.**  In every town the tile above the clinic sign, map tile
+    $19, is the clinic's roof (characters $45-$48), and on Japan it carries
+    a cross.  Taverns' pub sign takes its top from $45-$46, so the first
+    build showed two crosses stacked above PUB (user, 2026-11-14).  So the
+    generator flags that run JAPAN_PUB, and under Taverns, Recruit or
+    Replace, `jp_load` leaves it US (`JP_SKIP`): the pub has no crosses,
+    and a clinic without Taverns still has the Japanese roof.  Taverns
+    paints the armour shop's keeper over the clinic's priest; on Japan
+    `tav_art` leaves the priest, in his cross hat, tending bar in the item
+    shop's colours (red and light grey become orange-brown and dark
+    brown).  The first build's notes had promised the priest without
+    knowing of that repaint.
+  - **The tiles** are in `game/jtiles.dat`, taken once with `python3
+    tools/genjtiles.py --extract ../ff1e.nes ../ff1j.nes`.  The build reads
+    only the file: `genjtiles.py` writes `gen/jtiles.inc` from it, and
+    refuses a run outside the regions, a left-out tile, runs out of order,
+    an enemy picture in part, or a run of US tiles.  35 runs, 2285 bytes.
+  - **Loading.**  Every CHR load the game makes goes through
+    `CHRLoad_Cont`, whose call to `hal_chrload` now goes to `fun_chrload`
+    instead: the same four-byte JSL, so the fixed bank pays nothing.  On
+    USA it tests the flag and jumps on to `hal_chrload`.  On Japan it
+    notes the load's first source byte ((tmp)+Y), its end ((tmp)+X*256),
+    its destination (`h_addr`) and its bank (the data bank), lets
+    `hal_chrload` load, and then puts in every Japanese tile from that bank
+    that lies inside the load (`jp_load`, `jp_put`).  A tile goes as far
+    from the destination as it is from the first byte, and only if that
+    place is on a tile boundary below $2000.  The tiles fall inside the
+    span `hal_chrload` has just marked to send, so the HAL needs no word
+    of them.  Scratch at FUNRAM+$574 (`JP_SRC` on).  So every loader of
+    the game takes them: the tilesets, the shop, the battle sprites for
+    every class (in party creation, the tavern's hire and battle), the
+    battle objects and the enemy pages.  The map objects' loader
+    (`objchr.patch`) calls `hal_chrload` directly, from bank $02, which has
+    no changes; so do the seed screen and the settings screen, for their
+    art.
+  - **The Bestiary** reads an enemy picture straight from the battle CHR.
+    Both readers, the grid (`bst_cellsrc`) and the detail view, now take
+    the picture's address from `bst_picsrc`, which asks `fun_japanpic`: on
+    Japan, a run that starts at that address in that bank is the picture,
+    and its copy is used.  That is why the generator takes an enemy
+    picture whole.
+  - **Cost.**  Taverns' chunk 2800 (the tiles 2144, their table 282, the
+    code 349, the tavern's test 8, alignment); the settings screen's chunk 55; the descriptions
+    85 and their pointers 2; the Bestiary 6; the fixed bank and the HAL
+    nothing.  On USA a CHR load costs the flag test; on Japan, a pass over
+    the 35 runs after each load.
+  - `test_graphics`: the row, no preset, the pane.  `game/jtiles.dat`
+    against the two ROMs when they are beside the tree (or in
+    `$FF1_ROMS`): the generator's choice; every tile the Japanese ROM's;
+    and what differs but is left out, exactly the font, the tilesets'
+    $7B-$7F, the shop's $79 and the bridge.  The ROM's table against the
+    file.  41 loads through `CHRLoad_Cont`: every region whole, from
+    inside a run, to inside one, one tile, across two classes, out of
+    pattern space partway with Japanese tiles on each side of $2000, a
+    destination off the tiles' boundaries, a nametable fill, and another
+    bank at a run's addresses.  On USA each leaves RAM, registers, tmp and
+    the battery page exactly as `hal_chrload` alone does; on Japan the
+    registers and tmp too, and the shadow is the USA load's except for the
+    Japanese tiles, all inside the dirty span.  The game's loaders with
+    both values: every tileset with the font, the shop, all twelve
+    classes' battle sprites with the battle objects, and every enemy page.
+    The pub: the town tileset under Taverns, Recruit and Replace, the roof
+    US on both values and the rest as without; the clinic's shop CHR under
+    Taverns, the armourer on USA and the priest with the Japanese hat on
+    Japan; the one flagged run.
+    The Bestiary's pictures for all 128 enemies: on Japan the EYE, MEDUSA,
+    GrMEDUSA and PHANTOM get the Japanese copy and the rest are unchanged.
+    The wiring: the JSL in every chunk, and `bst_picsrc` called twice and
+    the only reader of `lut_BstSrc`.  34 mutations, 32 caught; the two
+    missed change nothing (A after the Japan path happens to equal what
+    `hal_chrload` leaves; `SRC16`, which nothing reads as a pointer).
 
 ### Treasures (2)
 
@@ -2521,10 +2621,12 @@ other preset Off.
     the shop's CHR loads (`tavern_shoppal`): the caravan's first four (a
     tablecloth), the item shop's next four (barrels) and the armour shop's
     last six (its armourer, tending bar), with the item shop's backdrop
-    colours.  **The pub sign** is the town tileset's palm tree, tile $34,
+    colours; on FUN%'s Graphics Japan the armourer stays away and the
+    clinic's priest tends bar (Graphics, above).  **The pub sign** is the town tileset's palm tree, tile $34,
     which no town places (user: "We don't need the palm tree"), as FFR's
     `MakePubSign` has it: mkrom.py (`overlay_pubsign`) points it at a roof
-    (CHR $45-$46) over the sign art the tileset has and never used ($76-$77),
+    (CHR $45-$46, the lower half of the clinic's roof, which stays US under
+    Taverns on Graphics Japan) over the sign art the tileset has and never used ($76-$77),
     with the clinic sign's palette -- FFR copies that art over the palm
     tree's CHR; pointing the tile at it is the same picture.  The art is
     the original ROM's, "PUB" on a board, but for its B (user, 2026-11-02:
@@ -3734,6 +3836,7 @@ instead or the default will not stick.  `TitleScreen_DrawRespondRate` is at
 | Stereo Sound | Off, On | -- | 2 | Off |
 | Palette swap | Off, On | -- | 2 | Off |
 | Exploding Dwarf | Off, On | -- | 2 | Off |
+| Graphics | USA, Japan | -- | 2 | USA |
 | Thief and Ninja hit% | +2, +3, +4 | 1 | 3 | +4 |
 | Thief lockpicking | Off, level 1, 5, 10 ... 50 | -- | 12 | 15 |
 | Starting items | None and FFR's eight sets | -- | 9 | None |
@@ -5261,7 +5364,7 @@ text region in the game references.
                              pairs; their names and descriptions are in
                              the engine's chunk and the descriptions'),
                              ngp_apply and ng_flow (measured 2026-10-21)
-    BANK_OPTMENU  3053 free  the settings screen's engine (optmenu.asm):
+    BANK_OPTMENU  2036 free  the settings screen's engine (optmenu.asm):
                              its code, the rows and readouts, a chunk of
                              its own since 2026-10-21 so the New Game
                              flow's screens can be more of it, which the
@@ -5282,8 +5385,9 @@ text region in the game references.
                              swap's 39 (2026-11-03); the Exploding Dwarf's
                              39 (2026-11-04); the Goal's readouts sixteen
                              wide, Shard Hunt's six, and opt_goalorder 194
-                             (2026-11-06)
-    BANK_TAVERN  10735 free  Taverns' visit, hire, level up and look
+                             (2026-11-06); Graphics' row 55 (2026-11-14;
+                             ld65's map read 14293 used before it)
+    BANK_TAVERN   7794 free  Taverns' visit, hire, level up and look
                              (tavern.asm, 1538; 2026-11-02); the FUN%
                              section's code (fun.asm: Palette swap 262,
                              2026-11-03, 720 with the water, the tones and the
@@ -5295,14 +5399,18 @@ text region in the game references.
                              the cheaper frame, 2026-11-04; the scream's
                              load and play 44, its sample 8347 in the
                              chunk's low half, FUNDATAFAR, 24421 left
-                             there, 2026-11-04)
-    BANK_OPTTEXT2 14677 free the descriptions past the first bank's:
+                             there, 2026-11-04); Graphics 2800 -- the
+                             Japanese tiles 2144, their table 282, the
+                             code 349, the tavern's test 8 (2026-11-14;
+                             ld65's map read 5790 used before it)
+    BANK_OPTTEXT2 14592 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
                              Stereo Sound's (114), Palette swap's (85;
                              2026-11-03), the Exploding Dwarf's (85;
                              2026-11-04), the Goal's eleven (1070;
-                             2026-11-06, Shard Hunt's six among them)
+                             2026-11-06, Shard Hunt's six among them),
+                             Graphics' (85; 2026-11-14)
     HALCODE      5844 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
                              register the game sets; the Exploding

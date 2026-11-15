@@ -311,6 +311,8 @@ FUN_PALSWAP     = $10           ; Palette swap: maps tinted, enemies' palettes
 FUN_PALSWAP_SHIFT = 4           ;   shuffled (fun.asm)
 FUN_DWARF       = $20           ; Exploding Dwarf: the Hurray dwarf bursts (fun.asm)
 FUN_DWARF_SHIFT = 5
+FUN_JAPAN       = $40           ; Graphics: Japan: the Japanese release's tiles (fun.asm)
+FUN_JAPAN_SHIFT = 6
 .assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
@@ -2534,7 +2536,9 @@ TC_LATCH        = TC_BASE+$BF0
 
 ;  FUN%'s Exploding Dwarf (fun.asm, tools/dwarfref.py): the gibs, a word a
 ;  particle in each array, read long; between Boss tactics' scratch and the
-;  ending's buffer, neither of which is up on a standard map.  Nothing here
+;  ending's buffer, neither of which is up on a standard map.  No other
+;  screen uses this WRAM, so Graphics keeps its scratch here too, at the
+;  end (JP_SRC on), though it is used wherever a CHR load happens.  Nothing here
 ;  needs to be clean at power-on but the flags, which every boot zeroes
 ;  (fun_init), as leaving the map does (fun_exit).
 FUNRAM          = $7F5800
@@ -2572,7 +2576,15 @@ FUN_CUT         = FUNRAM+$56E     ; the box's bottom the cover last hid at, $FF 
 FUN_BEAT        = FUNRAM+$570     ; 2: the heart's beat, map frames from the burst round DWARF_BEAT_PERIOD
 FUN_SAMPLED     = FUNRAM+$572     ; nonzero once the scream is in the SPC700's RAM:
                                   ;   hal_reset zeroes it as the console resets the SPC700
-FUNRAM_END      = FUNRAM+$573
+;  Graphics: Japan (fun_chrload), live only through one CHR load: written
+;  before it, read after.
+JP_SRC          = FUNRAM+$574     ; 2: the load's first source byte, in its bank...
+JP_END          = FUNRAM+$576     ; 2: ...the byte past its last...
+JP_DST          = FUNRAM+$578     ; 2: ...the PPU address it went to...
+JP_BANK         = FUNRAM+$57A     ; 2: ...and the bank it came from, the high byte 0
+JP_T            = FUNRAM+$57C     ; 2: a Japanese tile's address in that bank
+JP_SKIP         = FUNRAM+$57E     ; 2: JAPAN_PUB << 8 under Taverns, else 0
+FUNRAM_END      = FUNRAM+$580
 .assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
 .assert GIB_SPR = GIB_MXY + GIB_N * 4 && GIB_SPR + GIB_N * 4 <= FUN_LSX, error, "the gibs' arrays overlap"
 .assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"

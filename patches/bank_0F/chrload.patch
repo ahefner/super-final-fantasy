@@ -11,8 +11,13 @@ CHRLoad_Cont:
     RTS
 
 --- NEW
+.import fun_chrload
+.export CHRLoad_Cont, LoadTilesetAndMenuCHR, LoadShopBGCHRPalettes   ; for tools/test_options.py
+.export LoadBattleBGCHRAndPalettes                                   ;   (test_graphics)
 CHRLoad_Cont:
     ;  Handed to the HAL as one run rather than a byte at a time through $2007;
     ;  see hal_chrload.  Same source pointer, same row count, same exit state.
-    JSL hal_chrload + HALFAR
+    ;  Through FUN%'s Graphics row, which on Japan puts the Japanese tiles in
+    ;  after it (fun_chrload).
+    JSL fun_chrload + FUNFAR
     RTS

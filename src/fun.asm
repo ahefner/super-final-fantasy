@@ -2,7 +2,8 @@
 ;  fun.asm -- the FUN% section's code (user, 2026-11-03, fun-percent.txt:
 ;  "goofy flags that don't change anything about gameplay").  In Taverns'
 ;  chunk (CHUNK_TAVERN), which has the room.  Stereo Sound is the HAL's and
-;  the SPC700's (apu_pan); this is Palette swap and the Exploding Dwarf.
+;  the SPC700's (apu_pan); this is Palette swap, the Exploding Dwarf and
+;  Graphics.
 ;
 ;  Palette swap (user: one On/Off, "Fixed per seed", the overworld too;
 ;  "enemy colors are fine too", and "some artistic license to tint the
@@ -40,11 +41,12 @@
 
 .import rando_warmfar, rando_belowfar, rando_fyfar, rando_smpal
 .import hal_chrdirty, lut_DwarfLine
-.import hal_spcload, hal_spcplay
+.import hal_spcload, hal_spcplay, hal_chrload
 .import lut_BattleFormations
 .export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal, fun_btlfight
 .export fun_dwarfline, fun_spared, fun_exit, fun_smframe, fun_frame, fun_init
-.export fun_cover
+.export fun_cover, fun_chrload, fun_japanpic
+.export lut_JapanRuns, lut_JapanTiles   ; for tools/test_options.py
 .export lut_DwarfGibs, lut_DwarfPals     ; for tools/test_options.py
 
 .segment "BANK_TAVERN"
@@ -1437,3 +1439,244 @@ dwarf_draw:
     REP #$20
     .a16
     RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Graphics (user, 2026-11-14: "Graphics" - "USA", "Japan"): on Japan, the
+;;  tiles the Japanese release had where the US release redrew them.
+;;  tools/genjtiles.py says which; jtiles.inc holds them.
+;;
+;;    fun_chrload    every CHR load the game makes through CHRLoad_Cont, in
+;;                   its place (chrload.patch): hal_chrload as ever, then on
+;;                   Japan the Japanese tiles that fall in what it moved
+;;    fun_japanpic   the Bestiary's: an enemy picture's address, on Japan
+;;                   the Japanese copy's
+;;
+;;  A load is X rows of 256 bytes from (tmp)+Y in the data bank to the PPU
+;;  address the HAL holds (h_addr), so a tile lands as far on from the
+;;  load's destination as its address is from the load's first byte.  A
+;;  load that is not to pattern space (a nametable's fill) takes none.  On
+;;  USA the cost is the flag's test.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.include "jtiles.inc"
+
+.a8
+.i8
+;;  From CHRLoad_Cont by JSL, emulation mode, with hal_chrload's registers:
+;;  X rows, Y the start in the first row, the source at (tmp) in the data
+;;  bank.  Out as hal_chrload leaves them: tmp+1 on by X, X and Y zero.
+fun_chrload:
+    PHP
+    PHA
+    LDA f:SRAMFAR_FUN
+    AND #FUN_JAPAN
+    BNE @japan
+    PLA
+    PLP
+    JML hal_chrload + HALFAR    ; USA: the load as ever
+  @japan:
+    PHX
+    PHY
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    TXA
+    XBA                         ; X rows of 256 bytes
+    CLC
+    ADC z:NES_tmp
+    STA f:JP_END                ; past the last byte: (tmp) + X * 256
+    TYA
+    CLC
+    ADC z:NES_tmp
+    STA f:JP_SRC                ; the first: (tmp) + Y
+    LDA f:h_addr
+    STA f:JP_DST
+    SEP #$20
+    .a8
+    PHB
+    PLA
+    REP #$20
+    .a16
+    AND #$00FF
+    STA f:JP_BANK
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLY
+    PLX
+    PLA
+    PLP
+    JSL hal_chrload + HALFAR
+    PHP
+    PHA
+    PHX
+    PHY
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    PHB
+    PHK
+    PLB                         ; the table's bank
+    JSR jp_load
+    PLB
+    SEP #$30
+    .a8
+    .i8
+    SEC
+    XCE
+    PLY
+    PLX
+    PLA
+    PLP
+    RTL
+
+;;  The Japanese tiles inside the load JP_SRC to JP_END from JP_BANK, put
+;;  where it put the tiles they replace -- but under Taverns not the
+;;  clinic's roof (JAPAN_PUB), whose lower half is the pub sign's top
+;;  (user, 2026-11-14: no crosses on the pub).  A16 I16, DBR this bank; A,
+;;  X, Y clobbered.
+    .a16
+    .i16
+jp_load:
+    LDA f:JP_DST
+    CMP #$2000
+    BCC :+
+    RTS                         ; not to pattern space: none
+:   LDA f:RANDO_SAVEFAR + (RANDO_NORUN - RANDO_SAVE)
+    AND #TAVERNS_FIELD
+    BEQ :+                      ; Taverns off: 0
+    LDA #JAPAN_PUB << 8
+:   STA f:JP_SKIP
+    LDX #0
+  @run:
+    LDA lut_JapanRuns, X        ; the run's first tile; 0 ends the table
+    BNE :+
+    RTS
+:   CMP f:JP_END
+    BCS @next                   ; past the load
+    LDA lut_JapanRuns + 2, X
+    CMP f:JP_SRC
+    BEQ @next
+    BCC @next                   ; before it
+    LDA lut_JapanRuns + 4, X
+    AND f:JP_SKIP
+    BNE @next                   ; the clinic's roof, under Taverns
+    LDA lut_JapanRuns + 4, X
+    AND #$00FF
+    CMP f:JP_BANK
+    BNE @next                   ; another bank's
+    PHX
+    LDA lut_JapanRuns + 6, X
+    TAY                         ; its tiles
+    LDA lut_JapanRuns, X
+  @tile:
+    STA f:JP_T
+    CMP f:JP_SRC
+    BCC @tnext                  ; before the load's first byte
+    ADC #16 - 1                 ; (C set) the byte past the tile
+    CMP f:JP_END
+    BEQ :+
+    BCS @tnext                  ; past the load's last
+:   LDA f:JP_T
+    SEC
+    SBC f:JP_SRC
+    CLC
+    ADC f:JP_DST
+    CMP #$2000
+    BCS @tnext                  ; past pattern space
+    BIT #$000F
+    BNE @tnext                  ; not on a tile's boundary
+    ASL A                       ; 32 bytes a tile in the shadow
+    TAX
+    JSR jp_put
+  @tnext:
+    LDA 1,S
+    TAX                         ; the run's record
+    TYA
+    CLC
+    ADC #16
+    TAY                         ; the next tile's sixteen bytes
+    LDA f:JP_T
+    CLC
+    ADC #16
+    CMP lut_JapanRuns + 2, X
+    BCC @tile
+    PLX
+  @next:
+    TXA
+    CLC
+    ADC #8
+    TAX
+    JMP @run
+
+;;  The tile at Y, here, into the shadow at X.  It is inside the span
+;;  hal_chrload has just marked to be sent, so the HAL needs no word of it.
+;;  A16 I16; A and X clobbered, Y kept.
+jp_put:
+    PHY
+    SEP #$20
+    .a8
+  @row:
+    LDA a:8, Y                  ; plane 1's row...
+    XBA
+    LDA a:0, Y                  ; ...over plane 0's, as the shadow pairs them
+    REP #$20
+    .a16
+    STA f:CHRSHADOW, X
+    SEP #$20
+    .a8
+    INX
+    INX
+    INY
+    TYA
+    AND #$07
+    BNE @row                    ; eight rows: the tiles start on 16-byte boundaries
+    REP #$20
+    .a16
+    PLY
+    RTS
+
+;;  From the Bestiary (bst_picsrc), native, A16 I16: an enemy picture, A
+;;  its first tile's address and Y its bank.  On Japan, a run that starts
+;;  there is the picture (genjtiles.py takes an enemy picture whole), and A
+;;  and Y become the copy's, here.  X kept.
+fun_japanpic:
+    PHX
+    PHY
+    PHA
+    LDA f:SRAMFAR_FUN
+    AND #FUN_JAPAN
+    BEQ @keep
+    LDX #0
+  @run:
+    LDA f:FUNFAR + lut_JapanRuns, X
+    BEQ @keep
+    CMP 1,S                     ; the picture's address...
+    BNE @next
+    LDA f:FUNFAR + lut_JapanRuns + 4, X
+    AND #$00FF
+    CMP 3,S                     ; ...and its bank
+    BNE @next
+    LDA f:FUNFAR + lut_JapanRuns + 6, X
+    STA 1,S
+    LDA #^FUNFAR
+    STA 3,S
+    BRA @keep
+  @next:
+    TXA
+    CLC
+    ADC #8
+    TAX
+    BRA @run
+  @keep:
+    PLA
+    PLY
+    PLX
+    RTL
