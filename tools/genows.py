@@ -20,12 +20,13 @@
                     bit each, the first in bit 0: the rest are the baked
                     minimap's whatever is ticked or selected, so ows_prow
                     packs only these
-    lut_OwsBaked    the minimap with no edit and nothing selected, as the
-                    screen draws it: its 256 4bpp characters, OWS_CHR's
-                    8KB, copied whole
 
 A place is a cluster of its writes no two of which are more than
 CLUSTER tiles apart, largest first.
+
+The minimap with no edit and nothing selected, which the screen copies
+whole as it comes up, is Map Select's first (genmaps.py, MAPS_VANILLAPIC),
+baked by baked() here.
 """
 import os, re, sys, textwrap
 
@@ -182,11 +183,14 @@ def vanilla():
     return out
 
 
-def baked(ts):
-    """The minimap of vanilla(), a pixel its four tiles' colours ORed, as
-    ows_prow packs it with nothing selected: 32 bytes a character, plane 3
-    -- the selection's -- clear."""
-    w = vanilla()
+def baked(ts, w=None):
+    """The minimap of map w, 256 x 256 tiles -- vanilla()'s, if none -- a
+    pixel its four tiles' colours ORed, as ows_prow packs it with nothing
+    selected: 32 bytes a character, plane 3 -- the selection's -- clear.
+    genmaps.py bakes Map Select's with it, the game's map's first, which
+    this screen copies (MAPS_VANILLAPIC)."""
+    if w is None:
+        w = vanilla()
     out = bytearray()
     for cy in range(16):
         for cx in range(16):
@@ -281,10 +285,6 @@ def main():
     lines.append("lut_OwsCharMask:")
     for i in range(0, 128, 16):
         lines.append("  .WORD " + ", ".join("$%04X" % m for m in masks[i:i + 16]))
-    bk = baked(screen_tiles())
-    lines.append("lut_OwsBaked:              ; 256 characters, 32 bytes each")
-    for i in range(0, len(bk), 32):
-        lines.append("  .BYTE " + ", ".join("$%02X" % b for b in bk[i:i + 32]))
     lines.append("OWS_DESCW = %d" % DESC_W)
     lines.append("")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

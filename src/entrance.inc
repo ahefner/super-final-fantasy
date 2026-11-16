@@ -3151,6 +3151,7 @@ es_tables:
     INY
     CPY #16
     BCC @exit
+    JSR map_exits               ; another map's, over them (altmaps.inc)
     PLP
     RTL
 

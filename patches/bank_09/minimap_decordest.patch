@@ -15,5 +15,6 @@ lut_MinimapDecorCHRDest_hi:
   .BYTE >$0E20,>$0E30,>$0E40,>$0F00, >$0F10,>$0F20,>$0F30,>$0F40
   .BYTE >$0F50,>$0F60,>$0F70,>$0F80, >$0F90,>$0FA0,>$0FB0,>$0FC0
 --- NEW
-;  As tools/genowedits.py lays the minimap out (gen/minimap_decordest.inc).
-  .include "minimap_decordest.inc"
+;  lut_MinimapDecorCHRDest: each map's, in its record (genmaps.py; the game's map's as
+;  tools/genowedits.py lays it out), read through [tmp+8] and [tmp+11]
+;  (altmaps.inc's mm_titledest and mm_decordest).

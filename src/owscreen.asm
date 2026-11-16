@@ -1,5 +1,6 @@
 ; ---------------------------------------------------------------------------
-;  owscreen.asm -- New Game's map edit screen (CHUNK_OWS).
+;  owscreen.asm -- New Game's map edit screen (CHUNK_OWS), and Map Select
+;  before it (mapselect.inc, which shares its setup, sound and frame).
 ;
 ;  A checkbox for each of the thirteen FFR overworld edits, and the world's
 ;  minimap as the boxes ticked would make it (user, 2026-10-18), with a zoom of the
@@ -29,7 +30,8 @@
 ;  pictures follow as the frames allow (user: crisp and responsive).  Each
 ;  frame draws at most a pixel row of the minimap and a map row of the zoom,
 ;  from queues a press adds to.  The screen comes up whole, though (user):
-;  the unedited minimap is in ROM, drawn at build time (lut_OwsBaked), and
+;  the unedited minimap is in ROM, drawn at build time (Map Select's first,
+;  MAPS_VANILLAPIC), and
 ;  only the rows the ticked boxes change are drawn over it, with the first
 ;  zoom, before the display goes on.  L + X and L + Y reset from here as
 ;  from anywhere (user).
@@ -66,7 +68,10 @@
 
 .export ows_choose, ows_tick
 ;  For tools/test_options.py.
-.export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles, lut_OwsBaked
+.export ows_testprow, ows_testinset, ows_testsetup, lut_OwsTiles
+.export ms_choose                ; Map Select (mapselect.inc), for New Game's flow
+.export ms_testsetup, lut_MapName, lut_MapPicLo, lut_MapPicBank   ; for tools/test_options.py
+.export lut_MapStartX, lut_MapStartY
 .export lut_OwsName, lut_OwsBit16       ; for tools/test_options.py: the screen's edits as the presets name them
 .export lut_OwsIncLabel          ; the Seed Summary's labels too (sumscreen.asm)
 .export ows_loosefar             ; ...and its loose count
@@ -81,6 +86,7 @@
 .segment "BANK_OWS"
 
 .include "owscreen.inc"
+.include "maps.inc"             ; Map Select's maps (genmaps.py), MAPS_VANILLAPIC
 
 MENUCHR   = (CHUNK0 + BANK_MENUCHR) * $10000 + $8800    ; the font, tiles $80-$FF
 HANDCHR   = (CHUNK0 + BANK_BTLCHR) * $10000 + lut_BatObjCHR + ($F0 - $80) * 16
@@ -407,14 +413,26 @@ ows_actives:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Setup: in forced blank, VRAM, CGRAM, OAM and the registers; the text,
-;;  the minimap and the zoom drawn and sent, the display on.  A8 I16, DBR
-;;  this chunk.
+;;  Setup: in forced blank, VRAM, CGRAM, OAM and the registers (ows_ppu,
+;;  Map Select's too); BG1's map, the text, the minimap and the zoom drawn
+;;  and sent, the display on.  A8 I16, DBR this chunk.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
     .a8
     .i16
 ows_setup:
+    JSR ows_ppu
+    JSR ows_bg1map
+    JSR ows_audio
+    JMP ows_state
+
+;;  The display off at the top of a vblank; VRAM cleared, the font, the
+;;  boxes, the frame and the sprites' characters in it; CGRAM; every sprite
+;;  hidden, the first five large; mode 1 with BG1 at VR_BG1MAP, BG3 above
+;;  it, and the sprites.  A8 I16, DBR this chunk.
+    .a8
+    .i16
+ows_ppu:
     JSR ows_wait                ; the top of a vblank, so nothing tears
     LDA #$80
     STA a:INIDISP
@@ -537,8 +555,6 @@ ows_setup:
     BCC @frame
     JSR ows_objchr
     JSR ows_audio
-    JSR ows_bg1map
-    JSR ows_audio
     ;  CGRAM.
     STZ a:CGADD
     LDX #$0000
@@ -616,6 +632,13 @@ ows_setup:
     STZ a:W12SEL
     STZ a:CGWSEL
     STZ a:CGADSUB
+    RTS
+
+;;  The rest of the setup: the state, the text, the pictures, the display
+;;  on.  A8 I16.
+    .a8
+    .i16
+ows_state:
     ;  The state: the first setting selected, nothing queued.
     LDA #0
     STA f:V_SEL
@@ -654,14 +677,15 @@ ows_setup:
     RTS
 
 ;;  The pictures whole before the display goes on (user: at once, not drawn
-;;  while you watch).  The minimap unedited, from ROM; over it the rows the
+;;  while you watch).  The minimap unedited, from ROM -- the game's map's,
+;;  as Map Select shows it, in a chunk's low half; over it the rows the
 ;;  ticked boxes and the selection change; the zoom; and the minimap sent.
 ;;  In forced blank, a few frames of it with much ticked, the music kept
 ;;  going meanwhile.  A8 I16.
     .a8
     .i16
 ows_first:
-    LDX #.LOWORD(lut_OwsBaked)
+    LDX #.LOWORD(MAPS_VANILLAPIC)   ; Map Select's first minimap (genmaps.py)
     LDY #.LOWORD(OWS_CHR)
   @copy:                        ; in four pieces, the whole near a frame
     PHX
@@ -673,7 +697,7 @@ ows_first:
     REP #$20
     .a16
     LDA #256 * 32 / 4 - 1
-    MVN #^OWSFAR, #^OWSRAM      ; X and Y on past it; DBR = $7F, which PLB puts back
+    MVN #^MAPS_VANILLAPIC, #^OWSRAM ; X and Y on past it; DBR = $7F, which PLB puts back
     LDA #0                      ; B zero, as the rest expect
     SEP #$20
     .a8
@@ -2862,6 +2886,9 @@ ows_putch:
     INX
     INX
     RTS
+
+
+.include "mapselect.inc"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

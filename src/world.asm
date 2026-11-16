@@ -27,6 +27,12 @@
 .export rando_eswire, rando_esmasks, rando_esdock
 ;  The overworld's edits, for the fixed bank.
 .export ow_editrow, mm_editrows
+;  The map Map Select chose (altmaps.inc): for the fixed bank, the
+;  randomizer, the options and FUN%.
+.export ow_altrow, mm_altrows, map_newgame, map_freeship, map_freeairship, map_shipdock
+.export map_domains, map_flags, dlg_lines
+.export mm_fillnt, mm_titledest, mm_decordest   ; ...and the minimap's layout, for bank $09
+.import nesio_w2007
 ;  ...and their tables, which New Game's map edit screen draws from.
 .export lut_OweRow, lut_OweEnt, OWE_ENTRY
 ;  The hint lines, for rando_dlgtext.
@@ -73,6 +79,7 @@ esEarlyLBit:
 
 .include "entrance.inc"
 .include "shards.inc"
+.include "altmaps.inc"
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

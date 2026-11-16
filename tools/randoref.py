@@ -2663,7 +2663,7 @@ def decode_text(text):
 # --- the save block -----------------------------------------------------------
 RANDO_SAVE = 0x60A0
 SRAM_SAVE = 0x6400          # SaveGame's copy of unsram
-RANDO_SAVE_SIZE = 0x1E       # snesmap.inc: the settings, the Goal last, then the map edits
+RANDO_SAVE_SIZE = 0x1F       # snesmap.inc: the settings, the Goal last, the map edits, the map
 
 
 def block_from_srm(srm):

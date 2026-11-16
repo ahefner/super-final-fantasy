@@ -136,54 +136,13 @@ rando_dlgtext:
     ;  2026-10-28: "I'd instead neutralize the dialog"); under Key items
     ;  Vanilla the game's own.  So, with the entrances shuffled, does one
     ;  that says where a dungeon is, and with the floors, one that says the
-    ;  way through it.  The string is known by its pointer in the game's
-    ;  table, the dialogue number being gone by here.
+    ;  way through it.  On Mirror World, a line that says east or west says
+    ;  the other.  The world chunk's (altmaps.inc's dlg_lines), for room.
   @hint:
-    LDA f:RANDO_SAVEFAR + (RANDO_KEYITEMS - RANDO_SAVE)
-    CMP #KEYITEMS_STANDARD
-    BEQ :+
-    CMP #KEYITEMS_WIDE
-    BNE @out
-:   LDX #DLG_NHINT - 1
-  @look:
-    PHX
-    LDA f:WORLDFAR + lut_DlgHintId, X
-    ASL A
-    TAX
-    BCS @high                   ; $80 on: the table's second page
-    LDA f:DLGPTRFAR, X
-    CMP text_ptr
-    BNE @next
-    LDA f:DLGPTRFAR + 1, X
-    BRA @page
-  @high:
-    LDA f:DLGPTRFAR + $100, X
-    CMP text_ptr
-    BNE @next
-    LDA f:DLGPTRFAR + $101, X
-  @page:
-    CMP text_ptr+1
-    BEQ @hit
-  @next:
-    PLX
-    DEX
-    BPL @look
-    RTL
-  @hit:
-    PLX
-    LDA f:RANDO_SAVEFAR + (RANDO_ENTRANCES - RANDO_SAVE)
-    CMP f:WORLDFAR + lut_DlgHintMap, X
-    BCS :+
-    RTL                         ; its Map shuffle isn't on: the game's line
-:   LDA f:WORLDFAR + lut_DlgHintLo, X
-    STA text_ptr
-    LDA f:WORLDFAR + lut_DlgHintHi, X
-    STA text_ptr+1
-    PHB
-    LDA #^WORLDFAR
-    PHA
-    PLB
-    JMP @copyin
+    JSL dlg_lines + WORLDFAR
+    BCC :+
+    JMP @worldline
+:   RTL
 .assert ^WORLDFAR >= $A0 && ^WORLDFAR <= $BF, error, "OPTDESC isn't low WRAM from the world chunk"
 
 ;;  The Black Orb giving way with fewer than four lit (opt_orbgoal): the

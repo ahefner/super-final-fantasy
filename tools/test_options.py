@@ -2109,24 +2109,26 @@ def test_owedits():
     #  never one drawn rows away (user, 2026-10-29: $6D and $B5 showed $1C's,
     #  their pixel lit long before the drawing got there), and tile 0 and every
     #  lent tile are drawn blank, so the logo shows nothing until it draws.
-    #  The nametable at $B000, the logo's destinations at $BB8A, the crests'
-    #  at $BCE9 -- the crests' as the source has them, which places both
-    #  tables.
+    #  The nametable and the logo's and the crests' destinations, the game's
+    #  map's minimap layout (MI_MM, genmaps.py) -- the crests' as the source
+    #  has them, which places both tables.
     b9 = ROMDATA[(1 + 0x09) * 0x10000 + 0x8000:][:0x4000]
-    mmnt = b9[0x3000:0x3000 + 960]                                  # lut_MinimapNT, $B000
+    rec0 = K["MAPINFOFAR"] - 0xC00000
+    lay = int.from_bytes(ROMDATA[rec0 + K["MI_MM"]:][:3], "little") - 0xC00000
+    mmnt = ROMDATA[lay:lay + 960]
     src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
     at = src9.index("lut_MinimapTileset:")
     tl = bytes(int(v) for l in src9[at:].split("\n")[1:9]
                for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", "")))
     check("lut_MinimapTileset: 128 bytes, once in bank $09", (len(tl), b9.count(tl)), (128, 1))
 
-    def dests(label, at, n):
+    def dests(label, hi, lo, n):
         i = src9.index(label + "_lo:")
         src = [int(v, 16) >> 4 for v in re.findall(r"<\$([0-9A-Fa-f]{4})", src9[i:])[:n]]
-        rom = [(b9[at + n + k] << 8 | b9[at + k]) >> 4 for k in range(n)]
+        rom = [(ROMDATA[lay + K[hi] + k] << 8 | ROMDATA[lay + K[lo] + k]) >> 4 for k in range(n)]
         return src, rom
-    decor_src, decor = dests("lut_MinimapDecorCHRDest", 0x3CE9, 48)
-    title_src, title = dests("lut_MinimapTitleCHRDest", 0x3B8A, 40)
+    decor_src, decor = dests("lut_MinimapDecorCHRDest", "MM_DECORHI", "MM_DECORLO", 48)
+    title_src, title = dests("lut_MinimapTitleCHRDest", "MM_TITLEHI", "MM_TITLELO", 40)
     check("the crests' destinations where the source has them, as it has them", decor, decor_src)
     vnt = open(os.path.join(ROOT, "game", "bin", "minimap_nt.nam"), "rb").read()[:960]
     cell = lambda b: 32 * (6 + b // 16) + 8 + b % 16
@@ -2380,7 +2382,7 @@ def test_owscreen():
             rows.append(row)
         return pack(rows, 128)
 
-    BAKED = ROMDATA[img + SYM["lut_OwsBaked"]:][:8192]
+    BAKED = ROMDATA[K["MAPS_VANILLAPIC"] - 0xC00000:][:8192]     # Map Select's first (genmaps.py)
 
     def setup(bus, flags, sel, site=0):
         #  OWS_CHR as ows_first leaves it, which ows_prow draws over.
@@ -2636,6 +2638,698 @@ def test_owscreen():
           got, [(0, False, 1, True, True), (3, False, 1, True, True), (233, False, 1, True, True),
                 (244, False, 1, True, True), (255, False, 1, True, True), (224, False, 1, True, True),
                 (225, True, 0, True, True), (230, True, 0, True, True), (232, True, 0, True, True)])
+
+
+def test_mapselect():
+    """New Game's Map Select (mapselect.inc), held to maps/custom-maps.txt
+    read here and each map's tiles made here: the game's from the ROM's
+    bank $01, the mirror its rows reversed, FFR's from the vendored files.
+    As it comes up, for every map: its minimap whole in the first set of
+    characters, on screen, the two tilemaps, the names in their columns,
+    the title and the frame, the hand at the name and the ring at the map's
+    start.  Running, a frame at a time: a move answered at once, the hand
+    and the chirp; the minimap following into the set not on screen, and on
+    screen only whole, the ring with it -- at every frame the set shown is
+    the map the ring marks, whole; a second move partway starting over; back
+    to the map shown, nothing sent.  Every direction from every map; A and
+    START on, B back, NGF_MAP the map the hand is on; the music every frame;
+    L + X resetting, the PPU back first."""
+    import gzip, base64, json
+    OWS = 0xA1 + K["CHUNK_OWS"]
+    W = lambda name: K[name] - 0x7E0000
+    N, ROWS = K["MAPS_N"], K["MAPS_ROWS"]
+    img = (OWS & 0x1F) * 0x10000
+    TS = ROMDATA[img + SYM["lut_OwsTiles"]:][:128]
+    entries = []
+    for line in open(os.path.join(ROOT, "maps", "custom-maps.txt"), encoding="utf-8"):
+        words = line.split("#")[0].split()
+        if words:
+            entries.append(words)
+    b1 = R.nesbank(ROMDATA, 1)
+    van = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        van += R.decode_rle(b1, ptr - 0x8000, 256)
+    ip = init_page()
+    vstart = (ip[0x10] + 7, ip[0x11] + 7)          # unsram_ow_scroll_x/y, plus 7
+
+    def world(e):
+        if e[0] == "vanilla":
+            return van, vstart, " ".join(e[1:])
+        if e[0] == "mirror-lr":
+            #  The mirror as genmaps makes it (test_altmaps holds it to the
+            #  game's map); its start, the game's across.
+            import genmaps
+            return list(genmaps.mirror_lr(bytes(van))[0]), (255 - vstart[0], vstart[1]), " ".join(e[1:])
+        d = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
+        t = b"".join(base64.b64decode(r) for r in d["DecompressedMapRows"])
+        return list(t), (d["StartingLocation"]["X"], d["StartingLocation"]["Y"]), " ".join(e[2:])
+    worlds = [world(e) for e in entries]
+    check("the list's maps, the game's first", (N, entries[0][0]), (len(entries), "vanilla"))
+    check("...the vanilla start the game's, Coneria's", vstart, (153, 165))
+
+    def minimap(t):
+        out = bytearray(8192)
+        for p in range(128):
+            for cx in range(128):
+                v = 0
+                for x, y in ((2 * cx, 2 * p), (2 * cx + 1, 2 * p), (2 * cx, 2 * p + 1), (2 * cx + 1, 2 * p + 1)):
+                    v |= TS[t[x + 256 * y]]
+                c = 4 if v & 4 else v & 3
+                ch = (p // 8) * 16 + cx // 8
+                for plane in range(3):
+                    if c >> plane & 1:
+                        out[ch * 32 + (16 if plane >= 2 else 0) + (p % 8) * 2 + (plane & 1)] |= 0x80 >> (cx % 8)
+        return bytes(out)
+    pics = [minimap(w[0]) for w in worlds]
+    check("each map's minimap unlike the others'", len(set(pics)), N)
+    BAKED = ROMDATA[K["MAPS_VANILLAPIC"] - 0xC00000:][:8192]
+    check("the game's map's, the map edit screen's unedited minimap", BAKED, pics[0])
+
+    def cell(bus, base, row, col):
+        o = 2 * base + (row * 32 + col) * 2
+        return bus.vram[o] | bus.vram[o + 1] << 8
+
+    def text(bus, row, col, n):
+        return "".join(_decode(cell(bus, 0x3400, row, col + i) & 0xFF) or "?" for i in range(n))
+
+    def at(i):
+        """A map's name's row and column, and its hand's x and y."""
+        row, col = (18 + i, 3) if i < ROWS else (18 + i - ROWS, 18)
+        return row, col, col * 8 - 16, row * 8 - 1
+
+    def ring(i):
+        sx, sy = worlds[i][1]
+        return (sx // 2 + 64 - 8, (sy // 2 + 8 - 9) & 0xFF)
+
+    def setup(m):
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        bus.wram[W("NGF_MAP")] = m
+        cpu.run(OWS, SYM["ms_testsetup"], limit=40_000_000)
+        return bus
+
+    bad = []
+    for m in range(N):
+        bus = setup(m)
+        want = m
+        if bytes(bus.vram[0:8192]) != pics[want]:
+            bad.append("%d: the minimap" % m)
+        if (bus.io.get(0x2107), bus.io.get(0x2100)) != (0x30, 0x0F):
+            bad.append("%d: the first set's tilemap, the display on" % m)
+        name = worlds[m][2]
+        row, col, hx, hy = at(m)
+        if text(bus, row, col, len(name)) != name:
+            bad.append("%d: its name %r" % (m, text(bus, row, col, len(name))))
+        if (tuple(bus.oam[0:2]), tuple(bus.oam[4:6])) != ((hx, hy), ring(m)):
+            bad.append("%d: the hand and the ring" % m)
+    check("as it comes up, each map: its minimap whole, on screen, its name, the hand there, the ring "
+          "at its start", bad, [])
+    bus = setup(200)
+    check("...a map past the list's end: the first", (bytes(bus.vram[0:8192]) == pics[0], tuple(bus.oam[0:2])),
+          (True, at(0)[2:]))
+    bus = setup(0)
+    maps = [[cell(bus, base, r, c) for r in range(28) for c in range(32)] for base in (0x3000, 0x3800)]
+    want = [[(first + (r - 1) * 16 + c - 8) | 0x0800 if 1 <= r <= 16 and 8 <= c <= 23 else 767
+             for r in range(28) for c in range(32)] for first in (0, 256)]
+    check("...the two tilemaps: the minimap's 16 x 16 from each set's characters, centred, the rest blank",
+          maps, want)
+    check("...the blank character blank", bytes(bus.vram[767 * 32:768 * 32]), bytes(32))
+    check("...every name in its column", [text(bus, at(i)[0], at(i)[1], len(worlds[i][2])) for i in range(N)],
+          [w[2] for w in worlds])
+    check("...no name past the frame: the left column's 13, the right's 12",
+          [len(w[2]) <= (13 if i < ROWS else 12) for i, w in enumerate(worlds)], [True] * N)
+    check("...the title", (text(bus, 1, 1, 3), text(bus, 2, 1, 6)), ("MAP", "SELECT"))
+    corners = [cell(bus, 0x3400, r, c) for r, c in ((17, 1), (17, 30), (26, 1), (26, 30))]
+    check("...the frame's corners, in the box palette", corners, [0x2803, 0x2805, 0x2808, 0x280A])
+    left = [cell(bus, 0x3400, r, 1) for r in range(18, 26)]
+    check("...its left edge under the sprites, the left column's hand over it", left, [0x0806] * 8)
+    check("...the right edge whole beside the right column's names",
+          [cell(bus, 0x3400, r, 30) for r in range(18, 26)], [0x2807] * 8)
+
+    #  Running.
+    UJ, CMP = SYM["UpdateJoy"], SYM["CallMusicPlay"]
+    MOVE, SEL = SYM["PlaySFX_MenuMove"], SYM["PlaySFX_MenuSel"]
+    CLAIM, RESET = SYM["hal_ppureclaim"], SYM["OnReset"]
+    V = W("OWS_VARS")
+    UP, DOWN, LEFT, RIGHT, A_, B_, START = 0x08, 0x04, 0x02, 0x01, 0x80, 0x40, 0x10
+
+    def pad(bus, nes, aux=0):
+        bus.io[0x4218] = (nes & 0x80) | aux
+        bus.io[0x4219] = (nes & 0x3F) | (0x80 if nes & 0x40 else 0)
+
+    def run(m, script):
+        """ms_choose from map m, the pad as script says a frame at a time
+        from the screen's first read (setup's), then nothing till 300
+        frames.  Out: its answer (None, still up), NGF_MAP, and a frame's
+        record each: the set on screen, the map the hand is on, the map
+        the set on screen holds whole (None if none), whether it is and the
+        ring, if it shows, at its start, the hand, the ring; the
+        events -- chirps, music, the PPU claimed, a reset -- by frame."""
+        bus, cpu = machine()
+        bus.frames()
+        bus.ppu()
+        bus.dma = True
+        bus.wram[W("NGF_MAP")] = m
+        pad(bus, 0)
+        cpu.run(OWS, SYM["ms_choose"], stop=UJ, limit=40_000_000)
+        frames, events = [], []
+        for f in range(300):
+            nes, aux = script[f] if f < len(script) else (0, 0)
+            pad(bus, nes, aux)
+            cpu.step()
+            for _ in range(2_000_000):
+                if cpu.pc in (UJ, 0xFFFE):
+                    break
+                if cpu.pbr == BANK_0E and cpu.pc in (MOVE, SEL):
+                    events.append((f, "move" if cpu.pc == MOVE else "sel"))
+                if cpu.pc == CMP:
+                    events.append((f, "music"))
+                if cpu.pbr == 0xC0 and cpu.pc == CLAIM:
+                    events.append((f, "claim"))
+                if cpu.pbr == 0xA1 and cpu.pc == RESET:
+                    events.append((f, "reset"))
+                    return "reset", None, frames, events
+                cpu.step()
+            if cpu.pc == 0xFFFE:
+                return cpu.a & 0xFF, bus.wram[W("NGF_MAP")], frames, events
+            #  The map on screen, by its picture -- None, part of one and
+            #  part of another -- and whether the ring, when it shows, is at
+            #  that map's start.
+            front = {0x30: 0, 0x38: 1}.get(bus.io.get(0x2107))
+            data = bytes(bus.vram[front * 0x2000:front * 0x2000 + 8192]) if front is not None else None
+            shown = pics.index(data) if data in pics else None
+            rng = tuple(bus.oam[4:6])
+            whole = shown is not None and (rng[1] == 224 or rng == ring(shown))
+            frames.append((front, bus.wram[V + 0x60], shown, whole, tuple(bus.oam[0:2]), rng))
+        return None, bus.wram[W("NGF_MAP")], frames, events
+
+    FWD, BACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"]
+    #  Down at frame 2 (the first loop frame takes no press: the pad is
+    #  counted from let go), then nothing, then A.
+    ans, got, frames, events = run(0, [(0, 0), (0, 0), (DOWN, 0)] + [(0, 0)] * 12 + [(A_, 0)])
+    check("Down, then A: on, the second map chosen", (ans, got), (FWD, 1))
+    check("...at every frame the set on screen the map the ring marks, whole", all(f[3] for f in frames), True)
+    hand = [f[4] for f in frames]
+    check("...the hand at the second name the frame after the press", (hand[2], hand[3]), (at(0)[2:], at(1)[2:]))
+    shown = [f[2] for f in frames]
+    flip = shown.index(1)
+    check("...the minimap up in the fourth vblank after the press: 8KB, 2KB a vblank", flip - 2, 4)
+    check("...the second set then, the ring at the map's start, blinking with it",
+          (frames[flip][0], frames[flip][5]), (1, ring(1)))
+    check("...the chirps: the move's, A's", [e for e in events if e[1] in ("move", "sel")], [(2, "move"), (15, "sel")])
+    music = [sum(1 for e in events if e == (f, "music")) for f in range(1, len(frames))]
+    check("...a frame of music every frame", music, [1] * (len(frames) - 1))
+
+    ans, got, frames, events = run(0, [(0, 0), (0, 0), (DOWN, 0), (0, 0), (DOWN, 0)] + [(0, 0)] * 12 + [(START, 0)])
+    shown = [f[2] for f in frames]
+    check("Down twice, the second before the first map is up: the first never shown, the third whole; "
+          "START on", (1 in shown, shown[-1], all(f[3] for f in frames), ans, got), (False, 2, True, FWD, 2))
+    ans, got, frames, events = run(0, [(0, 0), (0, 0), (DOWN, 0), (0, 0), (UP, 0)] + [(0, 0)] * 12 + [(A_, 0)])
+    check("Down, then Up before it is up: the set on screen never changes, the first map chosen",
+          ({f[0] for f in frames}, ans, got), ({0}, FWD, 0))
+    ans, got, frames, events = run(N - 1, [(0, 0), (0, 0), (B_, 0)])
+    check("B: back, the map the hand is on kept", (ans, got), (BACK, N - 1))
+    check("...with the select's chirp", [e for e in events if e[1] in ("move", "sel")], [(2, "sel")])
+
+    def expect(m, d):
+        if d == UP:
+            return (m - 1) % N
+        if d == DOWN:
+            return (m + 1) % N
+        return min(m + ROWS, N - 1) if m < ROWS else m - ROWS
+    bad = []
+    for m in range(N):
+        for d in (UP, DOWN, LEFT, RIGHT):
+            ans, got, _, _ = run(m, [(0, 0), (0, 0), (d, 0), (0, 0), (A_, 0)])
+            if (ans, got) != (FWD, expect(m, d)):
+                bad.append((m, d, ans, got))
+    check("every direction from every map: a step up or down, round from the ends; across to the same "
+          "row, or the right column's last", bad, [])
+
+    ans, _, _, events = run(2, [(0, 0), (0, 0), (0, 0x60), (0, 0)])
+    check("L + X resets from it, the PPU back to the HAL first",
+          [e for e in events if e[1] in ("claim", "reset")], [(2, "claim"), (2, "reset")])
+
+
+def test_altmaps():
+    """The game played on the map Map Select chose (altmaps.inc), each map's
+    tiles and places made here: FFR's from the vendored files, the game's
+    from bank $01 and bank $00's tables, Mirror World from the game's by
+    its rules -- each piece by its mirror, read from how the pieces are
+    laid out, the castles, the Temple, the Mirage Tower and the volcano
+    whole, and every place where the same piece is, or its mirror.  Then the
+    cartridge on each: the window's rows and the minimap's, as LoadOWMapRow
+    and CallMinimapDecompress leave them, no dearer than the game's; New
+    Game's page -- the start, the ships, the airship, the bridge, the canal
+    -- and the cache's exits and zones, rebuilt when the save's map
+    changes; a found ship's mooring, map by map; a Free SHIP's and Free
+    AIRSHIP's; the bridge drawn across where the map's is horizontal; and
+    on Mirror World the lines that say east or west saying the other."""
+    import gzip, base64, json
+    import genmaps as GM
+    W = lambda name: K[name] - 0x7E0000
+    S = lambda name: K[name] - 0x6000
+    N, INFO, SZ = K["MAPS_N"], K["MAPINFOFAR"] - 0xC00000, K["MI_SIZE"]
+    entries = []
+    for line in open(os.path.join(ROOT, "maps", "custom-maps.txt"), encoding="utf-8"):
+        words = line.split("#")[0].split()
+        if words:
+            entries.append(words)
+    b1 = R.nesbank(ROMDATA, 1)
+    van = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        van += R.decode_rle(b1, ptr - 0x8000, 256)
+    b0 = (1 + 0x00) * 0x10000
+    page = ROMDATA[b0 + 0xB000:b0 + 0xB100]                  # lut_InitUnsramFirstPage
+    xy = lambda off: (page[off], page[off + 1])
+    VSTART = (page[0x10] + 7, page[0x11] + 7)
+    VEX = list(zip(ROMDATA[b0 + 0xAC60:b0 + 0xAC70], ROMDATA[b0 + 0xAC70:b0 + 0xAC80]))
+    PROPS = ROMDATA[b0 + 0x8000:b0 + 0x8100]                  # lut_OWTileset
+    FREESHIP = (K["FREESHIP_X"], K["FREESHIP_Y"])
+    rec = lambda m, f, n=2: tuple(ROMDATA[INFO + m * SZ + K["MI_" + f]:][:n])
+
+    #  Mirror World, from how the pieces are laid out: in a row of a set's
+    #  pieces, the one i from the left mirrors the one i from the right.
+    LAYOUTS = [[0x03, 0x04, 0x05], [0x13, 0x14, 0x15], [0x23, 0x24, 0x25],          # forest
+               [0x06, 0x07, 0x08], [0x16, 0x17, 0x18], [0x26, 0x27, 0x28],          # sea
+               [0x10, 0x11, 0x12], [0x20, 0x21, 0x22], [0x30, 0x31, 0x33],          # mountains
+               [0x42, 0x43], [0x52, 0x53], [0x62, 0x63], [0x72, 0x73],              # desert, marsh
+               [0x60, 0x61], [0x70, 0x71], [0x40, 0x41], [0x50, 0x51],              # plains, river
+               [0x77, 0x78, 0x79], [0x1F, 0x0F],                                    # the pier
+               [0x2C, 0x2D, 0x2E], [0x3B, 0x3C, 0x3E, 0x3F], [0x4B, 0x4F], [0x5B, 0x5F],
+               [0x5C, 0x5E], [0x6B, 0x6F], [0x7B, 0x7D, 0x7E, 0x7F]]               # towns' walls
+    MIR = {t: row[len(row) - 1 - i] for row in LAYOUTS for i, t in enumerate(row)}
+    WHOLE = {0x01, 0x02, 0x09, 0x0A, 0x19, 0x1A, 0x29, 0x2A, 0x0B, 0x0C, 0x1B, 0x1C, 0x38, 0x39,   # castles
+             0x47, 0x48, 0x56, 0x57, 0x58, 0x59,                                               # the Temple
+             0x0D, 0x1D, 0x1E, 0x64, 0x65, 0x74, 0x75}                                         # tower, volcano
+    mir = lambda t: MIR.get(t, t)
+    MW = list(GM.mirror_lr(bytes(van))[0])
+    check("Mirror World: every piece of the game's map with its mirror across, but the blocks moved whole "
+          "and the Mirage Tower's gap, desert",
+          ([(x, y, hex(MW[255 - x + 256 * y])) for y in range(256) for x in range(256)
+            if van[x + 256 * y] not in WHOLE and MW[255 - x + 256 * y] != mir(van[x + 256 * y])],
+           hex(MW[255 - 194 + 256 * 57])),
+          ([(195, 57, "0xd")], "0x45"))       # the tower's top moved over desert; desert where it was
+    blocks, seen = [], set()
+    for y in range(256):
+        for x in range(256):
+            if van[x + 256 * y] in WHOLE and (x, y) not in seen:
+                cells, todo = [], [(x, y)]
+                seen.add((x, y))
+                while todo:
+                    cx, cy = todo.pop()
+                    cells.append((cx, cy))
+                    for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                        if (nx, ny) not in seen and van[(nx & 255) + 256 * (ny & 255)] in WHOLE:
+                            seen.add((nx, ny))
+                            todo.append((nx, ny))
+                blocks.append(cells)
+    moved = lambda cells, x, y: (255 - max(c[0] for c in cells) + x - min(c[0] for c in cells), y)
+    check("...the seven blocks drawn as they were, at their mirrored place",
+          (len(blocks), [c for b in blocks for c in b
+                         if MW[moved(b, *c)[0] + 256 * c[1]] != van[c[0] + 256 * c[1]]]), (7, []))
+    check("...each piece and its mirror let the same pass", [hex(a) for a, b in MIR.items()
+                                                             if PROPS[2 * a:2 * a + 2] != PROPS[2 * b:2 * b + 2]], [])
+    ents = lambda w: sorted(PROPS[2 * t + 1] & 0x3F for t in w if PROPS[2 * t + 1] & 0x80)
+    check("...every entrance the game's has, as often", ents(MW) == ents(van), True)
+
+    def same_piece(m, x0, y0, x1, y1):
+        a, b = van[x0 + 256 * y0], MW[x1 + 256 * y1]
+        return b == a or b == mir(a)
+
+    def across(x, y):
+        """A place's mirror: in a block's columns, beside it or in it, with
+        the block; else straight across."""
+        for b in blocks:
+            xs, ys = [c[0] for c in b], [c[1] for c in b]
+            if min(xs) <= x <= max(xs) and min(ys) - 1 <= y <= max(ys) + 1:
+                return moved(b, x, y)
+        return (255 - x, y)
+    MID = [i for i, e in enumerate(entries) if e[0] == "mirror-lr"]
+
+    #  What each map's record should hold, from its source.
+    MAPENT = [("Coneria Castle", 9), ("Elfland Castle", 10), ("Northwest Castle", 11),
+              ("Castle of Ordeals", 12), ("Temple of Fiends", 13), ("Earth Cave", 14), ("Gurgu Volcano", 15),
+              ("Ice Cave", 16), ("Cardia", 0), ("Bahamut", 18), ("Waterfall", 19), ("Dwarf Cave", 20),
+              ("Matoya", 21), ("Sarda", 22), ("Marsh Cave", 23), ("Mirage Tower", 24), ("Sky Palace", 24),
+              ("Sea Shrine", 7), ("Titan", 25), ("Coneria", 1), ("Pravoka", 2), ("Elfland", 3),
+              ("Melmond", 4), ("Crescent Lake", 5), ("Gaia", 6), ("Onrac", 7), ("Lefein", 8)]
+    entrance = [next(o for p, o in MAPENT if R.MAP_NAMES[m].startswith(p)) for m in range(61)]
+    import logicdata as L
+    want = {}
+    for i, e in enumerate(entries):
+        if e[0] == "vanilla":
+            continue
+        if e[0] == "mirror-lr":
+            w = {"START": across(*VSTART), "SHIP": across(*xy(0x01)), "AIRSHIP": across(*xy(0x05)),
+                 "BRIDGE": across(*xy(0x09)), "CANAL": across(*xy(0x0D)), "FREESHIP": across(*FREESHIP),
+                 "EXIT": [across(*p) if p != (0, 0) else p for p in VEX],
+                 "DOMAIN": [8 * (z // 8) + 7 - z % 8 for z in range(64)],
+                 "DOCK": [across(*L.DOCKS[L.SHIP_DOCK[m]][1]) for m in range(61)], "FLAGS": 2, "tiles": MW}
+        else:
+            f = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
+            p = lambda v: (v["X"], v["Y"])
+            ships = {sl["TeleporterIndex"]: p(sl) for sl in f["ShipLocations"]}
+            ex = list(VEX)
+            for t in f["TeleporterFixups"]:
+                ex[t["Index"]] = p(t["To"])
+            dom = list(range(64))
+            for du in f["DomainUpdates"]:
+                dom[du["To"]] = du["From"]
+            w = {"START": p(f["StartingLocation"]), "SHIP": ships.get(2, ships[255]),
+                 "AIRSHIP": p(f["AirShipLocation"]), "BRIDGE": p(f["BridgeLocation"]),
+                 "CANAL": p(f["CanalLocation"]), "FREESHIP": ships[255], "EXIT": ex, "DOMAIN": dom,
+                 "DOCK": [ships.get(entrance[m], ships[255]) for m in range(61)],
+                 "FLAGS": int(bool(f["HorizontalBridge"])),
+                 "tiles": list(b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"]))}
+        want[i] = w
+    bad = []
+    for i, w in want.items():
+        got = {f: rec(i, f) for f in ("START", "SHIP", "AIRSHIP", "BRIDGE", "CANAL", "FREESHIP")}
+        got["EXIT"] = list(zip(rec(i, "EXITX", 16), rec(i, "EXITY", 16)))
+        got["DOMAIN"] = list(rec(i, "DOMAIN", 64))
+        got["DOCK"] = list(zip(rec(i, "DOCKX", 61), rec(i, "DOCKY", 61)))
+        got["FLAGS"] = rec(i, "FLAGS", 1)[0]
+        bad += ["%s %s" % (entries[i][-1], f) for f in got if got[f] != (list(w[f]) if isinstance(w[f], list) else w[f])]
+    check("each map's record: the start, the ships, the airship, the bridge, the canal, the exits, the "
+          "zones, the docks by map, the flags", bad, [])
+    for m in MID:
+        w = want[m]
+        places = [("start", VSTART, w["START"]), ("ship", xy(1), w["SHIP"]), ("airship", xy(5), w["AIRSHIP"]),
+                  ("bridge", xy(9), w["BRIDGE"]), ("canal", xy(0x0D), w["CANAL"]),
+                  ("free ship", FREESHIP, w["FREESHIP"])] + \
+            [("exit %d" % k, VEX[k], w["EXIT"][k]) for k in range(16) if VEX[k] != (0, 0)] + \
+            [("dock %d" % d, L.DOCKS[d][1], across(*L.DOCKS[d][1])) for d in range(len(L.DOCKS))]
+        check("Mirror World's places: on the piece the game's are on, or its mirror -- the Northwest "
+              "Castle exit on its door's tile, not the one beside it",
+              [n for n, a, b in places if not same_piece(m, a[0], a[1], b[0], b[1])], [])
+        check("...its zones each the game's whose land it mirrors",
+              [z for z in range(64) if w["DOMAIN"][z] != 8 * (z // 8) + (7 - z % 8)], [])
+
+    #  The cartridge's rows.
+    MAPFLAGS, MAPDRAW_Y, MAPROW = K["mapflags"], K["mapdraw_y"], K["mm_maprow"]
+    WIN, BUF, BUF2 = 0x7000, 0x0600, 0x0700
+    MAPAT = S("RANDO_MAP")
+    bus, cpu = machine()
+    bad, cost = [], {}
+    for m in list(want) + [0, N]:                           # N: past the list, the game's
+        tiles = want[m]["tiles"] if m in want else van
+        bus.sram[MAPAT] = m
+        steps = []
+        for r in range(256):
+            bus.wram[MAPFLAGS] = 0
+            bus.wram[MAPDRAW_Y] = r
+            slot = WIN - 0x6000 + (r & 15) * 256
+            bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096] = b"\xee" * 4096
+            s0 = cpu.steps
+            call(cpu, "LoadOWMapRow")
+            steps.append(cpu.steps - s0)
+            got = list(bus.sram[slot:slot + 256])
+            others = bytes(bus.sram[WIN - 0x6000:slot]) + bytes(bus.sram[slot + 256:WIN - 0x6000 + 4096])
+            if got != list(tiles[r * 256:r * 256 + 256]) or others.strip(b"\xee"):
+                bad.append("map %d row %d" % (m, r))
+        cost[m] = max(steps)
+    check("the window: every row of every map, and only its slot; a map past the list the game's", bad[:4], [])
+    check("...a map's dearest row no dearer than the game's", [m for m in want if cost[m] > cost[0]], [])
+    bus.sram[MAPAT] = 2
+    bus.wram[MAPFLAGS] = 1
+    bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096] = b"\xee" * 4096
+    call(cpu, "LoadOWMapRow")
+    check("...nothing on a standard map", bytes(bus.sram[WIN - 0x6000:WIN - 0x6000 + 4096]).strip(b"\xee"), b"")
+    bad, kept = [], set()
+    for m in want:
+        tiles = want[m]["tiles"]
+        bus.sram[MAPAT] = m
+        for r in range(256):
+            bus.wram[MAPROW] = r
+            bus.wram[BUF:BUF + 512] = b"\xee" * 512
+            bus.wram[0x13:0x18] = bytes((0x31, 0x41, 0x51, 0x61, 0x71))     # tmp+3 to tmp+7
+            call(cpu, "CallMinimapDecompress", bank=0xA1 + 0x09)
+            kept.add(bytes(bus.wram[0x13:0x18]))
+            got = list(bus.wram[BUF:BUF + 256]) + list(bus.wram[BUF2:BUF2 + 256])
+            r2 = (r + 1) & 255
+            if got != list(tiles[r * 256:r * 256 + 256]) + list(tiles[r2 * 256:r2 * 256 + 256]):
+                bad.append("map %d rows %d,%d" % (m, r, r2))
+    check("the minimap: every pair of rows of every map, the last with the first", bad[:4], [])
+    check("...tmp+3 to tmp+7 as they were, as MinimapDecompress leaves them (the screen wipe reads "
+          "tmp+4 and tmp+5)", kept, {bytes((0x31, 0x41, 0x51, 0x61, 0x71))})
+
+    #  New Game: the page, the save's map, the cache.
+    def newgame(m):
+        bus, cpu = machine()
+        bus.frames()
+        call(cpu, "opt_init")
+        bus.wram[W("NGF_MAP")] = m
+        bus.wram[W("NGF_OWEDITS"):W("NGF_OWEDITS") + 2] = b"\0\0"
+        bus.wram[W("NGF_SEED"):W("NGF_SEED") + 4] = (0x1234567).to_bytes(4, "little")
+        cpu.a = 0                                           # nothing randomized: no roll screen
+        screen_pressing(bus, cpu, [], RANDO_BANK, SYM["rando_build"])
+        return bus, cpu
+
+    def state(bus):
+        p = lambda off: (bus.sram[off], bus.sram[off + 1])
+        sc = p(0x10)
+        return {"map": bus.sram[MAPAT], "START": ((sc[0] + 7) & 255, (sc[1] + 7) & 255), "SHIP": p(0x01),
+                "AIRSHIP": p(0x05), "BRIDGE": p(0x09), "CANAL": p(0x0D),
+                "EXIT": list(zip(bus.wram[W("RW_EXITX"):W("RW_EXITX") + 16], bus.wram[W("RW_EXITY"):W("RW_EXITY") + 16])),
+                "ZONES": bytes(bus.wram[W("RW_DOMAINS"):W("RW_DOMAINS") + 64 * 8])}
+    DOMS = ROMDATA[((K["CHUNK0"] + 0x0B) & 0x1F) * 0x10000 + K["lut_Domains"]:][:128 * 8]
+    zones = lambda frm: b"".join(DOMS[8 * f:8 * f + 8] for f in frm)
+    bad = []
+    for m in [0] + sorted(want):
+        bus, cpu = newgame(m)
+        got = state(bus)
+        if m == 0:
+            exp = {"map": 0, "START": VSTART, "SHIP": xy(1), "AIRSHIP": xy(5), "BRIDGE": xy(9), "CANAL": xy(0x0D),
+                   "EXIT": VEX, "ZONES": DOMS[:64 * 8]}
+        else:
+            w = want[m]
+            exp = {"map": m, "START": w["START"], "SHIP": w["SHIP"], "AIRSHIP": w["AIRSHIP"],
+                   "BRIDGE": w["BRIDGE"], "CANAL": w["CANAL"], "EXIT": w["EXIT"], "ZONES": zones(w["DOMAIN"])}
+        bad += ["map %d %s" % (m, k) for k in exp if got[k] != exp[k]]
+    check("New Game on each map: the save's map, its start, Bikke's ship, the airship, the bridge and the "
+          "canal; the cache's exits and zones", bad, [])
+    other = sorted(want)[-1]
+    bus, cpu = newgame(other)
+    bus.sram[MAPAT] = MID[0]
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
+    check("...the save's map changed, the cache built again for it, its exits",
+          state(bus)["EXIT"], want[MID[0]]["EXIT"])
+
+    #  A found ship, on every map of every map; a Free SHIP and AIRSHIP.
+    def give(m, cm, placed=1):
+        bus, cpu = machine()
+        bus.wram[rw("RW_PLACED")] = placed
+        bus.sram[MAPAT] = m
+        bus.sram[1], bus.sram[2] = 0x11, 0x22                # decoys
+        bus.wram[K["cur_map"]] = cm
+        cpu.a, cpu.x = 0xF0, 0x5A                           # REWARD_SHIP
+        call(cpu, "give_vehicle", bank=RANDO_BANK)
+        return (bus.sram[1], bus.sram[2]), cpu.x & 0xFF
+    check("a found ship, on each map: moored at the dock of the entrance the map it is found on is behind",
+          [(m, cm) for m in want for cm in range(61) if give(m, cm) != (want[m]["DOCK"][cm], 0x5A)], [])
+    check("...with nothing placed, where Bikke's waits", give(MID[0], 1, placed=0)[0], (0x11, 0x22))
+    bad = []
+    for m in [0] + sorted(want):
+        bus, cpu = machine()
+        set_free(bus, 1 << FREE_BIT["ship_vis"] | 1 << FREE_BIT["airship_vis"])
+        bus.sram[MAPAT] = m
+        call(cpu, "opt_freestuff")
+        got = ((bus.sram[1], bus.sram[2]), (bus.sram[5], bus.sram[6]))
+        exp = (FREESHIP, (K["FREEAIRSHIP_X"], K["FREEAIRSHIP_Y"])) if m == 0 else \
+            (want[m]["FREESHIP"], want[m]["START"])
+        if got != exp:
+            bad.append((m, got, exp))
+    check("a Free SHIP at the map's berth, a Free AIRSHIP at its start", bad, [])
+
+    #  The bridge, where the map's runs east to west: the overworld objects'
+    #  CHR (LoadOWObjectCHR: bank $02 from $9C00, six rows, to $1100).
+    SH = K["CHRSHADOW"] - RW_BASE
+
+    def objchr(m, fun=0):
+        bus, cpu = machine()
+        setblk(bus, OPT_RESPOND, fun)
+        bus.sram[MAPAT] = m
+        bus.wram[0x10], bus.wram[0x11] = 0x00, 0x9C
+        bus.wram[K["h_addr"]], bus.wram[K["h_addr"] + 1] = 0x00, 0x11
+        cpu.x, cpu.y, cpu.a = 6, 0, 0x5A
+        call(cpu, "CHRLoad_Cont", bank=0xA1 + 2, dbr=0xA1 + 2)
+        t = lambda k: bytes(bus.wram[SH + k * 32 + 2 * y] for y in range(8)) + \
+            bytes(bus.wram[SH + k * 32 + 2 * y + 1] for y in range(8))
+        return [t(0x110 + k) for k in range(0x60)]
+    nes = lambda k: bytes(ROMDATA[(1 + 2) * 0x10000 + 0x9C00 + 16 * k:][:16])
+    game = [nes(k) for k in range(0x60)]
+
+    def bridge(tile):
+        return bytes(sum((tile[r][c] & 1) << (7 - c) for c in range(8)) for r in range(8)) + \
+            bytes(sum((tile[r][c] >> 1) << (7 - c) for c in range(8)) for r in range(8))
+    t0 = [[0, 0, 0, 0, 1, 1, 1, 1], [0, 0, 1, 1, 2, 2, 2, 2], [1, 1, 2, 2, 2, 2, 2, 2], [2, 2, 2, 1, 1, 1, 1, 1],
+          [2, 1, 1, 2, 2, 2, 2, 2], [1, 2, 2, 2, 2, 2, 2, 2], [2] * 8, [2] * 8]
+    t1 = [[2] * 8, [2] * 8, [2] * 8, [2, 2, 2, 2, 1, 1, 1, 1], [2, 2, 1, 1, 2, 2, 2, 2], [1, 1, 2, 2, 2, 2, 2, 2],
+          [2, 2, 2, 1, 1, 1, 1, 1], [1, 1, 1, 0, 0, 0, 0, 0]]
+    flip = lambda t: [r[::-1] for r in t]
+    across_ = game[:4] + [bridge(t0), bridge(flip(t0)), bridge(t1), bridge(flip(t1))] + game[8:]
+    hmaps = [m for m in want if want[m]["FLAGS"] & 1]
+    check("some map's bridge runs east to west", len(hmaps) > 0, True)
+    check("the bridge's four characters FFR's where it does, the game's elsewhere and on the game's map",
+          [(m, objchr(m) == (across_ if m in hmaps else game)) for m in [0] + sorted(want)],
+          [(m, True) for m in [0] + sorted(want)])
+    check("...on Japan too", objchr(hmaps[0], fun=K["FUN_JAPAN"])[4:8], across_[4:8])
+
+    #  Mirror World's lines.
+    DLGNPC, OPTD, TP = rw("RW_DLGNPC"), K["OPTDESC"], K["text_ptr"]
+    gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
+    bus, _ = machine()
+    d1 = [bus.read(0xB2, SYM["lut_DTE1"] + i) for i in range(80)]
+    d2 = [bus.read(0xB2, SYM["lut_DTE2"] + i) for i in range(80)]
+
+    def expand(body):
+        out = []
+        for b in body:
+            out += [d1[b - 0x1A], d2[b - 0x1A]] if 0x1A <= b < 0x6A else [b]
+        return ff_decode(out)
+
+    def game_line(i):
+        p = gameptr(i)
+        raw = []
+        while chunkbyte(0x0A, p):
+            raw.append(chunkbyte(0x0A, p))
+            p += 1
+        return expand(raw)
+
+    def said(m, i, keyitems=0, entrances=0):
+        bus, cpu = machine()
+        bus.sram[MAPAT] = m
+        bus.sram[S("RANDO_KEYITEMS")] = keyitems
+        bus.sram[S("RANDO_ENTRANCES")] = entrances
+        bus.wram[OPTD:OPTD + 0x50] = bytes([0xEE]) * 0x50
+        bus.wram[TP], bus.wram[TP + 1] = gameptr(i) & 0xFF, gameptr(i) >> 8
+        cpu.y = 0x5A
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        buf = bytes(bus.wram[OPTD:OPTD + 0x50])
+        now = bus.wram[TP] | bus.wram[TP + 1] << 8
+        return expand(buf[:buf.find(0)]) if now == OPTD and 0 in buf else None, cpu.y & 0xFF
+    turn = {"east": "west", "west": "east", "East": "West", "West": "East"}
+    lines = {i: game_line(i) for i in range(256) if 0x8000 <= gameptr(i) < 0xC000}
+    turned = {i: re.sub(r"East|West|east|west", lambda mo: turn[mo.group(0)], t) for i, t in lines.items()}
+    expect = {i: t for i, t in turned.items() if t != lines[i]}
+    check("Mirror World: the game's lines that say east or west, saying the other, twelve of them",
+          ({i: said(MID[0], i)[0] for i in lines if said(MID[0], i)[0] is not None}, len(expect)), (expect, 12))
+    check("...every other map's the game's", [(m, i) for m in [0] + sorted(want) if m not in MID
+                                              for i in expect if said(m, i)[0] is not None], [])
+    std = K["KEYITEMS_STANDARD"]
+    check("...key items placed: the CUBE's hint turned round too, a dungeon's line with Map shuffle off "
+          "turned, with it on the hint",
+          (said(MID[0], 0xDE, std)[0], said(MID[0], 0x5B, std)[0] == expect[0x5B],
+           "east" in (said(MID[0], 0x5B, std, K["ENTRANCES_ONLY"])[0] or "east")),
+          ("One of us escaped. He\nfloated far to the east.", True, False))
+
+
+def altmap_tiles():
+    """Each of Map Select's maps, made here, in maps/custom-maps.txt's order:
+    the game's from bank $01, FFR's from the vendored files, Mirror World
+    as genmaps makes it (test_altmaps holds it to the game's map)."""
+    import gzip, base64, json
+    import genmaps as GM
+    b1 = R.nesbank(ROMDATA, 1)
+    van = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        van += R.decode_rle(b1, ptr - 0x8000, 256)
+    out = []
+    for line in open(os.path.join(ROOT, "maps", "custom-maps.txt"), encoding="utf-8"):
+        e = line.split("#")[0].split()
+        if not e:
+            continue
+        if e[0] == "vanilla":
+            out.append(van)
+        elif e[0] == "mirror-lr":
+            out.append(list(GM.mirror_lr(bytes(van))[0]))
+        else:
+            f = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
+            out.append(list(b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])))
+    return out
+
+
+def test_altminimap():
+    """The minimap screen (bank $09's EnterMinimap) on every map, run until
+    it waits for a button with everything drawn.  On every map but the
+    game's, each block of the map shows a tile drawn with its picture, as
+    Minimap_PrepRow ORs its four tiles' colours -- no land hidden, none
+    shown in the wrong place; and on every map, every cell outside the map
+    -- the logo, the crests, the blank -- shows what the game's map's
+    screen shows there (user, 2026-11-15: "minimap is broken with the
+    alternate maps ... the Final Fantasy logo and corner crests are somehow
+    corrupt").  And while it draws, a block row at a time, no cell of the
+    logo or the crests, and no block not yet drawn, shows anything."""
+    worlds = altmap_tiles()
+    src9 = open(os.path.join(ROOT, "game", "bank_09.asm"), encoding="latin-1").read()
+    at = src9.index("lut_MinimapTileset:")
+    TS = [int(v) for l in src9[at:].split("\n")[1:9] for v in re.findall(r"\b\d+\b", l.split(";")[0].replace(".BYTE", ""))]
+    NT, SH = K["NESNT"] - RW_BASE, K["CHRSHADOW"] - RW_BASE
+    cell = lambda b: 32 * (6 + b // 16) + 8 + b % 16
+    MAPCELLS = {cell(b) for b in range(256)}
+
+    def block(w, b):
+        bx, by = b & 15, b >> 4
+        return tuple(3 & (TS[w[2 * (bx * 8 + c) + 256 * 2 * (by * 8 + r)]] |
+                          TS[w[2 * (bx * 8 + c) + 1 + 256 * 2 * (by * 8 + r)]] |
+                          TS[w[2 * (bx * 8 + c) + 256 * (2 * (by * 8 + r) + 1)]] |
+                          TS[w[2 * (bx * 8 + c) + 1 + 256 * (2 * (by * 8 + r) + 1)]])
+                     for r in range(8) for c in range(8))
+
+    def pixels(bus, t):
+        a = SH + t * 32
+        return tuple(((bus.wram[a + 2 * r] >> (7 - c)) & 1) | ((bus.wram[a + 2 * r + 1] >> (7 - c)) & 1) << 1
+                     for r in range(8) for c in range(8))
+
+    def screen(m, watch=None):
+        bus, cpu = machine()
+        bus.frames()
+        bus.sram[K["RANDO_MAP"] - 0x6000] = m
+        cpu.pbr, cpu.pc = 0xA1 + 0x09, SYM["EnterMinimap"]
+        cpu.dbr = 0xA1 + 0x09                               # as SwapPRG leaves it, the minimap's bank
+        cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
+        seen = []
+        for _ in range(400_000_000):
+            if cpu.pc == SYM["UpdateJoy_L"]:
+                break
+            if watch is not None and cpu.pc == SYM["CallMinimapDecompress"]:
+                seen.append(watch(bus))
+            cpu.step()
+        return bus, seen
+    blank = (0,) * 64
+    ref, _ = screen(0)
+    shown0 = [pixels(ref, ref.wram[NT + i]) for i in range(960)]
+    check("the game's map's screen: the logo and the crests drawn", sum(p != blank for i, p in enumerate(shown0)
+                                                                         if i not in MAPCELLS) > 80, True)
+    bad = []
+    for m, w in enumerate(worlds):
+        if m == 0:
+            continue
+        bus, _ = screen(m)
+        nt = bus.wram[NT:NT + 960]
+        bad += ["map %d block $%02X" % (m, b) for b in range(256) if pixels(bus, nt[cell(b)]) != block(w, b)]
+        bad += ["map %d cell %d" % (m, i) for i in range(960) if i not in MAPCELLS
+                and pixels(bus, nt[i]) != shown0[i]]
+    check("every other map: each block its picture, the logo and the crests the game's", bad[:6], [])
+
+    #  As it draws: before each pair of rows is decoded, every cell outside
+    #  the map, and every block below the rows drawn, blank.
+    for m in range(1, len(worlds)):
+        def look(bus):
+            row = bus.wram[K["mm_maprow"]] // 16            # the block row about to be drawn
+            nt = bus.wram[NT:NT + 960]
+            lit = [i for i in range(960) if i not in MAPCELLS and pixels(bus, nt[i]) != blank]
+            ahead = [b for b in range(16 * row, 256) if pixels(bus, nt[cell(b)]) != blank]
+            return lit, ahead
+        _, seen = screen(m, look)
+        check("map %d, as it draws: nothing outside the map lit, no block ahead of the drawing" % m,
+              [(k, len(lit), len(ahead)) for k, (lit, ahead) in enumerate(seen) if lit or ahead][:3], [])
 
 
 def test_es_tree():
@@ -6562,19 +7256,24 @@ def test_ngflow():
     OWS = 0xA1 + K["CHUNK_OWS"]
     names = {(OPTMENU_BANK, SYM["opt_newgamelist"]): "list", (OPTMENU_BANK, SYM["opt_randoscreen"]): "rando",
              (OPTMENU_BANK, SYM["opt_settings"]): "options", (OWS, SYM["ows_choose"]): "mapedits",
+             (OWS, SYM["ms_choose"]): "mapsel",
              (OPTMENU_BANK, SYM["seed_choose"]): "seed", (BANK_0E, SYM["NewGamePartyUI"]): "party",
              (RANDO_BANK, SYM["rando_build"]): "build", (OPTMENU_BANK, SYM["sum_show"]): "summary"}
     NGSEED = K["NGF_SEED"] - 0x7E0000
     POOL = K["RANDO_POOL"] - 0x6000
     OWE = K["RANDO_OWEDITS"] - 0x6000
     NGF = K["NGF_OWEDITS"] - 0x7E0000
+    NGMAP = K["NGF_MAP"] - 0x7E0000
     FWD, BACK, CUSTOM, NBACK = K["NGNAV_FORWARD"], K["NGNAV_BACK"], K["NGPICK_CUSTOM"], K["NGPICK_BACK"]
 
     edits = {}
     RS, RW_OWE = K["RANDO_SEED"] - K["RANDO_SAVE"], K["RANDO_OWEDITS"] - K["RANDO_SAVE"]
+    RW_MAP = K["RANDO_MAP"] - K["RANDO_SAVE"]
 
-    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None, failing=(), touch=(), real=False):
-        """Run ng_flow, each screen answering the next of script; the map edit
+    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None, failing=(), touch=(), real=False, maps=()):
+        """Run ng_flow, each screen answering the next of script; Map Select,
+        each time, noting the map it starts on (NGF_MAP) and choosing the
+        next of maps, if any (None: as it is); the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
         noting what it was given (its A, and RANDO_OWEDITS); stale, the
         live game's RANDO_OWEDITS before.  The build answers built, or for
@@ -6599,7 +7298,9 @@ def test_ngflow():
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
         seen, answers, tick, typing, fails, touches = [], list(script), list(ticks), list(typed), list(failing), list(touch)
+        chosen = list(maps)
         edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
+        edits["mapsel"] = []
         edits["order"], edits["builds"], edits["bus"], edits["rolls"] = [], [], bus, []
         seed = lambda: int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little")
         pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
@@ -6627,6 +7328,7 @@ def test_ngflow():
                         bus.wram[blk + RS:blk + RS + 4] = bus.wram[NGSEED:NGSEED + 4]
                         bus.wram[blk + K["RANDO_NGOFF"]:blk + K["RANDO_NGOFF"] + ngsize] = bus.sram[ngoff:ngoff + ngsize]
                         bus.wram[blk + RW_OWE:blk + RW_OWE + 2] = bus.wram[NGF:NGF + 2]
+                        bus.wram[blk + RW_MAP] = bus.wram[NGMAP]
                     cpu.p = (cpu.p & ~1) | failed
                 cpu.pc, cpu.pbr = ((lo | hi << 8) + 1) & 0xFFFF, bank
                 continue
@@ -6641,6 +7343,12 @@ def test_ngflow():
                         t = touches.pop(0)
                         if t:
                             t(bus)
+                if here == "mapsel":
+                    edits["mapsel"].append(bus.wram[NGMAP])
+                    if chosen:
+                        m = chosen.pop(0)
+                        if m is not None:
+                            bus.wram[NGMAP] = m
                 if here == "mapedits":
                     edits["given"].append((cpu.a & 0xFF, bus.sram[OWE] | bus.sram[OWE + 1] << 8))
                     save = K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
@@ -6680,9 +7388,9 @@ def test_ngflow():
         return unpooled(bus)
     _, _, start = flow([NBACK])
     check("the list, B: back to the title", flow([NBACK])[:2], (["list"], BACK))
-    check("Custom Game: the randomization screen, the map edits, the options, party creation, on; "
+    check("Custom Game: the randomization screen, Map Select, the map edits, the options, party creation, on; "
           "the options untouched",
-          flow([CUSTOM, FWD, FWD, FWD, FWD]), (["list", "rando", "mapedits", "options", "party"], FWD, start))
+          flow([CUSTOM, FWD, FWD, FWD, FWD, FWD]), (["list", "rando", "mapsel", "mapedits", "options", "party"], FWD, start))
     check("...on a blank battery, Improved Vanilla's, byte for byte (opt_init's own row and the list's "
           "preset agree)", start == preset_block(1), True)
     check("Vanilla: straight to party creation, the preset applied",
@@ -6690,29 +7398,30 @@ def test_ngflow():
     check("...its world built with no roll screen, nothing randomized (user, 2026-10-27)", edits["rolls"], [0])
     check("Improved Vanilla: the screens all the same, the baseline one might customize (user, 2026-10-22); "
           "no seed screen, nothing randomized",
-          flow([1, FWD, FWD, FWD, FWD])[:2], (["list", "rando", "mapedits", "options", "party"], FWD))
+          flow([1, FWD, FWD, FWD, FWD, FWD])[:2], (["list", "rando", "mapsel", "mapedits", "options", "party"], FWD))
     check("...no roll screen either", edits["rolls"], [0])
-    check("Beginner: the randomization screen, the map edits, the options, the seed, the Seed Summary and "
-          "party creation, its settings applied",
-          flow([2, FWD, FWD, FWD, FWD, FWD, FWD])[:2] + (flow([2, FWD, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
-          (["list", "rando", "mapedits", "options", "seed", "summary", "party"], FWD, True))
+    check("Beginner: the randomization screen, Map Select, the map edits, the options, the seed, the Seed "
+          "Summary and party creation, its settings applied",
+          flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD])[:2]
+          + (flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD])[2] == preset_block(2),),
+          (["list", "rando", "mapsel", "mapedits", "options", "seed", "summary", "party"], FWD, True))
     check("...its world built with the roll screen", edits["rolls"], [1])
     check("...B from the seed: the options, and on again",
-          flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD])[:2],
-          (["list", "rando", "mapedits", "options", "seed", "options", "seed", "summary", "party"], FWD))
+          flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD])[:2],
+          (["list", "rando", "mapsel", "mapedits", "options", "seed", "options", "seed", "summary", "party"], FWD))
     check("...the seed screen given a seed latched from the pool each time it comes on",
           [sd for (sd, p) in edits["seed"]], [p for (_, p) in edits["seed"]])
     check("...New Game's the one it left", edits["endseed"][0], edits["seed"][-1][0])
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...or the one typed on it", edits["endseed"][0], 0xDEADBEEF)
-    flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...typed, then back to the options and on: a seed latched afresh",
           edits["seed"][1], (edits["seed"][1][1], edits["seed"][1][1]))
     flow([0, FWD])
     check("Vanilla: no seed screen; New Game's seed latched from the pool all the same, as ever",
           edits["endseed"][0], edits["endseed"][1])
     check("Custom Game on the options as they come, nothing randomized: no seed screen",
-          flow([CUSTOM, FWD, FWD, FWD, FWD])[0], ["list", "rando", "mapedits", "options", "party"])
+          flow([CUSTOM, FWD, FWD, FWD, FWD, FWD])[0], ["list", "rando", "mapsel", "mapedits", "options", "party"])
 
     #  Party creation's B on its first character: back a screen -- the Seed
     #  Summary, the seed, the options, or the list, whichever came before it
@@ -6722,24 +7431,51 @@ def test_ngflow():
     check("party creation, B: back to the list for Vanilla",
           flow([0, BACK, 0, FWD])[:2], (["list", "party", "list", "party"], FWD))
     check("...to the options for Custom Game on the defaults",
-          flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
-          (["list", "rando", "mapedits", "options", "party", "options", "party"], FWD))
-    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
+          flow([CUSTOM, FWD, FWD, FWD, FWD, BACK, FWD, FWD])[:2],
+          (["list", "rando", "mapsel", "mapedits", "options", "party", "options", "party"], FWD))
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
     check("...to the Seed Summary for Beginner, the world kept, and on",
           (seen[-4:], ans, len(edits["builds"])), (["summary", "party", "summary", "party"], FWD, 1))
-    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
+    seen, ans, _ = flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF])
     check("...and B there to the seed, a seed typed there: a fresh one latched in its place",
           (seen[-6:], ans, edits["seed"][1]), (["summary", "party", "summary", "seed", "summary", "party"], FWD,
                                                (edits["seed"][1][1], edits["seed"][1][1])))
-    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD])
     check("...or one latched there: another, from the pool as it is now",
           (edits["seed"][1][0] == edits["seed"][1][1], edits["seed"][1][0] != edits["seed"][0][0]), (True, True))
     flow([0, BACK, NBACK])
     check("...and backed out to the title from there: the flow not marked as run", edits["ngf"][1], 0)
     check("B, screen by screen, back to the list and on again",
-          flow([CUSTOM, BACK, CUSTOM, FWD, BACK, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
-          (["list", "rando", "list", "rando", "mapedits", "rando", "mapedits", "options", "mapedits",
-            "options", "party"], FWD))
+          flow([CUSTOM, BACK, CUSTOM, FWD, FWD, BACK, BACK, FWD, FWD, FWD, BACK, FWD, FWD, FWD])[:2],
+          (["list", "rando", "list", "rando", "mapsel", "mapedits", "mapsel", "rando", "mapsel", "mapedits",
+            "options", "mapedits", "options", "party"], FWD))
+
+    #  Map Select (user, 2026-11-15): after the randomization screen; the
+    #  game's map on to the map edits, another straight to the options with
+    #  no map edits, the options' B back to it; starting on the map last
+    #  chosen this pass, the game's after the list.
+    other = K["MAPS_N"] - 1
+    OPEN = K["OWEDIT_OPENPROG"]
+    CANBACK, KEEP = K["OWS_CANBACK"], K["OWS_KEEP"]
+    check("another map: no map edit screen, the options next; built with no map edits though the preset "
+          "has some (Beginner's Open)",
+          (flow([2, FWD, FWD, FWD, FWD, FWD, FWD], maps=[other])[:2], edits["builds"][0][1]),
+          ((["list", "rando", "mapsel", "options", "seed", "summary", "party"], FWD), 0))
+    check("...the options' B back to Map Select, and its B to the randomization screen",
+          flow([CUSTOM, FWD, FWD, BACK, BACK, BACK, NBACK], maps=[other])[:2],
+          (["list", "rando", "mapsel", "options", "mapsel", "rando", "list"], BACK))
+    flow([2, FWD, FWD, BACK, BACK, BACK, 2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], maps=[other])
+    check("...Map Select starting on the map chosen last this pass, the game's again after the list",
+          edits["mapsel"], [0, other, 0])
+    flow([2, FWD, FWD, FWD, BACK, BACK, FWD, BACK, FWD, FWD, FWD, FWD, FWD, FWD],
+         maps=[0, other, 0], ticks=[0x0041, 0x0041, 0x0043])
+    check("...the edits ticked kept through another map, for the game's again; New Game's the last ticked",
+          (edits["given"], edits["ngf"], [b[1] for b in edits["builds"]]),
+          ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0041), (KEEP | CANBACK, 0x0041)], (0x0043, 1), [0x0043]))
+    flow([2, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD, FWD, FWD], maps=[0, other], ticks=[0x0041, 0x0041])
+    check("...edits ticked, then another map chosen: built with none",
+          (edits["order"][-6:], [b[1] for b in edits["builds"]]),
+          (["mapsel", "options", "seed", "build", "summary", "party"], [0]))
 
     #  The map edit screen: B allowed, and where it starts.  Custom Game: its
     #  own start (the saved game's, else none, given -- not the live game's);
@@ -6747,18 +7483,18 @@ def test_ngflow():
     #  New Game's: what it ticked last, the flow marked as having run.
     OPEN = K["OWEDIT_OPENPROG"]
     CANBACK, KEEP = K["OWS_CANBACK"], K["OWS_KEEP"]
-    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0x0041], stale=0x1243)
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], stale=0x1243)
     check("Custom Game: the screen's own start, none given, B allowed; New Game's edits what it ticked",
           (edits["given"], edits["ngf"]), ([(CANBACK, 0)], (0x0041, 1)))
-    flow([CUSTOM, FWD, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], ticks=[0], ng=[(7 * i + 3) & 0xFF for i in range(K["OPT_NG_SIZE"])])
     check("...the screen's check reads the options' settings, copied into the save first",
           edits["settings"], [True])
-    flow([2, FWD, FWD, BACK, FWD, FWD, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
+    flow([2, FWD, FWD, FWD, BACK, FWD, FWD, FWD, FWD, FWD], ticks=[0x0003, 0x0007])
     check("Beginner: its row's edits (Open) kept; back from the options, the ticks kept; New Game's the last",
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0003)], (0x0007, 1)))
-    flow([2, FWD, BACK, BACK, NBACK])
+    flow([2, FWD, FWD, BACK, BACK, BACK, NBACK])
     check("...backed out to the title: the flow not marked as run", edits["ngf"][1], 0)
-    flow([1, FWD, FWD, FWD, FWD], ticks=[0x0041])
+    flow([1, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041])
     check("Improved Vanilla: the map edit screen from its row's edits, none; New Game's what it ticked",
           (edits["given"], edits["ngf"]), ([(KEEP | CANBACK, 0)], (0x0041, 1)))
     flow([0, FWD])
@@ -6766,7 +7502,7 @@ def test_ngflow():
     #  A preset's own [map_edits] over its row's (user, 2026-10-24): Floaterless
     #  is Beginner's Open and six more, the screen starting from all seven.
     fl = [p[0] for p in G.resolve(G.load(), P.rows())].index("Floaterless")
-    flow([fl, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x00BF])
+    flow([fl, FWD, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x00BF])
     seven = sum(K["OWEDIT_" + n] for n in ("OPENPROG", "EXTENDED", "DOCKS", "AIRSHIPDOCK", "BAHAMUTDOCK",
                                            "LEFEINRIVER", "GAIAPASS"))
     check("Floaterless: the map edit screen from its row's edit and its own six; New Game's what it ticked",
@@ -6776,7 +7512,7 @@ def test_ngflow():
     ticked = bytearray(ROMDATA)
     at = (NG & 0x1F) * 0x10000 + SYM["lut_NgpEdits"] + 2 * 2
     ticked[at], ticked[at + 1] = (OPEN | K["OWEDIT_HIGHWAY"]) & 0xFF, (OPEN | K["OWEDIT_HIGHWAY"]) >> 8
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0], rom=bytes(ticked))
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0], rom=bytes(ticked))
     check("...a preset's every bit, past the first eight too (Ordeals Road)",
           edits["given"], [(KEEP | CANBACK, OPEN | K["OWEDIT_HIGHWAY"])])
     seen, ans, page = flow([2, BACK, NBACK])
@@ -6870,26 +7606,26 @@ def test_ngflow():
     #  kept, no roll screen; any of them changed, built again.
     order = lambda n: edits["order"][-n:]
     nbuilds = lambda: len(edits["builds"])
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], ticks=[0x0041], typed=[0xDEADBEEF])
     check("Beginner: the world built after the seed screen, before the Seed Summary and party creation, from "
           "the seed and edits chosen",
           (order(4), edits["builds"]), (["seed", "build", "summary", "party"], [(0xDEADBEEF, 0x0041)]))
-    flow([2, FWD, FWD, FWD, FWD, BACK, FWD, FWD], touch=[lambda bus: bus.sram.__setitem__(
+    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, FWD, FWD], touch=[lambda bus: bus.sram.__setitem__(
         K["OPT_NG_KEYITEMS"] - 0x6000, K["KEYITEMS_VANILLA"])])
     check("...randomized with Key items Vanilla: no summary, nothing placed; party creation's B back to the seed",
           order(6), ["seed", "build", "party", "seed", "build", "party"])
     flow([0, FWD])
     check("Vanilla: built before party creation", edits["order"], ["list", "build", "party"])
-    flow([CUSTOM, FWD, FWD, FWD, FWD])
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD])
     check("Custom Game, nothing randomized: built after the options", order(3), ["options", "build", "party"])
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
     check("a seed that builds no world: the seed screen again with a fresh seed, built from it, and on",
           (order(6), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]], edits["seed"][0] != edits["seed"][1]),
           (["seed", "build", "seed", "build", "summary", "party"], True, True))
-    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], failing=[True])
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD, FWD], failing=[True])
     check("...nothing randomized, were a build to fail (none can: nothing to place): the options again",
           order(5), ["options", "build", "options", "build", "party"])
-    to_seed = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD]     # party, summary, B B
+    to_seed = [2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD]    # party, summary, B B
     flow(to_seed)
     check("party creation, B, the summary, B, and on through the seed screen: built again, from the fresh seed",
           (order(9), [b[0] for b in edits["builds"]] == [sd for sd, _ in edits["seed"]]),
@@ -6901,28 +7637,34 @@ def test_ngflow():
     check("...another typed: built again, from it", (order(9), [b[0] for b in edits["builds"]]),
           (["seed", "build", "summary", "party", "summary", "seed", "build", "summary", "party"],
            [0xDEADBEEF, 0x12345678]))
-    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0x12345678],
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0x12345678],
          failing=[True])
     check("...a seed that built no world, then one that did, then back and it typed again: kept",
           (order(10), nbuilds()),
           (["seed", "build", "seed", "build", "summary", "party", "summary", "seed", "summary", "party"], 2))
-    flow([2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
+    flow([2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD, FWD], typed=[0xDEADBEEF, 0x12345678, 0xDEADBEEF],
          failing=[False, True])
     check("...built, then back and another that built none, then the first again: built again -- the "
           "failed build set the save's first page afresh", (order(6), nbuilds()),
           (["seed", "build", "seed", "build", "summary", "party"], 3))
-    back_to_edits = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, BACK, FWD, FWD, FWD, FWD, FWD]
+    back_to_edits = [2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, BACK, FWD, FWD, FWD, FWD, FWD]
     flow(back_to_edits, ticks=[0x0041, 0x0041], typed=[0xDEADBEEF] * 3)
     check("...back to the map edits, the same ticked, the same seed: kept", nbuilds(), 1)
     flow(back_to_edits, ticks=[0x0041, 0x0043], typed=[0xDEADBEEF] * 3)
     check("...another edit ticked: built again, with it", [b[1] for b in edits["builds"]], [0x0041, 0x0043])
+    back_to_maps = [2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, BACK, BACK, FWD, FWD, FWD, FWD, FWD]
+    flow(back_to_maps, maps=[0, K["MAPS_N"] - 1], ticks=[0x0041], typed=[0xDEADBEEF] * 3)
+    check("...back to Map Select, another map, the same seed: built again, with no map edits",
+          edits["builds"], [(0xDEADBEEF, 0x0041), (0xDEADBEEF, 0)])
+    flow(back_to_maps, maps=[0, K["MAPS_N"] - 1], ticks=[0], typed=[0xDEADBEEF] * 3)
+    check("...none ticked on the game's: the map alone changed, built again", nbuilds(), 2)
     goal = K["OPT_NG_GOAL"] - 0x6000
-    back_to_options = [2, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, FWD, FWD, FWD, FWD]
+    back_to_options = [2, FWD, FWD, FWD, FWD, FWD, FWD, BACK, BACK, BACK, FWD, FWD, FWD, FWD]
     flow(back_to_options, typed=[0xDEADBEEF] * 3)
     check("...back to the options, nothing changed, the same seed: kept", nbuilds(), 1)
     flow(back_to_options, typed=[0xDEADBEEF] * 3, touch=[None, lambda bus: bus.sram.__setitem__(goal, 2)])
     check("...an option changed there: built again", nbuilds(), 2)
-    flow([CUSTOM, FWD, FWD, FWD, BACK, FWD, FWD])
+    flow([CUSTOM, FWD, FWD, FWD, FWD, BACK, FWD, FWD])
     check("Custom Game, nothing randomized, back through the options: built again, a fresh seed latched unseen",
           (order(6), len({b[0] for b in edits["builds"]})),
           (["options", "build", "party", "options", "build", "party"], 2))
@@ -12345,6 +13087,8 @@ def source_consts():
              os.path.join(ROOT, "gen", "presetcount.inc"),   # NGP_COUNT, for optmenu.inc
              os.path.join(ROOT, "gen", "spcmap.inc"),        # SPC_FREE, for the scream
              os.path.join(ROOT, "gen", "scream.inc"),        # SCREAM_LEN
+             os.path.join(ROOT, "gen", "maps.inc"),          # MAPS_N, MAPS_VANILLAPIC
+             os.path.join(ROOT, "gen", "mapdata.inc"),       # MAPINFOFAR, MI_*
              os.path.join(ROOT, "src", "optmenu.inc")]
     for f in files:
         for line in open(f, encoding="latin-1"):
@@ -20294,7 +21038,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,

@@ -13,6 +13,6 @@ lut_MinimapTitleCHRDest_hi:
   .BYTE >$07C0,>$07F0,>$08F0,>$0900, >$0910,>$0A00,>$0A70,>$0AA0
   .BYTE >$0B00,>$0B80,>$0B90,>$0BA0, >$0C00,>$0C20,>$0C90,>$0EF0
 --- NEW
-;  As tools/genowedits.py lays the minimap out with the map edits in it:
-;  the logo's tiles where the edits leave room (gen/minimap_titledest.inc).
-  .include "minimap_titledest.inc"
+;  lut_MinimapTitleCHRDest: each map's, in its record (genmaps.py; the game's map's as
+;  tools/genowedits.py lays it out), read through [tmp+8] and [tmp+11]
+;  (altmaps.inc's mm_titledest and mm_decordest).

@@ -1,0 +1,22 @@
+--- OLD
+    LDA #<lut_MinimapNT
+    STA tmp
+    LDA #>lut_MinimapNT ; load up the pointer to the LUT containing the minimap NT
+    STA tmp+1           ;  data.  Store the pointer in (tmp)
+
+    LDX #$04            ; X is high byte of loop counter
+    LDY #$00            ; Y is low byte of counter and index
+   @NTLoop:
+       LDA (tmp), Y     ; get byte from LUT
+       STA $2007        ; draw it
+       INY              ; inc source index
+       BNE @NTLoop      ; if it wrapped....
+      INC tmp+1         ; inc high byte of source pointer
+      DEX               ; dec high byte of loop counter
+      BNE @NTLoop       ; and keep looping until expires ($400 iterations)
+--- NEW
+.import mm_fillnt
+    ;  The map's nametable, its record's (altmaps.inc): the game's map's as
+    ;  tools/genowedits.py lays it out, another's as genmaps.py does, its
+    ;  land where it is and the logo and crests in tiles of its open sea.
+    JSL mm_fillnt + WORLDFAR

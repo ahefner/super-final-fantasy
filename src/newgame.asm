@@ -21,7 +21,7 @@
 .include "optcall.inc"
 
 .import lut_ValOff, lut_ValBit, lut_ValMask, opt_commit
-.import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose
+.import opt_newgamelist, opt_randoscreen, opt_settings, ows_choose, ms_choose
 .import opt_needseed, seed_choose, rando_build, sum_show
 .import OptCallFar, NewGamePartyUI
 .export ngp_apply, ng_flow
@@ -149,9 +149,11 @@ lut_NgpBit:
 ;;      skip_to_party; user, 2026-10-22: Improved Vanilla is the baseline
 ;;      one might customize)
 ;;    the randomization screen -- TREASURES, RANDOMIZATION, KEY ITEMS
-;;    the map edits (owscreen.asm) -- the vanilla overworld's, overworld
-;;      select being still to come (user: as if the vanilla map were
-;;      chosen); winnable, or START is refused
+;;    Map Select (mapselect.inc) -- the game's map, or another
+;;      (maps/custom-maps.txt), NGF_MAP; the game's leads on to
+;;    the map edits (owscreen.asm) -- the game's map's; winnable, or START
+;;      is refused.  Another map has none (NGF_OWEDITS), and goes straight
+;;      on to the options, whose B goes back to Map Select
 ;;    the options -- the rest of the settings
 ;;    the seed (seedscreen.asm) -- when anything on the randomization
 ;;      screen is set (opt_needseed); a fresh one latched from the pool
@@ -168,8 +170,9 @@ lut_NgpBit:
 ;;      feature could show there what the party is choosing between (user)
 ;;
 ;;  START goes on to the next, B back to the one before -- party creation's
-;;  B on its first character -- and B on the list back to the title.  Still
-;;  to come: overworld select.  New Game's seed is NGF_SEED, which
+;;  B on its first character -- and B on the list back to the title.  The
+;;  map chosen goes into the save as the build sets its first page
+;;  (map_newgame, altmaps.inc).  New Game's seed is NGF_SEED, which
 ;;  rando_build takes as it takes the edits: latched from the pool, as New
 ;;  Game always took it, whether or not the seed screen came up.  Each
 ;;  screen takes the PPU and leaves it off, and the title or party creation
@@ -177,10 +180,12 @@ lut_NgpBit:
 ;;
 ;;  The map edits ticked are kept in NGF_OWEDITS, which rando_build takes
 ;;  for New Game's: the save's first page, where RANDO_OWEDITS is, it sets
-;;  afresh before.  The screen starts from the
+;;  afresh before; another map makes them none, and NGF_TICKED keeps them
+;;  for the game's map again.  The screen starts from the
 ;;  edits last ticked in this pass; first, after a preset, from its file's
 ;;  [map_edits] (ng_presetedits); after Custom Game from the saved game's,
-;;  if Continue would load one with any, else none.
+;;  if Continue would load one with any, else none.  Map Select starts on
+;;  the map last chosen in this pass, first the game's.
 ;;
 ;;  From opt_titlechoose, by JSL, emulation mode.  Out: A = NGNAV_FORWARD to
 ;;  start the game (party creation), NGNAV_BACK to go back to the title.
@@ -194,6 +199,7 @@ ng_flow:
     STA f:NGF_HAVE              ; a choice here starts the map edits afresh
     STA f:NGF_ACTIVE
     STA f:NGF_BUILT             ; ...and the world
+    STA f:NGF_MAP               ; ...and Map Select, on the game's map
     JSL opt_newgamelist + OPTMENUFAR
     STA f:NGF_PICK
     CMP #NGPICK_BACK
@@ -220,6 +226,16 @@ ng_flow:
     CMP #NGNAV_BACK
     BEQ @list
     JSR ng_settings             ; the settings the map edits' check reads
+  @mapsel:
+    JSL ms_choose + OWSFAR      ; NGF_MAP the map chosen
+    CMP #NGNAV_BACK
+    BEQ @rando
+    LDA f:NGF_MAP
+    BEQ @mapedits               ; the game's map: its edits next
+    LDA #0                      ; another: no map edits, those ticked kept
+    STA f:NGF_OWEDITS           ;   (NGF_TICKED) for the game's map again
+    STA f:NGF_OWEDITS + 1
+    BRA @options
   @mapedits:
     LDA f:NGF_HAVE
     BEQ @fresh
@@ -245,11 +261,15 @@ ng_flow:
     JSR ng_keepedits
     PLA
     CMP #NGNAV_BACK
-    BEQ @rando
+    BEQ @mapsel
   @options:
     JSL opt_settings + OPTMENUFAR
     CMP #NGNAV_BACK
-    BEQ @mapedits
+    BNE @on
+    LDA f:NGF_MAP               ; B: back to the map edits, or for another
+    BEQ @mapedits               ;   map to Map Select
+    BRA @mapsel
+  @on:
     JSL opt_needseed + OPTMENUFAR
     BCS @seed
     JSR ng_latch                ; nothing randomized: a seed all the same,
@@ -288,7 +308,7 @@ ng_flow:
 ;;  The world, before party creation (rando_build), the roll screen up if
 ;;  anything is randomized -- or kept, with no roll screen, when this pass
 ;;  of the flow built it from
-;;  the seed, the settings and the map edits it has now (user, 2026-10-27:
+;;  the seed, the settings, the map edits and the map it has now (user, 2026-10-27:
 ;;  an unchanged seed keeps the world).  The seed screen latching a fresh
 ;;  seed each time, that is a seed typed again.  The cache's tag is what
 ;;  the world was built from.  The menus' music off through the build, the
@@ -319,6 +339,9 @@ ng_build:
     BNE @build
     LDA f:NGF_OWEDITS + 1
     CMP f:RW_TAGBLK + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    BNE @build
+    LDA f:NGF_MAP               ; ...and the map
+    CMP f:RW_TAGBLK + (RANDO_MAP - RANDO_SAVE)
     BNE @build
     CLC                         ; the world as it was built
     RTS
@@ -391,18 +414,21 @@ ng_presetedits:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     RTS
 
-;;  RANDO_OWEDITS kept as New Game's (NGF_OWEDITS), and back.
+;;  RANDO_OWEDITS kept as New Game's (NGF_OWEDITS) and as the screen's last
+;;  (NGF_TICKED), and back from the screen's last.
 ng_keepedits:
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     STA f:NGF_OWEDITS
+    STA f:NGF_TICKED
     LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     STA f:NGF_OWEDITS + 1
+    STA f:NGF_TICKED + 1
     LDA #1
     STA f:NGF_HAVE
     RTS
 ng_restoreedits:
-    LDA f:NGF_OWEDITS
+    LDA f:NGF_TICKED
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
-    LDA f:NGF_OWEDITS + 1
+    LDA f:NGF_TICKED + 1
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
     RTS

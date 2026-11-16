@@ -49,7 +49,12 @@ EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x
 #  so it is reached only long, through HiROM's $C0+N (snesmap.inc's
 #  FUNDATAFAR) -- 32KB a chunk otherwise left a mirror.  {chunk: out/<file>}.
 LOWHALF = {0x1C: "fundata.bin",             # FUN%: the scream's sample
-           0x12: "bestiary.bin"}            # CHUNK_BESTIARY's: the fiends' and Chaos's characters
+           0x12: "bestiary.bin",            # CHUNK_BESTIARY's: the fiends' and Chaos's characters
+           #  The overworld maps (genmaps.py's CHUNKS): Map Select's minimaps,
+           #  each map's record and its rows
+           0x19: "maps_19.bin", 0x1A: "maps_1A.bin", 0x1B: "maps_1B.bin", 0x18: "maps_18.bin",
+           0x17: "maps_17.bin", 0x16: "maps_16.bin", 0x15: "maps_15.bin", 0x14: "maps_14.bin",
+           0x13: "maps_13.bin", 0x11: "maps_11.bin", 0x1D: "maps_1D.bin"}
 
 
 def read(path, want):

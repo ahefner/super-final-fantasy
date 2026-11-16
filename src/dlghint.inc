@@ -125,6 +125,13 @@ lut_DlgHint13:  ; $DE: "escaped with a CUBE"
   .BYTE DLG_NL
   FFTEXT "floated far to the west."
   .BYTE $00
+;  ...and on Mirror World (dlg_lines), the direction turned round.
+DLG_HINTMIRROR = $DE
+lut_DlgHintMirror:
+  FFTEXT "One of us escaped. He"
+  .BYTE DLG_NL
+  FFTEXT "floated far to the east."
+  .BYTE $00
 
 ;  A dungeon's.  The Mirage Tower's "Everyone thinks the tower in Yahnikurm
 ;  Desert is a mirage" stays: it is the tower one sees, which stays put.

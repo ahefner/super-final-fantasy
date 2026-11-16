@@ -1,10 +1,19 @@
 --- OLD
+CallMinimapDecompress:
+    LDA #BANK_OWMAP
+    JSR SwapPRG_L
     JSR MinimapDecompress
     LDA #BANK_MINIMAP
     JMP SwapPRG_L
 --- NEW
+CallMinimapDecompress:
+.import mm_editrows, mm_altrows
+    JSL mm_altrows + WORLDFAR   ; another map's two rows, in place of bank $01's
+    BCS :+                      ;   (altmaps.inc)
+    LDA #BANK_OWMAP
+    JSR SwapPRG_L
     JSR MinimapDecompress
-.import mm_editrows
     JSL mm_editrows + WORLDFAR  ; Map edits: the two rows, edited (world.asm)
     LDA #BANK_MINIMAP
     JMP SwapPRG_L
+:   RTS

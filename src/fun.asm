@@ -42,6 +42,7 @@
 .import rando_warmfar, rando_belowfar, rando_fyfar, rando_smpal
 .import hal_chrdirty, lut_DwarfLine
 .import hal_spcload, hal_spcplay, hal_chrload
+.import map_flags               ; Map Select's map (altmaps.inc): its bridge
 .import lut_BattleFormations
 .export deal_palswap, fun_smpal, fun_owpal, fun_bdpal, fun_btlpal, fun_btlfight
 .export fun_dwarfline, fun_spared, fun_exit, fun_smframe, fun_frame, fun_init
@@ -1460,6 +1461,8 @@ dwarf_draw:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 .include "jtiles.inc"
+.include "mapbridge.inc"        ; the bridge across a horizontal strait (genmaps.py)
+.include "mapdata.inc"          ; MIF_HBRIDGE
 
 .a8
 .i8
@@ -1469,6 +1472,10 @@ dwarf_draw:
 fun_chrload:
     PHP
     PHA
+    JSL map_flags + WORLDFAR    ; Map Select's map: its bridge horizontal? (X, Y kept)
+    AND #MIF_HBRIDGE
+    STA f:JP_HBRIDGE
+    BNE @japan
     LDA f:SRAMFAR_FUN
     AND #FUN_JAPAN
     BNE @japan
@@ -1554,7 +1561,21 @@ jp_load:
     BEQ :+                      ; Taverns off: 0
     LDA #JAPAN_PUB << 8
 :   STA f:JP_SKIP
+    LDA f:SRAMFAR_FUN
+    AND #FUN_JAPAN
+    BEQ :+
     LDX #0
+    JSR jp_runs                 ; Japan's tiles
+:   LDA f:JP_HBRIDGE
+    AND #$00FF
+    BEQ :+
+    LDX #lut_BridgeRuns - lut_JapanRuns
+    JSR jp_runs                 ; ...and the horizontal bridge's (genmaps.py)
+:   RTS
+.assert lut_BridgeRuns > lut_JapanRuns, error, "jp_runs reaches the bridge's runs by a positive X"
+
+;;  The runs of lut_JapanRuns from X on, to its zero.  As jp_load.
+jp_runs:
   @run:
     LDA lut_JapanRuns, X        ; the run's first tile; 0 ends the table
     BNE :+

@@ -488,9 +488,9 @@ it").
 title's New Game, runs the screens in turn (`menus.txt`;
 `randomization-notes.md` 12): the list; then, for Custom Game or a preset
 that randomizes anything, the **randomization screen** -- the TREASURES,
-RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- the
-**map edit screen** (below; the overworld select before it is skipped for
-now, the vanilla map taken), the **options**, the rest of the settings, and
+RANDOMIZATION and KEY ITEMS sections, opening on Starting items -- **Map
+Select** (below), then for the game's map the **map edit screen** (below),
+the **options**, the rest of the settings, and
 the **seed** (below), when anything is randomized, and after the roll
 screen the **Seed Summary** under Key items Standard or Wide (below).  START goes on, B back
 to the screen before; B on the list goes back to the title.  Vanilla goes
@@ -534,6 +534,219 @@ alone), and the build takes those edits as they are (`rando_build`, since
 takes its own, none, without a screen.  Before the screen comes up,
 `ng_settings` copies the options' new-game bytes into the save block,
 where its check reads the settings.
+
+**Map Select** (`mapselect.inc`, `ms_choose`; built 2026-11-15, not yet
+played).  After the randomization screen: the maps of
+`maps/custom-maps.txt` (the user's list, 2026-11-15), the game's first.
+Choosing the game's map goes on to the map edit screen; any other goes
+straight on to the options, with no map edits (`NGF_OWEDITS` none), and the
+options' B comes back to Map Select.  B on Map Select goes back to the
+randomization screen (`randomization-notes.md` 12: menus.txt's "preset
+selection" predates the reorder).  The choice is `NGF_MAP`, the list's
+index; it starts on the map last chosen in this pass, the game's after the
+New Game list.  The game is played on the map chosen (below, "The game on
+the map chosen"; built 2026-11-15, not yet played).
+
+The screen is the user's mock-up C-top-title (`map-renders/overworld-select/`
+in the project directory): the selected map's minimap centred at the top,
+columns 8-23 and rows 1-16, its start ringed and blinking as the map edit
+screen's rings blink; "MAP" over "SELECT" at its left; below, the game's
+dialog box frame across the 30 columns a CRT shows (rows 17-26), the names
+in two columns, the first half (rounded up) on the left.  The hand sits two
+cells before a name, so on the left it is over the frame -- whose left edge
+is drawn under the sprites for it (BG3's priority bit off there) -- and a
+name on the left may be 13 letters, the user's "Final Fantasy", on the
+right 12.  Up and down step through the list, down the left column and on
+down the right, round from either end; left and right cross to the same
+row of the other column, or to the right column's last when it is shorter.
+A or START chooses and B goes back, with the select's chirp; a move chirps.
+The title's music plays on, and L + X / L + Y reset from it.
+
+Each minimap is the map edit screen's kind (`genows.baked`: a pixel the OR
+of its four tiles' minimap colours, the south shore as sea), 256 4bpp
+characters, 8KB, baked by `tools/genmaps.py` into chunks' low halves, four
+to a half (`$19`, `$1A`, `$1B`, `$18`, mkrom's `LOWHALF`).  The game's map's
+is the first, and the map edit screen copies it as its unedited minimap
+(`MAPS_VANILLAPIC`; it was `lut_OwsBaked` in the screen's bank, the same
+bytes).  The screen keeps two sets of BG1 characters and a tilemap for each;
+a minimap goes straight from ROM into the set not on screen, 2KB a vblank,
+and the vblank that sends the last piece switches BG1's tilemap (`BG1SC`,
+one write) with the ring moving to that map's start, so no frame shows part
+of one map and part of another.  A move while one is on its way starts the
+new one in its place; back to the map on screen, nothing is sent.  The
+hand and the chirp answer at once, the minimap four frames later.  The
+screen comes up with its minimap whole.  It shares the map edit screen's
+chunk and its PPU setup (`ows_ppu`, split from `ows_setup`), frame wait,
+music, reset, text and chirps; its variables are past the map edit screen's
+in that page (`OWS_VARS + $60`).
+
+**The list** (`maps/custom-maps.txt`): a line is `vanilla NAME` (the game's
+map, first and once), `mirror-lr NAME` (the game's map mirrored left to
+right) or `POOL ID NAME`, one of FFR's maps; at most 16.  FFR's maps are
+vendored into `maps/` as `POOL-ID.json.gz`, FFR's file from its pool's zip,
+everything FFR has for the map -- the tiles, the start, the airship, bridge
+and canal, the docks, the entrances -- so the build needs nothing outside
+`snes/`: `python3 tools/genmaps.py --vendor normal256 1EAA7BA6` copies one
+from `FF1Randomizer/`.  The screen takes the tiles and the start (FFR's
+`StartingLocation`, the party's tile; the game's start from
+`lut_InitUnsramFirstPage`'s scroll plus 7, 153,165).  Mirror World is
+made from the game's map (below).  The user's list named one map
+`0E0C0DF8`, which normal256 does not have; it is `0E0C0DFB` ("Pangea"),
+the one map whose id is one letter off.
+
+**The game on the map chosen** (`altmaps.inc`, in the world chunk; user,
+2026-11-15: "Proceed with the gameplay hookups"; built, not yet played).
+The save keeps the map, `RANDO_MAP`, the last byte of its block, so the
+world's cache is built for it and a Continue plays it (`SAVEVER` 4: the
+Bestiary's bytes moved one on, and a save from before does not Continue).
+Map 0 is the game's, and every hook leaves the game to it: bank `$01`'s
+rows, the game's tables.  Any other is `genmaps.py`'s, its rows in the
+game's format and a 256-byte record (`MI_*`, `gen/mapdata.inc`) in chunks'
+low halves, reached long:
+
+  - **The overworld's rows** (`ow_altrow`, from `LoadOWMapRow` in place of
+    bank `$01`'s and the map edits) and the **minimap's** two at a time
+    (`mm_altrows`, from `CallMinimapDecompress`, `tmp+3` to `tmp+5` kept as
+    `MinimapDecompress` keeps them).  A row from the map's table decoded in
+    native code, no dearer than the game's dearest (`test_altmaps`): the
+    walking frames are near full.
+  - **The minimap's layout** (`MI_MM`; user, 2026-11-15: "minimap is broken
+    with the alternate maps ... the Final Fantasy logo and corner crests
+    are somehow corrupt").  The minimap draws each 8 x 8 block of the map
+    into the pattern tile of its number and shows the blocks through its
+    nametable, the logo and the crests drawn into the tiles of 88 blocks
+    the game's map has as open sea (`genowedits.py`).  Another map has
+    land in some of those: its land drawn into the logo's tiles, and hidden
+    where the nametable showed the blank tile -- and Twin Peaks has land in
+    block 0, the blank tile itself.  So every map has a layout made for it
+    (`genmaps.mm_layout`): each block of land shown with its tile,
+    every block of open sea with one blank tile (block 0's if it is sea),
+    and the logo and the crests in tiles of its open sea -- the game's
+    choices where they are sea here.  The game's map's is `genowedits.py`'s,
+    with the map edits, moved out of bank `$09` into its record.  Bank
+    `$09` reads it through a pointer: `Minimap_FillNTPal`'s nametable loop
+    is `mm_fillnt` (`minimap_fillnt.patch`), and `Minimap_DrawTitleCHR`'s
+    and `_DrawDecorCHR`'s loops read their tiles' addresses through
+    `[tmp+8]` and `[tmp+11]`, which `mm_titledest` and `mm_decordest` set
+    after each frame's wait (`minimap_titleread.patch`, `_decorread.patch`);
+    the old tables and `lut_MinimapNT` are gone from the bank.
+  - **New Game's page** (`map_newgame`, from `rando_build` after it fills
+    the page): `NGF_MAP` into the save, and for another map its start
+    (the scroll, the party's tile less 7), the ship Bikke gives, the
+    airship, the bridge and the canal over `lut_InitUnsramFirstPage`'s.
+  - **A Free SHIP** at the map's default berth, **a Free AIRSHIP** at its
+    start (`map_freeship`, `map_freeairship`, after `opt_freestuff` puts
+    them at the game's), as FFR's `IsShipFree` and `IsAirshipFree`.
+  - **A found ship** (`map_shipdock`, from `give_vehicle` with the key items
+    placed) moored at the dock FFR's file gives the overworld entrance the
+    map it is found on is behind (FFR's `SCLogic.GetShipIndex`), by
+    `cur_map`, else the default.
+  - **The exits' landings** (`map_exits`, `es_tables`' last step) and **the
+    zones' formations** (`map_domains`, in place of `copy_domains`, the
+    first of `build_forms`), into the cache.
+  - **The bridge across a horizontal strait** (`MIF_HBRIDGE`, FFR's
+    `HorizontalBridge`, Pangea's): FFR's four turned sprite characters laid
+    over bank `$02` `$9C40-$9C7F` as the overworld's objects load
+    (`fun_chrload`, the Japan graphics' overlay, `lut_BridgeRuns`).
+  - **Mirror World's lines** (`dlg_lines`, the hint lines' lookup moved
+    from `rando_dlgtext` into the world chunk with it, for room): the
+    twelve of the game's that say east or west say the other -- Melmond
+    "in the east", the Cave of Dwarf at "the east end of the Aldi Sea" --
+    taken from the game's text and coded with its pairs to fit `OPTDESC`
+    (`gen/mapdlg.inc`); and the CUBE's hint, with the key items placed,
+    floats "far to the east".  A hint that applies comes first.
+
+**Each map's record**, from FFR's file as FFR's `OwMapExchange` writes it:
+`StartingLocation`, `AirShipLocation`, `BridgeLocation`, `CanalLocation`;
+`TeleporterFixups`' exits, the rest the game's; `DomainFixups` swapped
+then `DomainUpdates` from the game's zones; `HorizontalBridge`; and
+`ShipLocations`, a dock for each overworld entrance -- Bikke's ship at
+Pravoka's (entrance 2), a Free SHIP at the default (255).  Each standard
+map's entrance is the game's wiring's (`randoref.es_tree`), Coneria Castle
+2F, the Castle of Ordeals' 2F and 3F and the Temple of Fiends' past by
+their stairs.
+
+**Mirror World** (`genmaps.mirror_lr`) is the game's map mirrored left to
+right by the rules in `overworld-design-rules.md`: each terrain piece by
+its mirror -- a forest's west edge for its east -- the pier's ends and
+walls and the towns' walls by theirs, the houses, caves, the Waterfall and
+Cardia's holes as they are; and the castles, the Temple of Fiends, the
+Mirage Tower and the volcano moved whole, drawn as they are, their art
+having a left and a right.  The Mirage Tower's outline is not symmetric,
+its shadow at its foot's right: one desert tile fills where its top was.
+Its places are mirrored the same way: a place in a block's columns, in it
+or beside it above or below, moves with the block, so the party leaves the
+Castle of Ordeals on its door's tile.  Its zones are the game's mirrored
+across the 8 x 8 grid, its docks the game's (`lut_ShipDock`) mirrored.
+The design-rule checker (`map-renders/rules/check.py`) finds the same
+shapes the tiles cannot draw as on the game's map, and every entrance.
+
+**Not yet: the randomization's.**  Key item placement, the Seed Summary's
+numbers, Map shuffle's exits and zone shuffle's pinned zones all still read
+the game's map: their logic is the game's world graph.  On another map a
+placed seed may not be winnable, and Map shuffle's exits land where the
+game's would (the follow-on, with logic for each map).
+
+**Tests.**  `test_altmaps` makes each map here, FFR's from the vendored
+files, the game's from bank `$01` and bank `$00`'s tables, and Mirror World
+from the game's by its rules, read from how the pieces are laid out (in a
+row of a set's pieces, the one i from the left mirrors the one i from the
+right) with the castles, the Temple, the tower and the volcano whole:
+every piece of it, the blocks, each piece and its mirror letting the same
+pass, every entrance as often; its places on the same piece or its
+mirror.  Each map's record from its source, each standard map's entrance
+by its name.  Then the cartridge: every row of every map in the window and
+only its slot, a map past the list the game's, no row dearer than the
+game's dearest, nothing on a standard map; every pair of the minimap's, `tmp+3` to `tmp+7` as they were;
+New Game on each map -- the save's map, the page, the cache's exits and
+zones -- and the cache built again when the save's map changes; a found
+ship on every map of every map; a Free SHIP and AIRSHIP; the bridge's four
+characters FFR's where the map's runs east to west, on Japan too, the
+game's elsewhere; and Mirror World's lines, twelve, the game's on every
+other map, the CUBE's hint turned, a dungeon's line turned with Map
+shuffle off and the hint with it on.  `test_ngflow`'s build carries the
+map in its tag, and another map chosen on the way back builds again, the
+map alone changed too.  Twenty-seven mutations, all caught -- one by
+`genmaps.py` itself, which refuses a piece it has no mirror for.
+`test_altminimap` runs the minimap screen itself (`EnterMinimap`) on every
+map until it waits for a button: on every map but the game's, each block
+shows a tile drawn with its picture, and on every map each cell outside
+the map -- the logo, the crests, the blank -- shows what the game's map's
+screen shows there; and as it draws, nothing outside the map is lit and no
+block ahead of the drawing.  Run on the build before the fix, it failed as
+the user saw.  `test_owedits` reads the game's map's layout from its
+record.  Eight mutations of the fix, all caught -- one by `mm_layout`'s
+check as it builds.
+
+**Its flow** (`ng_flow`).  The map edit screen's last ticks are kept in
+`NGF_TICKED` as well as `NGF_OWEDITS`, and it starts from `NGF_TICKED` when
+come back to this pass: another map makes `NGF_OWEDITS` none, for the
+build, and the game's map chosen again finds its ticks as they were.
+`NGF_MAP` is `MENURAM+$19` (`NGF_TYPED`'s old byte), `NGF_TICKED`
+`MENURAM+$0A`, in the engine's spare bytes below the flow's, asserted
+clear of its last.
+
+**Tests.**  `test_mapselect` reads `maps/custom-maps.txt` and makes each
+map's tiles itself -- the game's from bank `$01`, the mirror's rows
+reversed, FFR's from the vendored files -- and its minimap: as the screen
+comes up, for every map, the minimap whole in the first set and on screen,
+the two tilemaps, every name in its column, the title, the frame's corners
+and edges, the hand and the ring; a map past the list's end starting on the
+first.  Then running, a frame at a time: a move's hand and chirp at once,
+the minimap on screen four vblanks later; at every frame the set on screen
+one map whole and the ring, when it shows, at that map's start; a second
+move partway never showing the first; back to the map shown, the set never
+changing; every direction from every map; A and START on, B back with the
+map the hand is on; the music every frame; L + X resetting, the PPU back
+first.  `test_owscreen` takes its unedited minimap from `MAPS_VANILLAPIC`.
+`test_ngflow` answers Map Select as a screen of the flow, every script
+through the randomization screen a step longer, and adds: another map
+straight to the options and built with no map edits though the preset has
+some; the options' B back to Map Select and its B to the randomization
+screen; Map Select starting on the map chosen last this pass and the game's
+after the list; the edits ticked kept through another map for the game's
+again; edits ticked then another map chosen, built with none.  Thirty
+mutations, all caught.
 
 **The Map edits row, removed** (user, 2026-10-24: "No value in it ...
 Clean it up").  A stopgap to test the edits before the screen existed

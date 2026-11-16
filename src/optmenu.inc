@@ -117,6 +117,7 @@ OPTMENU_END    = MENURAM + $07  ;   its first row, and one past its last
 OPTMENU_PICK   = MENURAM + $08  ; nonzero for a list of choices (the New Game
                                 ;   list): only pick rows, and A or START picks
 OPTMENU_DESCBANK = MENURAM + $09 ; the bank the selected row's description is in
+.assert OPTMENU_DESCBANK < NGF_TICKED, error, "the engine's bytes run into the New Game flow's"
 OPTMENU_VIEW   = OPTWORK + $31  ; nonzero while the save view runs (below)
 
 ;  joy's bit order, which ProcessJoyButtons documents by masking for it.

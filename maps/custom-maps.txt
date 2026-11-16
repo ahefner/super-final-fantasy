@@ -1,0 +1,25 @@
+#  Map Select's list, in the order the screen shows it (tools/genmaps.py).
+#
+#  A line: where the map comes from, then the name the screen shows.
+#
+#    vanilla NAME           the game's map; must be first, and choosing it
+#                           leads on to the map edits
+#    mirror-lr NAME         the game's map mirrored left to right
+#    POOL ID NAME           one of FFR's maps: its pool (normal256, ...)
+#                           and id, vendored into this directory as
+#                           POOL-ID.json.gz by
+#                             python3 tools/genmaps.py --vendor POOL ID
+#
+#  At most 16 maps.  The screen shows them in two columns, the first half
+#  (rounded up) on the left: a name on the left is at most 13 letters, on
+#  the right at most 12.
+
+vanilla Final Fantasy
+mirror-lr Mirror World
+normal256 0E0C0DFB Pangea
+normal256 0D9B45E4 Twin Peaks
+normal256 1AE06A47 The Lonesome
+normal256 1EAA7BA6 Long March
+normal256 3B66DF07 Sandy Ridge
+normal256 1608A036 Great Lake
+normal256 6495D281 Pravoka Bay

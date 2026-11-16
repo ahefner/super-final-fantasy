@@ -9,11 +9,14 @@
     STA tmp+2        ;   where 'x' is the low 4 bits of the row number
                      ;  (tmp+2) is now our dest pointer for the row
 
-.import ow_editrow
+.import ow_editrow, ow_altrow
 .export LoadOWMapRow                ; for the harness
-    ;  Map edits: the row unpacked, then the overworld's edits written into it
-    ;  (world.asm), where this ran on into DecompressMap.  The map's bank
-    ;  stays switched in, as it did.
+    ;  Another map than the game's, Map Select's: its row, in place of bank
+    ;  $01's (altmaps.inc).  Else map edits: the row unpacked, then the
+    ;  overworld's edits written into it (world.asm), where this ran on into
+    ;  DecompressMap.  The map's bank stays switched in, as it did.
+    JSL ow_altrow + WORLDFAR
+    BCS :+
     JSR DecompressMap
     JSL ow_editrow + WORLDFAR
-    RTS
+:   RTS

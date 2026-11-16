@@ -1,0 +1,18 @@
+--- OLD
+    JSR WaitForVBlank_L      ; wait for VBlank
+    LDY #0                   ; Y will be loop counter/index
+
+    @SmallLoop:
+      LDA lut_MinimapDecorCHRDest_hi, Y  ; load up the destination PPU address for this
+      STA $2006                          ;  tile of the title graphic
+      LDA lut_MinimapDecorCHRDest_lo, Y  ; get low byte as well
+--- NEW
+    JSR WaitForVBlank_L      ; wait for VBlank
+.import mm_decordest
+    JSL mm_decordest + WORLDFAR  ; the map's crest tiles' table, [tmp+8] and [tmp+11]
+    LDY #0                   ; Y will be loop counter/index
+
+    @SmallLoop:
+      LDA [tmp+8], Y         ; load up the destination PPU address for this
+      STA $2006              ;  tile of the title graphic
+      LDA [tmp+11], Y        ; get low byte as well

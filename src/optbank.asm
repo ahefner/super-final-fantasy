@@ -73,6 +73,7 @@
 .export opt_dpadnew, opt_orbgoal
 .export opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair   ; orbshards.patch
 .export opt_orbattr             ; orbbox_shards.patch
+.import map_freeship, map_freeairship   ; altmaps.inc, the world chunk
 .import bst_show, help_show
 .import OptCallFar, MenuRecoverPartyMP, MenuFillPartyHP, PlaySFX_MenuSel, PlaySFX_MenuMove
 .import PlaySFX_Error, rando_stale
@@ -4786,6 +4787,7 @@ opt_freestuff:
     STA ship_x                  ;   is across a bridge you would not have
     LDA #FREESHIP_Y
     STA ship_y
+    JSL map_freeship + WORLDFAR ; ...or another map's berth (altmaps.inc)
   @airship:
     LDA #ITEMROW_AIRSHIP
     JSR opt_isfree
@@ -4796,6 +4798,7 @@ opt_freestuff:
     STA airship_x               ;   out in the desert
     LDA #FREEAIRSHIP_Y
     STA airship_y
+    JSL map_freeairship + WORLDFAR  ; ...another map's start
   @bridge:
     LDA #ITEMROW_BRIDGE
     JSR opt_isfree

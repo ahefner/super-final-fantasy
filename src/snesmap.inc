@@ -117,12 +117,17 @@ MENURAM_END     = $7F0900
 ;  ...and New Game's flow's (newgame.asm), whose last screens are the
 ;  world's building and party creation: what it decided, kept out of the
 ;  save's first page, which the build sets afresh (rando_build).
-NGF_OWEDITS     = MENURAM+$10   ; 2 bytes: the map edits the flow's screen ticked
+NGF_OWEDITS     = MENURAM+$10   ; 2 bytes: the map edits the build takes -- the
+                                ;   flow's screen's, or none for another map
 NGF_HAVE        = MENURAM+$12   ; nonzero once that screen has run, this pass
 NGF_PICK        = MENURAM+$13   ; the list's answer: a preset, or NGPICK_CUSTOM
 NGF_ACTIVE      = MENURAM+$14   ; nonzero: the flow ran, so NGF_OWEDITS are New Game's
 NGF_SEED        = MENURAM+$15   ; 4 bytes: New Game's seed, low byte first, as RANDO_SEED
-;                 MENURAM+$19   ; free: NGF_TYPED's until the seed screen latched afresh each time
+NGF_MAP         = MENURAM+$19   ; the map Map Select chose, lut_MapName's; 0 the game's
+;  ...and two in the engine's spare bytes, below the flow's: what the map
+;  edit screen last ticked, which it starts from again this pass (NGF_HAVE)
+;  -- kept when another map takes NGF_OWEDITS to none.
+NGF_TICKED      = MENURAM+$0A   ; 2 bytes
 ;  The menus' music through their bulk work (menu_tick, optmenu.asm): set by
 ;  the title as it opens a screen, cleared as it leaves for a game.
 MENU_TICKON     = MENURAM+$1A   ; nonzero: the HAL's bulk calls play a frame of music
@@ -1860,8 +1865,12 @@ RANDO_GOAL      = RANDO_SAVE+$1B  ; GOAL_* below: the orbs the Black Orb waits f
 ;  ...and the overworld's edits, OWEDIT_* bits, as New Game's map edit
 ;  screen ticked them.  A bit each.
 RANDO_OWEDITS   = RANDO_SAVE+$1C  ; 2 bytes
+;  ...and the map Map Select chose, lut_MapName's index (gen/maps.inc): 0
+;  the game's, any other drawn from maps/ (genmaps.py; options-design.md,
+;  "Map Select").  In the block, so the cache is built for it.  SAVEVER 4.
+RANDO_MAP       = RANDO_SAVE+$1E
 RANDO_SETTINGS_SIZE = $1C
-RANDO_SAVE_SIZE = $1E
+RANDO_SAVE_SIZE = $1F
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"
 RANDO_SAVEFAR   = (CHUNK0 * $10000) + RANDO_SAVE   ; SRAM, from any data bank
 
@@ -1887,7 +1896,7 @@ PLACE_ATTEMPTS  = 32
 ;  0, so Continue brings the save's; zero in every save before it, and New
 ;  Game's build clears it with the page (lut_InitUnsramFirstPage).  Past the
 ;  cache's tag, which a kill must not make stale.
-BST_KILLS       = $60BE     ; 16 bytes
+BST_KILLS       = $60BF     ; 16 bytes ($60BE until RANDO_MAP, SAVEVER 4)
 BSTKILLSFAR     = (CHUNK0 * $10000) + BST_KILLS
 ;  ...and the mark that the first page holds a game (user, 2026-11-12: "a
 ;  sentinel byte that indicates whether the working state is valid"):
@@ -1897,7 +1906,7 @@ BSTKILLSFAR     = (CHUNK0 * $10000) + BST_KILLS
 ;  mark is set (opt_resetpages) -- so the title's Bestiary shows the game last
 ;  played, Chaos's fall and kills never saved included.  Neither 0 nor $FF, a
 ;  fresh cartridge's likely bytes.
-BST_VALID       = $60CE
+BST_VALID       = $60CF
 BST_VALIDFAR    = (CHUNK0 * $10000) + BST_VALID
 BST_VALIDVAL    = $5A
 GAMEKEEP_LEN    = BST_VALID + 1 - RANDO_SAVE    ; the bytes a reset keeps
@@ -2130,9 +2139,10 @@ SARA_NEVER      = $FFFFFFFF
 ;  Bump it when a change would give an existing save a different world.  0 is
 ;  the game's own scheme, and $FF would alias it; stay within 1..$FE.
 ;  randomization-notes.md section 1.5 has the derivation.
-SAVEVER         = 3               ; 1: the Goal moved RANDO_ESK and what follows;
+SAVEVER         = 4               ; 1: the Goal moved RANDO_ESK and what follows;
                                   ;   2: Ship in Drydock's bit retired;
-                                  ;   3: placement out of the save, the map edits moved
+                                  ;   3: placement out of the save, the map edits moved;
+                                  ;   4: RANDO_MAP, the Bestiary's bytes a byte on
 SAVEK           = $FF - ((2 * SAVEVER) .MOD 255)
 
 ;  The cache, at the top half of bank $7F: clear of CREDITSRAM at the bottom
@@ -2584,7 +2594,8 @@ JP_DST          = FUNRAM+$578     ; 2: ...the PPU address it went to...
 JP_BANK         = FUNRAM+$57A     ; 2: ...and the bank it came from, the high byte 0
 JP_T            = FUNRAM+$57C     ; 2: a Japanese tile's address in that bank
 JP_SKIP         = FUNRAM+$57E     ; 2: JAPAN_PUB << 8 under Taverns, else 0
-FUNRAM_END      = FUNRAM+$580
+JP_HBRIDGE      = FUNRAM+$580     ; nonzero: the map's bridge is horizontal (MIF_HBRIDGE)
+FUNRAM_END      = FUNRAM+$581
 .assert GIB_Y = GIB_X + GIB_N * 2 && GIB_REST + GIB_N * 2 <= FUN_ACTIVE, error, "the gibs' arrays overlap"
 .assert GIB_SPR = GIB_MXY + GIB_N * 4 && GIB_SPR + GIB_N * 4 <= FUN_LSX, error, "the gibs' arrays overlap"
 .assert FUNRAM >= TC_LATCH + 3 && FUNRAM_END <= $7F0000 + THEENDBUF_AT, error, "FUNRAM overlaps"

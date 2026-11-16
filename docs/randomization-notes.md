@@ -2288,9 +2288,12 @@ Settled in review 1:
         screen, I reordered it").  START goes on; B goes back.
       - Then **overworld select**: a list of names, the map's preview
         beside it.  The vanilla map goes on to **map edits**
-        (checkboxes); an alternate map skips them.  The first pass has no
-        overworld select and goes as if the vanilla map were chosen (user,
-        2026-10-21).  The map edit screen is in the flow (built
+        (checkboxes); an alternate map skips them.  The first pass had no
+        overworld select and went as if the vanilla map were chosen (user,
+        2026-10-21); Map Select is in the flow since 2026-11-15, and the
+        game played on the map chosen, but for the randomization's logic
+        (`options-design.md`, "Map Select").  The
+        map edit screen is in the flow (built
         2026-10-21; `options-design.md`, "New Game's screens"), and the
         Map edits row it stood in for is gone (2026-10-24).
       - Then **options** (the existing screen, less the sections that
@@ -2308,7 +2311,7 @@ Settled in review 1:
       - **B returns to the previous screen, throughout** -- whichever led
         there: options to map edits, or to overworld select after an
         alternate map; map edits to overworld select (to randomization in
-        the first pass); overworld select to randomization (menus.txt's
+        the first pass, until 2026-11-15); overworld select to randomization (menus.txt's
         "preset selection" and options' "Randomization Screen" predate the
         reorder).  On the seed screen B is backspace while a seed is being
         edited, and goes back when nothing has been edited or the entry is

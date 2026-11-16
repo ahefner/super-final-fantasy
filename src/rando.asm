@@ -56,9 +56,9 @@
 .export rando_steprng, rando_mapedits, rando_teledest, rando_talk, rando_place
 .export rando_entrdest, rando_exitdest, rando_princesswarp
 .import es_tables
-.import lut_DlgHintId, lut_DlgHintMap, lut_DlgHintLo, lut_DlgHintHi   ; world.asm's, for dlgtext.inc
-.import lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine                ; ...as are these
-.importzp DLG_NHINT
+.import lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine                ; world.asm's, for dlgtext.inc
+;  The map Map Select chose, and the hint lines (altmaps.inc).
+.import map_newgame, map_domains, map_shipdock, dlg_lines
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
@@ -971,6 +971,7 @@ rando_build:
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     LDA f:NGF_OWEDITS + 1
     STA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    JSL map_newgame + WORLDFAR  ; the map, and its start, ship, airship, bridge, canal
     PLA
     PHA
     JSR new_world
@@ -1508,7 +1509,7 @@ build_props:
 build_forms:
     .a8
     .i16
-    JSR copy_domains
+    JSL map_domains + WORLDFAR  ; lut_Domains, the map's zones (altmaps.inc)
     LDA f:RANDO_SAVEFAR + (RANDO_ZONES - RANDO_SAVE)
     BEQ @rarity                 ; ZONES_OFF
     CMP #ZONES_MODES
@@ -2777,6 +2778,8 @@ give_vehicle:
     LDA f:RW_PLACED
     CMP #1
     BNE @kept
+    JSL map_shipdock + WORLDFAR ; another map: its dock for this map's entrance
+    BCS @kept
     LDA f:RW_ENTRANCES
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
@@ -4781,30 +4784,6 @@ rando_tileprop:
     LDA #>tileset_prop + 1
     STA z:tmp+3
     JMP leave
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  copy_domains -- lut_Domains into the cache, as the cartridge has it
-;;
-;;  A8, I16, DBR = $7F.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-copy_domains:
-    .a8
-    .i16
-    REP #$20
-    .a16
-    LDX #$0000
-  @copy:
-    LDA f:ROMDOMAINS, X
-    STA a:wDOMAINS, X
-    INX
-    INX
-    CPX #DOMAINS_SIZE
-    BCC @copy
-    SEP #$20
-    .a8
-    RTS
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
