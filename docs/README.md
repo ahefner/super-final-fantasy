@@ -14,6 +14,9 @@ The rest are explorations, written before (or instead of) building something:
     ffr-presets.md          what each New Game preset takes from FFR's, and
                             which of its flags the cartridge still lacks
     overworld-notes.md      alternate overworld maps, and the map in WRAM
+    overworld-design-rules.md  the overworld tiles' shape rules, measured on
+                            the vanilla map: for an autotiler, a checker
+                            and mirrored maps
     consumables-notes.md    FFR's New Consumables; parked
 
 Paths are relative to the repository root.  `FF1Randomizer/`,
