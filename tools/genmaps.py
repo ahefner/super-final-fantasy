@@ -10,6 +10,10 @@ to play each (user, 2026-11-15).
     gen/mapdlg.inc     Mirror World's dialogue lines (altmaps.inc)
     gen/mapbridge.inc  FUN%'s CHR overlay (fun.asm): the bridge drawn across
                        a horizontal strait, as FFR draws it
+    gen/graph.inc, gen/logic_N/graphdata.inc
+                       each map's world graph, for key item placement and
+                       Map shuffle on it (write_logic), and where each map's
+                       logic chunk goes (out/logic_slots.txt)
     out/maps_XX.bin    the data, in chunks' low halves (mkrom.py's LOWHALF):
                        the minimaps, the records, each map's rows
 
@@ -26,16 +30,15 @@ copies one from ../FF1Randomizer/FF1Lib/maps/.
 A map's record, 256 bytes (MI_*): where its rows are; its flags (the bridge
 horizontal, the map a mirror); the start, the party's tile; where Bikke's
 ship waits, the airship, the bridge and the canal, as lut_InitUnsramFirstPage
-has the game's; where a Free SHIP waits; the sixteen exits' landings; each
-of the overworld's 64 zones' formations, as the zone they are taken from;
-and where a found ship moors, by the map it is found on (cur_map).  From
+has the game's; where a Free SHIP waits; the four zones the zone pass
+leaves alone; each of the overworld's 64 zones' formations, as the zone
+they are taken from; its minimap's layout; and its logic chunk.  From
 FFR's file as FFR's OwMapExchange writes it: StartingLocation,
-AirShipLocation, BridgeLocation, CanalLocation; TeleporterFixups' exits,
-the rest the game's; DomainFixups swapped, then DomainUpdates from the
-game's zones; HorizontalBridge; and ShipLocations, FFR's dock for each
-overworld entrance -- Bikke's ship at Pravoka's, a Free SHIP at the default
-(255), a found ship at the dock of the entrance the map it is found on is
-behind (FFR's SCLogic.GetShipIndex), else the default.  The game's map's
+AirShipLocation, BridgeLocation, CanalLocation; DomainFixups swapped, then
+DomainUpdates from the game's zones; HorizontalBridge; and ShipLocations
+-- Bikke's ship at Pravoka's dock (entrance 2), a Free SHIP at the default
+(255).  Its exits (TeleporterFixups) and the docks a found ship moors at
+are its world graph's (gengraph.py --map; write_logic).  The game's map's
 record is the game's, for the tests; the game reads bank $01's map and the
 game's tables for it.
 
@@ -88,8 +91,18 @@ NMAPS = 61                      # the standard maps, cur_map 0-60
 
 #  The record.
 MI = dict(ROWBANK=0x00, ROWLO=0x01, FLAGS=0x03, START=0x04, SHIP=0x06, AIRSHIP=0x08,
-          BRIDGE=0x0A, CANAL=0x0C, FREESHIP=0x0E, EXITX=0x10, EXITY=0x20, DOMAIN=0x30,
-          DOCKX=0x70, DOCKY=0xB0, MM=0xF0)
+          BRIDGE=0x0A, CANAL=0x0C, FREESHIP=0x0E, PINZONES=0x10, DOMAIN=0x30, MM=0xF0, LOGIC=0xF3)
+#  The four zones round Coneria that the zone pass leaves alone (rando.asm's
+#  deal_zones): FFR's StartingZones (Formations.cs), by number on each of
+#  FFR's maps as FFR has them; on Mirror World mirrored with the land.
+START_ZONES = (0x1B, 0x1C, 0x24, 0x2C)
+#  Each other map's logic chunk image (build.sh links one a map from
+#  gen/logic_N/), sixteen KB a slot, two to a low half of the NES's chunks,
+#  which nothing else uses: mkrom.py lays out/logic_N.bin where
+#  out/logic_slots.txt says.  The game's map's is CHUNK_LOGIC itself.
+LOGIC_SLOTS = [(c, off) for c in range(0x01, 0x10) for off in (0x0000, 0x4000)]
+LOGIC_SLOT = 0x4000
+GRAPHDIR = os.path.join(ROOT, "maps", "graph")
 #  The minimap's layout (MI_MM's long address): the nametable, then the
 #  logo's and the crests' tiles' addresses, high bytes then low.
 MM = dict(TITLEHI=0x400, TITLELO=0x428, DECORHI=0x450, DECORLO=0x480)
@@ -303,32 +316,10 @@ def vanilla_exits():
     return list(zip(d[EXIT_X - 0x8000:][:16], d[EXIT_Y - 0x8000:][:16]))
 
 
-def map_entrances():
-    """Each standard map's overworld entrance in the game's wiring: the one
-    its floor hangs from (randoref.es_tree), or for the floors the shuffle
-    never moves, those of the map whose stairs reach them."""
-    import randoref as R
-    import graphdata as GD
-    out = {}
-    for o, _, floors in R.es_tree(GD.VANILLA_ENTRANCE, GD.VANILLA_NORMAL):
-        for _, _, (m, _, _), _ in floors:
-            out.setdefault(m, o)
-    #  Coneria Castle 2F, the Castle of Ordeals' 2F and 3F, and the Temple of
-    #  Fiends' past, by the castle's and the temple's stairs.
-    for m, by in ((24, 8), (25, 11), (26, 11)) + tuple((m, 12) for m in range(52, 60)):
-        out.setdefault(m, out[by])
-    missing = [m for m in range(NMAPS) if m not in out]
-    if missing:
-        sys.exit("genmaps: no entrance for maps %s" % missing)
-    return out
-
-
 def record(kind, d, mirrorinfo=None):
     """A map's record, but its rows' address (MI_ROWBANK, MI_ROWLO)."""
-    import logicdata as L
     rec = bytearray(MI_SIZE)
     put = lambda field, xy: rec.__setitem__(slice(MI[field], MI[field] + 2), bytes(xy))
-    vex = vanilla_exits()
     freeship = (snes_const("FREESHIP_X"), snes_const("FREESHIP_Y"))
     if kind == "vanilla":
         put("START", vanilla_start())
@@ -337,9 +328,7 @@ def record(kind, d, mirrorinfo=None):
         put("BRIDGE", init_xy(U_BRIDGE))
         put("CANAL", init_xy(U_CANAL))
         put("FREESHIP", freeship)
-        exits = vex
         domains = list(range(64))
-        docks = [L.DOCKS[L.SHIP_DOCK[m]][1] for m in range(NMAPS)]
     elif kind == "mirror-lr":
         rec[MI["FLAGS"]] |= MIF_MIRROR
         pos = lambda xy: mirror_pos(mirrorinfo, *xy)
@@ -349,9 +338,7 @@ def record(kind, d, mirrorinfo=None):
         put("BRIDGE", pos(init_xy(U_BRIDGE)))
         put("CANAL", pos(init_xy(U_CANAL)))
         put("FREESHIP", pos(freeship))
-        exits = [pos(xy) if xy != (0, 0) else xy for xy in vex]
         domains = [(z & ~7) | (7 - (z & 7)) for z in range(64)]
-        docks = [pos(L.DOCKS[L.SHIP_DOCK[m]][1]) for m in range(NMAPS)]
     else:
         f, name = d
         xy = lambda v: (v["X"], v["Y"])
@@ -367,11 +354,9 @@ def record(kind, d, mirrorinfo=None):
         dock = lambda o: ships.get(o, ships[255])
         put("SHIP", dock(2))                    # Bikke's, Pravoka's entrance
         put("FREESHIP", ships[255])
-        exits = list(vex)
         for t in f["TeleporterFixups"] or []:
             if t["Type"] != 1:
                 sys.exit("genmaps: %s fixes a teleport of type %d" % (name, t["Type"]))
-            exits[t["Index"]] = xy(t["To"])
         domains = list(range(64))
         for df in f.get("DomainFixups") or []:
             domains[df["From"]], domains[df["To"]] = domains[df["To"]], domains[df["From"]]
@@ -379,13 +364,9 @@ def record(kind, d, mirrorinfo=None):
             if not (0 <= du["To"] < 64 and 0 <= du["From"] < 128):
                 sys.exit("genmaps: %s moves zone %d to %d" % (name, du["From"], du["To"]))
             domains[du["To"]] = du["From"]
-        ent = map_entrances()
-        docks = [dock(ent[m]) for m in range(NMAPS)]
-    for i, (x, y) in enumerate(exits):
-        rec[MI["EXITX"] + i], rec[MI["EXITY"] + i] = x, y
     rec[MI["DOMAIN"]:MI["DOMAIN"] + 64] = bytes(domains)
-    for m, (x, y) in enumerate(docks):
-        rec[MI["DOCKX"] + m], rec[MI["DOCKY"] + m] = x, y
+    pins = [(z & ~7) | (7 - (z & 7)) for z in START_ZONES] if kind == "mirror-lr" else START_ZONES
+    rec[MI["PINZONES"]:MI["PINZONES"] + 4] = bytes(pins)
     return rec
 
 
@@ -533,6 +514,85 @@ def mirror_lines():
     return out
 
 
+# --- the logic ------------------------------------------------------------------
+
+def graph_key(entry):
+    kind, pool, mid, _ = entry
+    return "mirror-lr" if kind == "mirror-lr" else "%s-%s" % (pool, mid)
+
+
+def map_digest(entry):
+    """A digest of what a map's world graph is made from, as far as snes/
+    holds it: FFR's file, or Mirror World's tiles, its blocks and the game's
+    places they move.  gengraph.py --map writes it with the graph; the build
+    refuses a graph made from other inputs."""
+    import hashlib
+    kind, pool, mid, _ = entry
+    if kind == "ffr":
+        data = gzip.open(vendored(pool, mid)).read()
+    else:
+        t, blocks = mirror_lr(genows.vanilla())
+        data = bytes(t) + repr([b[1:] for b in blocks]).encode() + bank00()[INITPAGE - 0x8000:][:0x20] \
+            + repr(vanilla_exits()).encode()
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def graph_of(entry):
+    """A map's world graph data, as gengraph.py writes it: the game's map's
+    tools/graphdata.py, another's maps/graph/KEY.py."""
+    if entry[0] == "vanilla":
+        import graphdata as GD
+        return {k: getattr(GD, k) for k in dir(GD) if k.isupper()}
+    key = graph_key(entry)
+    path = os.path.join(GRAPHDIR, key + ".py")
+    if not os.path.exists(path):
+        sys.exit("genmaps: %s has no world graph -- python3 tools/gengraph.py --map %s"
+                 % (entry[3], key))
+    D = {}
+    exec(open(path).read(), D)
+    D = {k: v for k, v in D.items() if k.isupper()}
+    if D.get("DIGEST") != map_digest(entry):
+        sys.exit("genmaps: %s's world graph was made from other inputs -- python3 tools/gengraph.py --map %s"
+                 % (entry[3], key))
+    return D
+
+
+def snes_hex(name):
+    for line in open(os.path.join(ROOT, "src", "snesmap.inc"), encoding="latin-1"):
+        m = re.match(r"%s\s*=\s*\$([0-9A-Fa-f]+)" % name, line)
+        if m:
+            return int(m.group(1), 16)
+    sys.exit("genmaps: no %s in snesmap.inc" % name)
+
+
+def write_logic(entries, recs):
+    """The world graph's tables, every map's laid out alike (graphtables.py):
+    gen/graph.inc, gen/logic_N/graphdata.inc; each map's logic image's place
+    in its record (MI_LOGIC) and in out/logic_slots.txt."""
+    import glob, shutil
+    import graphtables
+    clines, incs = graphtables.lay_out([graph_of(e) for e in entries])
+    open(os.path.join(ROOT, "gen", "graph.inc"), "w").write("\n".join(clines) + "\n")
+    for d in glob.glob(os.path.join(ROOT, "gen", "logic_*")):
+        shutil.rmtree(d)
+    for i, inc in enumerate(incs):
+        d = os.path.join(ROOT, "gen", "logic_%d" % i)
+        os.makedirs(d)
+        open(os.path.join(d, "graphdata.inc"), "w").write("\n".join(inc) + "\n")
+    if len(entries) - 1 > len(LOGIC_SLOTS):
+        sys.exit("genmaps: %d maps, logic for %d" % (len(entries), len(LOGIC_SLOTS) + 1))
+    slots = []
+    for i, rec in enumerate(recs):
+        if i == 0:
+            at = (snes_hex("CHUNK0") + snes_hex("CHUNK_LOGIC")) * 0x10000 + 0x8000
+        else:
+            c, off = LOGIC_SLOTS[i - 1]
+            at = 0xC00000 + (1 + c) * 0x10000 + off
+            slots.append("%d %d %d" % (i, c, off))
+        rec[MI["LOGIC"]:MI["LOGIC"] + 3] = at.to_bytes(3, "little")
+    open(os.path.join(ROOT, "out", "logic_slots.txt"), "w").write("\n".join(slots) + "\n")
+
+
 # --- out ------------------------------------------------------------------------
 
 def check(entries):
@@ -619,6 +679,7 @@ def main():
         lay = mm_game() if e[0] == "vanilla" else mm_layout(t, e[3])
         at = halves.put(mm_blob(*lay), "%s's minimap layout" % e[3])
         recs[i][MI["MM"]:MI["MM"] + 3] = at.to_bytes(3, "little")
+    write_logic(entries, recs)
     c = (info >> 16) - 0xC1
     lo = info & 0xFFFF
     halves.blobs[c][lo:lo + MI_SIZE * len(entries)] = b"".join(recs)

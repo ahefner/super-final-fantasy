@@ -310,6 +310,19 @@ def main():
             sys.exit("%s is %d bytes, more than a chunk's low half" % (name, len(blob)))
         base = (1 + chunk) * BANK
         rom[base:base + len(blob)] = blob
+    #  Each other map's logic chunk (build.sh, genmaps.py's LOGIC_SLOTS): in
+    #  the NES chunks' low halves, which their code never addresses, where
+    #  out/logic_slots.txt says.
+    for line in open(os.path.join(OUT, "logic_slots.txt")):
+        if not line.strip():
+            continue
+        i, chunk, off = map(int, line.split())
+        assert chunk < len(ORDER) and chunk not in LOWHALF, "logic slot in chunk $%02X" % chunk
+        blob = open(os.path.join(OUT, "logic_%d.bin" % i), "rb").read()
+        if len(blob) > 0x4000:
+            sys.exit("logic_%d.bin is %d bytes, more than a slot" % (i, len(blob)))
+        base = (1 + chunk) * BANK + off
+        rom[base:base + len(blob)] = blob
 
     #  The altar beam's HDMA tables, pre-built by genbeam.py.  They get a bank
     #  of their own because HDMA reads them straight out of ROM: nothing has to

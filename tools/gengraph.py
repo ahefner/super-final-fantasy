@@ -52,6 +52,7 @@ import build  # noqa: E402
 import edited  # noqa: E402
 import ffr_teleports as ft  # noqa: E402
 import genlogic as G  # noqa: E402
+from graphtables import lay_out  # noqa: E402,F401  (the cartridge's layout)
 import owedits as O  # noqa: E402
 import placement  # noqa: E402
 import romdata as rd  # noqa: E402
@@ -63,16 +64,23 @@ WIRED = ("entrance ", "teleport ", "exit ")
 TOFR_IN_ROOM = (1, 51)
 
 
-def strip(early=()):
+def strip(early=(), spec=None):
     """The graph on the vanilla wiring, for every combination of the map
     edits (worldgraph/edited.py), with the wired edges set apart.  Static
     edges and entrance sources carry their conditions, the rest hold
-    always."""
-    g, ow, maps, _ = build.build(early=early, edits=O.graph_edits(),
-                                 pos=O.graph_positions(rd.VANILLA_POS))
-    edges = [(s, d, r, g.edge_cond(s, d, r)) for s, d, r, why in g.edges if not why.startswith(WIRED)]
-    edges += [(s, d, r, c) for s, d, r, _, c in edited.vehicle_edges(g, ow)]
-    ent = [(eid, src, req, ow.ent_cond[(eid, src, req, tile)]) for eid, src, req, tile in ow.entrances]
+    always.  For another map (spec, map_spec's), its overworld, with no
+    edits: every condition always."""
+    if spec is None:
+        g, ow, maps, _ = build.build(early=early, edits=O.graph_edits(),
+                                     pos=O.graph_positions(rd.VANILLA_POS))
+        edges = [(s, d, r, g.edge_cond(s, d, r)) for s, d, r, why in g.edges if not why.startswith(WIRED)]
+        edges += [(s, d, r, c) for s, d, r, _, c in edited.vehicle_edges(g, ow)]
+        ent = [(eid, src, req, ow.ent_cond[(eid, src, req, tile)]) for eid, src, req, tile in ow.entrances]
+    else:
+        g, ow, maps, _ = build.build(ow_tiles=spec["tiles"], pos=spec["pos"], exits=spec["exits"], early=early)
+        edges = [(s, d, r, [edited.ALWAYS]) for s, d, r, why in g.edges if not why.startswith(WIRED)]
+        edges += [(s, d, r, [edited.ALWAYS]) for s, d, r, _ in placement.vehicle_edges(g, ow)]
+        ent = [(eid, src, req, [edited.ALWAYS]) for eid, src, req, tile in ow.entrances]
     tele, exits = [], []
     for sm in maps:
         for src, req, kind, tid, _ in sm.pending:
@@ -92,6 +100,89 @@ def strip(early=()):
     global STRIP_MAPS
     STRIP_MAPS = maps                   # Rebellious Princess's spots' regions
     return g, ow, edges, ent, tele, exits, land, exit_to
+
+
+MAPGRAPH = os.path.join(ROOT, "maps", "graph")
+
+
+def map_spec(key):
+    """Another map of maps/custom-maps.txt, for strip and graph: its tiles,
+    its positions and exits for build.build, its docks -- the first a Free
+    SHIP's -- and its entrances' coordinates, where an exit Map shuffle
+    wires to one sets the party down.  key: "mirror-lr", or FFR's
+    POOL-ID, as maps/ vendors it.  With them, a digest of the inputs, so the
+    build can tell a graph made from other inputs (genmaps.py)."""
+    import base64, gzip, hashlib, json
+    import genmaps as GM
+    import genows
+    m = ft.load()
+    if key == "mirror-lr":
+        van = genows.vanilla()
+        tiles, blocks = GM.mirror_lr(bytes(van))
+        pos = {k: GM.mirror_pos(blocks, *xy) for k, xy in rd.VANILLA_POS.items()}
+        exits = {x: GM.mirror_pos(blocks, *rd.exit_tele(x)) for x in range(16) if rd.exit_tele(x) != (0, 0)}
+        docks = [(name, GM.mirror_pos(blocks, *xy)) for name, xy in G.DOCKS]
+        owc = {m.owti[o]: GM.mirror_pos(blocks, *xy) for o, xy in m.ow_coords.items()}
+    else:
+        f = json.loads(gzip.open(os.path.join(ROOT, "maps", key + ".json.gz")).read())
+        tiles = b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])
+        xy = lambda v: (v["X"], v["Y"])
+        ships = {sl["TeleporterIndex"]: xy(sl) for sl in f["ShipLocations"]}
+        pos = {"start": xy(f["StartingLocation"]), "ship": ships.get(2, ships[255]),
+               "airship": xy(f["AirShipLocation"]), "bridge": xy(f["BridgeLocation"]),
+               "canal": xy(f["CanalLocation"])}
+        exits = {t["Index"]: xy(t["To"]) for t in f["TeleporterFixups"] if t["Type"] == 1}
+        #  FFR's docks, each place once, the default (its Free SHIP's) first.
+        docks = [("default", ships[255])]
+        for o in sorted(k for k in ships if k != 255):
+            if ships[o] not in [d for _, d in docks]:
+                docks.append(("entrance %d" % o, ships[o]))
+        owc = {m.owti[o]: xy(v) for o, v in f["OverworldCoordinates"].items()}
+    entry = ("mirror-lr", None, None, "") if key == "mirror-lr" else ("ffr",) + tuple(key.split("-", 1)) + ("",)
+    return {"key": key, "tiles": bytes(tiles), "pos": pos, "exits": exits, "docks": docks,
+            "ow_coords": owc, "digest": GM.map_digest(entry)}
+
+
+def check_map(D, spec):
+    """Another map's tables against its graph, worked out afresh: on the
+    game's wiring, every location's masks and Chaos's the requirement
+    fixpoint gives, with and without Early Ordeals (the one Early flag the
+    graph holds; the cartridge waives the rest's bits itself), and at each
+    of Rebellious Princess's spots her event's."""
+    for early, bits in (((), 0), (("ordeals",), 8)):
+        g, ow, _, _ = build.build(ow_tiles=spec["tiles"], pos=spec["pos"], exits=spec["exits"], early=early)
+        req = analysis.requirements(g, placement.vehicle_edges(g, ow))
+        idx, chaos = G.order(g)
+        want = [sorted(analysis.location_requirements(g.locations[k], req)) for k in idx + [chaos]]
+        got = masks_for(D, D["VANILLA_ENTRANCE"], D["VANILLA_NORMAL"], D["VANILLA_EXIT"], bits)
+        bad = [c for c in range(len(want)) if sorted(got[c]) != want[c]]
+        assert not bad, ("%s, Early %s: locations %s" % (spec["key"], early, bad[:8]))
+    princess = G.EVENT_ORDER.index("Talk_Princess1") + 248
+    for s_, nodes in enumerate(D["SARA_NODES"]):
+        g, ow, _, _ = build.build(ow_tiles=spec["tiles"], pos=spec["pos"], exits=spec["exits"], sara=s_)
+        req = analysis.requirements(g, placement.vehicle_edges(g, ow))
+        idx, _ = G.order(g)
+        want = sorted(analysis.location_requirements(g.locations[idx[princess]], req))
+        moved = dict(D, LOC_NODES=D["LOC_NODES"][:princess] + [nodes] + D["LOC_NODES"][princess + 1:])
+        got = masks_for(moved, D["VANILLA_ENTRANCE"], D["VANILLA_NORMAL"], D["VANILLA_EXIT"], 0)[princess]
+        assert sorted(got) == want, ("%s, the princess at spot %d" % (spec["key"], s_), got, want)
+
+
+def alt_main(key):
+    """maps/graph/KEY.py: another map's tables, checked against its graph."""
+    spec = map_spec(key)
+    out, idx = graph(spec)
+    check_map(out, spec)
+    out["DIGEST"] = spec["digest"]
+    os.makedirs(MAPGRAPH, exist_ok=True)
+    path = os.path.join(MAPGRAPH, key + ".py")
+    with open(path, "w") as f:
+        f.write('"""Generated by tools/gengraph.py --map %s from worldgraph/ -- do not edit.\n\n'
+                'The map\'s world graph without its wiring, as tools/graphdata.py has\n'
+                'the game\'s map\'s.  DIGEST: map_spec\'s, of the inputs."""\n\n' % key)
+        for k in sorted(out):
+            f.write("%s = %r\n" % (k, out[k]))
+    print("%s: checked against its graph -> %s" % (key, os.path.relpath(path, ROOT)))
 
 
 def fixpoint(start, edges):
@@ -115,8 +206,9 @@ def fixpoint(start, edges):
     return req
 
 
-def main():
-    g, ow, edges, ent, tele, exits, land, exit_to = strip()
+def graph(spec=None):
+    """The tables for the game's map (spec None), or another (map_spec's)."""
+    g, ow, edges, ent, tele, exits, land, exit_to = strip(spec=spec)
     idx, chaos = G.order(g)
     m = ft.load()
 
@@ -126,22 +218,30 @@ def main():
         landings.add(rd.entrance(m.owti[o]))
     for t, name in m.tele.items():
         landings.add(rd.normal_tele(m.tidx[t]))
-    exit_xy = {rd.exit_tele(x) for x in range(16)} | set(m.ow_coords.values())
-
-    #  The Cardia Land Bridge moves six entrances, and FFR moves their
-    #  overworld coordinates with them (OverworldMap.ApplyMapEdits): where an
-    #  exit wired to one sets the party down, under it.  Read off the edited
-    #  map: each entrance tile it moves, where it is with the bridge.
-    cb = 1 << O.CARDIA_BRIDGE
-    where = defaultdict(dict)
-    for i in ow.edited:
-        for c, t in ow.states(i):
-            if rd.ow_prop(t)[1] & 0x80:
-                where[rd.ow_prop(t)[1] & 0x3F][c] = (i & 255, i >> 8)
-    owc = {m.owti[o]: xy for o, xy in m.ow_coords.items()}
-    moved = {e: v[(cb, 0)] for e, v in where.items() if (cb, 0) in v}
-    assert len(moved) == 6 and all(where[e][(0, cb)] == owc[e] for e in moved), (moved, where)
-    exit_xy |= set(moved.values())
+    if spec is None:
+        exit_xy = {rd.exit_tele(x) for x in range(16)} | set(m.ow_coords.values())
+        #  The Cardia Land Bridge moves six entrances, and FFR moves their
+        #  overworld coordinates with them (OverworldMap.ApplyMapEdits): where
+        #  an exit wired to one sets the party down, under it.  Read off the
+        #  edited map: each entrance tile it moves, where it is with the bridge.
+        cb = 1 << O.CARDIA_BRIDGE
+        where = defaultdict(dict)
+        for i in ow.edited:
+            for c, t in ow.states(i):
+                if rd.ow_prop(t)[1] & 0x80:
+                    where[rd.ow_prop(t)[1] & 0x3F][c] = (i & 255, i >> 8)
+        owc = {m.owti[o]: xy for o, xy in m.ow_coords.items()}
+        moved = {e: v[(cb, 0)] for e, v in where.items() if (cb, 0) in v}
+        assert len(moved) == 6 and all(where[e][(0, cb)] == owc[e] for e in moved), (moved, where)
+        exit_xy |= set(moved.values())
+        vexit = [rd.exit_tele(x) for x in range(16)]
+    else:
+        #  Another map: no edits, nothing moved; its exits and its entrances'
+        #  coordinates from the map.
+        owc = dict(spec["ow_coords"])
+        moved = {}
+        vexit = [spec["exits"].get(x, rd.exit_tele(x)) for x in range(16)]
+        exit_xy = set(vexit) | set(owc.values())
 
     #  Only regions that can matter.  The edits leave the overworld in many
     #  more pieces than vanilla's, mostly slivers that lead nowhere: a region
@@ -170,6 +270,20 @@ def main():
         sara_nodes.append(STRIP_MAPS[m_].object_nodes(x_, y_))
     for ns in sara_nodes:
         named |= set(ns)
+    #  Another map's docks: the regions beside each, kept (the game's are
+    #  kept as the regions around them are named).
+    dock_nodes = []
+    if spec is not None:
+        import overworld
+        for name, (x, y) in spec["docks"]:
+            ns = set()
+            for b in overworld._neighbours(x | (y << 8)):
+                if ow.flabel[b] >= 0:
+                    ns.add(ow.fnode[ow.flabel[b]])
+                if ow.rlabel[b] >= 0:
+                    ns.add(ow.rnode[ow.rlabel[b]])
+            dock_nodes.append(sorted(ns))
+            named |= ns
     fwd, back = defaultdict(set), defaultdict(set)
     for s, d, _, _ in edges:
         fwd[s].add(d)
@@ -210,7 +324,7 @@ def main():
     for k in idx + [chaos]:
         for n in g.locations[k].nodes:
             keep(n)
-    for ns in sara_nodes:
+    for ns in sara_nodes + dock_nodes:
         for n in ns:
             keep(n)
     assert len(used) < 256, len(used)
@@ -229,7 +343,7 @@ def main():
     def each(cubes):
         return edited.simplify(cubes)
     #  Early Ordeals's two sources, found as the difference it makes.
-    _, _, _, _, tele_eo, _, _, _ = strip(early=("ordeals",))
+    _, _, _, _, tele_eo, _, _, _ = strip(early=("ordeals",), spec=spec)
     assert [(t, s) for t, s, _ in tele] == [(t, s) for t, s, _ in tele_eo]
     ordeals = [r != r2 for (_, _, r), (_, _, r2) in zip(tele, tele_eo)]
     assert sum(ordeals) == 2 and all(r2 == 0 for (_, _, r2), o in zip(tele_eo, ordeals) if o)
@@ -308,7 +422,7 @@ def main():
                                          "MatoyasCave", "Pravoka")]
     out["VANILLA_ENTRANCE"] = [rd.entrance(e) for e in range(32)]
     out["VANILLA_NORMAL"] = [rd.normal_tele(t) for t in range(64)]
-    out["VANILLA_EXIT"] = [rd.exit_tele(x) for x in range(16)]
+    out["VANILLA_EXIT"] = vexit
 
     #  For per-seed spread groups: which regions are the overworld's.
     out["OW_NODE"] = [g.nodes[n].where == "OW" for n in used]
@@ -316,23 +430,33 @@ def main():
     #  is a dock under -- Bridge to Lefein's edits delete Matoya's -- and each
     #  entrance's distance to it, overworld steps on foot and by canoe from
     #  its tiles, or None, and as the airship flies (genlogic.ship_docks's),
-    #  on the vanilla map: a choice of the nearest, which the masks check.
+    #  on the map: a choice of the nearest, which the masks check.
     from collections import deque as _dq
     import overworld
-    gv, owv, _, _ = build.build()
-    out["DOCKS"] = G.DOCKS
     boards, dconds = [], []
-    for name, (x, y) in G.DOCKS:
-        i = x | (y << 8)
-        cubes = [c for c, t in ow.states(i) if ow.layers["sea"](i, t)]
-        nodes = {n for b in overworld._neighbours(i) for n in (ow.F(b), ow.R(b)) if n is not None}
-        assert nodes and len(cubes) == 1, name
-        boards.append(sorted(num[n] for n in nodes))
-        dconds.append(cubes[0])
-    assert dconds[4] == (0, 1 << O.BRIDGE_LEFEIN) and set(dconds[:4]) == {edited.ALWAYS}, dconds
+    if spec is None:
+        gv, owv, _, _ = build.build()
+        out["DOCKS"] = G.DOCKS
+        for name, (x, y) in G.DOCKS:
+            i = x | (y << 8)
+            cubes = [c for c, t in ow.states(i) if ow.layers["sea"](i, t)]
+            nodes = {n for b in overworld._neighbours(i) for n in (ow.F(b), ow.R(b)) if n is not None}
+            assert nodes and len(cubes) == 1, name
+            boards.append(sorted(num[n] for n in nodes))
+            dconds.append(cubes[0])
+        assert dconds[4] == (0, 1 << O.BRIDGE_LEFEIN) and set(dconds[:4]) == {edited.ALWAYS}, dconds
+        assert 0 in boards[0], "Coneria's dock is not boarded from the start's region"
+    else:
+        #  The map's docks (map_spec), its first a Free SHIP's; boarded from
+        #  the regions beside each on foot or by canoe, every one always.
+        owv = ow
+        out["DOCKS"] = spec["docks"]
+        for (name, (x, y)), nodes in zip(spec["docks"], dock_nodes):
+            assert nodes, "%s's dock %s at (%d, %d) is boarded from nowhere" % (spec["key"], name, x, y)
+            boards.append(sorted(num[n] for n in nodes))
+            dconds.append(edited.ALWAYS)
     out["DOCK_BOARD"] = boards
     out["DOCK_COND"] = dconds
-    assert 0 in out["DOCK_BOARD"][0], "Coneria's dock is not boarded from the start's region"
     tiles = {}
     for eid, src, req, tile in owv.entrances:
         tiles.setdefault(eid, []).append(tile)
@@ -355,23 +479,30 @@ def main():
     for eid, ts in sorted(tiles.items()):
         dist = walk(ts)
         row = []
-        for name, (x, y) in G.DOCKS:
+        for name, (x, y) in out["DOCKS"]:
             i = x | (y << 8)
             near = [dist[b] for b in overworld._neighbours(i) if b in dist]
             row.append((min(near) if near else None, min(fly(t, i) for t in ts)))
         ent_dock[eid] = row
     out["ENT_DOCK"] = ent_dock
+    print("%d regions, %d edges, %d sources (%d entrance, %d teleport, %d exit), %d masks; "
+          "%d records; %d landings, %d exit coordinates; %d docks" % (
+              out["NODES"], len(out["EDGES"]), len(ent) + len(tele) + len(exits), len(ent), len(tele),
+              len(exits), len(masks), len(recs), len(landings), len(exit_xy), len(out["DOCKS"])))
+    return out, idx
 
+
+def main():
+    if sys.argv[1:2] == ["--map"]:
+        for key in sys.argv[2:]:
+            alt_main(key)
+        return
+    out, idx = graph()
     check(out, idx)
     check_sara(out)
     n = check_edits(out)
     write_py(out)
-    write_inc(out)
     print("map edits: the tables agree with the edited maps' graphs in %d combinations" % n)
-    print("%d regions, %d edges, %d sources (%d entrance, %d teleport, %d exit), %d masks; "
-          "%d records; %d landings, %d exit coordinates" % (
-              out["NODES"], len(out["EDGES"]), len(ent) + len(tele) + len(exits), len(ent), len(tele),
-              len(exits), len(masks), len(recs), len(landings), len(exit_xy)))
 
 
 def masks_for(D, entrance, normal, exits, early, flags=0):
@@ -481,187 +612,6 @@ def write_py(out):
                 'requirements are indices into MASKS."""\n\n')
         for k in sorted(out):
             f.write("%s = %r\n" % (k, out[k]))
-
-
-def write_inc(D):
-    """The cartridge's copy.  Lists are CSR: an offset table one longer than
-    the list it indexes (words), then the entries.  Coordinates are by index:
-    a landing (map, x, y) or an exit's overworld (x, y)."""
-    lands = sorted(D["LAND"])
-    lidx = {c: i for i, c in enumerate(lands)}
-    exits = sorted(D["EXIT_TO"])
-    xidx = {c: i for i, c in enumerate(exits)}
-    N = D["NODES"]
-    head = [";  Generated by tools/gengraph.py from worldgraph/ -- do not edit.",
-            ";  The world graph without its wiring, and FFR's entrance shuffle data;",
-            ";  see gengraph.py.  Regions number from 0, the start.", ""]
-    lines = list(head)
-    consts = list(head)
-    names = []
-
-    def const(name, v):
-        consts.append("%-16s = %d" % (name, v))
-
-    def table(name, data, word=False):
-        names.append(name)
-        lines.append("%s:" % name)
-        step = 8 if word else 16
-        for i in range(0, len(data), step):
-            chunk = data[i:i + step]
-            if word:
-                lines.append("  .WORD %s" % ", ".join("$%04X" % (v & 0xFFFF) for v in chunk))
-            else:
-                lines.append("  .BYTE %s" % ", ".join("$%02X" % (v & 0xFF) for v in chunk))
-        if not data:
-            lines.append("  ; (empty)")
-        lines.append("")
-
-    def csr(prefix, lists):
-        off, flat = [0], []
-        for l in lists:
-            flat += l
-            off.append(len(flat))
-        table(prefix + "Off", off, word=True)
-        return flat
-
-    const("GR_NODES", N)
-    const("GR_MASKS", len(D["MASKS"]))
-    const("GR_LANDINGS", len(lands))
-    const("GR_EXITXY", len(exits))
-    const("GR_LOCS", len(D["LOC_NODES"]) + 1)          # Chaos last
-    const("GR_DOCKS", len(D["DOCKS"]))
-    lines.append("")
-    lines.append(";  The requirement masks, four bytes each, low first.")
-    table("lut_GrMask", [b for m in D["MASKS"] for b in m.to_bytes(4, "little")])
-    lines.append(";  The map edit settings each holds under: every RANDO_OWEDITS bit of")
-    lines.append(";  the first set, none of the second (worldgraph/edited.py's cubes).")
-    table("lut_GrCondOn", [on for on, _ in D["CONDS"]], word=True)
-    table("lut_GrCondOff", [off for _, off in D["CONDS"]], word=True)
-    by_src = [[] for _ in range(N)]
-    for s_, d_, r in D["EDGES"]:
-        by_src[s_].append((d_, r))
-    lines.append(";  Static edges by source: destination, requirement.")
-    flat = csr("lut_GrEdge", [[d_ for d_, _ in l] for l in by_src])
-    table("lut_GrEdgeDst", flat)
-    table("lut_GrEdgeReq", [r for l in by_src for _, r in l])
-    src = [[] for _ in range(N)]
-    for e, n, r in D["ENT_SRC"]:
-        src[n].append((0, e, r))
-    for t, n, r, o in D["TELE_SRC"]:
-        src[n].append((1 | (0x80 if o else 0), t, r))
-    for x, n, r in D["EXIT_SRC"]:
-        src[n].append((2, x, r))
-    lines.append(";  Wired sources by region: kind (0 entrance, 1 teleport, 2 exit; $80 the")
-    lines.append(";  CROWN waived by Early Ordeals), its id, its requirement.")
-    csr("lut_GrSrc", [[k for k, _, _ in l] for l in src])
-    table("lut_GrSrcKind", [k for l in src for k, _, _ in l])
-    table("lut_GrSrcId", [i for l in src for _, i, _ in l])
-    table("lut_GrSrcReq", [r for l in src for _, _, r in l])
-    lines.append(";  Landings: where each lands, as the game's tables hold it, and its regions.")
-    table("lut_GrLandX", [c[1] for c in lands])
-    table("lut_GrLandY", [c[2] for c in lands])
-    table("lut_GrLandMap", [c[0] for c in lands])
-    room = set(D["LAND_ROOM"])
-    assert room <= set(lands), "an in-room destination no wiring lands on: %s" % sorted(room - set(lands))
-    lines.append(";  $80 for a landing inside a room (FFR's StandardInRoom), as bit 7 of its x.")
-    table("lut_GrLandRoom", [0x80 if c in room else 0 for c in lands])
-    table("lut_GrLandNodes", csr("lut_GrLand", [D["LAND"][c] for c in lands]))
-    lines.append(";  Exit coordinates: where on the overworld, and its regions there.")
-    table("lut_GrExitX", [c[0] for c in exits])
-    table("lut_GrExitY", [c[1] for c in exits])
-    table("lut_GrExitNodes", csr("lut_GrExit", [D["EXIT_TO"][c] for c in exits]))
-    lines.append(";  The cartridge's locations, then Chaos: their regions and requirement --")
-    lines.append(";  and past Chaos's, the princess's event's at each of Rebellious")
-    lines.append(";  Princess's spots, where each starts in lut_GrLocNodes in lut_GrSaraOff.")
-    flat = csr("lut_GrLoc", D["LOC_NODES"] + [D["CHAOS_NODES"]])
-    soff = []
-    for ns in D["SARA_NODES"]:
-        soff.append(len(flat))
-        flat = flat + ns
-    soff.append(len(flat))
-    table("lut_GrLocNodes", flat)
-    table("lut_GrSaraOff", soff, word=True)
-    table("lut_GrLocReq", D["LOC_REQ"] + [D["CHAOS_REQ"]])
-    ents = sorted({e for e, _, _ in D["ENT_SRC"]})
-    const("GR_ENTIDS", len(ents))
-    lines.append(";  The entrances the overworld has, in order (es_roots).")
-    table("lut_GrEntIds", ents)
-    lines.append(";  1 for a region of the overworld.")
-    table("lut_GrOwNode", [1 if o else 0 for o in D["OW_NODE"]])
-    lines.append(";  The docks: their boarding regions; each entrance's distance to each,")
-    lines.append(";  walking ($FFFF none) and flying, entrance * GR_DOCKS + dock.")
-    table("lut_GrDockNodes", csr("lut_GrDock", D["DOCK_BOARD"]))
-    lines.append(";  The settings each is a dock under (Bridge to Lefein deletes Matoya's).")
-    table("lut_GrDockCondOn", [on for on, _ in D["DOCK_COND"]], word=True)
-    table("lut_GrDockCondOff", [off for _, off in D["DOCK_COND"]], word=True)
-    walk, fly = [], []
-    for e in range(32):
-        row = D["ENT_DOCK"].get(e, [(None, 0x7FFF)] * len(D["DOCKS"]))
-        walk += [0xFFFF if w is None else w for w, _ in row]
-        fly += [f for _, f in row]
-    table("lut_GrEntWalk", walk, word=True)
-    table("lut_GrEntFly", fly, word=True)
-
-    #  FFR's shuffle.
-    recs = D["RECORDS"]
-    locs = sorted({r[1] for r in recs})
-    lnum = {l: i for i, l in enumerate(locs)}
-    landed = D["LANDED"]
-    lines.append(";  FFR's shuffle: records, by index -- location id, landing, exit ($FF")
-    lines.append(";  none), the teleports out of it; and flags (1: Lefein or Melmond, which")
-    lines.append(";  never come first).")
-    const("ES_RECORDS", len(recs))
-    const("ES_LOCATIONS", len(locs))
-    const("ES_UNUSED1", D["UNUSED1"])
-    nk = D["NOFLOATER_KEEP"]
-    assert len(nk["titan"]) == 1 and len(nk["cardia"]) == 4 and len(nk["cardia_dock"]) == 2
-    const("ES_KEEP_TITAN", nk["titan"][0])
-    const("ES_SEASHRINE1", D["SEASHRINE1"])
-    const("ES_LOC_TITANEAST", lnum["TitansTunnelEast"])
-    const("ES_LOC_TITANWEST", lnum["TitansTunnelWest"])
-    lines.append("")
-    table("lut_EsRecLoc", [lnum[r[1]] for r in recs])
-    table("lut_EsRecLand", [lidx[landed[i]] if i in landed else 0xFF for i in range(len(recs))])
-    table("lut_EsRecExit", [0xFF if r[3] is None else r[3] for r in recs])
-    table("lut_EsRecFlags", [1 if r[0] in ("Lefein", "Melmond") else 0 for r in recs])
-    table("lut_EsRecTeles", csr("lut_EsRecTele", [r[2] for r in recs]))
-    table("lut_EsEnter", [D["ENTER"].get(e, 0xFF) for e in range(32)])
-    table("lut_EsTele", [D["TELE"].get(t, 0xFF) for t in range(64)])
-    for name in ("towns", "top", "free_ow", "free_sm", "icecave_loop", "vanilla_ow", "vanilla_sm"):
-        lab = "lut_Es" + "".join(w.capitalize() for w in name.split("_"))
-        const("ES_" + name.upper() + "_N", len(D["LISTS"][name]))
-        table(lab, D["LISTS"][name])
-    table("lut_EsOwCoord", [xidx[D["OW_COORDS"][e]] if e in D["OW_COORDS"] else 0xFF for e in range(32)])
-    lines.append(";  ...and under the Cardia Land Bridge, which moves six of them.")
-    lines.append(";  FFR's keepers with the FLOATER removed: Cardia's four, then the first and")
-    lines.append(";  Bahamut's (ES_KEEP_TITAN apart).")
-    table("lut_EsKeepCardia", nk["cardia"] + nk["cardia_dock"])
-    table("lut_EsOwCoordCardia", [xidx[D["OW_COORDS_CARDIA"][e]] if e in D["OW_COORDS_CARDIA"] else 0xFF
-                                  for e in range(32)])
-    #  The sanity check's sets: locations as a bitset over location ids,
-    #  entrances as a 32-bit mask.
-    def bits(ids, n):
-        v = 0
-        for i in ids:
-            v |= 1 << i
-        return list(v.to_bytes(n, "little"))
-    nb = (len(locs) + 7) // 8
-    table("lut_EsStarter", bits([lnum[l] for l in D["STARTER"] if l in lnum], nb))
-    table("lut_EsSafe", bits([lnum[l] for l in D["SAFE"] if l in lnum], nb))
-    table("lut_EsConnected", bits(D["CONNECTED"], 4))
-    table("lut_EsStarting", bits(D["STARTING"], 4))
-    table("lut_EsDanger", D["DANGER"])
-    lines.append(";  The vanilla wiring, as landings and exit coordinates.")
-    table("lut_EsVanEnt", [lidx[c] for c in D["VANILLA_ENTRANCE"]])
-    table("lut_EsVanNorm", [lidx[c] for c in D["VANILLA_NORMAL"]])
-    table("lut_EsVanExit", [xidx[c] for c in D["VANILLA_EXIT"]])
-    with open(os.path.join(ROOT, "src", "graphdata.inc"), "w") as f:
-        f.write("\n".join(lines) + "\n")
-    consts.append("")
-    for i in range(0, len(names), 4):
-        consts.append(".global %s" % ", ".join(names[i:i + 4]))
-    with open(os.path.join(ROOT, "src", "graph.inc"), "w") as f:
-        f.write("\n".join(consts) + "\n")
 
 
 if __name__ == "__main__":

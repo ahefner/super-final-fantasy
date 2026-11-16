@@ -1896,7 +1896,8 @@ the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
     wiring is cheaper.  Wide with nothing free fails placement on nearly half
     its wirings, so this matters.  Up to 16 attempts; the save keeps k, so
     Continue redraws the wiring without placing.
-  - **The ship's dock** (`es_dock`), on a shuffled wiring: of FFR's five,
+  - **The ship's dock** (`es_dock`), on a shuffled wiring: of FFR's five
+    (on another map, the map's),
     those reached whenever the ship's place is -- each of its masks without
     the SHIP covers one of the dock's boarding regions' -- the nearest to the
     entrances that place hangs from, walking if any can be walked to, else
@@ -1907,9 +1908,12 @@ the Ordeals pillars).  Like FFR, it shuffles only when key items are placed
     six wirings tried for one.
 
 **On the cart (2026-10-14; played 2026-10-28: an Entrance and floor seed
-to near the end, winnable).**  Its
-own chunk, WORLD (`src/world.asm` including `src/entrance.inc`), with the
-graph's tables in LOGIC (`src/graphdata.inc`, from gengraph.py) and the PRNG
+to near the end, winnable).**  The
+WORLD chunk (`src/world.asm` including `src/entrance.inc`), with the
+graph's tables in LOGIC (`gen/logic_0/graphdata.inc`, from gengraph.py by
+way of genmaps.py, which writes one for each map in Map Select's list;
+read from the WRAM window `logic_ensure` copies the save's map's into,
+options-design.md's "Randomization on another map") and the PRNG
 lent by RANDO (`rando_belowfar`, `rando_warmfar`).  Each stage is held to the
 reference byte for byte by `test_options.py`:
 
@@ -1934,7 +1938,13 @@ reference byte for byte by `test_options.py`:
     wiring); no seed fell back.  Over 24 seeds of the settings that reroll
     most -- `beginner`, `late`, `bridge`, `wide-bare` -- a median of 1.0 to
     1.4 million and at most 7.5 (seven wirings), since a draw with nowhere
-    to go weighs nothing (§4.7); 78 million at worst before.
+    to go weighs nothing (§4.7); 78 million at worst before.  A world that
+    cannot be won even holding every key item now has its tries skipped
+    (`pl_tries`, `randoref.place_winnable`, 2026-11-16): each would place
+    every item and lose.  The results are the same; on FFR's maps, where
+    Map shuffle often cuts off the land west of Titan's Tunnel, a thrown-away
+    world fell from 20-70 million instructions to a fraction of one
+    (options-design.md, "Randomization on another map").
   - **The game's teleports** (`es_tables`; `test_es_tables`): the cache
     build deals placement's wiring again -- attempt `RW_ESK`, without
     placing -- and writes the landing tables the game reads, 32 entrances,

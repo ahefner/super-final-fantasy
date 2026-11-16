@@ -2130,6 +2130,7 @@ WIN_AIRSHIP = 1
 LOGIC_EVENT = 3                 ; lut_LogicKind's: an event, its bit its ident
 
 rando_winnable:
+    JSL logic_ensure + WORLDFAR ; the save's map's logic (altmaps.inc)
     PHB
     JSR enter
     REP #$10
@@ -2842,6 +2843,7 @@ es_dock:
     LDA #$7FFF
     STA a:esC + 2               ; fly
     STZ a:esK                   ; the entrance
+    LDY #$0000                  ; its row, entrance * GR_DOCKS, in words
   @ent:
     LDA a:esK
     CMP #32
@@ -2861,14 +2863,10 @@ es_dock:
     LDA f:WORLDFAR + esBit16, X
     AND a:esRM + 2
 :   BEQ @nextent
-    LDA a:esK                   ; entrance * GR_DOCKS + dock, in words
-    ASL A
-    ASL A
-    CLC
-    ADC a:esK
+    TYA                         ; entrance * GR_DOCKS + dock, in words
     CLC
     ADC a:esD
-    ASL A
+    ADC a:esD
     TAX
     LDA f:LOGICFAR + lut_GrEntWalk, X
     CMP a:esC
@@ -2879,6 +2877,10 @@ es_dock:
     BCS @nextent
     STA a:esC + 2
   @nextent:
+    TYA
+    CLC
+    ADC #GR_DOCKS * 2
+    TAY
     INC a:esK
     BRA @ent
   @have:
@@ -3151,7 +3153,6 @@ es_tables:
     INY
     CPY #16
     BCC @exit
-    JSR map_exits               ; another map's, over them (altmaps.inc)
     PLP
     RTL
 

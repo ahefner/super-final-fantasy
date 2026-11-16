@@ -230,7 +230,8 @@ ng_flow:
     JSL ms_choose + OWSFAR      ; NGF_MAP the map chosen
     CMP #NGNAV_BACK
     BEQ @rando
-    LDA f:NGF_MAP
+    LDA f:NGF_MAP               ; ...the save's, from here: the map edit
+    STA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)  ; screen's check reads its logic
     BEQ @mapedits               ; the game's map: its edits next
     LDA #0                      ; another: no map edits, those ticked kept
     STA f:NGF_OWEDITS           ;   (NGF_TICKED) for the game's map again

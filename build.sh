@@ -122,7 +122,7 @@ CA65_GEN="$CA65 --feature force_range"
            $CA65 -I ../gen bestiary.asm -o ../out/bestiary.o
            $CA65 -I ../gen rando.asm -o ../out/bank_RANDO.o
            $CA65 -I ../gen opttext.asm -o ../out/bank_OPTTEXT.o
-           $CA65 logicdata.asm -o ../out/bank_LOGIC.o
+           $CA65 -I ../gen/logic_0 -I ../gen logicdata.asm -o ../out/bank_LOGIC.o
            $CA65 -I ../gen world.asm -o ../out/bank_WORLD.o
            $CA65 -I ../gen roll.asm -o ../out/bank_ROLL.o
            $CA65 -I ../gen tactics.asm -o ../out/bank_TACTICS.o
@@ -158,6 +158,20 @@ python3 tools/check_bankswap.py || exit 1
 #  one assembles cleanly and silently shifts every entry after it.  That cost a
 #  long debugging session; check the spacing instead.
 python3 tools/check_tables.py out/labels.txt || exit 1
+
+#  Each map's logic chunk -- the game's map's logic and that map's world
+#  graph, every map's tables at the same addresses (genmaps.py's
+#  write_logic) -- linked alone, for altmaps.inc's logic_ensure to copy into
+#  WRAM.  The game's map's from the same object as the ROM's chunk; the
+#  check holds every image's labels to it.
+ld65 -C logic.cfg -o out/logic_0.bin -Ln out/logic_0.lbl out/bank_LOGIC.o
+for d in gen/logic_*; do
+  i=${d#gen/logic_}
+  [ "$i" = 0 ] && continue
+  ( cd src && $CA65 -I ../gen/logic_$i -I ../gen logicdata.asm -o ../out/logic_$i.o )
+  ld65 -C logic.cfg -o out/logic_$i.bin -Ln out/logic_$i.lbl out/logic_$i.o
+done
+python3 tools/check_logicmaps.py || exit 1
 
 python3 tools/genchest.py
 python3 tools/mkrom.py

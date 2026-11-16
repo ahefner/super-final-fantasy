@@ -58,7 +58,8 @@
 .import es_tables
 .import lut_SaraLineLo, lut_SaraLineHi, lut_GarlandLine                ; world.asm's, for dlgtext.inc
 ;  The map Map Select chose, and the hint lines (altmaps.inc).
-.import map_newgame, map_domains, map_shipdock, dlg_lines
+.import map_newgame, map_domains, map_pinzones, dlg_lines, logic_ensurenat
+.import lut_GrDockX, lut_GrDockY                ; the save's map's docks (graphdata.inc)
 .export rando_price, rando_dlgtext
 ;  For tools/test_options.py.
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
@@ -1155,8 +1156,11 @@ rando_stale:
     LSR A                       ; ...and back in C
     RTL
 
-;;  Native mode, DBR = $7F.  Out: A8, I8.
+;;  Native mode, DBR = $7F.  Out: A8, I8.  The save's map's logic first,
+;;  which the build reads and the game's give_vehicle after (logic_ensure:
+;;  a few cycles when it is there).
 ensure:
+    JSL logic_ensurenat + WORLDFAR
     JSR stale
     BCS @build
     RTS
@@ -2753,7 +2757,7 @@ talk_reward:
 ;;  the dialogue names it by -- the orbs' $12-$15, whose names are empty and
 ;;  never drawn (rando_nameptr; NAME_SHIP .. NAME_CANOE).  X kept.
 ;;  Emulation mode, the game's data bank.
-.import lut_DockX, lut_DockY, lut_ShipDock
+.import lut_ShipDock
 give_vehicle:
     CMP #REWARD_BRIDGE
     BCC @ship
@@ -2778,14 +2782,14 @@ give_vehicle:
     LDA f:RW_PLACED
     CMP #1
     BNE @kept
-    JSL map_shipdock + WORLDFAR ; another map: its dock for this map's entrance
-    BCS @kept
     LDA f:RW_ENTRANCES
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
     ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1
+    ORA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
     BEQ @bymap
-    ;  Under entrance shuffle or map edits, the dock placement chose for the
-    ;  world (es_dock): the maps' choices are the vanilla world's.
+    ;  Under entrance shuffle or map edits, or on another map than the
+    ;  game's, the dock placement chose for the world (es_dock), of the
+    ;  map's docks; else the game's map's dock for the map it was found on.
     LDA f:RW_SHIPDOCK
     BRA @dock
   @bymap:
@@ -2800,9 +2804,9 @@ give_vehicle:
     BEQ @moor
     LDX #DOCK_CONERIA
   @moor:
-    LDA f:LOGICFAR + lut_DockX, X
+    LDA f:LOGICFAR + lut_GrDockX, X ; the save's map's docks (graphdata.inc)
     STA ship_x
-    LDA f:LOGICFAR + lut_DockY, X
+    LDA f:LOGICFAR + lut_GrDockY, X
     STA ship_y
   @kept:
     PLX
@@ -4830,19 +4834,11 @@ deal_zones:
     SEP #$20
     .a8
 
-    ;  Which zones the pass may touch: not the four around Coneria, and for
-    ;  Shuffle not one that is all zero.
+    ;  Which zones the pass may touch: for Shuffle not one that is all zero;
+    ;  then not the four round Coneria (map_pinzones).
     LDX #$0000                  ; the zone's first slot, zone * 8
     LDY #$0000                  ; the zone
   @which:
-    CPY #$001B
-    BEQ @no
-    CPY #$001C
-    BEQ @no
-    CPY #$0024
-    BEQ @no
-    CPY #$002C
-    BEQ @no
     LDA a:wMODE
     CMP #ZONES_RANDOM
     BEQ @yes
@@ -4873,6 +4869,7 @@ deal_zones:
     INY
     CPY #128
     BCC @which
+    JSL map_pinzones + WORLDFAR ; the map's four (altmaps.inc)
 
     LDA a:wMODE
     CMP #ZONES_RANDOM

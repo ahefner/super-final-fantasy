@@ -29,8 +29,8 @@
 .export ow_editrow, mm_editrows
 ;  The map Map Select chose (altmaps.inc): for the fixed bank, the
 ;  randomizer, the options and FUN%.
-.export ow_altrow, mm_altrows, map_newgame, map_freeship, map_freeairship, map_shipdock
-.export map_domains, map_flags, dlg_lines
+.export ow_altrow, mm_altrows, map_newgame, map_freeship, map_freeairship
+.export map_domains, map_pinzones, map_flags, dlg_lines, logic_ensure, logic_ensurenat
 .export mm_fillnt, mm_titledest, mm_decordest   ; ...and the minimap's layout, for bank $09
 .import nesio_w2007
 ;  ...and their tables, which New Game's map edit screen draws from.

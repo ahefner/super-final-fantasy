@@ -2,7 +2,11 @@
 ;  logicdata.asm -- the vanilla world's logic, for incentive placement
 ;
 ;  Chunk CHUNK_LOGIC, data only: logicdata.inc, which tools/genlogic.py writes
-;  from ../worldgraph.  place.inc reads it with long addresses (LOGICFAR).
+;  from ../worldgraph, and the world graph, the game's map's (graphdata.inc,
+;  gen/logic_0/).  The build also links it alone once for each other map of
+;  Map Select, with that map's graph (build.sh, gen/logic_N/), and
+;  logic_ensure copies the save's map's into WRAM, where place.inc and the
+;  rest read it with long addresses (LOGICFAR).
 ;  Its own chunk because the randomizer's had 3KB left once placement's code
 ;  was in, and the rewards still to come want that.
 ; ---------------------------------------------------------------------------
@@ -20,3 +24,8 @@
 
 .include "logicdata.inc"
 .include "graphdata.inc"
+
+;  The end, for logic_ensure's copy (altmaps.inc): this chunk -- or another
+;  map's, laid out alike (genmaps.py) -- into WRAM, where LOGICFAR reads.
+lut_LogicEnd:
+.export lut_LogicEnd

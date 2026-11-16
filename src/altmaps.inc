@@ -14,19 +14,20 @@
 ;                    fills it (rando_build)
 ;    a Free SHIP's berth, a Free AIRSHIP at the start
 ;                    map_freeship, map_freeairship (opt_freestuff)
-;    a found ship's mooring, by the map it is found on
-;                    map_shipdock (rando.asm's give_vehicle)
-;    the exits' landings
-;                    map_exits, into the cache (es_tables)
 ;    the zones' formations
 ;                    map_domains, into the cache (build_forms)
+;    key item placement and Map shuffle
+;                    logic_ensure: the map's logic chunk, its world graph
+;                    with the game's map's precomputed logic, copied to
+;                    WRAM, where LOGICFAR reads; placement then works the
+;                    map's logic out from its graph, as for map edits
+;                    (place.inc), and the graph gives the exits and a
+;                    found ship's dock
 ;    the bridge across a horizontal strait
 ;                    map_flags, for fun_chrload's overlay
 ;    Mirror World's lines that say east or west
 ;                    dlg_lines, with the hint lines, for rando_dlgtext
-;
-;  Map shuffle and the key items' placement are the game's map's still:
-;  their logic is its (options-design.md, "Map Select").
+
 ; ---------------------------------------------------------------------------
 
 .include "mapdata.inc"
@@ -319,6 +320,110 @@ lut_MmDest:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  logic_ensure -- the save's map's logic chunk in WRAM (LOGICWIN), where
+;;  LOGICFAR + a label of the chunk reads it: CHUNK_LOGIC for the game's
+;;  map; another's (MI_LOGIC), laid out alike (genmaps.py), its world graph
+;;  with the game's map's precomputed logic.  Unless LOGICTAG says it is
+;;  there already: a few cycles, what every map load pays (rando_ensure);
+;;  else some 16KB, four frames or so.  Before anything reads LOGICFAR: the
+;;  cache's check (rando_ensure), New Game's build (map_newgame), the map
+;;  edit screen's check (rando_winnable).
+;;
+;;  logic_ensure from emulation mode, logic_ensurenat from native, by JSL;
+;;  every register kept but P's flags.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.import lut_LogicEnd
+LOGIC_SIZE = lut_LogicEnd - $8000
+.assert LOGICWIN + $4000 - 1 = LOGICTAG, error, "LOGICTAG the window's last byte"
+
+    .a8
+    .i8
+logic_ensure:
+    PHP
+    CLC
+    XCE
+    JSR logic_core
+    SEC
+    XCE
+    PLP
+    RTL
+logic_ensurenat:
+    PHP
+    JSR logic_core
+    PLP
+    RTL
+
+;;  Native, any widths; A, X, Y and DBR kept.
+logic_core:
+    PHB
+    REP #$30
+    .a16
+    .i16
+    PHA
+    PHX
+    PHY
+    SEP #$20
+    .a8
+    JSR map_id
+    INC A
+    CMP f:LOGICTAG
+    BEQ @done
+    PHA                         ; the tag, for the end
+    LDA #0
+    STA f:LOGICTAG              ; none, until the copy is whole
+    LDA 1,S
+    DEC A
+    REP #$20
+    .a16
+    AND #$00FF
+    BEQ @game
+    XBA
+    TAX                         ; its record
+    LDA f:MAPINFOFAR + MI_LOGIC, X
+    TAY                         ; its chunk's address...
+    SEP #$20
+    .a8
+    LDA f:MAPINFOFAR + MI_LOGIC + 2, X  ; ...and bank
+    BRA @copy
+  @game:
+    LDY #$8000
+    SEP #$20
+    .a8
+    LDA #CHUNK0 + CHUNK_LOGIC
+  @copy:
+    PHA
+    PLB                         ; DBR the image's bank
+    REP #$20
+    .a16
+    LDX #$0000
+  @word:
+    LDA a:0, Y
+    STA f:LOGICWIN, X
+    INY
+    INY
+    INX
+    INX
+    CPX #(LOGIC_SIZE + 1) & $FFFE
+    BCC @word
+    SEP #$20
+    .a8
+    PLA
+    STA f:LOGICTAG              ; whole
+  @done:
+    REP #$30
+    .a16
+    .i16
+    PLY
+    PLX
+    PLA
+    PLB
+    RTS
+    .a8
+    .i8
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  map_newgame -- New Game's map: NGF_MAP into the save (RANDO_MAP), and for
 ;;  another than the game's, its start, Bikke's ship, the airship, the bridge
 ;;  and the canal over lut_InitUnsramFirstPage's.  From rando_build, the
@@ -332,6 +437,7 @@ map_newgame:
     STA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
     JSR map_id
     STA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)  ; (one past the list: the game's)
+    JSR map_id
     BNE :+
     RTL
 :   PHP
@@ -399,46 +505,6 @@ map_freeairship:
     STA f:ALTSAVE + airship_y
     BRA alt_out
 
-;;  A found ship's mooring on another map: the dock FFR gives the entrance
-;;  the map it is found on is behind (MI_DOCKX, by cur_map), into ship_x
-;;  and ship_y.  From give_vehicle, by JSL, emulation mode.  Out: C set,
-;;  moored; C clear for the game's map, whose docks give_vehicle has.  A,
-;;  X clobbered.
-    .a8
-    .i8
-map_shipdock:
-    JSR map_id
-    BNE :+
-    CLC
-    RTL
-:   PHP
-    JSR alt_in
-    .i16
-    REP #$20
-    .a16
-    LDA z:cur_map
-    AND #$00FF
-    PHA                         ; (not tmp: rando_talk's data is there)
-    TXA
-    CLC
-    ADC 1,S
-    TAX                         ; the record, at cur_map
-    PLA
-    SEP #$20
-    .a8
-    LDA f:MAPINFOFAR + MI_DOCKX, X
-    STA f:ALTSAVE + ship_x
-    LDA f:MAPINFOFAR + MI_DOCKY, X
-    STA f:ALTSAVE + ship_y
-    SEP #$30
-    .i8
-    SEC
-    XCE
-    PLP
-    SEC
-    RTL
-.assert MI_DOCKY - MI_DOCKX >= 64, error, "a map past the dock table"
-
 ;;  The map's MIF_* flags into A, 0 for the game's.  By JSL, emulation
 ;;  mode; X and Y kept.
     .a8
@@ -464,9 +530,9 @@ map_flags:
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  The cache's: the zones' formations (map_domains, build_forms' first
-;;  step, replacing its copy_domains) and the exits' landings (map_exits,
-;;  es_tables' last).  Native, DBR = $7F; A8 I16 in and out.
+;;  The cache's zones: their formations (map_domains, build_forms' first
+;;  step, replacing its copy_domains) and the four the zone pass leaves
+;;  alone (map_pinzones).  Native, DBR = $7F; A8 I16 in and out.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;  lut_Domains into the cache, as the cartridge has it; then for another
@@ -530,34 +596,37 @@ map_domains:
     RTL
 .assert ^RW_DOMAINS = ^RANDOWRAM, error, "map_domains writes the zones with DBR the cache's"
 
-;;  Another map's sixteen exits' landings over the wiring's.  By JSR, from
-;;  es_tables.
+;;  The zone pass's four zones round Coneria, left alone (deal_zones): each
+;;  marked not to touch in RW_ZONEOK, from the map's record (MI_PINZONES) --
+;;  the game's map's too, FFR's StartingZones.  By JSL; A8 I16.
     .a8
     .i16
-map_exits:
+map_pinzones:
     JSR map_id
-    BEQ @out
     REP #$20
     .a16
     AND #$00FF
     XBA
+    TAX                         ; its record
+    SEP #$20
+    .a8
+    LDY #4
+  @pin:
+    LDA f:MAPINFOFAR + MI_PINZONES, X
+    PHX
+    REP #$20
+    .a16
+    AND #$00FF
     TAX
     SEP #$20
     .a8
-    LDY #$0000
-  @exit:
-    LDA f:MAPINFOFAR + MI_EXITX, X
-    STA a:.LOWORD(RW_EXITX), Y
-    LDA f:MAPINFOFAR + MI_EXITY, X
-    STA a:.LOWORD(RW_EXITY), Y
+    LDA #0
+    STA f:RW_ZONEOK, X
+    PLX
     INX
-    INY
-    CPY #16
-    BCC @exit
-  @out:
-    RTS
-.assert ^RW_EXITX = ^RANDOWRAM && ^RW_EXITY = ^RANDOWRAM, error, "map_exits writes with DBR the cache's"
-
+    DEY
+    BNE @pin
+    RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  dlg_lines -- a line of the game's that gives way, by its pointer

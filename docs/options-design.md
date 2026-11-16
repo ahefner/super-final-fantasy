@@ -637,13 +637,17 @@ low halves, reached long:
   - **A Free SHIP** at the map's default berth, **a Free AIRSHIP** at its
     start (`map_freeship`, `map_freeairship`, after `opt_freestuff` puts
     them at the game's), as FFR's `IsShipFree` and `IsAirshipFree`.
-  - **A found ship** (`map_shipdock`, from `give_vehicle` with the key items
-    placed) moored at the dock FFR's file gives the overworld entrance the
-    map it is found on is behind (FFR's `SCLogic.GetShipIndex`), by
-    `cur_map`, else the default.
-  - **The exits' landings** (`map_exits`, `es_tables`' last step) and **the
-    zones' formations** (`map_domains`, in place of `copy_domains`, the
-    first of `build_forms`), into the cache.
+  - **A found ship** (`give_vehicle`, with the key items placed) moored at
+    the dock placement chose (`RW_SHIPDOCK`, `es_dock`), of the map's
+    docks in its logic (`lut_GrDockX`, `lut_GrDockY`): below.
+  - **The exits' landings** from the map's logic (`es_tables`, its wiring's
+    exits `lut_GrExitX`, `lut_GrExitY`), **the zones' formations**
+    (`map_domains`, in place of `copy_domains`, the first of
+    `build_forms`), into the cache; and **the four zones the zone pass
+    leaves alone** (`map_pinzones`, from `deal_zones`), from the record --
+    FFR's `StartingZones` round Coneria, `$1B $1C $24 $2C`, by number on
+    every map but Mirror World, as FFR has them on its maps; Mirror World's
+    mirrored with its land, `$1C $1B $23 $2B`.
   - **The bridge across a horizontal strait** (`MIF_HBRIDGE`, FFR's
     `HorizontalBridge`, Pangea's): FFR's four turned sprite characters laid
     over bank `$02` `$9C40-$9C7F` as the overworld's objects load
@@ -658,13 +662,10 @@ low halves, reached long:
 
 **Each map's record**, from FFR's file as FFR's `OwMapExchange` writes it:
 `StartingLocation`, `AirShipLocation`, `BridgeLocation`, `CanalLocation`;
-`TeleporterFixups`' exits, the rest the game's; `DomainFixups` swapped
-then `DomainUpdates` from the game's zones; `HorizontalBridge`; and
-`ShipLocations`, a dock for each overworld entrance -- Bikke's ship at
-Pravoka's (entrance 2), a Free SHIP at the default (255).  Each standard
-map's entrance is the game's wiring's (`randoref.es_tree`), Coneria Castle
-2F, the Castle of Ordeals' 2F and 3F and the Temple of Fiends' past by
-their stairs.
+`DomainFixups` swapped then `DomainUpdates` from the game's zones;
+`HorizontalBridge`; and of `ShipLocations` Bikke's ship at Pravoka's dock
+(entrance 2) and a Free SHIP at the default (255).  Its exits
+(`TeleporterFixups`, the rest the game's) and its docks are its logic's.
 
 **Mirror World** (`genmaps.mirror_lr`) is the game's map mirrored left to
 right by the rules in `overworld-design-rules.md`: each terrain piece by
@@ -677,15 +678,129 @@ its shadow at its foot's right: one desert tile fills where its top was.
 Its places are mirrored the same way: a place in a block's columns, in it
 or beside it above or below, moves with the block, so the party leaves the
 Castle of Ordeals on its door's tile.  Its zones are the game's mirrored
-across the 8 x 8 grid, its docks the game's (`lut_ShipDock`) mirrored.
+across the 8 x 8 grid, its docks the game's five mirrored.
 The design-rule checker (`map-renders/rules/check.py`) finds the same
 shapes the tiles cannot draw as on the game's map, and every entrance.
 
-**Not yet: the randomization's.**  Key item placement, the Seed Summary's
-numbers, Map shuffle's exits and zone shuffle's pinned zones all still read
-the game's map: their logic is the game's world graph.  On another map a
-placed seed may not be winnable, and Map shuffle's exits land where the
-game's would (the follow-on, with logic for each map).
+**Randomization on another map** (user, 2026-11-15: "Alternate maps
+should all work combined with map and item shuffle"; run by the user
+2026-11-16, not yet played through -- it needs extensive testing).  Key item placement,
+Map shuffle, Rebellious Princess, Shard Hunt's check, the Seed Summary and
+the unwinnable warning all read a map's logic, and each map has logic
+made for it:
+
+  - **A world graph for each map** (`gengraph.py --map KEY`, `KEY`
+    `mirror-lr` or `POOL-ID`, into `maps/graph/KEY.py`): worldgraph's graph
+    built on the map's tiles, with its places, its exits and its docks --
+    FFR's file's, each place once, the default first; Mirror World's the
+    game's five mirrored -- every condition the unedited map's, and checked
+    against worldgraph's requirements with Early Ordeals on and off and at
+    every princess spot.  Its `DIGEST` is of what it was made from (FFR's
+    file, or Mirror World's tiles, blocks, places and exits): `genmaps.py`
+    refuses a graph made from other inputs, so a map changed in
+    `custom-maps.txt` or regenerated needs its graph made again.
+  - **A logic image for each map**: `genmaps.write_logic` writes
+    `gen/graph.inc` and `gen/logic_N/graphdata.inc`, every table padded to
+    the largest map's (`graphtables.lay_out`: the region, mask, landing,
+    exit and dock counts the largest; a padded dock boarded from nowhere,
+    under no settings, never walked to, furthest flown).  `build.sh`
+    assembles `logicdata.asm` once for each map and `check_logicmaps.py`
+    holds every image to the same labels at the same addresses (10,971
+    bytes).  The game's map's is `CHUNK_LOGIC`; the others go in spare low
+    halves of the NES chunks (`mkrom.py`, `out/logic_slots.txt`), the record
+    pointing at each (`MI_LOGIC`).
+  - **The window** (`LOGICWIN`, `$7E:C000-$FFFF`, untouched by anything
+    else): `logic_ensure` copies the save's map's image there, and every
+    reader goes through `LOGICFAR`.  `LOGICTAG`, its last byte, is the map
+    whose copy it holds plus one -- 0 after power-on, as boot clears WRAM --
+    so the copy is made once: by the cache build (`ensure`, which New Game
+    runs too) or the unwinnable check (`rando_winnable`), whichever comes
+    first.  It survives L + X and L + Y, so a Continue after a soft
+    reset copies nothing.
+  - **Placement** on another map takes the map edits' way (`pl_edited`):
+    the map's vanilla wiring, its logic worked out for the seed on its graph
+    (`es_build` with the mode Off), then Off's tries and safe tables.  Map
+    shuffle deals its wirings on the map's graph as on the game's, the map's
+    exits where the entrances are.
+  - **A found ship's dock**, on another map, is placement's choice under Map
+    shuffle on the game's map (`es_dock`): of the map's docks, those boarded
+    whenever the ship's place is reached, the nearest to the entrances that
+    place hangs from -- the nearest reachable dock from where it is found,
+    the rule the user wants (2026-11-16).  FFR instead moors it at the dock
+    its file gives the overworld entrance the place is behind
+    (`SCLogic.GetShipIndex`).
+
+**Its cost.**  On six of FFR's seven maps (all but The Lonesome) the land
+west of Titan's Tunnel, with Sarda's Cave, has nowhere the airship lands:
+it is reached only through the tunnel, and under Map shuffle its two doors
+(three on Great Lake, with Cardia's) lead elsewhere and it is cut off.  A
+wiring that deals something needed to those doors -- a fiend's floors --
+cannot be won.  Over 24 seeds a map the first wiring placed 14 times in
+24 with Floors and 20 with Entrances on those maps, every time on the
+game's map, Mirror World and The Lonesome.  FFR's shuffle has the same
+fixed lists on every map (`EntrancesFloorsShuffle.cs`).  A second or third
+wiring is no matter -- the roll screen is there for it (user, 2026-11-16)
+-- but each such wiring was a minute on it: every try placed every item
+and only then found Chaos out of reach, eight spots' worth of tries with
+Rebellious Princess, 20-70 million instructions (12,000 a frame); the
+worst seed seen, 141 million.
+
+So placement checks first (`pl_tries`, `randoref.place_winnable`; user:
+"If it's taking half a minute or more, that's a problem"): holding every
+key item to place, every place that reaches open, is the seed won
+(`pl_goalwon` on `pl_reachspots`)?  If not, the world's tries are skipped.
+A try that places every item holds exactly that, with no more shard room,
+so each would have lost; skipping them draws nothing, and placement's
+results are the same seed for seed (`test_placewin`).  Over 16 seeds a map
+with Rebellious Princess, Floors and `wide-loose`, the worst New Game is
+now 4.5 million instructions (six seconds) on FFR's maps, 3.5 on the
+game's, the same wirings chosen.
+
+`randoref.use_graph(D)` points the reference at a map's graph (and back at
+the game's with no argument); on another map `new_world`, `placed_open`
+and `seed_summary` take the map edits' way, as the cart does.
+`build_domains` takes a map's zones and its four left alone.
+
+Two faults this turned up in the first build: gengraph measured each
+entrance's distance to the game's five docks on every map, so a map with
+more had no distances to the rest and Mirror World's were to unmirrored
+places (`graphtables` now refuses a row of the wrong length); and
+`es_dock` found an entrance's row as entrance * 5, the game's dock count,
+which the padded tables (nine docks) broke on the game's map too
+(`test_es_place`, `test_rando_shipdock` caught it there).
+
+**Tests.**  `test_altrando`: each map's logic image different, the game's
+`CHUNK_LOGIC`'s; an empty window filled with the save's map's image by
+the cache build, the unwinnable check and `logic_ensure`, a map past the
+list getting the game's; New Game filling it for the map it chose; a
+second call for the same map copying nothing in under 60 instructions,
+another map copied over it.  The unwinnable check on each map against
+`randoref.winnable` on the map's graph, over Key items Vanilla and
+Standard, the SHIP and the FLOATER removed or not, Early flags and a
+princess spot, both answers among them.  Then `rando_ensure` on each map
+with Map shuffle Off, Entrances and Floors, two settings each,
+Rebellious Princess with Floors and with Key items Vanilla, Entrances
+with no Early flags: the
+placement, the attempt, the ship's dock, the mode kept, the princess's
+spot, all eight teleport tables and the Seed Summary's numbers and spots,
+randoref's on the map's graph; every
+run placed, a shuffle on every map, the princess away from Garland's;
+every New Game under 10 million instructions, some taking a third wiring;
+and with
+no wiring placed (the attempt count patched to none), the map's vanilla
+wiring on its logic, the mode Off.  `test_altmaps` adds the four zones
+in each record and zone shuffle on each map.  Seventeen mutations:
+fourteen caught at once, two once checks were added for them (the
+fallback, and the save's map before the map edit screen in `test_ngflow`),
+and the last found `map_newgame`'s copy of the logic redundant -- New
+Game's cache build makes it -- and it went.  `test_placewin`: the
+reference with placement's check and without it, the same world, spot and
+dock on the game's map, Mirror World and two of FFR's, Map shuffle Off,
+Entrances and Floors, Rebellious Princess on and off, four orbs and Shard
+Hunt at 36, the check refusing worlds on FFR's maps and every seed placed.
+Four mutations, all caught: the check skipped (by `test_altrando`'s
+instruction count), inverted, and the reference's holding only what is
+free or counting no shard room.
 
 **Tests.**  `test_altmaps` makes each map here, FFR's from the vendored
 files, the game's from bank `$01` and bank `$00`'s tables, and Mirror World
@@ -694,13 +809,14 @@ row of a set's pieces, the one i from the left mirrors the one i from the
 right) with the castles, the Temple, the tower and the volcano whole:
 every piece of it, the blocks, each piece and its mirror letting the same
 pass, every entrance as often; its places on the same piece or its
-mirror.  Each map's record from its source, each standard map's entrance
-by its name.  Then the cartridge: every row of every map in the window and
+mirror.  Each map's record from its source, the start's zone among the
+four left alone on the game's map and Mirror World.  Then the cartridge: every row of every map in the window and
 only its slot, a map past the list the game's, no row dearer than the
 game's dearest, nothing on a standard map; every pair of the minimap's, `tmp+3` to `tmp+7` as they were;
 New Game on each map -- the save's map, the page, the cache's exits and
-zones -- and the cache built again when the save's map changes; a found
-ship on every map of every map; a Free SHIP and AIRSHIP; the bridge's four
+zones -- and the cache built again when the save's map changes; zone
+shuffle, Light and Random with rarity, on each map; a found ship at each
+of each map's docks; a Free SHIP and AIRSHIP; the bridge's four
 characters FFR's where the map's runs east to west, on Japan too, the
 game's elsewhere; and Mirror World's lines, twelve, the game's on every
 other map, the CUBE's hint turned, a dungeon's line turned with Map
@@ -745,8 +861,10 @@ straight to the options and built with no map edits though the preset has
 some; the options' B back to Map Select and its B to the randomization
 screen; Map Select starting on the map chosen last this pass and the game's
 after the list; the edits ticked kept through another map for the game's
-again; edits ticked then another map chosen, built with none.  Thirty
-mutations, all caught.
+again; edits ticked then another map chosen, built with none; and the
+game's map chosen after a game on another, the save's map the game's by
+the map edit screen, whose unwinnable check reads that map's logic.
+Thirty mutations, all caught.
 
 **The Map edits row, removed** (user, 2026-10-24: "No value in it ...
 Clean it up").  A stopgap to test the edits before the screen existed

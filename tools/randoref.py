@@ -1079,13 +1079,19 @@ def zone_name(z):
     return {64: "river, north", 65: "river, south", 66: "sea"}.get(z, MAP_NAMES[z - 64])
 
 
-def build_domains(rom, seed, rarity, zones):
+def build_domains(rom, seed, rarity, zones, domain=None, pins=STARTING_ZONES):
     """Every zone's eight formations as the cache holds them: zones, then
-    rarity, each pass from its own stream."""
+    rarity, each pass drawing from a separate stream.  On another map (altmaps.inc's
+    map_domains, map_pinzones): domain, each overworld zone's source zone,
+    and pins, the four zones the zone pass leaves alone (genmaps' record)."""
     d = bytearray(rom_domains(rom))
+    if domain is not None:
+        game = bytes(d)
+        for z in range(64):
+            d[z * 8:z * 8 + 8] = game[domain[z] * 8:domain[z] * 8 + 8]
     if 0 < zones < ZONES_MODES:
         rng = Stream(seed, STREAM_ZONES)
-        ok = [z not in STARTING_ZONES and (zones == ZONES_RANDOM or any(d[z * 8:z * 8 + 8]))
+        ok = [z not in pins and (zones == ZONES_RANDOM or any(d[z * 8:z * 8 + 8]))
               for z in range(128)]
         if zones in (ZONES_LIGHT, ZONES_SHUFFLE):
             #  Each class pooled across the zones, shuffled, dealt back --
@@ -1175,6 +1181,19 @@ def chest_floors(rom):
 #  attempt k draws its own (STREAM_ENTR + k), so Continue can draw the one
 #  the save names without placing anything.
 import graphdata as _GD
+_ALTMAP = False                 # another map than the game's: its graph is _GD
+
+
+def use_graph(D=None):
+    """The world graph the builds below read: another map's (genmaps.graph_of,
+    a dict), as the cart's logic_ensure copies its logic image; None, the
+    game's map's.  On another map the vanilla wiring's logic is worked out
+    for the seed, as under map edits (place.inc's pl_edited)."""
+    global _GD, _ALTMAP
+    import graphdata
+    import types
+    _GD = graphdata if D is None else types.SimpleNamespace(**D)
+    _ALTMAP = D is not None
 
 ENTRANCES_OFF, ENTRANCES_ONLY, ENTRANCES_FLOORS = 0, 1, 2
 STREAM_ENTR = 0x454E5452        # "ENTR"
@@ -1967,6 +1986,8 @@ def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STR
     for spot in tries:
         if spots is not None:
             masks = masks[:PRINCESS_LOC] + [saram[spot]] + masks[PRINCESS_LOC + 1:]
+        if not place_winnable(masks, free, items, chaos, goal):
+            continue                    # no try can win: each would place every item, then lose
         rng = Stream(seed, stream)
         for _ in range(attempts):
             placed = _attempt(rng, free, items, inc, inclocs, masks, chaos, spread, tune, goal)
@@ -1977,6 +1998,21 @@ def build_placement(seed, keyitems, items3, gear2, early, world=None, stream=STR
                         out[i] = c
                 return out if spots is None else (out, spot)
     return None
+
+
+def place_winnable(masks, free, items, chaos, goal=GOAL_4ORBS):
+    """Before a world's tries (place.inc's pl_tries): holding every key item
+    to place, every place that reaches open, is the seed won?  A try that
+    places every item holds exactly that, its shard room no more, so if not,
+    each would lose -- after placing them all, which is where a world thrown
+    away spent its time.  Skipping them draws nothing, so no other try's
+    draws change: placement's results are the same."""
+    full = free
+    for i in items:
+        if i < PLACE_KEYS:
+            full |= _BIT[_NAME[i]]
+    open_, owned = place_accessible(masks, {}, full)
+    return chaos_won(_L.CHAOS_MASKS if chaos is None else chaos, owned, goal, shard_room(open_))
 
 
 def sara_go(masks, free, items, inc, inclocs):
@@ -2156,7 +2192,7 @@ def placed_open(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal
     if mode != ENTRANCES_OFF:
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode, owedits, floater_removed(items3))
         masks = es_masks(w[0], w[1], w[2], early, owedits, sara)[0]
-    elif owedits:
+    elif owedits or _ALTMAP:
         masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits, sara)[0]
     placed = {c: i for i, c in enumerate(out) if c != 0xFF}
     return place_accessible(masks, placed, free)[0]
@@ -2198,7 +2234,7 @@ def seed_summary(seed, keyitems, items3, gear2, early, entrances, owedits=0, goa
     if mode != ENTRANCES_OFF:
         w = es_shuffle(ShuffleRng(Stream(seed, STREAM_ENTR + k)), mode, owedits, floater_removed(items3))
         masks = es_masks(w[0], w[1], w[2], early, owedits, sara)[0]
-    elif owedits:
+    elif owedits or _ALTMAP:
         masks = es_masks(_GD.VANILLA_ENTRANCE, _GD.VANILLA_NORMAL, _GD.VANILLA_EXIT, early, owedits, sara)[0]
     full = free
     for i in items:
@@ -2226,7 +2262,7 @@ def _new_world(seed, keyitems, items3, gear2, early, entrances, owedits=0, goal=
                         spots=spots)
         if w is not None:
             return entrances, w[0], w[2], w[3], w[4] if spots is not None else 0
-    if owedits:
+    if owedits or _ALTMAP:
         w = build_edited(seed, keyitems, items3, gear2, early, owedits, goal, spots)
         if w is None:
             return ENTRANCES_OFF, 0, None, 0, 0

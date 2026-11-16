@@ -179,9 +179,10 @@ pl_place:
     AND #$00FF
     BEQ :+
     JMP pl_shuffled
-:   LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+:   LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1   ; the edits' high byte and the map
+    ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)       ; ...and the edits
     BEQ @off
-    JMP pl_edited
+    JMP pl_edited               ; map edits, or another map: its logic from its graph
   @off:
     JSR pl_masks
     JSR pl_vanilla
@@ -264,9 +265,10 @@ pl_shuffled:
     STA f:RW_ENTRANCES
     REP #$20
     .a16
-    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)
+    LDA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE) + 1   ; the edits' high byte and the map
+    ORA f:RANDO_SAVEFAR + (RANDO_OWEDITS - RANDO_SAVE)       ; ...and the edits
     BEQ :+
-    JMP pl_edited               ; the vanilla wiring, its logic the edits'
+    JMP pl_edited               ; the vanilla wiring, its logic the edits' or the map's
 :   STZ a:pTUNE                 ; the vanilla world's: the safe tables
     JSR pl_masks
     JSR pl_vanilla
@@ -284,10 +286,11 @@ pl_shuffled:
     RTS
 
 
-;;  Map edits without the shuffle (randoref.build_edited): the vanilla
-;;  wiring, but its logic worked out for the seed as the shuffle's is, on
-;;  the graph for every combination of the edits -- the precomputed tables
-;;  are the unedited map's.  One world, es_build's with the mode Off; then
+;;  Map edits without the shuffle (randoref.build_edited), or another map
+;;  than the game's (altmaps.inc): the vanilla wiring, but its logic worked
+;;  out for the seed as the shuffle's is, on the graph for every combination
+;;  of the edits, or the map's graph -- the precomputed tables are the
+;;  unedited game's map's.  One world, es_build's with the mode Off; then
 ;;  Off's tries at placement, with its safe tables, on Off's stream; and the
 ;;  ship's dock as the shuffle chooses it.  With no world, no placement:
 ;;  there is nothing else to fall back on.
@@ -719,11 +722,24 @@ pl_trysara:
   @won:
     RTS
 
-;;  RP_NATT tries at placement, drawing from RP_STRM afresh.  Out: C set if
-;;  one placed.  A16, I16.
+;;  RP_NATT tries at placement, drawing from RP_STRM afresh -- none if the
+;;  seed is not won even holding every key item to place, with every place
+;;  that reaches open (pl_goalwon on pl_reachspots'): a try that places
+;;  every item holds just that, so each would lose, and only after placing
+;;  all of them -- a world thrown away so cost a minute on the roll screen
+;;  (Map shuffle on FFR's maps, the land west of Titan's Tunnel cut off).
+;;  Nothing drawn, so no other try's draws change.  Out: C set if one
+;;  placed.  A16, I16.
 pl_tries:
     .a16
     .i16
+    JSR pl_reachspots           ; holding every key item to place...
+    JSL pl_goalwon + WORLDFAR   ; ...is the seed won?
+    BCS @go
+    JSR pl_yelp                 ; no: thrown away at once
+    CLC
+    RTS
+  @go:
     LDA f:RANDO_SAVEFAR + (RANDO_SEED - RANDO_SAVE)
     EOR a:pSTRM
     STA a:wRNG

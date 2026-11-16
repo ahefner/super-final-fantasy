@@ -49,7 +49,16 @@ CHUNK_RANDO     = $13           ; the randomizer: PRNG, generator, its hooks
 RANDOFAR        = (CHUNK0 + CHUNK_RANDO) * $10000
 CHUNK_OPTTEXT   = $14           ; the settings screen's descriptions; data only
 CHUNK_LOGIC     = $15           ; the vanilla world's logic, for placement; data only
-LOGICFAR        = (CHUNK0 + CHUNK_LOGIC) * $10000
+;  ...read from WRAM: logic_ensure (altmaps.inc) copies the save's map's
+;  logic chunk there -- CHUNK_LOGIC for the game's map, another's laid out
+;  alike (genmaps.py) -- and LOGICFAR + a label of the chunk is that label's
+;  copy.  $7E:C000-$FFFF is touched by nothing else (the HAL's buffers end
+;  at CHRSHADOW's); LOGICTAG, its last byte, is the map whose copy it holds,
+;  plus one -- 0, after power-on, none -- and survives L + X and L + Y, so
+;  a Continue after one copies nothing.
+LOGICWIN        = $7EC000
+LOGICFAR        = LOGICWIN - $8000
+LOGICTAG        = $7EFFFF
 CHUNK_WORLD     = $16           ; entrance shuffle: the shuffle and the seed's logic
 WORLDFAR        = (CHUNK0 + CHUNK_WORLD) * $10000
 CHUNK_ROLL      = $17           ; New Game's roll screen: picture, bleeps, fanfare
@@ -1869,6 +1878,7 @@ RANDO_OWEDITS   = RANDO_SAVE+$1C  ; 2 bytes
 ;  the game's, any other drawn from maps/ (genmaps.py; options-design.md,
 ;  "Map Select").  In the block, so the cache is built for it.  SAVEVER 4.
 RANDO_MAP       = RANDO_SAVE+$1E
+.assert RANDO_MAP = RANDO_OWEDITS + 2, error, "place.inc tests the edits' high byte and the map in one word"
 RANDO_SETTINGS_SIZE = $1C
 RANDO_SAVE_SIZE = $1F
 .assert RANDO_SAVE + RANDO_SAVE_SIZE <= $60FD, error, "rando block runs into the checksum"

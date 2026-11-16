@@ -90,9 +90,10 @@ def labels():
     if not os.path.exists(LABELS):
         sys.exit("no %s -- run ./build.sh" % LABELS)
     #  The ROM is written after the link, so it is always the newer of the two;
-    #  compare against what the link consumed instead.
+    #  compare against what the link consumed instead -- not the other maps'
+    #  logic images, each assembled and linked after it (logic.cfg).
     objs = [os.path.join(ROOT, "out", f) for f in os.listdir(os.path.join(ROOT, "out"))
-            if f.endswith(".o")]
+            if f.endswith(".o") and not f.startswith("logic_")]
     if objs and os.path.getmtime(LABELS) < max(os.path.getmtime(o) for o in objs):
         sys.exit("%s is older than the objects -- run ./build.sh" % LABELS)
     out = {}
@@ -105,6 +106,34 @@ def labels():
 
 SYM = labels()
 ROMDATA = open(ROM, "rb").read()
+
+
+def logic_fill(bus, m=0):
+    """Map m's logic chunk in WRAM, as logic_ensure (altmaps.inc) leaves it:
+    the cartridge reads its logic there (LOGICFAR).  Every machine starts
+    with the game's map's, as a game booted has it; a test of another map's
+    placement, or of the copy itself, sets it as it needs."""
+    size = SYM["lut_LogicEnd"] - 0x8000
+    if m == 0:
+        src = (1 + K["CHUNK_LOGIC"]) * 0x10000 + 0x8000
+    else:
+        rec = K["MAPINFOFAR"] - 0xC00000 + m * K["MI_SIZE"] + K["MI_LOGIC"]
+        src = int.from_bytes(bytes(bus.rom[rec:rec + 3]), "little") - 0xC00000
+    win = K["LOGICWIN"] - 0x7E0000
+    bus.wram[win:win + size] = bus.rom[src:src + size]
+    bus.wram[K["LOGICTAG"] - 0x7E0000] = m + 1
+
+
+_bus_init = Bus.__init__
+
+
+def _bus_logic(self, rom, *a, **k):
+    _bus_init(self, rom, *a, **k)
+    if len(rom) == len(ROMDATA):
+        logic_fill(self)
+
+
+Bus.__init__ = _bus_logic
 
 #  Processes to spread work over: the suite's tests, and within a test, a sweep
 #  handed to pmap.  -j N on the command line overrides it; -j 1 is the old
@@ -159,7 +188,8 @@ def machine():
 
 def _symbanks():
     """Each label's chunk bank, from the segment its source file defines it
-    in -- or the file that includes it, for src/'s .inc files: BANK_X is
+    in -- or the file that includes it, for src/'s .inc files and
+    gen/logic_0/'s: BANK_X is
     CHUNK_X's.  A name defined in two segments is left out, and so are the
     game's banks and the fixed bank, which call() places by address as it
     always has."""
@@ -173,8 +203,12 @@ def _symbanks():
                 seg = m.group(1)
                 continue
             m = re.match(r'\s*\.include\s+"(\w+\.inc)"', line)
-            if m and seg and os.path.exists(os.path.join(ROOT, "src", m.group(1))):
-                scan(os.path.join(ROOT, "src", m.group(1)), seg)
+            #  src/'s, or the game's map's world graph (gen/logic_0/), which
+            #  logicdata.asm includes from there (build.sh).
+            inc = m and [p for p in (os.path.join(ROOT, "src", m.group(1)),
+                                     os.path.join(ROOT, "gen", "logic_0", m.group(1))) if os.path.exists(p)]
+            if inc and seg:
+                scan(inc[0], seg)
                 continue
             m = re.match(r"([A-Za-z_]\w*):", line)
             if m and seg and seg.startswith("BANK_") and "CHUNK_" + seg[5:] in K:
@@ -2972,13 +3006,6 @@ def test_altmaps():
     MID = [i for i, e in enumerate(entries) if e[0] == "mirror-lr"]
 
     #  What each map's record should hold, from its source.
-    MAPENT = [("Coneria Castle", 9), ("Elfland Castle", 10), ("Northwest Castle", 11),
-              ("Castle of Ordeals", 12), ("Temple of Fiends", 13), ("Earth Cave", 14), ("Gurgu Volcano", 15),
-              ("Ice Cave", 16), ("Cardia", 0), ("Bahamut", 18), ("Waterfall", 19), ("Dwarf Cave", 20),
-              ("Matoya", 21), ("Sarda", 22), ("Marsh Cave", 23), ("Mirage Tower", 24), ("Sky Palace", 24),
-              ("Sea Shrine", 7), ("Titan", 25), ("Coneria", 1), ("Pravoka", 2), ("Elfland", 3),
-              ("Melmond", 4), ("Crescent Lake", 5), ("Gaia", 6), ("Onrac", 7), ("Lefein", 8)]
-    entrance = [next(o for p, o in MAPENT if R.MAP_NAMES[m].startswith(p)) for m in range(61)]
     import logicdata as L
     want = {}
     for i, e in enumerate(entries):
@@ -2989,7 +3016,8 @@ def test_altmaps():
                  "BRIDGE": across(*xy(0x09)), "CANAL": across(*xy(0x0D)), "FREESHIP": across(*FREESHIP),
                  "EXIT": [across(*p) if p != (0, 0) else p for p in VEX],
                  "DOMAIN": [8 * (z // 8) + 7 - z % 8 for z in range(64)],
-                 "DOCK": [across(*L.DOCKS[L.SHIP_DOCK[m]][1]) for m in range(61)], "FLAGS": 2, "tiles": MW}
+                 "PINZONES": [8 * (z // 8) + 7 - z % 8 for z in R.STARTING_ZONES],
+                 "DOCKS": [across(*d[1]) for d in L.DOCKS], "FLAGS": 2, "tiles": MW}
         else:
             f = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
             p = lambda v: (v["X"], v["Y"])
@@ -2997,26 +3025,35 @@ def test_altmaps():
             ex = list(VEX)
             for t in f["TeleporterFixups"]:
                 ex[t["Index"]] = p(t["To"])
+            docks = [ships[255]]                            # the default first, then each other once
+            for o in sorted(ships):
+                if o != 255 and ships[o] not in docks:
+                    docks.append(ships[o])
             dom = list(range(64))
             for du in f["DomainUpdates"]:
                 dom[du["To"]] = du["From"]
             w = {"START": p(f["StartingLocation"]), "SHIP": ships.get(2, ships[255]),
                  "AIRSHIP": p(f["AirShipLocation"]), "BRIDGE": p(f["BridgeLocation"]),
                  "CANAL": p(f["CanalLocation"]), "FREESHIP": ships[255], "EXIT": ex, "DOMAIN": dom,
-                 "DOCK": [ships.get(entrance[m], ships[255]) for m in range(61)],
+                 "PINZONES": list(R.STARTING_ZONES),
+                 "DOCKS": docks,
                  "FLAGS": int(bool(f["HorizontalBridge"])),
                  "tiles": list(b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"]))}
         want[i] = w
     bad = []
     for i, w in want.items():
         got = {f: rec(i, f) for f in ("START", "SHIP", "AIRSHIP", "BRIDGE", "CANAL", "FREESHIP")}
-        got["EXIT"] = list(zip(rec(i, "EXITX", 16), rec(i, "EXITY", 16)))
         got["DOMAIN"] = list(rec(i, "DOMAIN", 64))
-        got["DOCK"] = list(zip(rec(i, "DOCKX", 61), rec(i, "DOCKY", 61)))
+        got["PINZONES"] = list(rec(i, "PINZONES", 4))
         got["FLAGS"] = rec(i, "FLAGS", 1)[0]
         bad += ["%s %s" % (entries[i][-1], f) for f in got if got[f] != (list(w[f]) if isinstance(w[f], list) else w[f])]
-    check("each map's record: the start, the ships, the airship, the bridge, the canal, the exits, the "
-          "zones, the docks by map, the flags", bad, [])
+    check("each map's record: the start, the ships, the airship, the bridge, the canal, the zones, the four "
+          "zones the zone pass leaves alone -- FFR's StartingZones, Mirror World's mirrored -- the flags",
+          bad, [])
+    zone = lambda xy: xy[1] // 32 * 8 + xy[0] // 32
+    check("...the start's zone among them on the game's map and Mirror World",
+          [zone(VSTART) in R.STARTING_ZONES] + [zone(want[m]["START"]) in want[m]["PINZONES"] for m in MID],
+          [True] * (1 + len(MID)))
     for m in MID:
         w = want[m]
         places = [("start", VSTART, w["START"]), ("ship", xy(1), w["SHIP"]), ("airship", xy(5), w["AIRSHIP"]),
@@ -3119,19 +3156,39 @@ def test_altmaps():
     cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
     check("...the save's map changed, the cache built again for it, its exits",
           state(bus)["EXIT"], want[MID[0]]["EXIT"])
+    #  Zone shuffle and rarity on each map: the map's zones, its four left
+    #  alone.
+    bad = []
+    for m in [0] + sorted(want):
+        for forms, zn, seed in ((1, K["ZONES_SHUFFLE"], 0x600DCAFE + m), (0, K["ZONES_LIGHT"], 9 + m),
+                                (2, K["ZONES_RANDOM"], 77 + m)):
+            bus, cpu = machine()
+            setsave(bus, seed, 0, forms=forms, zones=zn)
+            bus.sram[MAPAT] = m
+            cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=60_000_000)
+            exp = R.build_domains(ROMDATA, seed, forms, zn) if m == 0 else \
+                R.build_domains(ROMDATA, seed, forms, zn, want[m]["DOMAIN"], want[m]["PINZONES"])
+            if bytes(bus.wram[W("RW_DOMAINS"):W("RW_DOMAINS") + 128 * 8]) != exp:
+                bad.append((m, zn))
+    check("zone shuffle, Light and Random, with rarity, on each map: the map's zones, its four left alone",
+          bad, [])
 
-    #  A found ship, on every map of every map; a Free SHIP and AIRSHIP.
-    def give(m, cm, placed=1):
+    #  A found ship, at each dock of each map; a Free SHIP and AIRSHIP.
+    def give(m, d, placed=1):
         bus, cpu = machine()
-        bus.wram[rw("RW_PLACED")] = placed
         bus.sram[MAPAT] = m
+        logic_fill(bus, m)
+        bus.wram[rw("RW_PLACED")] = placed
+        bus.wram[rw("RW_SHIPDOCK")] = d
         bus.sram[1], bus.sram[2] = 0x11, 0x22                # decoys
-        bus.wram[K["cur_map"]] = cm
+        bus.wram[K["cur_map"]] = 0x15
         cpu.a, cpu.x = 0xF0, 0x5A                           # REWARD_SHIP
         call(cpu, "give_vehicle", bank=RANDO_BANK)
         return (bus.sram[1], bus.sram[2]), cpu.x & 0xFF
-    check("a found ship, on each map: moored at the dock of the entrance the map it is found on is behind",
-          [(m, cm) for m in want for cm in range(61) if give(m, cm) != (want[m]["DOCK"][cm], 0x5A)], [])
+    check("a found ship, on each map: moored at the dock placement chose, of the map's docks -- FFR's "
+          "default first, then each other place once",
+          [(m, d) for m in want for d in range(len(want[m]["DOCKS"]))
+           if give(m, d) != (want[m]["DOCKS"][d], 0x5A)], [])
     check("...with nothing placed, where Bikke's waits", give(MID[0], 1, placed=0)[0], (0x11, 0x22))
     bad = []
     for m in [0] + sorted(want):
@@ -3330,6 +3387,297 @@ def test_altminimap():
         _, seen = screen(m, look)
         check("map %d, as it draws: nothing outside the map lit, no block ahead of the drawing" % m,
               [(k, len(lit), len(ahead)) for k, (lit, ahead) in enumerate(seen) if lit or ahead][:3], [])
+
+
+_ALTGRAPH = {}
+
+
+def altgraph(m):
+    """Map m's world graph (genmaps.graph_of), for randoref.use_graph."""
+    if m not in _ALTGRAPH:
+        import genmaps as GM
+        _ALTGRAPH[m] = GM.graph_of(GM.parse()[m])
+    return _ALTGRAPH[m]
+
+
+ALT_TABLES = (("RW_ENTRX", 32), ("RW_ENTRY", 32), ("RW_ENTRMAP", 32), ("RW_NORMX", 64), ("RW_NORMY", 64),
+              ("RW_NORMMAP", 64), ("RW_EXITX", 16), ("RW_EXITY", 16))
+
+
+def altrando_job(job):
+    """test_altrando's run: rando_ensure on map m for one seed, setting and
+    Map shuffle mode -- the cart's placement, the choice beside it and the
+    teleport tables, and the reference's for that map's graph."""
+    m, seed, cfg, mode, rebel = job
+    keyitems, items3, gear2, early = cfg
+    bus, cpu = machine()
+    s = bus.sram
+    at = K["RANDO_SAVE"] - 0x6000
+    s[at:at + 4] = seed.to_bytes(4, "little")
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(gear2)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_ENTRANCES"] - 0x6000] = mode
+    s[K["RANDO_MAP"] - 0x6000] = m
+    s[K["RANDO_RNG"] - 0x6000] = K["PRINCESS_FIELD"] if rebel else 0
+    bus.wram[rw("RW_SARA")] = 0x77
+    for name, n in ALT_TABLES:
+        bus.wram[rw(name):rw(name) + n] = bytes([0xA5]) * n      # decoys
+    for name in ("RW_PLACED", "RW_ESK", "RW_SHIPDOCK", "RW_ENTRANCES", "RW_SUMINC", "RW_SUMREACH"):
+        bus.wram[rw(name)] = 0x77
+    spots = rw("RW_SUMSPOTS")
+    bus.wram[spots:spots + 248] = bytes([0x77]) * 248
+    n0 = cpu.steps
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=400_000_000)
+    got = {"placed": placement(bus), "esk": bus.wram[rw("RW_ESK")], "dock": bus.wram[rw("RW_SHIPDOCK")],
+           "mode": bus.wram[rw("RW_ENTRANCES")], "sara": bus.wram[rw("RW_SARA")],
+           "tables": tuple(list(bus.wram[rw(name):rw(name) + n]) for name, n in ALT_TABLES),
+           "summary": (bus.wram[rw("RW_SUMINC")], bus.wram[rw("RW_SUMREACH")],
+                       {c for c in range(248) if bus.wram[spots + c] == 1},
+                       {c for c in range(248) if bus.wram[spots + c] not in (0, 1)})}
+    steps = cpu.steps - n0
+    #  The reference, on the map's graph.
+    G = altgraph(m)
+    R.use_graph(G)
+    try:
+        sara, (kept, k, out, dock) = R.sara_world(seed, keyitems, items3, gear2, early, mode, 0,
+                                                  R.GOAL_4ORBS, rebel)
+        if out is None:
+            want = {"placed": (0, got["placed"][1]), "esk": 0, "dock": 0, "mode": R.ENTRANCES_OFF}
+            wiring = (G["VANILLA_ENTRANCE"], G["VANILLA_NORMAL"], G["VANILLA_EXIT"])
+        else:
+            n, _, r, reached = R.seed_summary(seed, keyitems, items3, gear2, early, mode, 0, R.GOAL_4ORBS, rebel)
+            want = {"placed": (1, out), "esk": k, "dock": dock, "mode": kept, "summary": (n, r, reached, set())}
+            if kept == R.ENTRANCES_OFF:
+                wiring = (G["VANILLA_ENTRANCE"], G["VANILLA_NORMAL"], G["VANILLA_EXIT"])
+            else:
+                wiring = R.es_shuffle(R.ShuffleRng(R.Stream(seed, R.STREAM_ENTR + k)), kept, 0,
+                                      R.floater_removed(items3))[:3]
+    finally:
+        R.use_graph(None)
+    room = set(map(tuple, G["LAND_ROOM"]))
+    entrance, normal, exits = wiring
+    want["tables"] = ([c[1] | (0x80 if tuple(c) in room else 0) for c in entrance], [c[2] for c in entrance],
+                      [c[0] for c in entrance],
+                      [c[1] | (0x80 if tuple(c) in room else 0) for c in normal], [c[2] for c in normal],
+                      [c[0] for c in normal], [c[0] for c in exits], [c[1] for c in exits])
+    want["tables"] = tuple(want["tables"])
+    want["sara"] = sara
+    return job, got, want, steps
+
+
+def altwin_job(job):
+    """rando_winnable on map m (test_altrando): (winnable, reason), and
+    randoref.winnable's on the map's graph."""
+    m, keyitems, items3, early, sara = job
+    bus, cpu = machine()
+    s = bus.sram
+    s[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+    s[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(items3)
+    s[K["RANDO_EARLY"] - 0x6000] = early
+    s[K["RANDO_MAP"] - 0x6000] = m
+    bus.wram[rw("RW_SARALOG")] = sara
+    call(cpu, "rando_winnable", bank=WORLD_BANK)
+    got = (not cpu.p & C, cpu.a & 0xFF)
+    R.use_graph(altgraph(m))
+    try:
+        want = R.winnable(keyitems, items3, early, 0, R.GOAL_4ORBS, sara)
+    finally:
+        R.use_graph(None)
+    return job, (got[0], got[1] if not got[0] else 0), (want[0], want[1] if not want[0] else 0)
+
+
+def test_altrando():
+    """Key item placement and Map shuffle on another map than the game's
+    (altmaps.inc, place.inc's pl_edited): logic_ensure copies the save's
+    map's logic image into the window, from each way in -- the cache build,
+    New Game, the unwinnable warning -- once, and the game's for a map past
+    the list; then on each map, Map shuffle Off, Entrances and Floors,
+    rando_ensure places as randoref does on that map's graph (gengraph.py
+    --map), with the same attempt, the same ship's dock and the same
+    teleport tables."""
+    import genmaps as GM
+    N = K["MAPS_N"]
+    entries = GM.parse()
+    alts = [i for i, e in enumerate(entries) if e[0] != "vanilla"]
+    size = SYM["lut_LogicEnd"] - 0x8000
+    win, tag = K["LOGICWIN"] - 0x7E0000, K["LOGICTAG"] - 0x7E0000
+    S = lambda name: K[name] - 0x6000
+
+    def image(m):
+        bus, _ = machine()
+        logic_fill(bus, m)
+        return bytes(bus.wram[win:win + size])
+    images = {m: image(m) for m in [0] + alts}
+    check("each map's logic image a different one, the game's its chunk's",
+          (len(set(images.values())),
+           images[0] == bytes(ROMDATA[(1 + K["CHUNK_LOGIC"]) * 0x10000 + 0x8000:][:size])),
+          (len(images), True))
+
+    #  The window from each way in, empty first.
+    def empty(m, junk=0):
+        bus, cpu = machine()
+        bus.wram[win:win + size] = bytes([junk]) * size
+        bus.wram[tag] = 0
+        bus.sram[S("RANDO_MAP")] = m
+        return bus, cpu
+    bad = []
+    for m in alts[:2] + [N]:
+        exp = images[0 if m >= N else m]
+        bus, cpu = empty(m)
+        cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=200_000_000)
+        if (bytes(bus.wram[win:win + size]), bus.wram[tag]) != (exp, (0 if m >= N else m) + 1):
+            bad.append(("rando_ensure", m))
+        bus, cpu = empty(m)
+        call(cpu, "rando_winnable", bank=WORLD_BANK)
+        if bytes(bus.wram[win:win + size]) != exp:
+            bad.append(("rando_winnable", m))
+        bus, cpu = empty(m, 0x5A)
+        call(cpu, "logic_ensure")
+        if bytes(bus.wram[win:win + size]) != exp:
+            bad.append(("logic_ensure", m))
+    check("the window filled with the save's map's logic from the cache build, the unwinnable warning and "
+          "logic_ensure; a map past the list the game's", bad, [])
+    #  New Game: the page's map, the window its.
+    bus, cpu = machine()
+    bus.frames()
+    call(cpu, "opt_init")
+    bus.wram[tag] = 0
+    bus.wram[win:win + size] = bytes(size)
+    bus.wram[K["NGF_MAP"] - 0x7E0000] = alts[0]
+    bus.wram[K["NGF_OWEDITS"] - 0x7E0000:K["NGF_OWEDITS"] - 0x7E0000 + 2] = b"\0\0"
+    cpu.a = 0
+    screen_pressing(bus, cpu, [], RANDO_BANK, SYM["rando_build"])
+    check("...and from New Game, for the map it chose", bytes(bus.wram[win:win + size]) == images[alts[0]], True)
+    #  Once: a second time for the same map copies nothing, and is cheap.
+    bus, cpu = empty(alts[0])
+    call(cpu, "logic_ensure")
+    bus.wram[win + 5] ^= 0xFF                               # a mark a copy would wipe
+    n0 = cpu.steps
+    call(cpu, "logic_ensure")
+    check("...once: the same map again copies nothing, in under 60 instructions",
+          (bus.wram[win + 5] == images[alts[0]][5] ^ 0xFF, cpu.steps - n0 < 60), (True, True))
+    bus.sram[S("RANDO_MAP")] = alts[1]
+    call(cpu, "logic_ensure")
+    check("...another map copied over it", bytes(bus.wram[win:win + size]) == images[alts[1]], True)
+
+    #  The unwinnable warning on each map, which Rebellious Princess and
+    #  Shard Hunt ask too: Key items Vanilla and Standard, the SHIP and the
+    #  FLOATER removed or not, Early flags, a princess's spot.
+    jobs = [(m, ki, r, e, sara) for m in alts for ki in (0, 1)
+            for r in ([0x20, 0, 0], [0x23, 0, 0], [0x2B, 0, 0]) for e in (0, 0x0F) for sara in (0, 5)]
+    res = pmap(altwin_job, jobs)
+    check("rando_winnable on each map: randoref's on the map's graph", [j for j, g, w in res if g != w][:4], [])
+    check("...both answers among them", sorted({w[0] for _, _, w in res}), [False, True])
+
+    #  Placement on each map, in each mode; Rebellious Princess on with
+    #  Floors, and under Key items Vanilla; no Early flags.
+    van = (K["KEYITEMS_VANILLA"], [0x20, 0, 0], [0x81, 0], 0x0F)
+    jobs = [(m, seed, PLACE_CONFIGS[cfg], mode, rebel) for m in alts
+            for mode in (R.ENTRANCES_OFF, R.ENTRANCES_ONLY, R.ENTRANCES_FLOORS)
+            for seed, cfg, rebel in ((0x100 * m + 1 + mode, "beginner", False),
+                                     (0xD1625106 + m + 7 * mode, "wide-loose", mode == R.ENTRANCES_FLOORS))] + \
+        [(m, 0x77 + m, van, R.ENTRANCES_FLOORS, True) for m in alts] + \
+        [(m, 0x1A7E + m, PLACE_CONFIGS["late"], R.ENTRANCES_ONLY, False) for m in alts]
+    res = pmap(altrando_job, jobs)
+    bad = [(job[0], job[1], job[3], job[4], k) for job, got, want, _ in res for k in want if got[k] != want[k]]
+    check("each map, each mode: randoref's placement on the map's graph, its attempt, the ship's dock, "
+          "the mode kept, the princess's spot, the teleport tables and the Seed Summary's numbers",
+          bad[:6], [])
+    check("...every run placed", [job[:2] for job, got, _, _ in res if job[2][0] and got["placed"][0] != 1], [])
+    check("...the princess away from Garland's on some map", any(got["sara"] for job, got, _, _ in res if job[4]),
+          True)
+
+    #  ...and the fallback, which no seed tried has needed: with no attempts
+    #  at a wiring, the map's vanilla wiring on its logic (pl_edited), the
+    #  mode Off -- not the game's map's tables, which place differently here.
+    rom = bytearray(ROMDATA)
+    esk = K["RP_ESK"] & 0xFFFF
+    at = (RANDO_BANK - 0xA0) * 0x10000
+    op = bytes([0xAD, esk & 0xFF, esk >> 8, 0xC9, R.ES_ATTEMPTS, 0x00, 0xB0])
+    i = bytes(rom[at + 0x8000:at + 0xC000]).find(op)
+    check("pl_shuffled's attempt count found", i >= 0, True)
+    rom[at + 0x8000 + i + 4] = 0                        # CMP #0: no attempts
+    cfg, seed, m = PLACE_CONFIGS["beginner"], 3, alts[2]
+    bus = Bus(bytes(rom))
+    cpu = CPU(bus)
+    cpu.dbr = 0xA7
+    sv = bus.sram
+    sv[K["RANDO_SAVE"] - 0x6000:K["RANDO_SAVE"] - 0x6000 + 4] = seed.to_bytes(4, "little")
+    sv[K["RANDO_KEYITEMS"] - 0x6000] = cfg[0]
+    sv[K["RANDO_ITEMS"] - 0x6000:K["RANDO_ITEMS"] - 0x6000 + 3] = bytes(cfg[1])
+    sv[K["RANDO_GEAR"] - 0x6000:K["RANDO_GEAR"] - 0x6000 + 2] = bytes(cfg[2])
+    sv[K["RANDO_EARLY"] - 0x6000] = cfg[3]
+    sv[K["RANDO_ENTRANCES"] - 0x6000] = R.ENTRANCES_FLOORS
+    sv[S("RANDO_MAP")] = m
+    cpu.run(RANDO_BANK, SYM["rando_ensure"], limit=200_000_000)
+    R.use_graph(altgraph(m))
+    try:
+        want = R.build_edited(seed, *cfg, 0)[2]
+    finally:
+        R.use_graph(None)
+    check("...on another map, no wiring placed: the map's vanilla wiring on its logic, the mode Off",
+          (placement(bus), bus.wram[rw("RW_ENTRANCES")], want != R.build_placement(seed, *cfg)),
+          ((1, want), R.ENTRANCES_OFF, True))
+    check("...a shuffle on every map", sorted({job[0] for job, got, _, _ in res if got["mode"]}), alts)
+    #  On six of FFR's maps the land west of Titan's Tunnel, which no airship
+    #  reaches, is cut off under Map shuffle, and more wirings are thrown
+    #  away there than on the game's map.  Each was a minute on the roll
+    #  screen, every try placing every item and then losing, until
+    #  placement checked first that the world can be won at all (pl_tries).
+    #  At 12,000 instructions a frame, 10M is fourteen seconds.
+    check("...every New Game under 10M instructions, a second or third wiring among them",
+          ([(job[:2], n) for job, got, _, n in res if n > 10_000_000], max(got["esk"] for _, got, _, _ in res) >= 2),
+          ([], True))
+
+
+def placewin_job(j):
+    """test_placewin's run: sara_world on map m with placement's check
+    before a world's tries (randoref.place_winnable), and without it.  Out:
+    the job, whether the two agree, whether it placed, and how many times
+    the check refused."""
+    m, seed, cfgname, mode, rebel, goal = j
+    cfg = PLACE_CONFIGS[cfgname]
+    keep, refused = R.place_winnable, [0]
+
+    def counted(*a, **k):
+        ok = keep(*a, **k)
+        refused[0] += not ok
+        return ok
+    R.use_graph(altgraph(m) if m else None)
+    try:
+        R.place_winnable = counted
+        a = R.sara_world(seed, *cfg, mode, 0, goal, rebel)
+        R.place_winnable = lambda *x, **k: True
+        b = R.sara_world(seed, *cfg, mode, 0, goal, rebel)
+    finally:
+        R.place_winnable = keep
+        R.use_graph(None)
+    return j, a == b, a[1][2] is not None, refused[0]
+
+
+def test_placewin():
+    """Placement's check before a world's tries (place.inc's pl_tries,
+    randoref.place_winnable): holding every key item to place, is the seed
+    won?  If not, the tries are skipped, which changes no placement -- each
+    would have placed every item and lost.  The reference with the check
+    and without it, the same on the game's map, Mirror World and two of
+    FFR's, Map shuffle Off, Entrances and Floors, Rebellious Princess on
+    and off, the Goal four orbs and Shard Hunt at 36; the check refusing
+    some, and every one placed."""
+    import genmaps as GM
+    alts = [i for i, e in enumerate(GM.parse()) if e[0] != "vanilla"]
+    maps = [0, alts[0], alts[2], alts[6]]
+    jobs = [(m, 0x5EED0000 + 97 * i, cfg, mode, rebel, goal) for m in maps for i in range(3)
+            for cfg, mode in (("wide-loose", R.ENTRANCES_FLOORS), ("beginner", R.ENTRANCES_ONLY),
+                              ("beginner", R.ENTRANCES_OFF))
+            for rebel in (False, True) for goal in (R.GOAL_4ORBS, R.GOAL_MODES - 1)]
+    res = pmap(placewin_job, jobs)
+    check("the check changes no placement: with it and without, the same world, spot and dock",
+          [j for j, same, _, _ in res if not same][:4], [])
+    check("...the check refusing worlds on FFR's maps", sum(n for j, _, _, n in res if j[0] in maps[2:]) > 0, True)
+    check("...every one placed", [j for j, _, placed, _ in res if not placed][:4], [])
 
 
 def test_es_tree():
@@ -7270,13 +7618,16 @@ def test_ngflow():
     RS, RW_OWE = K["RANDO_SEED"] - K["RANDO_SAVE"], K["RANDO_OWEDITS"] - K["RANDO_SAVE"]
     RW_MAP = K["RANDO_MAP"] - K["RANDO_SAVE"]
 
-    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None, failing=(), touch=(), real=False, maps=()):
+    def flow(script, ticks=(), ng=None, typed=(), rom=None, stale=None, failing=(), touch=(), real=False, maps=(),
+             stalemap=None):
         """Run ng_flow, each screen answering the next of script; Map Select,
         each time, noting the map it starts on (NGF_MAP) and choosing the
         next of maps, if any (None: as it is); the map edit
         screen, each time, ticks the next of ticks (as RANDO_OWEDITS) after
         noting what it was given (its A, and RANDO_OWEDITS); stale, the
-        live game's RANDO_OWEDITS before.  The build answers built, or for
+        live game's RANDO_OWEDITS before, and stalemap its RANDO_MAP (the
+        map edit screen notes the save's map, which its check's logic is
+        for).  The build answers built, or for
         each true of failing in turn, no world; its cache's tag made as
         rando_ensure makes it -- or, real, the build itself.  The options
         screen calls the next of touch, if any, on the bus.  Out: the
@@ -7295,12 +7646,14 @@ def test_ngflow():
         bus.sram[POOL:POOL + 4] = (0x2468ACE1).to_bytes(4, "little")    # a pool to tell from none
         if stale is not None:
             bus.sram[OWE], bus.sram[OWE + 1] = stale & 0xFF, stale >> 8
+        if stalemap is not None:
+            bus.sram[K["RANDO_MAP"] - 0x6000] = stalemap
         cpu.pbr, cpu.pc = NG, SYM["ng_flow"]
         cpu.push(0xFF); cpu.push(0xFF); cpu.push(0xFD)
         seen, answers, tick, typing, fails, touches = [], list(script), list(ticks), list(typed), list(failing), list(touch)
         chosen = list(maps)
         edits["given"], edits["ngf"], edits["settings"], edits["seed"] = [], None, [], []
-        edits["mapsel"] = []
+        edits["mapsel"], edits["mapat"] = [], []
         edits["order"], edits["builds"], edits["bus"], edits["rolls"] = [], [], bus, []
         seed = lambda: int.from_bytes(bytes(bus.wram[NGSEED:NGSEED + 4]), "little")
         pool = lambda: int.from_bytes(bytes(bus.sram[POOL:POOL + 4]), "little")
@@ -7351,6 +7704,7 @@ def test_ngflow():
                             bus.wram[NGMAP] = m
                 if here == "mapedits":
                     edits["given"].append((cpu.a & 0xFF, bus.sram[OWE] | bus.sram[OWE + 1] << 8))
+                    edits["mapat"].append(bus.sram[K["RANDO_MAP"] - 0x6000])
                     save = K["RANDO_SAVE"] - 0x6000 + K["RANDO_NGOFF"]
                     edits["settings"].append(bytes(bus.sram[save:save + ngsize]) == bytes(bus.sram[ngoff:ngoff + ngsize]))
                     if tick:
@@ -7472,6 +7826,9 @@ def test_ngflow():
     check("...the edits ticked kept through another map, for the game's again; New Game's the last ticked",
           (edits["given"], edits["ngf"], [b[1] for b in edits["builds"]]),
           ([(KEEP | CANBACK, OPEN), (KEEP | CANBACK, 0x0041), (KEEP | CANBACK, 0x0041)], (0x0043, 1), [0x0043]))
+    flow([CUSTOM, FWD, FWD, FWD, FWD, FWD], maps=[0], stalemap=other)
+    check("...the game's map chosen after a game on another: the save's map the game's by the map edit "
+          "screen, whose check reads that map's logic", edits["mapat"], [0])
     flow([2, FWD, FWD, FWD, BACK, BACK, FWD, FWD, FWD, FWD, FWD], maps=[0, other], ticks=[0x0041, 0x0041])
     check("...edits ticked, then another map chosen: built with none",
           (edits["order"][-6:], [b[1] for b in edits["builds"]]),
@@ -21038,7 +21395,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_altrando, test_placewin, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,
