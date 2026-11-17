@@ -25,6 +25,9 @@ python3 tools/gentactics.py
 python3 tools/genitemmagic.py
 python3 tools/genowedits.py
 python3 tools/genows.py
+#  A drawn map of maps/ edited: its logic worked out again (maps/graph/,
+#  half a minute a map; commit it with the map).
+python3 tools/gengraph.py --stale
 python3 tools/genmaps.py
 python3 tools/genseedart.py
 python3 tools/genpresets.py

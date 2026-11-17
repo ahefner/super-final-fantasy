@@ -2677,7 +2677,7 @@ def test_owscreen():
 def test_mapselect():
     """New Game's Map Select (mapselect.inc), held to maps/custom-maps.txt
     read here and each map's tiles made here: the game's from the ROM's
-    bank $01, the mirror its rows reversed, FFR's from the vendored files.
+    bank $01, the mirror its rows reversed, a drawn map's from its .ffm.
     As it comes up, for every map: its minimap whole in the first set of
     characters, on screen, the two tilemaps, the names in their columns,
     the title and the frame, the hand at the name and the ring at the map's
@@ -2715,9 +2715,10 @@ def test_mapselect():
             #  game's map); its start, the game's across.
             import genmaps
             return list(genmaps.mirror_lr(bytes(van))[0]), (255 - vstart[0], vstart[1]), " ".join(e[1:])
-        d = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
-        t = b"".join(base64.b64decode(r) for r in d["DecompressedMapRows"])
-        return list(t), (d["StartingLocation"]["X"], d["StartingLocation"]["Y"]), " ".join(e[2:])
+        import tomllib
+        t = open(os.path.join(ROOT, "maps", e[1] + ".ffm"), "rb").read()
+        p = tomllib.load(open(os.path.join(ROOT, "maps", e[1] + ".toml"), "rb"))
+        return list(t), tuple(p["start"]), " ".join(e[2:])
     worlds = [world(e) for e in entries]
     check("the list's maps, the game's first", (N, entries[0][0]), (len(entries), "vanilla"))
     check("...the vanilla start the game's, Coneria's", vstart, (153, 165))
@@ -2910,7 +2911,7 @@ def test_mapselect():
 
 def test_altmaps():
     """The game played on the map Map Select chose (altmaps.inc), each map's
-    tiles and places made here: FFR's from the vendored files, the game's
+    tiles and places made here: a drawn map's from its .ffm and .toml, the game's
     from bank $01 and bank $00's tables, Mirror World from the game's by
     its rules -- each piece by its mirror, read from how the pieces are
     laid out, the castles, the Temple, the Mirage Tower and the volcano
@@ -3016,44 +3017,38 @@ def test_altmaps():
                  "BRIDGE": across(*xy(0x09)), "CANAL": across(*xy(0x0D)), "FREESHIP": across(*FREESHIP),
                  "EXIT": [across(*p) if p != (0, 0) else p for p in VEX],
                  "DOMAIN": [8 * (z // 8) + 7 - z % 8 for z in range(64)],
-                 "PINZONES": [8 * (z // 8) + 7 - z % 8 for z in R.STARTING_ZONES],
+                 "PINZONES": sorted(8 * (z // 8) + 7 - z % 8 for z in R.STARTING_ZONES) + [0xFF],
                  "DOCKS": [across(*d[1]) for d in L.DOCKS], "FLAGS": 2, "tiles": MW}
         else:
-            f = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
-            p = lambda v: (v["X"], v["Y"])
-            ships = {sl["TeleporterIndex"]: p(sl) for sl in f["ShipLocations"]}
+            import tomllib
+            p = tomllib.load(open(os.path.join(ROOT, "maps", e[1] + ".toml"), "rb"))
+            t = open(os.path.join(ROOT, "maps", e[1] + ".ffm"), "rb").read()
+            m = GM.ffm_map(e[1])        # what follows from the tiles: test_ffmrules holds it to FFR's maps
             ex = list(VEX)
-            for t in f["TeleporterFixups"]:
-                ex[t["Index"]] = p(t["To"])
-            docks = [ships[255]]                            # the default first, then each other once
-            for o in sorted(ships):
-                if o != 255 and ships[o] not in docks:
-                    docks.append(ships[o])
-            dom = list(range(64))
-            for du in f["DomainUpdates"]:
-                dom[du["To"]] = du["From"]
-            w = {"START": p(f["StartingLocation"]), "SHIP": ships.get(2, ships[255]),
-                 "AIRSHIP": p(f["AirShipLocation"]), "BRIDGE": p(f["BridgeLocation"]),
-                 "CANAL": p(f["CanalLocation"]), "FREESHIP": ships[255], "EXIT": ex, "DOMAIN": dom,
-                 "PINZONES": list(R.STARTING_ZONES),
-                 "DOCKS": docks,
-                 "FLAGS": int(bool(f["HorizontalBridge"])),
-                 "tiles": list(b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"]))}
+            for k, v in m["exits"].items():
+                ex[k] = v
+            dom = m["domains"]
+            w = {"START": tuple(p["start"]), "SHIP": tuple(p["ship"]), "AIRSHIP": tuple(p["airship"]),
+                 "BRIDGE": tuple(p["bridge"]), "CANAL": tuple(p["canal"]), "FREESHIP": tuple(p["docks"][0]),
+                 "EXIT": ex, "DOMAIN": dom,
+                 "PINZONES": [z for z in range(64) if dom[z] in R.STARTING_ZONES] + [0xFF],
+                 "DOCKS": [tuple(d) for d in p["docks"]], "FLAGS": int(m["hbridge"]), "tiles": list(t)}
         want[i] = w
     bad = []
     for i, w in want.items():
         got = {f: rec(i, f) for f in ("START", "SHIP", "AIRSHIP", "BRIDGE", "CANAL", "FREESHIP")}
         got["DOMAIN"] = list(rec(i, "DOMAIN", 64))
-        got["PINZONES"] = list(rec(i, "PINZONES", 4))
+        pins = list(rec(i, "PINZONES", 32))
+        got["PINZONES"] = pins[:pins.index(0xFF) + 1] if 0xFF in pins else pins
         got["FLAGS"] = rec(i, "FLAGS", 1)[0]
         bad += ["%s %s" % (entries[i][-1], f) for f in got if got[f] != (list(w[f]) if isinstance(w[f], list) else w[f])]
-    check("each map's record: the start, the ships, the airship, the bridge, the canal, the zones, the four "
-          "zones the zone pass leaves alone -- FFR's StartingZones, Mirror World's mirrored -- the flags",
+    check("each map's record: the start, the ships, the airship, the bridge, the canal, the zones, those "
+          "the zone pass leaves alone -- every zone that takes Coneria's encounters -- the flags",
           bad, [])
     zone = lambda xy: xy[1] // 32 * 8 + xy[0] // 32
-    check("...the start's zone among them on the game's map and Mirror World",
-          [zone(VSTART) in R.STARTING_ZONES] + [zone(want[m]["START"]) in want[m]["PINZONES"] for m in MID],
-          [True] * (1 + len(MID)))
+    check("...the start's zone among them on every map (user, 2026-11-16: the easiest encounters near "
+          "the start)", [entries[m][-1] for m in want if zone(want[m]["START"]) not in want[m]["PINZONES"]]
+          + ([] if zone(VSTART) in R.STARTING_ZONES else ["the game's"]), [])
     for m in MID:
         w = want[m]
         places = [("start", VSTART, w["START"]), ("ship", xy(1), w["SHIP"]), ("airship", xy(5), w["AIRSHIP"]),
@@ -3288,7 +3283,7 @@ def test_altmaps():
 
 def altmap_tiles():
     """Each of Map Select's maps, made here, in maps/custom-maps.txt's order:
-    the game's from bank $01, FFR's from the vendored files, Mirror World
+    the game's from bank $01, a drawn map's from its .ffm, Mirror World
     as genmaps makes it (test_altmaps holds it to the game's map)."""
     import gzip, base64, json
     import genmaps as GM
@@ -3307,9 +3302,176 @@ def altmap_tiles():
         elif e[0] == "mirror-lr":
             out.append(list(GM.mirror_lr(bytes(van))[0]))
         else:
-            f = json.loads(gzip.open(os.path.join(ROOT, "maps", "%s-%s.json.gz" % (e[0], e[1]))).read())
-            out.append(list(b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])))
+            out.append(list(open(os.path.join(ROOT, "maps", e[1] + ".ffm"), "rb").read()))
     return out
+
+
+def ffmrule_job(name):
+    """test_ffmrules' run: one of FFR's normal256 maps, what genmaps.ffm_map
+    works out from its tiles against what FFR's file says."""
+    import genmaps as GM, zipfile, json, base64
+    f = json.loads(zipfile.ZipFile(os.path.join(GM.FFRMAPS, "normal256.zip")).read(name))
+    t = b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])
+    xy = lambda v: (v["X"], v["Y"])
+    owti = {k: e for k, e, _, _ in GM.FEATURES}
+    at = GM.entrance_places(t, name)
+    exits = {x["Index"]: xy(x["To"]) for x in f["TeleporterFixups"] or [] if x["Type"] == 1}
+    zones = list(range(64))
+    for d in f.get("DomainUpdates") or []:
+        zones[d["To"]] = d["From"]
+    b = xy(f["BridgeLocation"])
+    moved = sorted(k for k, v in f["OverworldCoordinates"].items() if at[owti[k]] != xy(v))
+    tiles = {k: GM.entrance_tiles(t)[owti[k]] for k in moved}
+    return (name, moved, all(xy(f["OverworldCoordinates"][k]) in tiles[k] for k in moved),
+            exits == {k: at[e] for k, e in enumerate(GM.EXIT_ENTRANCES)},
+            (t[((b[0] + 1) & 255) | b[1] << 8] in GM.FFR_LAND) == bool(f.get("HorizontalBridge")),
+            GM.ffr_zones(t, at) == zones)
+
+
+def test_ffmrules():
+    """What a drawn map's tiles give (genmaps.ffm_map), held to FFR's map
+    generator over every map of its normal256 pool, the pool the drawn maps
+    came from: each entrance's place, its tile of a town or castle by the
+    generator's choice -- Pravoka's alone differing, on some maps, another
+    of its tiles (the generator has two layouts of the same tiles); the
+    exits' landings; the bridge's direction; and each zone's encounters
+    (AssignEncounterDomains).  Skipped without FFR's source beside the tree."""
+    import genmaps as GM, zipfile
+    zp = os.path.join(GM.FFRMAPS, "normal256.zip")
+    if not os.path.exists(zp):
+        skipped.append("test_ffmrules: no %s (FF1Randomizer/ beside the tree, or in $FFR_ROOT), so the "
+                       "drawn maps' rules are not checked against FFR's pool" % os.path.relpath(zp, os.path.dirname(ROOT)))
+        return
+    names = [n for n in zipfile.ZipFile(zp).namelist() if n.endswith(".json")]
+    res = pmap(ffmrule_job, names)
+    check("FFR's normal256 pool: 256 maps", len(res), 256)
+    check("...each entrance's place FFR's, but Pravoka's on some maps, there another of its tiles",
+          ({m for r in res for m in r[1]}, all(r[2] for r in res), 0 < sum(1 for r in res if r[1]) < 128),
+          ({"Pravoka"}, True, True))
+    check("...the exits' landings FFR's", [r[0] for r in res if not r[3]][:4], [])
+    check("...the bridge's direction FFR's", [r[0] for r in res if not r[4]][:4], [])
+    check("...every zone's encounters FFR's", [r[0] for r in res if not r[5]][:4], [])
+
+
+def test_ffmcheck():
+    """A drawn map edited wrong is refused, saying why (genmaps.ffm_map):
+    an entrance missing; one in two places; a place of the .toml missing,
+    not [x, y], unknown, or a dock twice.  And by gengraph, somewhere never
+    reached holding everything: Pangea's Matoya's Cave walled in with
+    mountains.  Pangea as it is passes both.  And the build's --stale makes
+    again the logic of a map edited or with none, and no other's."""
+    import genmaps as GM, tempfile, shutil
+    src = os.path.join(ROOT, "maps")
+    tiles = open(os.path.join(src, "pangea.ffm"), "rb").read()
+    toml = open(os.path.join(src, "pangea.toml")).read()
+    mx, my = GM.entrance_tiles(tiles)[21][0]           # Matoya's Cave
+
+    def refusal(t, tm, graph=False):
+        d = tempfile.mkdtemp()
+        keep = GM.MAPDIR
+        try:
+            with open(os.path.join(d, "x.ffm"), "wb") as f:      # closed now: PyPy closes late
+                f.write(bytes(t))
+            with open(os.path.join(d, "x.toml"), "w") as f:
+                f.write(tm)
+            GM.MAPDIR = d
+            GM.ffm_map("x")
+            if graph:
+                import gengraph as GG
+                spec = GG.map_spec("x")
+                out, _ = GG.graph(spec)
+                GG.check_map(out, spec)
+            return None
+        except SystemExit as e:
+            return str(e)
+        finally:
+            GM.MAPDIR = keep
+            shutil.rmtree(d)
+
+    def put(t, cells, tile):
+        t = bytearray(t)
+        for x, y in cells:
+            t[(x & 255) | (y & 255) << 8] = tile
+        return bytes(t)
+    cases = [("as it is", refusal(tiles, toml), None),
+             ("no Matoya's Cave", refusal(put(tiles, [(mx, my)], 0x54), toml), "has no MatoyasCave"),
+             ("a second, far off", refusal(put(tiles, [(mx + 40, my)], tiles[mx | my << 8]), toml),
+              "MatoyasCave in more than one place"),
+             ("no canal", refusal(tiles, re.sub(r"(?m)^canal.*$", "", toml)), "has no canal"),
+             ("the start not [x, y]", refusal(tiles, re.sub(r"(?m)^start = .*$", "start = [1, 2, 3]", toml)),
+              "start wants [x, y]"),
+             ("an unknown place", refusal(tiles, toml + "boat = [1, 2]\n"), "no place called boat"),
+             ("a dock twice", refusal(tiles, re.sub(r"(?m)^docks = \[(\[\d+, \d+\])", r"docks = [\1, \1",
+                                                     toml)), "lists a dock twice")]
+    check("a drawn map edited wrong: refused, saying why", [(n, got) for n, got, want in cases
+                                                          if (got is None) != (want is None) or
+                                                          (want and want not in got)], [])
+    #  The build's gengraph.py --stale: as committed, nothing to make again;
+    #  a map whose graph was made from other inputs, or has none, made again.
+    import gengraph as GG
+    d = tempfile.mkdtemp()
+    try:
+        keys = GG.stale_keys()
+        for f in os.listdir(GG.MAPGRAPH):
+            shutil.copy(os.path.join(GG.MAPGRAPH, f), d)
+        g = open(os.path.join(d, "pangea.py")).read()
+        with open(os.path.join(d, "pangea.py"), "w") as f:
+            f.write(re.sub(r"(?m)^DIGEST = '\w+'", "DIGEST = '0123456789abcdef'", g))
+        os.remove(os.path.join(d, "great-lake.py"))
+        check("the build makes again the logic of a map edited, or with none, and only those",
+              (keys, sorted(GG.stale_keys(d))), ([], ["great-lake", "pangea"]))
+    finally:
+        shutil.rmtree(d)
+    ring = [(mx + dx, my + dy) for dx in range(-2, 3) for dy in range(-2, 3) if (dx, dy) != (0, 0)]
+    check("...and walled in with mountains, refused by its logic, never reached",
+          (refusal(tiles, toml, graph=True), "never reached, holding everything" in
+           (refusal(put(tiles, ring, 0x21), toml, graph=True) or "")), (None, True))
+
+
+def test_selfcontained():
+    """The build needs nothing outside snes/, nor a ROM it built before
+    (user, 2026-11-16: "The build should be self-contained").  Making a
+    drawn map's logic, as the build's --stale does, opens no file outside
+    the tree, nor the built ROM or out/: worldgraph reads FFR's teleport
+    records from a snapshot (worldgraph/ffr_teleports_data.py), and the
+    game's banks it reads -- $00, $01's overworld, $04-$07 -- from the
+    tree's sources as mkrom.py lays them into the ROM, which they are, byte
+    for byte.  With FFR's source beside the tree (or in $FFR_ROOT), the
+    snapshot is what the source says."""
+    import gengraph as GG
+    import ffr_teleports as ft
+    import romdata as rd
+    if hasattr(sys, "addaudithook"):
+        outside = set()
+        here = os.path.realpath(ROOT)
+        built = (os.path.realpath(rd.ROM_PATH), os.path.realpath(os.path.join(ROOT, "out")) + os.sep)
+        lib = {os.path.realpath(p) for p in (sys.prefix, sys.base_prefix, sys.exec_prefix)}
+
+        def hook(ev, args):
+            if ev == "open" and args and isinstance(args[0], str):
+                p = os.path.realpath(args[0])
+                if p == built[0] or p.startswith(built[1]) or not p.startswith(here) and \
+                        not any(p.startswith(l) for l in lib) and "site-packages" not in p:
+                    outside.add(p)
+        sys.addaudithook(hook)
+        rd._rom = None
+        spec = GG.map_spec("pangea")
+        out, _ = GG.graph(spec)
+        GG.check_map(out, spec)
+        check("making a drawn map's logic opens no file outside snes/, nor the built ROM or out/",
+              sorted(outside), [])
+    else:
+        skipped.append("test_selfcontained: no audit hooks here, so the files opened are not watched")
+    b = lambda n: ROMDATA[(n + 1) * 0x10000 + 0x8000:][:0x4000]
+    b1 = b(1)
+    rom_ow = bytes(t for r in range(256) for t in R.decode_rle(b1, (b1[2 * r] | b1[2 * r + 1] << 8) - 0x8000, 256))
+    check("...the banks worldgraph reads, from the sources, the ROM's: $00, $04-$07, $01's overworld",
+          ([n for n in (0, 4, 5, 6, 7) if rd.nesbank(n) != b(n)], rd.vanilla_overworld() == rom_ow), ([], True))
+    if os.path.exists(os.path.join(ft.FFR, "Teleporters.cs")):
+        check("...FFR's teleport records' snapshot what FFR's source says", ft.load() == ft.parse(), True)
+    else:
+        skipped.append("test_selfcontained: no FFR source beside the tree (or in $FFR_ROOT), so the snapshot "
+                       "of its teleport records is not checked against it")
 
 
 def test_altminimap():
@@ -21395,7 +21557,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_altrando, test_placewin, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_ffmrules, test_ffmcheck, test_selfcontained, test_altrando, test_placewin, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,

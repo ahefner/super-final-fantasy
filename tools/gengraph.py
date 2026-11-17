@@ -34,7 +34,8 @@ it gives genlogic.py's own masks, mask for mask.
 
 Only regions that something can touch are kept -- an edge's end, a source, a
 landing, a location's -- 210 of the graph's 654, so a region fits in a byte.
-FFR's records and lists are its own (ffr_teleports, read from its source).
+FFR's records and lists come from ffr_teleports, a snapshot of FFR's source
+(worldgraph/ffr_teleports_data.py).
 """
 import itertools
 import os
@@ -109,10 +110,9 @@ def map_spec(key):
     """Another map of maps/custom-maps.txt, for strip and graph: its tiles,
     its positions and exits for build.build, its docks -- the first a Free
     SHIP's -- and its entrances' coordinates, where an exit Map shuffle
-    wires to one sets the party down.  key: "mirror-lr", or FFR's
-    POOL-ID, as maps/ vendors it.  With them, a digest of the inputs, so the
-    build can tell a graph made from other inputs (genmaps.py)."""
-    import base64, gzip, hashlib, json
+    wires to one sets the party down.  key: "mirror-lr", or a drawn map's
+    stem (genmaps.ffm_map).  With them, a digest of the inputs, so the build
+    can tell a graph made from other inputs (genmaps.py, --stale)."""
     import genmaps as GM
     import genows
     m = ft.load()
@@ -124,21 +124,11 @@ def map_spec(key):
         docks = [(name, GM.mirror_pos(blocks, *xy)) for name, xy in G.DOCKS]
         owc = {m.owti[o]: GM.mirror_pos(blocks, *xy) for o, xy in m.ow_coords.items()}
     else:
-        f = json.loads(gzip.open(os.path.join(ROOT, "maps", key + ".json.gz")).read())
-        tiles = b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])
-        xy = lambda v: (v["X"], v["Y"])
-        ships = {sl["TeleporterIndex"]: xy(sl) for sl in f["ShipLocations"]}
-        pos = {"start": xy(f["StartingLocation"]), "ship": ships.get(2, ships[255]),
-               "airship": xy(f["AirShipLocation"]), "bridge": xy(f["BridgeLocation"]),
-               "canal": xy(f["CanalLocation"])}
-        exits = {t["Index"]: xy(t["To"]) for t in f["TeleporterFixups"] if t["Type"] == 1}
-        #  FFR's docks, each place once, the default (its Free SHIP's) first.
-        docks = [("default", ships[255])]
-        for o in sorted(k for k in ships if k != 255):
-            if ships[o] not in [d for _, d in docks]:
-                docks.append(("entrance %d" % o, ships[o]))
-        owc = {m.owti[o]: xy(v) for o, v in f["OverworldCoordinates"].items()}
-    entry = ("mirror-lr", None, None, "") if key == "mirror-lr" else ("ffr",) + tuple(key.split("-", 1)) + ("",)
+        d = GM.ffm_map(key)
+        tiles, pos, exits = d["tiles"], dict(d["places"]), d["exits"]
+        docks = [("default" if k == 0 else "dock %d" % k, xy) for k, xy in enumerate(d["docks"])]
+        owc = dict(d["entrances"])
+    entry = ("mirror-lr", None, None, "") if key == "mirror-lr" else ("ffm", key, None, "")
     return {"key": key, "tiles": bytes(tiles), "pos": pos, "exits": exits, "docks": docks,
             "ow_coords": owc, "digest": GM.map_digest(entry)}
 
@@ -157,6 +147,12 @@ def check_map(D, spec):
         got = masks_for(D, D["VANILLA_ENTRANCE"], D["VANILLA_NORMAL"], D["VANILLA_EXIT"], bits)
         bad = [c for c in range(len(want)) if sorted(got[c]) != want[c]]
         assert not bad, ("%s, Early %s: locations %s" % (spec["key"], early, bad[:8]))
+        #  ...and every place there is reached, holding everything: a map
+        #  edited so that somewhere cannot be got to is refused.
+        never = [(idx + [chaos])[c] for c in range(len(want)) if not want[c]]
+        if never:
+            sys.exit("gengraph: %s: never reached, holding everything: %s"
+                     % (spec["key"], ", ".join(str(g.locations[k]) for k in never[:6])))
     princess = G.EVENT_ORDER.index("Talk_Princess1") + 248
     for s_, nodes in enumerate(D["SARA_NODES"]):
         g, ow, _, _ = build.build(ow_tiles=spec["tiles"], pos=spec["pos"], exits=spec["exits"], sara=s_)
@@ -492,10 +488,38 @@ def graph(spec=None):
     return out, idx
 
 
+def stale_keys(graphdir=None):
+    """The other maps whose graph in graphdir (maps/graph/) is missing or was
+    made from other inputs than theirs now -- a drawn map edited."""
+    import re
+    import genmaps as GM
+    out = []
+    for e in GM.parse():
+        if e[0] == "vanilla":
+            continue
+        key = GM.graph_key(e)
+        path = os.path.join(graphdir or MAPGRAPH, key + ".py")
+        have = re.search(r"^DIGEST = '(\w+)'", open(path).read(), re.M) if os.path.exists(path) else None
+        if not have or have.group(1) != GM.map_digest(e):
+            out.append(key)
+    return out
+
+
+def stale():
+    """Each stale map's graph made again (build.sh, before genmaps.py), from
+    snes/ alone: worldgraph reads FFR's teleports from its snapshot
+    (ffr_teleports_data.py)."""
+    for key in stale_keys():
+        alt_main(key)
+
+
 def main():
     if sys.argv[1:2] == ["--map"]:
         for key in sys.argv[2:]:
             alt_main(key)
+        return
+    if sys.argv[1:2] == ["--stale"]:
+        stale()
         return
     out, idx = graph()
     check(out, idx)

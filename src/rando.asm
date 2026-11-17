@@ -4835,7 +4835,7 @@ deal_zones:
     .a8
 
     ;  Which zones the pass may touch: for Shuffle not one that is all zero;
-    ;  then not the four round Coneria (map_pinzones).
+    ;  then not those with Coneria's encounters (map_pinzones).
     LDX #$0000                  ; the zone's first slot, zone * 8
     LDY #$0000                  ; the zone
   @which:
@@ -4869,7 +4869,7 @@ deal_zones:
     INY
     CPY #128
     BCC @which
-    JSL map_pinzones + WORLDFAR ; the map's four (altmaps.inc)
+    JSL map_pinzones + WORLDFAR ; the map's (altmaps.inc)
 
     LDA a:wMODE
     CMP #ZONES_RANDOM

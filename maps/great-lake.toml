@@ -1,0 +1,12 @@
+#  From FFR's normal256 map 1608A036 (FF1Randomizer/FF1Lib/maps/normal256.zip).
+#  The places the tiles do not show, [x, y] in tiles (tools/genmaps.py).
+
+start = [47, 211]
+ship = [20, 119]             # Bikke's, at Pravoka's dock
+airship = [158, 34]
+bridge = [26, 149]
+canal = [112, 201]
+
+#  Where a found ship moors -- the nearest it can be boarded from -- the
+#  first where a Free SHIP waits.
+docks = [[12, 167], [20, 119], [50, 38], [102, 116], [203, 68], [141, 170]]

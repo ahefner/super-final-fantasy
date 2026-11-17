@@ -8,6 +8,7 @@ talk-routine table is parsed from the vanilla source instead, because there it
 has names.
 """
 import os
+import sys
 import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +29,36 @@ def rom():
     return _rom
 
 
+#  The banks the world graph reads -- the tables of bank $00, the overworld's
+#  rows in bank $01, the standard maps of banks $04-$07 -- come from the
+#  tree's sources, the bytes mkrom.py lays into the ROM: the vendored data
+#  with the port's overlays (mkrom.nesbank), bank $01's rows from its
+#  source (genows.bank01).  So the build can work out a map's logic before
+#  it has made a ROM (gengraph.py --stale; user, 2026-11-16: "The build
+#  should be self-contained").  Any other bank, from the built ROM.
+#  test_options.py's test_selfcontained holds the two to each other.
+_SRC_BANKS = (0x00, 0x01, 0x04, 0x05, 0x06, 0x07)
+_src = {}
+
+
+def source_bank(n):
+    if n not in _src:
+        tools = os.path.join(SNES, "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        if n == 0x01:
+            import genows
+            b = genows.bank01()
+            _src[n] = b + bytes(0x4000 - len(b))
+        else:
+            import mkrom
+            _src[n] = mkrom.nesbank("%02X" % n)
+    return _src[n]
+
+
 def nesbank(n):
+    if n in _SRC_BANKS:
+        return source_bank(n)
     o = (n + 1) * 0x10000 + 0x8000
     return rom()[o:o + 0x4000]
 

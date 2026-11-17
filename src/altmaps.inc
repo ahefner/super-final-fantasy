@@ -531,8 +531,8 @@ map_flags:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  The cache's zones: their formations (map_domains, build_forms' first
-;;  step, replacing its copy_domains) and the four the zone pass leaves
-;;  alone (map_pinzones).  Native, DBR = $7F; A8 I16 in and out.
+;;  step, replacing its copy_domains) and those the zone pass leaves alone
+;;  (map_pinzones).  Native, DBR = $7F; A8 I16 in and out.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;;  lut_Domains into the cache, as the cartridge has it; then for another
@@ -596,9 +596,11 @@ map_domains:
     RTL
 .assert ^RW_DOMAINS = ^RANDOWRAM, error, "map_domains writes the zones with DBR the cache's"
 
-;;  The zone pass's four zones round Coneria, left alone (deal_zones): each
-;;  marked not to touch in RW_ZONEOK, from the map's record (MI_PINZONES) --
-;;  the game's map's too, FFR's StartingZones.  By JSL; A8 I16.
+;;  The zones the zone pass leaves alone (deal_zones), those that take
+;;  Coneria's encounters, wherever the map's start is (user, 2026-11-16):
+;;  each marked not to touch in RW_ZONEOK, from the map's record
+;;  (MI_PINZONES, $FF after the last) -- on the game's map FFR's
+;;  StartingZones.  By JSL; A8 I16.
     .a8
     .i16
 map_pinzones:
@@ -610,9 +612,10 @@ map_pinzones:
     TAX                         ; its record
     SEP #$20
     .a8
-    LDY #4
   @pin:
     LDA f:MAPINFOFAR + MI_PINZONES, X
+    CMP #$FF
+    BEQ @done
     PHX
     REP #$20
     .a16
@@ -624,8 +627,8 @@ map_pinzones:
     STA f:RW_ZONEOK, X
     PLX
     INX
-    DEY
-    BNE @pin
+    BRA @pin
+  @done:
     RTL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

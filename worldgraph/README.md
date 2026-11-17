@@ -8,11 +8,16 @@ far.
     python3 run_vanilla.py      # build, check, write out/
     python3 selftest.py         # the checks, plus mutations proving they bite
 
-Standard library only.  Reads the built port (`SuperFinalFantasy.sfc` in the
-tree this is in -- it moved into the repository, `snes/worldgraph/`, on
-2026-10-18), the vanilla source for the talk-routine table, and, for the
-cross-check only, FFR's source (`FF1Randomizer/` beside the repository, or
-under `FFR_ROOT`).
+Standard library only.  Reads the game's banks the port uses -- bank
+$00's tables, $01's overworld, $04-$07's standard maps -- from the tree's
+sources as `tools/mkrom.py` lays them into the ROM (`romdata.source_bank`),
+so the build can use it before it has made a ROM; any other bank from the
+built port (`SuperFinalFantasy.sfc` in the tree this is in -- it moved into
+the repository, `snes/worldgraph/`, on 2026-10-18).  FFR's teleport records
+come from a snapshot in the tree, `ffr_teleports_data.py`
+(`ffr_teleports.py --vendor` writes it again).  It reads the vanilla
+source for the talk-routine table, and, for the cross-checks only, FFR's
+source (`FF1Randomizer/` beside the repository, or under `FFR_ROOT`).
 
 ## The model
 

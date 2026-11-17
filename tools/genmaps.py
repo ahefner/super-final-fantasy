@@ -19,28 +19,29 @@ to play each (user, 2026-11-15).
 
 maps/custom-maps.txt lists the maps in the order the screen shows them: the
 game's map first, then any of "mirror-lr" (the game's map mirrored left to
-right) and FFR's maps by pool and id, each with the name the screen shows.
-FFR's maps are vendored into maps/ as POOL-ID.json.gz, FFR's file as it is in
-its pool's zip, so the build needs nothing outside snes/:
+right) and maps drawn in maps/ (ffm_map), each with the name the screen
+shows.  A drawn map is two files: STEM.ffm, its 65,536 tiles one byte each,
+FFR's and FFHackster's format, so either can edit it; and STEM.toml, the
+places the tiles do not show -- the start, Bikke's ship, the airship, the
+bridge, the canal and the docks.  The rest follows from the tiles, as FFR's
+map generator works it out (procgen/NewOverworld.cs): where each entrance
+is, the exits' landings, which way the bridge runs, and each zone's
+encounters.  One of FFR's maps becomes a pair with
 
-    python3 tools/genmaps.py --vendor normal256 1EAA7BA6
+    python3 tools/genmaps.py --import normal256 1EAA7BA6 long-march
 
-copies one from ../FF1Randomizer/FF1Lib/maps/.
+from ../FF1Randomizer/FF1Lib/maps/, checked against what FFR's file says.
 
 A map's record, 256 bytes (MI_*): where its rows are; its flags (the bridge
 horizontal, the map a mirror); the start, the party's tile; where Bikke's
 ship waits, the airship, the bridge and the canal, as lut_InitUnsramFirstPage
-has the game's; where a Free SHIP waits; the four zones the zone pass
-leaves alone; each of the overworld's 64 zones' formations, as the zone
-they are taken from; its minimap's layout; and its logic chunk.  From
-FFR's file as FFR's OwMapExchange writes it: StartingLocation,
-AirShipLocation, BridgeLocation, CanalLocation; DomainFixups swapped, then
-DomainUpdates from the game's zones; HorizontalBridge; and ShipLocations
--- Bikke's ship at Pravoka's dock (entrance 2), a Free SHIP at the default
-(255).  Its exits (TeleporterFixups) and the docks a found ship moors at
-are its world graph's (gengraph.py --map; write_logic).  The game's map's
-record is the game's, for the tests; the game reads bank $01's map and the
-game's tables for it.
+has the game's; where a Free SHIP waits; the zones the zone pass leaves
+alone, those that take Coneria's encounters; each of the overworld's 64
+zones' formations, as the zone they are taken from; its minimap's layout;
+and its logic chunk.  Its exits and the docks a found ship moors at are its
+world graph's (gengraph.py --map; write_logic).  The game's map's record is
+the game's, for the tests; the game reads bank $01's map and the game's
+tables for it.
 
 A map's minimap layout (MI_MM; mm_layout): the minimap draws each 8 x 8
 block of the map into the tile of its number and shows the blocks through
@@ -61,10 +62,11 @@ volcano moved whole, drawn as they are, their art having a left and a right.
 Its places are mirrored the same way (mirror_pos), a place in a block's
 columns, in it or beside it above or below, moved with the block: the party
 lands at Northwest Castle's door, not beside it.  Its zones are the game's,
-mirrored; its docks the game's (lut_ShipDock), mirrored; and its lines that
-say east or west say the other (mirror_lines).
+mirrored; its docks the game's five, mirrored; and its lines that say east
+or west say the other (mirror_lines).
 """
-import base64, gzip, json, os, re, sys, zipfile
+import base64, json, os, re, sys, zipfile
+from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -73,7 +75,9 @@ import genows
 
 LIST = os.path.join(ROOT, "maps", "custom-maps.txt")
 MAPDIR = os.path.join(ROOT, "maps")
-FFRMAPS = os.path.join(os.path.dirname(ROOT), "FF1Randomizer", "FF1Lib", "maps")
+#  FFR's maps, for --import and test_ffmrules: FF1Randomizer/ beside the
+#  tree, or in $FFR_ROOT, as worldgraph/ finds FFR's source (romdata.py).
+FFRMAPS = os.path.join(os.environ.get("FFR_ROOT") or os.path.dirname(ROOT), "FF1Randomizer", "FF1Lib", "maps")
 OUT_SEL = os.path.join(ROOT, "gen", "maps.inc")
 OUT_WORLD = os.path.join(ROOT, "gen", "mapdata.inc")
 OUT_DLG = os.path.join(ROOT, "gen", "mapdlg.inc")
@@ -92,10 +96,46 @@ NMAPS = 61                      # the standard maps, cur_map 0-60
 #  The record.
 MI = dict(ROWBANK=0x00, ROWLO=0x01, FLAGS=0x03, START=0x04, SHIP=0x06, AIRSHIP=0x08,
           BRIDGE=0x0A, CANAL=0x0C, FREESHIP=0x0E, PINZONES=0x10, DOMAIN=0x30, MM=0xF0, LOGIC=0xF3)
-#  The four zones round Coneria that the zone pass leaves alone (rando.asm's
-#  deal_zones): FFR's StartingZones (Formations.cs), by number on each of
-#  FFR's maps as FFR has them; on Mirror World mirrored with the land.
+PINS_MAX = MI["DOMAIN"] - MI["PINZONES"] - 1    # ...and $FF after them
+#  The zones round Coneria that the zone pass leaves alone (rando.asm's
+#  deal_zones; FFR's StartingZones, Formations.cs): on another map, every
+#  zone that takes their encounters, wherever its start is (user,
+#  2026-11-16) -- FFR leaves these four alone by number on every map.
 START_ZONES = (0x1B, 0x1C, 0x24, 0x2C)
+
+#  A drawn map (ffm_map), as FFR's map generator works it out
+#  (procgen/NewOverworld.cs).  Its entrances (OverworldTeleportIndex), in
+#  the order the generator lists them (FeatureCoordinates; FFR's map files
+#  keep it), each with the game's zone whose encounters the land nearest it
+#  takes, in octal (row, column) as FFR writes them, and its weight in the
+#  vote (AssignEncounterDomains).
+FEATURES = [("Coneria", 1, 0o44, 3), ("ConeriaCastle1", 9, 0o44, 3), ("TempleOfFiends1", 13, 0o34, 1),
+            ("Pravoka", 2, 0o46, 1), ("Gaia", 6, 0o06, .75), ("CastleOrdeals1", 12, 0o14, .75),
+            ("TitansTunnelWest", 26, 0o50, 1), ("SardasCave", 22, 0o50, 1), ("EarthCave1", 14, 0o52, 1),
+            ("MirageTower1", 24, 0o16, .75), ("Onrac", 7, 0o11, .75), ("TitansTunnelEast", 25, 0o50, 1),
+            ("MatoyasCave", 21, 0o35, 1), ("DwarfCave", 20, 0o43, 1), ("Elfland", 3, 0o64, 1),
+            ("ElflandCastle", 10, 0o64, 1), ("MarshCave1", 23, 0o73, 1), ("NorthwestCastle", 11, 0o53, 1),
+            ("Melmond", 4, 0o52, 1), ("CrescentLake", 5, 0o66, 1), ("Lefein", 8, 0o37, .75),
+            ("BahamutCave1", 18, 0o13, .5), ("Cardia1", 0, 0o12, .5), ("Cardia2", 17, 0o12, .5),
+            ("Cardia4", 27, 0o12, .5), ("Cardia5", 28, 0o13, .5), ("Cardia6", 29, 0o13, .5),
+            ("Waterfall", 19, 0o01, 1), ("IceCave1", 16, 0o66, 1), ("GurguVolcano1", 15, 0o66, 1)]
+#  An entrance of several tiles -- a town's walls, a castle's gate -- has
+#  its place on one of them, the generator's: which, in reading order
+#  (Pravoka's second, Crescent Lake's last, the volcano's east half, and so
+#  on); else the first.
+ENTRANCE_TILE = {2: 1, 3: 2, 4: 1, 5: 4, 6: 3, 8: 2, 15: 1}
+#  The exits' landings, each an entrance's place (ReplacementMap's
+#  TeleporterFixups): Titan's Tunnel's east and west ends, the Ice Cave, the
+#  Castle of Ordeals, Coneria Castle, the Earth Cave, the volcano, Onrac,
+#  the Mirage Tower.
+EXIT_ENTRANCES = (25, 26, 16, 12, 9, 14, 15, 7, 24)
+#  The tiles the nearest-entrance search walks (OverworldTiles'
+#  TraversableRegionTypes: land, then river); the bridge runs east to west
+#  where the tile east of it is land.
+FFR_LAND = {0x00, 0x54, 0x60, 0x61, 0x70, 0x71, 0x55, 0x62, 0x63, 0x72, 0x73, 0x14, 0x03, 0x04, 0x05,
+            0x13, 0x15, 0x23, 0x24, 0x25, 0x28, 0x26, 0x08, 0x06, 0x45, 0x42, 0x43, 0x52, 0x53, 0x3D, 0x37}
+FFR_RIVER = {0x44, 0x40, 0x41, 0x50, 0x51}
+PLACES = ("start", "ship", "airship", "bridge", "canal")
 #  Each other map's logic chunk image (build.sh links one a map from
 #  gen/logic_N/), sixteen KB a slot, two to a low half of the NES's chunks,
 #  which nothing else uses: mkrom.py lays out/logic_N.bin where
@@ -179,7 +219,8 @@ def snes_const(name):
 
 
 def parse():
-    """[(kind, pool, id, name)]: kind 'vanilla', 'mirror-lr' or 'ffr'."""
+    """[(kind, stem, None, name)]: kind 'vanilla', 'mirror-lr' or 'ffm', a
+    drawn map's stem its files' name in maps/."""
     out = []
     for n, line in enumerate(open(LIST, encoding="utf-8"), 1):
         line = line.split("#")[0].strip()
@@ -189,42 +230,193 @@ def parse():
         rest = rest.strip()
         if word in ("vanilla", "mirror-lr"):
             out.append((word, None, None, rest))
+        elif word == "ffm":
+            stem, _, name = rest.partition(" ")
+            if not re.match(r"^[a-z0-9-]+$", stem) or not name.strip():
+                sys.exit("%s:%d: want ffm STEM NAME, STEM in lower case, digits and -"
+                         % (os.path.relpath(LIST, ROOT), n))
+            out.append(("ffm", stem, None, name.strip()))
         else:
-            mid, _, name = rest.partition(" ")
-            if not mid or not name.strip():
-                sys.exit("%s:%d: want POOL ID NAME" % (os.path.relpath(LIST, ROOT), n))
-            out.append(("ffr", word, mid, name.strip()))
+            sys.exit("%s:%d: no kind of map \"%s\"" % (os.path.relpath(LIST, ROOT), n, word))
         if not out[-1][3]:
             sys.exit("%s:%d: a map with no name" % (os.path.relpath(LIST, ROOT), n))
     return out
 
 
-def vendored(pool, mid):
-    return os.path.join(MAPDIR, "%s-%s.json.gz" % (pool, mid))
+# --- a drawn map ----------------------------------------------------------------
+
+def ow_props():
+    """The overworld tiles' properties, two bytes each (bank $00)."""
+    return bank00()[OWTILESET - 0x8000:][:256]
 
 
-def vendor(pool, mid):
+def entrance_tiles(tiles):
+    """{entrance: [(x, y)]}, each entrance's tiles in reading order: a tile
+    whose second property byte has bit 7 is one, its low six bits which."""
+    props = ow_props()
+    out = {}
+    for i, t in enumerate(tiles):
+        if props[2 * t + 1] & 0x80:
+            out.setdefault(props[2 * t + 1] & 0x3F, []).append((i & 255, i >> 8))
+    return out
+
+
+def entrance_places(tiles, what):
+    """{entrance: (x, y)}: where each of FFR's entrances is (ENTRANCE_TILE),
+    each there once, its tiles together."""
+    where = entrance_tiles(tiles)
+    out = {}
+    for name, e, _, _ in FEATURES:
+        ts = where.get(e)
+        if not ts:
+            sys.exit("genmaps: %s has no %s" % (what, name))
+        xs, ys = [x for x, _ in ts], [y for _, y in ts]
+        if max(xs) - min(xs) > 5 or max(ys) - min(ys) > 5:
+            sys.exit("genmaps: %s has %s in more than one place: %s" % (what, name, ts[:6]))
+        k = ENTRANCE_TILE.get(e, 0)
+        if k >= len(ts):
+            sys.exit("genmaps: %s's %s is %d tiles, not the generator's shape (its place the %s)"
+                     % (what, name, len(ts), "tile %d" % (k + 1)))
+        out[e] = ts[k]
+    return out
+
+
+def ffr_zones(tiles, places):
+    """Each overworld zone's encounters, as the zone they are taken from
+    (AssignEncounterDomains): every tile of land or river given its nearest
+    entrance, walking from all at once in FEATURES' order, the first to
+    reach a tile taking it; then each 32 x 32 zone the zone of the entrance
+    whose tiles in it weigh most, the first to reach that weight on a tie;
+    a zone with none, zone 0."""
+    near = [None] * 65536
+    q = deque((k, places[e]) for k, (_, e, _, _) in enumerate(FEATURES))
+    while q:
+        k, (x, y) = q.popleft()
+        if near[x | y << 8] is not None:
+            continue
+        near[x | y << 8] = k
+        for ax, ay in ((x, (y - 1) & 255), ((x + 1) & 255, y), (x, (y + 1) & 255), ((x - 1) & 255, y)):
+            t = tiles[ax | ay << 8]
+            if t in FFR_LAND or t in FFR_RIVER:
+                q.append((k, (ax, ay)))
+    out = []
+    for j in range(8):
+        for i in range(8):
+            counts = {}
+            for y in range(32):
+                for x in range(32):
+                    k = near[(j * 32 + y) << 8 | (i * 32 + x)]
+                    if k is not None:
+                        counts[k] = counts.get(k, 0) + FEATURES[k][3]
+            pick, most = None, 0
+            for k, c in counts.items():
+                if c > most:
+                    pick, most = k, c
+            out.append(FEATURES[pick][2] if pick is not None else 0)
+    return out
+
+
+def ffm_map(stem):
+    """maps/STEM.ffm and STEM.toml: the tiles; the start, Bikke's ship, the
+    airship, the bridge and the canal; the docks, the first a Free SHIP's;
+    and what follows from the tiles -- each entrance's place, the exits'
+    landings (each an entrance's place), whether the bridge runs east to
+    west, and each zone's encounters."""
+    import tomllib
+    what = "maps/%s" % stem
+    path = os.path.join(MAPDIR, stem + ".ffm")
+    if not os.path.exists(path):
+        sys.exit("genmaps: no %s.ffm" % what)
+    tiles = open(path, "rb").read()
+    if len(tiles) != 65536:
+        sys.exit("genmaps: %s.ffm is %d bytes, not 256 x 256" % (what, len(tiles)))
+    if max(tiles) > 0x7F:
+        sys.exit("genmaps: %s.ffm has a tile past $7F" % what)
+    try:
+        p = tomllib.load(open(os.path.join(MAPDIR, stem + ".toml"), "rb"))
+    except FileNotFoundError:
+        sys.exit("genmaps: no %s.toml" % what)
+    except tomllib.TOMLDecodeError as e:
+        sys.exit("genmaps: %s.toml: %s" % (what, e))
+    extra = sorted(set(p) - set(PLACES) - {"docks"})
+    if extra:
+        sys.exit("genmaps: %s.toml: no place called %s" % (what, extra[0]))
+
+    def xy(v, name):
+        if not (isinstance(v, list) and len(v) == 2 and all(isinstance(c, int) and 0 <= c < 256 for c in v)):
+            sys.exit("genmaps: %s.toml: %s wants [x, y], each 0-255" % (what, name))
+        return tuple(v)
+    for k in PLACES + ("docks",):
+        if k not in p:
+            sys.exit("genmaps: %s.toml has no %s" % (what, k))
+    places = {k: xy(p[k], k) for k in PLACES}
+    if not isinstance(p["docks"], list) or not p["docks"]:
+        sys.exit("genmaps: %s.toml: docks wants a list of [x, y]" % what)
+    docks = [xy(v, "docks") for v in p["docks"]]
+    if len(set(docks)) != len(docks):
+        sys.exit("genmaps: %s.toml lists a dock twice" % what)
+    at = entrance_places(tiles, what)
+    bx, by = places["bridge"]
+    return {"tiles": tiles, "places": places, "docks": docks, "entrances": at,
+            "exits": {k: at[e] for k, e in enumerate(EXIT_ENTRANCES)},
+            "hbridge": tiles[((bx + 1) & 255) | by << 8] in FFR_LAND,
+            "domains": ffr_zones(tiles, at),
+            "digest_data": tiles + repr(sorted((k, v) for k, v in p.items())).encode()}
+
+
+def import_ffr(pool, mid, stem):
+    """One of FFR's maps, POOL's ID in ../FF1Randomizer/FF1Lib/maps, as a
+    drawn map: maps/STEM.ffm and STEM.toml, its docks the default first and
+    each other place once (by entrance), and what ffm_map works out from
+    the tiles checked against FFR's file."""
     zp = os.path.join(FFRMAPS, pool + ".zip")
     if not os.path.exists(zp):
         sys.exit("genmaps: no pool %s (%s)" % (pool, zp))
     z = zipfile.ZipFile(zp)
     if mid + ".json" not in z.namelist():
-        near = [n[:-5] for n in z.namelist() if n[:4] == mid[:4]]
+        near = [n[:-5] for n in z.namelist() if n[:4] == mid[:4] and n.endswith(".json")]
         sys.exit("genmaps: no map %s in %s%s" % (mid, pool, " (near: %s)" % ", ".join(near) if near else ""))
-    data = z.read(mid + ".json")
-    #  mtime 0, so the file is the same bytes whenever it is vendored.
-    with open(vendored(pool, mid), "wb") as f:
-        with gzip.GzipFile(fileobj=f, mode="wb", mtime=0, filename="") as g:
-            g.write(data)
-    print("genmaps: %s" % os.path.relpath(vendored(pool, mid), ROOT))
-
-
-def ffr_file(pool, mid):
-    path = vendored(pool, mid)
-    if not os.path.exists(path):
-        sys.exit("genmaps: %s is not vendored -- python3 tools/genmaps.py --vendor %s %s"
-                 % (os.path.relpath(path, ROOT), pool, mid))
-    return json.loads(gzip.open(path).read()), os.path.relpath(path, ROOT)
+    if not re.match(r"^[a-z0-9-]+$", stem):
+        sys.exit("genmaps: a stem in lower case, digits and -")
+    f = json.loads(z.read(mid + ".json"))
+    tiles = b"".join(base64.b64decode(r) for r in f["DecompressedMapRows"])
+    xy = lambda v: [v["X"], v["Y"]]
+    ships = {sl["TeleporterIndex"]: [sl["X"], sl["Y"]] for sl in f["ShipLocations"]}
+    docks = [ships[255]]
+    for o in sorted(k for k in ships if k != 255):
+        if ships[o] not in docks:
+            docks.append(ships[o])
+    pair = lambda v: "[%d, %d]" % tuple(v)
+    toml = ["#  From FFR's %s map %s (FF1Randomizer/FF1Lib/maps/%s.zip)." % (pool, mid, pool),
+            "#  The places the tiles do not show, [x, y] in tiles (tools/genmaps.py).",
+            "",
+            "start = %s" % pair(xy(f["StartingLocation"])),
+            "ship = %s             # Bikke's, at Pravoka's dock" % pair(ships.get(2, ships[255])),
+            "airship = %s" % pair(xy(f["AirShipLocation"])),
+            "bridge = %s" % pair(xy(f["BridgeLocation"])),
+            "canal = %s" % pair(xy(f["CanalLocation"])),
+            "",
+            "#  Where a found ship moors -- the nearest it can be boarded from -- the",
+            "#  first where a Free SHIP waits.",
+            "docks = [%s]" % ", ".join(pair(d) for d in docks)]
+    with open(os.path.join(MAPDIR, stem + ".ffm"), "wb") as fo:
+        fo.write(tiles)
+    with open(os.path.join(MAPDIR, stem + ".toml"), "w") as fo:
+        fo.write("\n".join(toml) + "\n")
+    m = ffm_map(stem)
+    owti = {name: e for name, e, _, _ in FEATURES}
+    moved = [k for k, v in f["OverworldCoordinates"].items() if m["entrances"][owti[k]] != tuple(xy(v))]
+    exits = {t["Index"]: tuple(xy(t["To"])) for t in f["TeleporterFixups"] or [] if t["Type"] == 1}
+    zones = list(range(64))
+    for du in f.get("DomainUpdates") or []:
+        zones[du["To"]] = du["From"]
+    print("genmaps: maps/%s.ffm, maps/%s.toml" % (stem, stem))
+    for what, ok in (("the exits", exits == m["exits"]), ("the bridge's direction",
+                     m["hbridge"] == bool(f.get("HorizontalBridge"))), ("the zones", zones == m["domains"])):
+        if not ok:
+            print("genmaps: warning: %s are not FFR's file's" % what)
+    if moved:
+        print("genmaps: note: %s placed on another of its tiles than FFR's file says" % ", ".join(moved))
 
 
 # --- the game's map, and its mirror ----------------------------------------
@@ -340,33 +532,17 @@ def record(kind, d, mirrorinfo=None):
         put("FREESHIP", pos(freeship))
         domains = [(z & ~7) | (7 - (z & 7)) for z in range(64)]
     else:
-        f, name = d
-        xy = lambda v: (v["X"], v["Y"])
-        put("START", xy(f["StartingLocation"]))
-        put("AIRSHIP", xy(f["AirShipLocation"]))
-        put("BRIDGE", xy(f["BridgeLocation"]))
-        put("CANAL", xy(f["CanalLocation"]))
-        if f.get("HorizontalBridge"):
+        for k in PLACES:
+            put(k.upper(), d["places"][k])
+        put("FREESHIP", d["docks"][0])
+        if d["hbridge"]:
             rec[MI["FLAGS"]] |= MIF_HBRIDGE
-        ships = {s["TeleporterIndex"]: (s["X"], s["Y"]) for s in f["ShipLocations"]}
-        if 255 not in ships:
-            sys.exit("genmaps: %s has no default dock" % name)
-        dock = lambda o: ships.get(o, ships[255])
-        put("SHIP", dock(2))                    # Bikke's, Pravoka's entrance
-        put("FREESHIP", ships[255])
-        for t in f["TeleporterFixups"] or []:
-            if t["Type"] != 1:
-                sys.exit("genmaps: %s fixes a teleport of type %d" % (name, t["Type"]))
-        domains = list(range(64))
-        for df in f.get("DomainFixups") or []:
-            domains[df["From"]], domains[df["To"]] = domains[df["To"]], domains[df["From"]]
-        for du in f.get("DomainUpdates") or []:
-            if not (0 <= du["To"] < 64 and 0 <= du["From"] < 128):
-                sys.exit("genmaps: %s moves zone %d to %d" % (name, du["From"], du["To"]))
-            domains[du["To"]] = du["From"]
+        domains = d["domains"]
     rec[MI["DOMAIN"]:MI["DOMAIN"] + 64] = bytes(domains)
-    pins = [(z & ~7) | (7 - (z & 7)) for z in START_ZONES] if kind == "mirror-lr" else START_ZONES
-    rec[MI["PINZONES"]:MI["PINZONES"] + 4] = bytes(pins)
+    pins = [z for z in range(64) if domains[z] in START_ZONES]
+    if len(pins) > PINS_MAX:
+        sys.exit("genmaps: %d zones take Coneria's encounters, room for %d" % (len(pins), PINS_MAX))
+    rec[MI["PINZONES"]:MI["PINZONES"] + len(pins) + 1] = bytes(pins + [0xFF])
     return rec
 
 
@@ -517,19 +693,19 @@ def mirror_lines():
 # --- the logic ------------------------------------------------------------------
 
 def graph_key(entry):
-    kind, pool, mid, _ = entry
-    return "mirror-lr" if kind == "mirror-lr" else "%s-%s" % (pool, mid)
+    kind, stem, _, _ = entry
+    return "mirror-lr" if kind == "mirror-lr" else stem
 
 
 def map_digest(entry):
-    """A digest of what a map's world graph is made from, as far as snes/
-    holds it: FFR's file, or Mirror World's tiles, its blocks and the game's
-    places they move.  gengraph.py --map writes it with the graph; the build
-    refuses a graph made from other inputs."""
+    """A digest of what a map's world graph is made from: a drawn map's tiles
+    and places, or Mirror World's tiles, its blocks and the game's places
+    they move.  gengraph.py --map writes it with the graph, and makes the
+    graph again for a map whose digest has changed (--stale, build.sh)."""
     import hashlib
-    kind, pool, mid, _ = entry
-    if kind == "ffr":
-        data = gzip.open(vendored(pool, mid)).read()
+    kind, stem, _, _ = entry
+    if kind == "ffm":
+        data = ffm_map(stem)["digest_data"]
     else:
         t, blocks = mirror_lr(genows.vanilla())
         data = bytes(t) + repr([b[1:] for b in blocks]).encode() + bank00()[INITPAGE - 0x8000:][:0x20] \
@@ -546,14 +722,13 @@ def graph_of(entry):
     key = graph_key(entry)
     path = os.path.join(GRAPHDIR, key + ".py")
     if not os.path.exists(path):
-        sys.exit("genmaps: %s has no world graph -- python3 tools/gengraph.py --map %s"
-                 % (entry[3], key))
+        sys.exit("genmaps: %s has no world graph -- python3 tools/gengraph.py --stale" % entry[3])
     D = {}
     exec(open(path).read(), D)
     D = {k: v for k, v in D.items() if k.isupper()}
     if D.get("DIGEST") != map_digest(entry):
-        sys.exit("genmaps: %s's world graph was made from other inputs -- python3 tools/gengraph.py --map %s"
-                 % (entry[3], key))
+        sys.exit("genmaps: %s's world graph was made from other inputs -- python3 tools/gengraph.py --stale"
+                 % entry[3])
     return D
 
 
@@ -629,27 +804,22 @@ class Halves:
 
 
 def tiles_of(entry):
-    kind, pool, mid, _ = entry
+    """(tiles, Mirror World's blocks, a drawn map's ffm_map)."""
+    kind, stem, _, _ = entry
     if kind == "vanilla":
         return bytes(genows.vanilla()), None, None
     if kind == "mirror-lr":
         t, blocks = mirror_lr(genows.vanilla())
         return t, blocks, None
-    f, name = ffr_file(pool, mid)
-    rows = [base64.b64decode(r) for r in f["DecompressedMapRows"]]
-    if len(rows) != 256 or any(len(r) != 256 for r in rows):
-        sys.exit("genmaps: %s is not 256 rows of 256" % name)
-    tiles = b"".join(rows)
-    if max(tiles) > 0x7F:
-        sys.exit("genmaps: %s has a tile past $7F" % name)
-    return tiles, None, (f, name)
+    m = ffm_map(stem)
+    return m["tiles"], None, m
 
 
 def main():
-    if sys.argv[1:2] == ["--vendor"]:
-        if len(sys.argv) != 4:
-            sys.exit("usage: genmaps.py --vendor POOL ID")
-        vendor(sys.argv[2], sys.argv[3])
+    if sys.argv[1:2] == ["--import"]:
+        if len(sys.argv) != 5:
+            sys.exit("usage: genmaps.py --import POOL ID STEM")
+        import_ffr(*sys.argv[2:5])
         return
     import mkrom
     for c in CHUNKS:
@@ -661,7 +831,7 @@ def main():
     halves = Halves()
     maps = [tiles_of(e) for e in entries]
     pics = [halves.put(genows.baked(ts, t), "%s's minimap" % e[3]) for e, (t, _, _) in zip(entries, maps)]
-    recs = [record(e[0], ffr, blocks) for e, (_, blocks, ffr) in zip(entries, maps)]
+    recs = [record(e[0], m, blocks) for e, (_, blocks, m) in zip(entries, maps)]
     info = halves.put(bytes(MI_SIZE * len(entries)), "the records")
     for i, (e, (t, _, _)) in enumerate(zip(entries, maps)):
         if e[0] == "vanilla":

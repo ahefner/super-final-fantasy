@@ -582,17 +582,62 @@ in that page (`OWS_VARS + $60`).
 
 **The list** (`maps/custom-maps.txt`): a line is `vanilla NAME` (the game's
 map, first and once), `mirror-lr NAME` (the game's map mirrored left to
-right) or `POOL ID NAME`, one of FFR's maps; at most 16.  FFR's maps are
-vendored into `maps/` as `POOL-ID.json.gz`, FFR's file from its pool's zip,
-everything FFR has for the map -- the tiles, the start, the airship, bridge
-and canal, the docks, the entrances -- so the build needs nothing outside
-`snes/`: `python3 tools/genmaps.py --vendor normal256 1EAA7BA6` copies one
-from `FF1Randomizer/`.  The screen takes the tiles and the start (FFR's
-`StartingLocation`, the party's tile; the game's start from
+right) or `ffm STEM NAME`, a map drawn in `maps/`; at most 16.  The screen
+takes the tiles and the start (the party's tile; the game's start from
 `lut_InitUnsramFirstPage`'s scroll plus 7, 153,165).  Mirror World is
 made from the game's map (below).  The user's list named one map
 `0E0C0DF8`, which normal256 does not have; it is `0E0C0DFB` ("Pangea"),
 the one map whose id is one letter off.
+
+**Drawn maps** (user, 2026-11-16: "move the ported maps out to their own
+.ffm files so I can edit them ... have them be the inputs to the build").
+A drawn map is two files in `maps/`, the build's inputs (`genmaps.ffm_map`):
+
+  - `STEM.ffm`, its 65,536 tiles one byte each, FFHackster's and FFR's
+    format, so either edits it;
+  - `STEM.toml`, the places the tiles do not show, `[x, y]` in tiles:
+    `start`, `ship` (Bikke's, at Pravoka's dock), `airship`, `bridge`,
+    `canal`, and `docks`, where a found ship can moor, the first where a
+    Free SHIP waits.
+
+The rest follows from the tiles, as FFR's map generator works it out
+(`procgen/NewOverworld.cs`): each entrance's place, a tile whose
+properties name it -- of a town's or a castle's several, the generator's
+(Pravoka's second in reading order, Crescent Lake's last, the volcano's
+east half; else the first); the exits' landings, each a given entrance's
+place (`ReplacementMap`'s `TeleporterFixups`: Titan's Tunnel's two ends, the
+Ice Cave, the Castle of Ordeals, Coneria Castle, the Earth Cave, the
+volcano, Onrac, the Mirage Tower); the bridge running east to west where
+the tile east of it is land; and each zone's encounters
+(`AssignEncounterDomains`: every tile of land or river given its nearest
+entrance, walking from all of them at once, then each 32 x 32 zone the
+game's zone of the entrance whose tiles in it weigh most -- Coneria's
+three times, Gaia's, the Castle of Ordeals', the Mirage Tower's, Onrac's
+and Lefein's three quarters, Bahamut's and Cardia's a half).  So moving a
+town moves its encounters with it: the easiest round Coneria, harder out
+through Elfland and Melmond to the Mirage Tower and Lefein.  Every map
+must have every entrance of FFR's list, each in one place.
+
+FFR's seven maps became drawn maps with `python3 tools/genmaps.py --import
+normal256 0E0C0DFB pangea` (and so on), which writes the pair from FFR's
+file in `FF1Randomizer/FF1Lib/maps/` and checks what the tiles give
+against it: every exit, bridge direction and zone FFR's on all seven, and
+every entrance's place but Pravoka's on Pravoka Bay, which moves to
+another of Pravoka's tiles (the generator has two layouts of the same
+tiles; the party lands there under Map shuffle).  The vendored JSON files
+are gone.  A drawn map edited, the build works out its logic again
+(`gengraph.py --stale`, half a minute a map, before `genmaps.py`) and
+refuses a map with somewhere never reached, holding everything; commit
+`maps/graph/` with the map.  The build needs nothing outside `snes/`, nor
+a ROM it built before (user, 2026-11-16: "The build should be
+self-contained").  worldgraph reads FFR's teleport records from a
+snapshot in the tree, `worldgraph/ffr_teleports_data.py`, which `python3
+worldgraph/ffr_teleports.py --vendor` writes from FFR's source; and the
+game's banks it reads ($00's tables, $01's overworld, $04-$07's maps) from
+the tree's sources as `mkrom.py` lays them into the ROM
+(`romdata.source_bank`: the vendored data with the port's overlays, such
+as the stray fairy and rod plate removed), where it read them out of the
+last ROM built.
 
 **The game on the map chosen** (`altmaps.inc`, in the world chunk; user,
 2026-11-15: "Proceed with the gameplay hookups"; built, not yet played).
@@ -643,11 +688,13 @@ low halves, reached long:
   - **The exits' landings** from the map's logic (`es_tables`, its wiring's
     exits `lut_GrExitX`, `lut_GrExitY`), **the zones' formations**
     (`map_domains`, in place of `copy_domains`, the first of
-    `build_forms`), into the cache; and **the four zones the zone pass
-    leaves alone** (`map_pinzones`, from `deal_zones`), from the record --
-    FFR's `StartingZones` round Coneria, `$1B $1C $24 $2C`, by number on
-    every map but Mirror World, as FFR has them on its maps; Mirror World's
-    mirrored with its land, `$1C $1B $23 $2B`.
+    `build_forms`), into the cache; and **the zones the zone pass leaves
+    alone** (`map_pinzones`, from `deal_zones`), from the record: every
+    zone that takes Coneria's encounters, wherever the map's start is
+    (user, 2026-11-16) -- FFR's `StartingZones`, `$1B $1C $24 $2C`, on the
+    game's map; Mirror World's mirrored with its land; three to seven on
+    FFR's maps, round each start.  FFR leaves the same four alone by number
+    on every map.  The record lists them, `$FF` after the last.
   - **The bridge across a horizontal strait** (`MIF_HBRIDGE`, FFR's
     `HorizontalBridge`, Pangea's): FFR's four turned sprite characters laid
     over bank `$02` `$9C40-$9C7F` as the overworld's objects load
@@ -660,12 +707,10 @@ low halves, reached long:
     (`gen/mapdlg.inc`); and the CUBE's hint, with the key items placed,
     floats "far to the east".  A hint that applies comes first.
 
-**Each map's record**, from FFR's file as FFR's `OwMapExchange` writes it:
-`StartingLocation`, `AirShipLocation`, `BridgeLocation`, `CanalLocation`;
-`DomainFixups` swapped then `DomainUpdates` from the game's zones;
-`HorizontalBridge`; and of `ShipLocations` Bikke's ship at Pravoka's dock
-(entrance 2) and a Free SHIP at the default (255).  Its exits
-(`TeleporterFixups`, the rest the game's) and its docks are its logic's.
+**Each map's record**, for a drawn map: its `.toml`'s start, Bikke's
+ship, airship, bridge and canal, and a Free SHIP at its first dock; the
+bridge's direction and the zones from the tiles; the zones that take
+Coneria's encounters.  Its exits and its docks are its logic's.
 
 **Mirror World** (`genmaps.mirror_lr`) is the game's map mirrored left to
 right by the rules in `overworld-design-rules.md`: each terrain piece by
@@ -690,15 +735,16 @@ the unwinnable warning all read a map's logic, and each map has logic
 made for it:
 
   - **A world graph for each map** (`gengraph.py --map KEY`, `KEY`
-    `mirror-lr` or `POOL-ID`, into `maps/graph/KEY.py`): worldgraph's graph
-    built on the map's tiles, with its places, its exits and its docks --
-    FFR's file's, each place once, the default first; Mirror World's the
-    game's five mirrored -- every condition the unedited map's, and checked
-    against worldgraph's requirements with Early Ordeals on and off and at
-    every princess spot.  Its `DIGEST` is of what it was made from (FFR's
-    file, or Mirror World's tiles, blocks, places and exits): `genmaps.py`
-    refuses a graph made from other inputs, so a map changed in
-    `custom-maps.txt` or regenerated needs its graph made again.
+    `mirror-lr` or a drawn map's stem, into `maps/graph/KEY.py`):
+    worldgraph's graph built on the map's tiles, with its places, its exits
+    and its docks -- a drawn map's `.toml`'s; Mirror World's the game's five
+    mirrored -- every condition the unedited map's, checked against
+    worldgraph's requirements with Early Ordeals on and off and at every
+    princess spot, and every place reached holding everything.  Its
+    `DIGEST` is of what it was made from (a drawn map's tiles and places,
+    or Mirror World's tiles, blocks, places and exits): the build makes
+    the graph again for a map whose digest has changed (`--stale`), and
+    `genmaps.py` refuses one made from other inputs.
   - **A logic image for each map**: `genmaps.write_logic` writes
     `gen/graph.inc` and `gen/logic_N/graphdata.inc`, every table padded to
     the largest map's (`graphtables.lay_out`: the region, mask, landing,
@@ -759,7 +805,7 @@ game's, the same wirings chosen.
 `randoref.use_graph(D)` points the reference at a map's graph (and back at
 the game's with no argument); on another map `new_world`, `placed_open`
 and `seed_summary` take the map edits' way, as the cart does.
-`build_domains` takes a map's zones and its four left alone.
+`build_domains` takes a map's zones and those it leaves alone.
 
 Two faults this turned up in the first build: gengraph measured each
 entrance's distance to the game's five docks on every map, so a map with
@@ -788,8 +834,8 @@ run placed, a shuffle on every map, the princess away from Garland's;
 every New Game under 10 million instructions, some taking a third wiring;
 and with
 no wiring placed (the attempt count patched to none), the map's vanilla
-wiring on its logic, the mode Off.  `test_altmaps` adds the four zones
-in each record and zone shuffle on each map.  Seventeen mutations:
+wiring on its logic, the mode Off.  `test_altmaps` adds the zones left
+alone in each record and zone shuffle on each map.  Seventeen mutations:
 fourteen caught at once, two once checks were added for them (the
 fallback, and the save's map before the map edit screen in `test_ngflow`),
 and the last found `map_newgame`'s copy of the logic redundant -- New
@@ -800,17 +846,38 @@ Entrances and Floors, Rebellious Princess on and off, four orbs and Shard
 Hunt at 36, the check refusing worlds on FFR's maps and every seed placed.
 Four mutations, all caught: the check skipped (by `test_altrando`'s
 instruction count), inverted, and the reference's holding only what is
-free or counting no shard room.
+free or counting no shard room.  `test_ffmrules`: what a drawn map's tiles
+give, held to FFR's generator over all 256 maps of its normal256 pool --
+every exit, bridge direction and zone FFR's, every entrance's place but
+Pravoka's on 76 maps, there another of Pravoka's tiles; skipped without
+`FF1Randomizer/` beside the tree.  `test_ffmcheck`: a drawn map edited
+wrong is refused, saying why -- an entrance missing, one in two places, a
+place of the `.toml` missing, not `[x, y]`, unknown, or a dock twice; and
+by its logic, Matoya's Cave walled in with mountains, never reached; and
+the build's `--stale` makes again the logic of a map edited or with none,
+and no other's.  `test_selfcontained`: making a drawn map's logic opens no
+file outside `snes/`, nor the built ROM or `out/`; the banks worldgraph
+makes from the sources are the ROM's, byte for byte; and the snapshot of
+FFR's teleport records is what FFR's source says (that part skipped
+without it).  A copy of the tree with no FFR source anywhere, no ROM, no
+`out/` or `gen/` and no `maps/graph/` built, its logic made again byte for
+byte the same, and its ROM the same.  Four mutations, all caught: the
+banks made without the port's overlays, worldgraph reading the built ROM
+again, the teleports read from FFR's source again, the snapshot drifted.  Twelve mutations: eleven caught (each of the tile rules,
+the zones left alone by number, the cart reading one of them, each
+refusal, `--stale` not reading the digest); the twelfth, the bridge's
+direction from the tile west of it, gives the same answer on every map --
+a bridge running east to west has land on both sides.
 
-**Tests.**  `test_altmaps` makes each map here, FFR's from the vendored
-files, the game's from bank `$01` and bank `$00`'s tables, and Mirror World
+**Tests.**  `test_altmaps` makes each map here, a drawn map's from its
+`.ffm` and `.toml`, the game's from bank `$01` and bank `$00`'s tables, and Mirror World
 from the game's by its rules, read from how the pieces are laid out (in a
 row of a set's pieces, the one i from the left mirrors the one i from the
 right) with the castles, the Temple, the tower and the volcano whole:
 every piece of it, the blocks, each piece and its mirror letting the same
 pass, every entrance as often; its places on the same piece or its
-mirror.  Each map's record from its source, the start's zone among the
-four left alone on the game's map and Mirror World.  Then the cartridge: every row of every map in the window and
+mirror.  Each map's record from its source, the start's zone among those
+left alone on every map.  Then the cartridge: every row of every map in the window and
 only its slot, a map past the list the game's, no row dearer than the
 game's dearest, nothing on a standard map; every pair of the minimap's, `tmp+3` to `tmp+7` as they were;
 New Game on each map -- the save's map, the page, the cache's exits and
@@ -844,7 +911,7 @@ clear of its last.
 
 **Tests.**  `test_mapselect` reads `maps/custom-maps.txt` and makes each
 map's tiles itself -- the game's from bank `$01`, the mirror's rows
-reversed, FFR's from the vendored files -- and its minimap: as the screen
+reversed, a drawn map's from its `.ffm` -- and its minimap: as the screen
 comes up, for every map, the minimap whole in the first set and on screen,
 the two tilemaps, every name in its column, the title, the frame's corners
 and edges, the hand and the ring; a map past the list's end starting on the
