@@ -59,6 +59,8 @@
 .export opt_magloaddef, opt_magsavedef, opt_magsavemagdef, opt_cur4
 .export opt_openchests
 .export opt_freestuff, opt_housemp
+.export opt_gameover            ; gameover.patch, bank $0B
+.import DoCrossPageJump         ; ...and its way back there
 .export opt_casteritem, opt_castergood   ; for tools/test_options.py
 .export opt_lockpick
 .export opt_padreset
@@ -4770,6 +4772,191 @@ opt_housemp:
     CALL0E DrawItemTargetMenu
   @out:
     RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  opt_gameover -- Save on game over (user, 2026-11-17): FFR's
+;;  SaveGameWhenGameOver, and its SaveGameDWMode as the row's DW (Saving.cs,
+;;  asm/1B_8FF5_GameOverAndRestart.asm).  From GameOver in bank $0B by JML
+;;  (gameover.patch), "Party perished" just cleared; emulation mode, the
+;;  battle bank's DBR, which reaches unsram and sram absolute.
+;;
+;;  Off: straight on.  On and DW: every member but a None revived -- HP and
+;;  each level's MP to the maximum, the ailments cleared -- and the game
+;;  saved as SaveGame saves it, all that was gained since the last save kept,
+;;  but with the position chosen here rather than taken from the overworld,
+;;  and no jingle under the game over music.  Where the party wakes is FFR's:
+;;    On   where it last saved (unsram's position and vehicle, which only a
+;;         save, Continue and New Game write) -- but on foot at the airship
+;;         if the party has it, the ship then moved to Coneria's berth, so the
+;;         airship cannot leave it stranded at sea; or else aboard the ship
+;;         if it is docked anywhere but where the last save has it, so the
+;;         party is never stranded away from it.
+;;    DW   on foot where the game starts, with half the gold, the ship (if
+;;         the party has it) at Coneria's berth and the airship (if so)
+;;         parked under the party.
+;;  "Coneria's berth" and "where the game starts" are a Free SHIP's and a
+;;  Free AIRSHIP's spots (opt_freestuff), on another map that map's.
+;;  Then on to the game's fade and restart, A = 3, back to the title.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+opt_gameover:
+    LDA OPTFB_GAMEOVER
+    AND #OPTFM_GAMEOVER
+    BNE :+
+    JMP @restart
+:   PHA                         ; the mode, in place
+    LDX #$00
+  @revive:
+    LDA ch_class, X
+    CMP #CLS_NONE               ; a None stays as it is, dead
+    BEQ @next
+    LDA ch_maxhp, X
+    STA ch_curhp, X
+    LDA ch_maxhp + 1, X
+    STA ch_curhp + 1, X
+    LDA #$00
+    STA ch_ailments, X
+    TXA                         ; the magic page's offset is the stats page's
+    ORA #$07                    ;   -- the eight levels, the eighth first
+    TAY
+  @mp:
+    LDA ch_maxmp, Y
+    STA ch_curmp, Y
+    TYA
+    DEY
+    AND #$07
+    BNE @mp
+  @next:
+    TXA
+    CLC
+    ADC #$40
+    TAX
+    BNE @revive
+
+    PLA
+    CMP #GAMEOVER_DW << GAMEOVER_SHIFT
+    BEQ @dw
+    LDA airship_vis
+    BEQ @noair
+    LDA airship_x
+    LDY airship_y
+    JSR gameover_at
+    LDA #$01                    ; on foot, on the airship's tile
+    STA unsram_vehicle
+    LDA ship_vis
+    BEQ @save
+    JSR gameover_berth
+    JMP @save
+  @noair:
+    LDA ship_vis
+    BEQ @save
+    LDA ship_x                  ; docked where the save has it?
+    CMP sram + (ship_x - unsram)
+    BNE @ship
+    LDA ship_y
+    CMP sram + (ship_y - unsram)
+    BEQ @save
+  @ship:
+    LDA ship_x
+    LDY ship_y
+    JSR gameover_at
+    LDA #$04                    ; aboard
+    STA unsram_vehicle
+    JMP @save
+
+  @dw:
+    LDA ship_vis
+    BEQ :+
+    JSR gameover_berth
+:   LDA airship_x               ; the start is where a Free AIRSHIP parks:
+    PHA                         ;   park it, and put it back if the party
+    LDA airship_y               ;   has none
+    PHA
+    JSR gameover_park
+    LDA airship_x
+    LDY airship_y
+    JSR gameover_at
+    LDA airship_vis
+    BEQ :+
+    PLA
+    PLA
+    JMP @foot
+:   PLA
+    STA airship_y
+    PLA
+    STA airship_x
+  @foot:
+    LDA #$01
+    STA unsram_vehicle
+    LSR gold + 2                ; half the gold, rounded down
+    ROR gold + 1
+    ROR gold
+
+    ;  SaveGame's copy and seal, its checksum seeded with SAVEVER as the
+    ;  savever patch has it.
+  @save:
+    LDX #$00
+  @copy:
+    LDA unsram, X
+    STA sram, X
+    LDA unsram + $100, X
+    STA sram + $100, X
+    LDA unsram + $200, X
+    STA sram + $200, X
+    LDA unsram + $300, X
+    STA sram + $300, X
+    INX
+    BNE @copy
+    LDA #$55
+    STA sram_assert_55
+    LDA #$AA
+    STA sram_assert_AA
+    LDA #SAVEVER
+    STA sram_checksum
+    LDX #$00
+    CLC
+  @sum:
+    ADC sram, X
+    ADC sram + $100, X
+    ADC sram + $200, X
+    ADC sram + $300, X
+    INX
+    BNE @sum
+    EOR #$FF
+    STA sram_checksum
+
+  @restart:
+    LDA #$03                    ; the two lines gameover.patch replaced
+    JML DoCrossPageJump + (CHUNK0 + $0B) * $10000
+
+;;  The scroll that puts the party on tile (A, Y), into the save's position.
+gameover_at:
+    SEC
+    SBC #$07
+    STA unsram_ow_scroll_x
+    TYA
+    SEC
+    SBC #$07
+    STA unsram_ow_scroll_y
+    RTS
+
+;;  The ship at Coneria's berth: a Free SHIP's, or another map's.
+gameover_berth:
+    LDA #FREESHIP_X
+    STA ship_x
+    LDA #FREESHIP_Y
+    STA ship_y
+    JSL map_freeship + WORLDFAR
+    RTS
+
+;;  The airship where the game starts: a Free AIRSHIP's, or another map's.
+gameover_park:
+    LDA #FREEAIRSHIP_X
+    STA airship_x
+    LDA #FREEAIRSHIP_Y
+    STA airship_y
+    JSL map_freeairship + WORLDFAR
+    RTS
 
 
 opt_freestuff:

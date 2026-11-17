@@ -15099,6 +15099,161 @@ def test_savever():
     check("a corrupted save still fails", bool(cpu.p & C), True)
 
 
+def test_gameover():
+    """Save on game over (user, 2026-11-17: "One row, three values - Off, On,
+    DW"; Variations; off in every preset; back to the title after, as FFR).
+    FFR's SaveGameWhenGameOver and SaveGameDWMode, from its source's
+    asm/1B_8FF5_GameOverAndRestart.asm.  The row; the hook, GameOver's two
+    restart lines, byte for byte; and opt_gameover run from the hook to the
+    restart, against a reckoning of FFR's routine written here: every mode,
+    every vehicle case, the game's map and each drawn one, a None in the
+    party, the save checked by the game's VerifyChecksum."""
+    import presetdefs as P, genpresets as G
+    rows = P.rows()
+    names = [r.label for r in rows]
+    LABEL = "Save on game over"
+    row = rows[names.index(LABEL)] if LABEL in names else None
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Save on game over: Variations, after Short ToFR, Off On DW, bits 27-28 of the flag word",
+          row and (row.section, names[names.index(LABEL) - 1], row.values,
+                   (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("VARIATIONS", "Short ToFR", ["Off", "On", "DW"], (K["OPT_FLAGS"] + 3 - OPTBLOCK, 3, 0x18)))
+    check("...Off in every New Game preset",
+          [n for n, _, _, s_ in G.resolve(G.load(), rows) if s_.get(LABEL, 0) != 0], [])
+    for preset in range(3):
+        bus, cpu = machine()
+        cpu.a = preset
+        call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+        check("...and in the title's preset %d" % preset, flags(bus) >> 27 & 3, 0)
+    SEL, TOP = 0x6E, 0x6F
+    GOB = K["OPTFB_GAMEOVER"] - OPTBLOCK
+    def desc(v):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setblk(bus, GOB, v << 3)
+        r = optrow(LABEL)
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    check("its pane, by value", [desc(v) for v in range(3)],
+          [["When the party falls, the", "game ends. Continue goes", "back to the last save."],
+           ["When the party falls, the", "game is saved with everyone", "revived and nothing lost.",
+            "The party wakes at the last", "save point."],
+           ["On game over, the party", "wakes at Coneria with half", "its gold, as in Dragon",
+            "Warrior. The ship and", "airship are brought along."]])
+
+    #  The hook: where GameOver's "LDA #$03 / JMP DoCrossPageJump" was, a JML
+    #  to opt_gameover and a NOP, after the JSR that clears "Party perished".
+    B0B = 0xA1 + 0x0B
+    chunk = bytes(ROMDATA[(1 + 0x0B) * 0x10000:][:0x10000])
+    jml = bytes([0x5C, SYM["opt_gameover"] & 0xFF, SYM["opt_gameover"] >> 8, CHUNK_OPT_BANK])
+    at = [i for i in range(0x8000, 0xC000) if chunk[i:i + 4] == jml]
+    check("bank $0B: one JML to opt_gameover, then a NOP, after a JSR", [(chunk[i + 4], chunk[i - 3]) for i in at],
+          [(0xEA, 0x20)])
+    if len(at) != 1:
+        return
+    HOOK, BACK = at[0], SYM["DoCrossPageJump"]
+    parent = os.environ.get("FF1_ROMS") or os.path.dirname(ROOT)
+    nes = os.path.join(parent, "ff1e.nes")
+    if os.path.exists(nes):
+        orig = open(nes, "rb").read()[16 + 0x0B * 0x4000 + HOOK - 0x8000:][:5]
+        check("...in place of the game's LDA #$03 / JMP DoCrossPageJump",
+              orig, bytes([0xA9, 0x03, 0x4C, BACK & 0xFF, BACK >> 8]))
+    else:
+        skipped.append("test_gameover: the hook against ff1e.nes (not found)")
+
+    N, INFO, SZ = K["MAPS_N"], K["MAPINFOFAR"] - 0xC00000, K["MI_SIZE"]
+    rec = lambda m, f: tuple(ROMDATA[INFO + m * SZ + K["MI_" + f]:][:2])
+    BERTH = {0: (K["FREESHIP_X"], K["FREESHIP_Y"])}
+    START = {0: (K["FREEAIRSHIP_X"], K["FREEAIRSHIP_Y"])}
+    for m in range(1, N):
+        BERTH[m], START[m] = rec(m, "FREESHIP"), rec(m, "START")
+    MAP = K["RANDO_MAP"] - 0x6000
+    rnd = random.Random(1117)
+
+    def reckon(u, saved, mode, m):
+        """FFR's routine, on the first four pages: what unsram becomes."""
+        e = bytearray(u)
+        if mode == 0:
+            return e
+        for c in range(4):
+            s, g = 0x100 + 0x40 * c, 0x300 + 0x40 * c
+            if e[s] != 0xFF:
+                e[s + 0x0A:s + 0x0C] = e[s + 0x0C:s + 0x0E]
+                e[s + 0x01] = 0
+                e[g + 0x20:g + 0x28] = e[g + 0x28:g + 0x30]
+        at = lambda x, y: (e.__setitem__(0x10, (x - 7) & 0xFF), e.__setitem__(0x11, (y - 7) & 0xFF))
+        if mode == 2:
+            if e[0x00]:
+                e[0x01:0x03] = bytes(BERTH[m])
+            if e[0x04]:
+                e[0x05:0x07] = bytes(START[m])
+            at(*START[m])
+            e[0x14] = 1
+            e[0x1C:0x1F] = (int.from_bytes(e[0x1C:0x1F], "little") >> 1).to_bytes(3, "little")
+        elif e[0x04]:
+            at(e[0x05], e[0x06])
+            e[0x14] = 1
+            if e[0x00]:
+                e[0x01:0x03] = bytes(BERTH[m])
+        elif e[0x00] and e[0x01:0x03] != saved[0x01:0x03]:
+            at(e[0x01], e[0x02])
+            e[0x14] = 4
+        return e
+
+    def run(mode, m, ship, air, moved, other=0):
+        bus, cpu = machine()
+        u = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+        u[0x3FF] = 0                                    # the checksum needs it
+        u[MAP] = m
+        u[0x00], u[0x04] = ship, air
+        u[0x14] = rnd.choice((1, 2))
+        for c, cls in enumerate((rnd.randrange(6), 0xFF, rnd.randrange(12), rnd.randrange(12))):
+            u[0x100 + 0x40 * c] = cls
+            u[0x101 + 0x40 * c] = rnd.choice((1, 2, 4))  # dead, stone, poison
+        saved = bytearray(rnd.getrandbits(8) for _ in range(0x400))
+        saved[0x01:0x03] = u[0x01:0x03]
+        if moved:
+            saved[moved] ^= 0x20
+        bus.sram[0x000:0x400] = u
+        bus.sram[0x400:0x800] = saved
+        setblk(bus, GOB, (mode << 3) | other)
+        before = bytes(bus.sram)
+        wram = bytes(bus.wram)
+        cpu.dbr = B0B
+        halted = cpu.run(B0B, HOOK, stop=BACK)
+        out = (halted, cpu.pbr, cpu.a & 0xFF)
+        want_u = reckon(u, saved, mode, m)
+        got_u, got_s = bytes(bus.sram[0:0x400]), bytes(bus.sram[0x400:0x800])
+        if mode == 0:
+            ok = got_s == bytes(saved)
+        else:
+            want_s = bytearray(want_u)
+            want_s[0xFE:0x100] = b"\x55\xAA"
+            ok = got_s[:0xFD] + got_s[0xFE:] == bytes(want_s[:0xFD] + want_s[0xFE:])
+            vc = CPU(bus)
+            vc.dbr = 0xA7
+            vc.run(0xA7, SYM["VerifyChecksum"])
+            ok = ok and not (vc.p & C)
+        rest = bytes(bus.sram[0x800:]) == before[0x800:]
+        quiet = [i for i in range(len(wram)) if wram[i] != bus.wram[i] and not 0x100 <= i < 0x200]
+        return out, got_u == bytes(want_u), ok, rest, quiet
+
+    bad = []
+    for mode in range(3):
+        for m in range(N):
+            for ship in (0, 1):
+                for air in (0, 1):
+                    for moved in ((0, 1, 2) if ship and not air else (0,)):
+                        for other in (0, 0xE7):             # the byte's other bits, set
+                            got = run(mode, m, ship, air, moved, other)
+                            if got != ((True, B0B, 3), True, True, True, []):
+                                bad.append(((mode, m, ship, air, moved, hex(other)), got))
+    check("each mode, map, vehicle case: on to DoCrossPageJump with A = 3, the party and save as "
+          "FFR's routine has them, the save verified, nothing else touched", bad[:4], [])
+
+
 # --- shop shuffle -----------------------------------------------------------
 #  The vanilla shop lists, read here straight from lut_ShopData rather than
 #  through randoref, so the invariants below do not lean on the reference.
@@ -19866,10 +20021,10 @@ def test_stereo():
     names = [r.label for r in rows]
     row = rows[names.index("Stereo Sound")]
     tbl = lambda name, i: ROMDATA[rom_at(name) + i]
-    check("Stereo Sound: FUN%, after Short ToFR, Off and On, the respond rate's byte's bit 3",
+    check("Stereo Sound: FUN%, after Save on game over, Off and On, the respond rate's byte's bit 3",
           (row.section, names[names.index("Stereo Sound") - 1], row.values,
            (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
-          ("FUN%", "Short ToFR", ["Off", "On"], (FUN, 3, STEREO)))
+          ("FUN%", "Save on game over", ["Off", "On"], (FUN, 3, STEREO)))
     check("...the respond rate's three bits and the FUN% rows' share it, apart",
           (FUN == OPT_RESPOND, K["RESPOND_FIELD"] & K["FUN_FIELD"], STEREO & K["FUN_FIELD"]), (True, 0, STEREO))
     presets = G.resolve(G.load(), rows)
@@ -21751,7 +21906,7 @@ def main():
              test_equipcursor, test_titlerows,
              test_rando_prng, test_rando_traps, test_rando_cache,
              test_rando_mapload, test_rando_battle, test_rando_newgame,
-             test_rando_stir, test_rando_options, test_savever,
+             test_rando_stir, test_rando_options, test_savever, test_gameover,
              test_rando_shops, test_rando_shopload, test_rando_caravan,
              test_menudesc, test_rando_chests, test_rando_chestload,
              test_rando_magic, test_rando_spellconv, test_rando_oobspell,

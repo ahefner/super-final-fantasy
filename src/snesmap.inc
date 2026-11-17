@@ -549,6 +549,19 @@ TOFR_GARLANDS   = 3             ; Garland's three slots, whose outline goes
 DECK_TURNS      = 8             ; a boss's script is its deck: each slot plays
                                 ;   once in this many of its turns
 
+;  Save on game over (user, 2026-11-17: "One row, three values - Off, On,
+;  DW"): FFR's SaveGameWhenGameOver, and its SaveGameDWMode as the third
+;  value.  A value row in two bits of the fourth flag byte, 27 and 28, spare
+;  since format 9 -- no block of format 9 or 10 has set them, so the format
+;  stays 10.  opt_gameover (optbank.asm).
+OPTFB_GAMEOVER  = OPT_FLAGS+3
+OPTFM_GAMEOVER  = $18    ; bits 27-28
+GAMEOVER_SHIFT  = 3
+GAMEOVER_OFF    = 0             ; the game's: back to the title, the save as it was
+GAMEOVER_ON     = 1             ; revived and saved, at the last save or a vehicle
+GAMEOVER_DW     = 2             ; ...at the start instead, with half the gold
+GAMEOVER_MODES  = 3
+
 ;  Standard map edits: tiles written over a map as it loads, when a flag asks
 ;  (opt_mapedits, lut_MapEdits).  The first two are FFR's Lefein shops, both
 ;  quality of life here (user, 2026-10-13): Lefeinish Hospitality, Crescent

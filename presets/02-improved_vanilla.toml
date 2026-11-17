@@ -72,6 +72,7 @@ double gold and XP. Nothing is randomized.
 "RUSE Staff" = false
 "NUKE Stick" = false
 "Short ToFR" = false
+"Save on game over" = "Off"
 
 # Treasures
 "Starting items" = "None"

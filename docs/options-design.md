@@ -1792,12 +1792,12 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (16)
+### Variations (17)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Thief lockpicking, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
 Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
-tactics, RUSE Staff, NUKE Stick, Short ToFR.
+tactics, RUSE Staff, NUKE Stick, Short ToFR, Save on game over.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -2063,6 +2063,61 @@ beside the tree), the map, objects, CHR and palette as loaded, on and off
 and on other maps, the Orb's landing, a walk of the floor as loaded (Chaos
 with the LUTE and the KEY, not without; the seven chests with nothing),
 and the LUTE's line beside the game's own.  Fifteen mutations, all caught.
+
+**Save on game over** (user, 2026-11-17: "port the save game on game over
+feature"; "One row, three values - Off, On, DW", in Variations, off in every
+preset, back to the title after as FFR does; built, not yet played) is FFR's
+`SaveGameWhenGameOver`, with its `SaveGameDWMode` as the third value
+(`Saving.cs`, `EnableSaveOnDeath`; `asm/1B_8FF5_GameOverAndRestart.asm`).
+When the party falls, "Party perished" is cleared as ever, and then, before
+the fade and the restart to the title, the game is saved with every member
+but a None revived: HP and each level's MP at the maximum, the ailments
+cleared.  Everything gained since the last save is kept -- experience, gold,
+items, chests opened, bosses beaten -- and Continue plays on from there.
+  - **On**: the party wakes where it last saved, at an inn or by a tent,
+    cabin or house: the save's position and vehicle, which only a save,
+    Continue and New Game write -- so in a new game not yet saved, the
+    start of the game.  Two exceptions, FFR's, so the party is
+    never stranded away from a vehicle it has: with the airship, on foot on
+    the airship's tile, the ship (if any) moved to Coneria's berth, since an
+    airship cannot land beside a ship left at sea; without it, aboard the
+    ship if the ship is docked anywhere but where the last save had it.
+    With the airship, then, the party wakes where it last landed, which
+    can read as "the last overworld location" (user, 2026-11-17: "Agreed,
+    no bug here").
+  - **DW** (Dragon Warrior's rule): on foot where the game starts, outside
+    Coneria, with half the gold, rounded down; the ship at Coneria's berth
+    and the airship parked under the party, for whichever the party has.
+  - "Coneria's berth" and "where the game starts" are a Free SHIP's and a
+    Free AIRSHIP's spots (`opt_freestuff`), and on a drawn map that map's
+    (`map_freeship`, `map_freeairship`) -- what FFR does under its map
+    exchange.
+  - **Where.**  `GameOver`'s last two lines in bank $0B, `LDA #$03 / JMP
+    DoCrossPageJump`, are `JML opt_gameover` and a NOP (`gameover.patch`;
+    five bytes for five, this bank's patches being byte-neutral).
+    `opt_gameover`, in the options chunk, reads the setting: off, it goes
+    straight on; on, it revives, places, and saves as `SaveGame` does --
+    the four pages copied, the assertion bytes, the checksum seeded with
+    `SAVEVER` -- but without `SaveGame`'s copy of the overworld position
+    and its jingle, then `LDA #$03 / JML DoCrossPageJump` back in bank
+    $0B.  310 bytes in the options chunk, none in the fixed bank.
+  - Bits 27 and 28 of the flag word, spare since format 9, so the format
+    stays 10.  It is read at the game over, so it can be changed mid-game.
+  - Not ported, having nothing here to act on: FFR's perish count (stats
+    tracking), its damage tiles that kill, and the Deep Dungeon and No
+    Overworld starts.
+  - **Tests.**  `test_gameover`: the row (Variations, after Short ToFR,
+    Off/On/DW, its two bits), Off in every New Game preset and the title's
+    three, the pane for each value; the hook, one JML in bank $0B after a
+    JSR, in place of the game's two lines (checked against `ff1e.nes` when
+    it is beside the tree); and the routine run from the hook to
+    `DoCrossPageJump`, against a reckoning of FFR's routine written in the
+    test: each mode on the game's map and each drawn one, with and without
+    the ship and the airship, the ship moved in x, in y or not at all, the
+    flag byte's other bits set or clear, a None in the party.  Checked: the
+    party, the save, the game's `VerifyChecksum`, A = 3 in bank $0B, and
+    nothing else in SRAM or WRAM touched.  Twenty-seven mutations, all
+    caught.
 
 **Thief lockpicking** (ported 2026-10-15, the batch's own pick; played
 2026-10-17) is FFR's `Lockpicking` with its `LockpickingLevelRequirement`:

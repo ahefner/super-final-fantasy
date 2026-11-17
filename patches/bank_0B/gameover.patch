@@ -1,0 +1,12 @@
+--- OLD
+    LDA #$03                    ; Fade out, and restart the game
+    JMP DoCrossPageJump         ; jump to BattleFadeOutAndRestartGame_L
+--- NEW
+.export DoCrossPageJump         ; opt_gameover's way back (optbank.asm)
+.import opt_gameover
+    ;  Save on game over: by way of the options chunk, which saves the game
+    ;  when the setting asks and then goes on to DoCrossPageJump with A = 3,
+    ;  the fade and restart, as these two lines did.  Five bytes for five:
+    ;  this bank's patches must be byte-neutral (optthiefgrowth.patch).
+    JML opt_gameover + OPTFAR
+    NOP

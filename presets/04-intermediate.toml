@@ -63,6 +63,7 @@ A slightly spicier take on the original.
 "RUSE Staff" = true
 "NUKE Stick" = true
 "Short ToFR" = false
+"Save on game over" = "Off"
 # TREASURES
 "Starting items" = "Explorer"
 "Starting caster item" = "Any"

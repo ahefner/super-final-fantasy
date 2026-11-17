@@ -14,7 +14,7 @@
 .include "optmenu.inc"
 
 .export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
-.export lut_Desc_114, lut_Desc_115
+.export lut_Desc_114, lut_Desc_115, lut_Desc_116
 .export lut_Desc_103            ; the Goal's, moved from the first bank (2026-11-06)
 
 .segment "BANK_OPTTEXT2"
@@ -82,6 +82,33 @@ lut_Desc_115:  ; Graphics (draft, 2026-11-14)
   FFPAD {"Japan shows the graphics the"}, 28
   FFPAD {"Japanese release had before"}, 28
   FFPAD {"the US release changed them."}, 28
+
+lut_Desc_116:  ; Save on game over, by value (user, 2026-11-17)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_116_0, lut_Desc_116_1, lut_Desc_116_2
+  .assert * - lut_Desc_116 = 1 + 2 * GAMEOVER_MODES, error, "one Save on game over description per mode"
+
+lut_Desc_116_0:  ; Save on game over: Off
+  FFLINES 3
+  FFPAD {"When the party falls, the"}, 28
+  FFPAD {"game ends. Continue goes"}, 28
+  FFPAD {"back to the last save."}, 28
+
+lut_Desc_116_1:  ; Save on game over: On
+  FFLINES 5
+  FFPAD {"When the party falls, the"}, 28
+  FFPAD {"game is saved with everyone"}, 28
+  FFPAD {"revived and nothing lost."}, 28
+  FFPAD {"The party wakes at the last"}, 28
+  FFPAD {"save point."}, 28
+
+lut_Desc_116_2:  ; Save on game over: DW
+  FFLINES 5
+  FFPAD {"On game over, the party"}, 28
+  FFPAD {"wakes at Coneria with half"}, 28
+  FFPAD {"its gold, as in Dragon"}, 28
+  FFPAD {"Warrior. The ship and"}, 28
+  FFPAD {"airship are brought along."}, 28
 
 lut_Desc_103:  ; Goal, by value (here since Shard Hunt filled the first bank)
   .BYTE DESC_BYVALUE
