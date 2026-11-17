@@ -1,6 +1,7 @@
 ; ---------------------------------------------------------------------------
-;  dlgtext.inc -- the reward NPCs' giving lines, once placement is in, and
-;  the game's lines that say where a key item or a dungeon is
+;  dlgtext.inc -- the reward NPCs' giving lines, once placement is in, the
+;  game's lines that say where a key item or a dungeon is, and the epitaphs
+;  on Elfland's gravestones
 ;
 ;  Included by rando.asm.  A reward NPC's vanilla giving line names its
 ;  vanilla reward ("Take my SHIP."), which is wrong once placement moves it.
@@ -92,10 +93,18 @@ rando_dlgtext:
   @out:
     RTL
 
-    ;  Nothing armed.  Rebellious Princess, with her moved (user,
-    ;  2026-11-02): the kidnapped princess's line, dialogue $05, is her
-    ;  spot's, and Garland's, $04, protests (dlgsara.inc, the world chunk's).
+    ;  Nothing armed.  Elfland's gravestones: FFR's epitaphs, whatever the
+    ;  options, vanilla too (user, 2026-11-16: "not a flag, an unconditional
+    ;  tribute").
   @sara:
+    JSL grave_line + WORLDFAR   ; the world chunk's (dlggrave.inc)
+    BCC @notgrave
+    JMP @worldline
+
+    ;  Rebellious Princess, with her moved (user, 2026-11-02): the kidnapped
+    ;  princess's line, dialogue $05, is her spot's, and Garland's, $04,
+    ;  protests (dlgsara.inc, the world chunk's).
+  @notgrave:
     JSL fun_dwarfline + FUNFAR  ; FUN%'s Exploding Dwarf: "Oh no, not again!"
     BCS @worldline
     JSL shard_line + WORLDFAR   ; Shard Hunt: the Black Orb's, Chaos's

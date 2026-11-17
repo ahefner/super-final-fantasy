@@ -65,7 +65,7 @@
 .export rando_ensure, rando_stale, rando_xs, give_vehicle, rando_yield
 .export rando_coldbuild, pl_place
 .export lut_PlaceLBit           ; place.inc's, for shards.inc's sweep
-.import shards_deal, shard_line
+.import shards_deal, shard_line, grave_line
 .export rando_caster
 .export rando_belowfar, rando_warmfar, rando_yieldfar, rando_fyfar
 .import deal_palswap, fun_dwarfline, fun_spared    ; fun.asm's, in Taverns' chunk

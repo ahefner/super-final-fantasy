@@ -29,6 +29,7 @@ python3 tools/genows.py
 #  half a minute a map; commit it with the map).
 python3 tools/gengraph.py --stale
 python3 tools/genmaps.py
+python3 tools/genepitaphs.py
 python3 tools/genseedart.py
 python3 tools/genpresets.py
 python3 tools/dwarfref.py

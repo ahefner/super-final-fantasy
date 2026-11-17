@@ -1648,6 +1648,46 @@ it does the Ribbon's (`overlay_strays`), and `test_strayobjects` holds bank
 `$00` to those six bytes.  The world graph reads the cart, so it now has one
 fairy and one plate; the logic tables come out the same.
 
+**Elfland's gravestones read FFR's epitaphs, unconditionally (user,
+2026-11-16: "not a flag, an unconditional tribute - one singular deviation
+from vanilla mode out of respect"; 2026-11-17, four stones, "left to
+right", "add the new tombstone on the right"; built, not yet played).**
+FFR (`Dialogues.cs`, `TombstoneDialogue`) puts one of four epitaphs, for
+members of its community who have died, on Elfland's gravestone, dialogue
+`$DB` ("Here lies Erdrick / 837 - 866 / R.I.P.").  Here all four stand, one
+a stone, left to right in FFR's order: Disch, Monoci85, HaateXIII, tetron.
+The words are FFR's, spaced as FFR spaces them (centred on 24 columns),
+except Monoci85's, which the user rewrote to fit: "Here lies Monoci85. /
+Sage, Mentor, and Friend.", its first line centred over its second, which
+fills the box's 25 columns.  Unlike the fixes above it corrects nothing.
+
+The graveyard has three stones in the game, at x = 33-35 of row 10: "Here
+lies Erdrick" (the town tileset's tile `$7F`) and two that say "This is a
+tomb." (`$2F`, dialogue `$EE`).  mkrom (`overlay_elfgrave`) makes the grass
+at x = 36, a nook between trees, a fourth tomb: one tile's byte in the
+map's RLE, so bank `$04` keeps its size, asserted as the Ribbon is.  The
+tomb tile is all over Melmond, Crescent Lake and Onrac too, so the line
+does not say which stone; the tile in front of the party does.  The
+epitaphs are longer than the game's lines (Disch's 99 characters) and bank
+`$0A` has no free bytes, so they are swapped as they are drawn:
+`rando_dlgtext` (`dlgtext.inc`), at `DrawDialogueString_PtrLoaded`, asks
+`grave_line` (`dlggrave.inc`, in the world chunk for room) whether the line
+is `$DB` or `$EE` with Elfland the map; if so it works out the tile faced
+as `GetSMTargetCoords` does (the scroll + 7, a step the way the party
+faces), and a stone of the row gives its epitaph, copied into `OPTDESC` as
+the hint lines are.  `OPTDESC` holds 80 bytes, so `tools/genepitaphs.py`
+codes the four with the game's letter pairs (Disch's 74 bytes, refused past
+80) into `gen/epitaphs.inc`.  `test_gravestones` stands the party by each
+stone in Elfland's map from the built ROM and runs the game's
+`GetSMTargetCoords`, `TalkToSMTile` and `DrawDialogueString`: each stone
+its epitaph from all four sides, under Key items Standard and Floors too;
+a tomb drawn just past either end or a row off, the game's map, Elfland's
+tiles under Melmond's number and every tomb in Melmond, Crescent Lake and
+Onrac the game's line; of the 256 lines only `$DB` and `$EE` swapped, Y
+kept; one byte of bank `$04` changed; and, with FFR's source beside the
+tree, the words against `Dialogues.cs`.  Fourteen mutations: thirteen
+caught, the fourteenth (an epitaph left unpaired) refused by the build.
+
 ### Scale (11)
 
 Value rows, and the first section in the list: Gold + XP Scaling, Encounter

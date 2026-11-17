@@ -21,7 +21,7 @@
 .import lut_LogicKind, lut_LogicFlags, lut_LogicVanBit, lut_LogicIdent, lut_ShardCommon
 .import lut_PlaceLBit
 ;  Shard Hunt (shards.inc): placement's last test, and the deal.
-.export pl_goalwon, shards_deal, shard_line
+.export pl_goalwon, shards_deal, shard_line, grave_line
 ;  For tools/test_options.py.
 .export es_build, es_dockfar, es_tables, rando_winnable
 .export rando_eswire, rando_esmasks, rando_esdock
@@ -220,4 +220,5 @@ ow_lists:
 .include "dlghint.inc"
 .include "dlgsara.inc"
 .include "dlgshard.inc"
+.include "dlggrave.inc"
 .include "sara.inc"

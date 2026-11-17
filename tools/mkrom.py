@@ -194,6 +194,38 @@ def overlay_strays(data):
     return bytes(out)
 
 
+#  A fourth gravestone in Elfland's graveyard, for the fourth of FFR's
+#  epitaphs (user, 2026-11-17: "add the new tombstone on the right";
+#  genepitaphs.py, dlgtext.inc's grave_line).  The game's three stand at
+#  x = 33-35 of row 10, "Here lies Erdrick" ($7F) then two tombs ($2F); the
+#  grass at x = 36, a nook between trees, becomes a tomb.  In the map's RLE
+#  (lut_SMMapData, bank $04 on: a pointer a map, then $00-$7F one tile,
+#  $80-$FE a tile and a count) that grass is a single tile's byte, so the
+#  map keeps its size.  Asserted, as the Ribbon is.
+SMMAP_BANK = "04"
+ELFLAND_MAP = 2
+ELFGRAVE_AT = (36, 10)                          # x, y
+ELFGRAVE_WAS = bytes([0x7F, 0x80 | 0x2F, 2, 0x00, 0x0E])   # the stones, the grass, a tree
+ELFGRAVE_TILE = 0x2F
+
+
+def overlay_elfgrave(data):
+    p = data[2 * ELFLAND_MAP] | data[2 * ELFLAND_MAP + 1] << 8
+    want = ELFGRAVE_AT[1] * 64 + ELFGRAVE_AT[0]
+    at, tile = p, 0
+    while at < len(data) and data[at] != 0xFF:
+        n = 1 if data[at] < 0x80 else (data[at + 1] or 256)
+        if tile + n > want:
+            break
+        tile += n
+        at += 1 if data[at] < 0x80 else 2
+    if tile != want or data[at - 3:at + 2] != ELFGRAVE_WAS:
+        sys.exit("bank_04: Elfland's graveyard is not the three stones and the grass it was")
+    out = bytearray(data)
+    out[at] = ELFGRAVE_TILE
+    return bytes(out)
+
+
 #  Taverns' pub sign (FFR's MakePubSign): the town tileset's palm tree, tile
 #  $34, which no town places, made a sign -- a roof over the sign art at CHR
 #  $76-$77 that the tileset has and never uses -- with the clinic sign's
@@ -270,6 +302,8 @@ def nesbank(name):
         data = overlay_strays(data)
     if name == SMINFO_BANK:
         data = overlay_pubsign(data)
+    if name == SMMAP_BANK:
+        data = overlay_elfgrave(data)
     return data
 
 

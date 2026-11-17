@@ -4619,6 +4619,179 @@ def test_rando_dialogue():
                   (0xD2, "VANILLA"): True, (0xD2, "STANDARD"): True, (0xD2, "FLOORS"): FLOORS[0xD2]})
 
 
+def test_gravestones():
+    """Elfland's gravestones read FFR's epitaphs for members of its community
+    who have died, one a stone, left to right, whatever the options (user,
+    2026-11-16: "not a flag, an unconditional tribute"; 2026-11-17: "left to
+    right", "add the new tombstone on the right", and Monoci85's rewritten to
+    fit).  From where the party stands: Elfland's map and the town tileset
+    out of the built ROM, the game's GetSMTargetCoords and TalkToSMTile for
+    the tile it faces and that tile's line, then DrawDialogueString to just
+    past the hook (rando_dlgtext, dlggrave.inc's grave_line)."""
+    EPITAPHS = ["  You stand now on the\n  shoulders of Disch,\n       a titan of\n     Final Fantasy\n"
+                "      development",
+                "   Here lies Monoci85.\nSage, Mentor, and Friend.",
+                "     For HaateXIII,\n    Your Voice Will\n       be Missed\n      Car-Bo-Nate",
+                "     tetron, friend.\n     your impact was\n      immeasurable"]
+    TOMB, GRAVE, ELFLAND, ROW, X0 = 0x2F, 0x7F, 2, 10, 33
+    #  FFR's words, but Monoci85's, the user's (FFR's ran to 110 bytes).
+    wg = os.path.join(os.path.dirname(HERE), "worldgraph")
+    if wg not in sys.path:
+        sys.path.insert(0, wg)
+    import ffr_teleports as ft
+    cs = os.path.join(ft.FFR, "Dialogues.cs")
+    if os.path.exists(cs):
+        with open(cs, encoding="utf-8-sig") as f:
+            src = f.read()
+        body = src[src.index("List<string> epitaphs"):]
+        body = body[:body.index("};")]
+        ffr = [re.sub(r"\\(.)", lambda m: "\n" if m.group(1) == "n" else m.group(1), t)
+               for t in re.findall(r'"((?:[^"\\]|\\.)*)"', body)]
+        check("the epitaphs FFR's, in its order, Monoci85's the user's",
+              (len(ffr), [ffr[i] for i in (0, 2, 3)], "Monoci85" in ffr[1]), (4, [EPITAPHS[i] for i in (0, 2, 3)], True))
+    else:
+        skipped.append("test_gravestones: no FFR source beside the tree (or in $FFR_ROOT), so the epitaphs "
+                       "are not checked against its Dialogues.cs")
+    check("...each fits the box: 25 a line, six lines",
+          (max(len(r) for t in EPITAPHS for r in t.split("\n")), max(t.count("\n") + 1 for t in EPITAPHS) <= 6),
+          (25, True))
+
+    #  The maps, as the cartridge has them: banks $04-$07 one run of data.
+    banks = b"".join(ROMDATA[(1 + n) * 0x10000 + 0x8000:(1 + n) * 0x10000 + 0xC000] for n in (4, 5, 6, 7))
+    smap = lambda m, data=banks: bytes(R.decode_rle(data, data[2 * m] | data[2 * m + 1] << 8, 4096))
+    with open(os.path.join(ROOT, "game", "bank_04.dat"), "rb") as f:
+        dat04 = f.read()
+    game = dat04 + banks[0x4000:]
+    elf = smap(ELFLAND)
+    check("Elfland's graveyard: the game's three stones, and the grass at their right a tomb",
+          (smap(ELFLAND, game)[ROW * 64 + X0:ROW * 64 + X0 + 5], elf[ROW * 64 + X0:ROW * 64 + X0 + 5]),
+          (bytes([GRAVE, TOMB, TOMB, 0x00, 0x0E]), bytes([GRAVE, TOMB, TOMB, TOMB, 0x0E])))
+    check("...one byte of bank $04 changed, every other map the game's",
+          (len([i for i in range(0x4000) if banks[i] != dat04[i]]),
+           [m for m in range(61) if m != ELFLAND and smap(m) != smap(m, game)],
+           [i for i in range(4096) if elf[i] != smap(ELFLAND, game)[i]]), (1, [], [ROW * 64 + X0 + 3]))
+    props = ROMDATA[1 * 0x10000 + 0x8800:1 * 0x10000 + 0x8900]          # lut_SMTilesetProp, tileset 0
+
+    #  The game's routines, unexported, found by their bytes in the fixed
+    #  bank: GetSMTargetCoords (three LSRs and the scroll + 7 - 1 for up --
+    #  OWCanMove opens the same way, but adds the overworld's scroll), and
+    #  TalkToSMTile (GetSMTileProperties, then the treasure test).
+    fixed = (1 + 0x0F) * 0x10000
+    fb = ROMDATA[fixed + 0xC000:fixed + 0x10000]
+    target = [0xC000 + mo.start() for mo in re.finditer(rb"\x4A\xB0.\x4A\xB0.\x4A\xB0.\xA2\x07\xA0\x06\x4C", fb, re.S)
+              if bytes([0x65, K["sm_scroll_x"]]) in fb[mo.start():mo.start() + 40]]
+    talk = [0xC000 + mo.start() for mo in re.finditer(rb"\x20..\xA5" + bytes([K["tileprop"]]) + rb"\x29\x1E\xC9\x08\xF0",
+                                                       fb, re.S)]
+    head = bytes([0xAA, 0xA9, K["BANK_DIALOGUE"], 0x85, K["cur_bank"], 0x20])
+    hook = SYM["DrawDialogueString_PtrLoaded"]
+    draw = [a for a in range(hook - 64, hook) if ROMDATA[fixed + a:fixed + a + len(head)] == head]
+    check("...GetSMTargetCoords, TalkToSMTile and DrawDialogueString found", (len(target), len(talk), len(draw)), (1, 1, 1))
+    OPTD = K["OPTDESC"]
+    bus, _ = machine()                                  # the pairs, as test_altmaps reads them
+    d1 = [bus.read(0xB2, SYM["lut_DTE1"] + i) for i in range(80)]
+    d2 = [bus.read(0xB2, SYM["lut_DTE2"] + i) for i in range(80)]
+
+    def stand(m, tiles, px, py, face, keyitems=0, entrances=0):
+        """The party at (px, py) of map m, facing `face`, presses A: the line
+        drawn, as text, or the game's dialogue number when it is the game's."""
+        bus, cpu = machine()
+        bus.frames()
+        bus.sram[0x1000:0x2000] = tiles                     # mapdata, $7000
+        bus.wram[K["tileset_data"]:K["tileset_data"] + 0x100] = props
+        bus.sram[K["RANDO_KEYITEMS"] - 0x6000] = keyitems
+        bus.sram[K["RANDO_ENTRANCES"] - 0x6000] = entrances
+        bus.wram[K["cur_map"]] = m
+        bus.wram[K["sm_scroll_x"]], bus.wram[K["sm_scroll_y"]] = (px - 7) & 63, (py - 7) & 63
+        bus.wram[K["facing"]] = face
+        s = cpu.s
+        cpu.dbr = 0xA7
+        cpu.a = face
+        cpu.run(0xA7, target[0])
+        cpu.run(0xA7, talk[0])
+        cpu.s = s
+        dlg = cpu.a & 0xFF
+        bus.wram[K["tmp"] + 4] = bus.wram[K["tmp"] + 5] = 0xEE    # the box drawn meanwhile
+        bus.wram[OPTD:OPTD + 0x50] = bytes([0xEE]) * 0x50
+        cpu.a = dlg
+        cpu.run(0xA7, draw[0], stop=hook + 4, limit=100_000)
+        cpu.s = s
+        ptr = bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8
+        if ptr != OPTD:
+            gp = chunkbyte(0x0A, 0x8000 + 2 * dlg) | chunkbyte(0x0A, 0x8001 + 2 * dlg) << 8
+            return ("game", dlg) if ptr == gp else ("pointer", ptr)
+        buf = bytes(bus.wram[OPTD:OPTD + 0x50])
+        out = []
+        for b in buf[:buf.find(0)]:
+            out += [d1[b - 0x1A], d2[b - 0x1A]] if 0x1A <= b < 0x6A else [b]
+        return ff_decode(out)
+
+    #  Each stone from every side the party can stand on, facing it.
+    STEP = {1: (-1, 0), 2: (1, 0), 4: (0, -1), 8: (0, 1)}   # facing: where it stands from the stone
+    walk = lambda tiles, x, y: not props[tiles[(y & 63) * 64 + (x & 63)] * 2] & K["TP_NOMOVE"]
+    #  ...and, the tile in front being what the line follows, from all four
+    #  sides, the trees above and the stones beside it notwithstanding.
+    got, sides = {}, {}
+    for k in range(4):
+        for face, (dx, dy) in STEP.items():
+            got[(k, face)] = stand(ELFLAND, elf, X0 + k + dx, ROW + dy, face)
+            if walk(elf, X0 + k + dx, ROW + dy):
+                sides.setdefault(k, []).append(face)
+    check("...each stone faced from where the party can stand: below, and the first from its left too",
+          sides, {0: [1, 8], 1: [8], 2: [8], 3: [8]})
+    check("...each its epitaph, left to right: Disch, Monoci85, HaateXIII, tetron, faced from any side",
+          got, {kf: EPITAPHS[kf[0]] for kf in got})
+    std, flo = K["KEYITEMS_STANDARD"], K["ENTRANCES_FLOORS"]
+    check("...under Key items Standard and Floors too",
+          [stand(ELFLAND, elf, X0 + k, ROW + 1, 8, std, flo) for k in range(4)], EPITAPHS)
+    #  Decoys: a tomb drawn just past either end of the row, and a row above
+    #  and below it; the game's map, grass where the fourth stands; the same
+    #  tiles under another map's number; and the tombs of Melmond, Crescent
+    #  Lake and Onrac.
+    near = []
+    for x, y in ((X0 - 1, ROW), (X0 + 4, ROW), (X0 + 1, ROW - 1), (X0 + 1, ROW + 1)):
+        t = bytearray(elf)
+        t[y * 64 + x] = TOMB
+        near.append(stand(ELFLAND, bytes(t), x, y + 1, 8))
+    check("...a tomb just past either end of the row, or a row off it: \"This is a tomb.\"",
+          near, [("game", 0xEE)] * 4)
+    check("...on the game's map, the grass where the fourth stands: \"Nothing Here\"",
+          stand(ELFLAND, smap(ELFLAND, game), X0 + 3, ROW + 1, 8), ("game", props[0x00 * 2 + 1]))
+    check("...Elfland's tiles under Melmond's number: the game's lines",
+          [stand(3, elf, X0 + k, ROW + 1, 8) for k in range(4)], [("game", 0xDB)] + [("game", 0xEE)] * 3)
+    #  The hook alone, the party facing the second stone: of the game's 256
+    #  lines only the two the stones say give way, and a pointer a byte or a
+    #  page off theirs does not; Y kept, as rando_dlgtext promises.
+    gameptr = lambda i: chunkbyte(0x0A, 0x8000 + 2 * i) | chunkbyte(0x0A, 0x8001 + 2 * i) << 8
+
+    def hooked(ptr):
+        bus, cpu = machine()
+        bus.wram[K["cur_map"]] = ELFLAND
+        bus.wram[K["sm_scroll_x"]], bus.wram[K["sm_scroll_y"]] = (X0 + 1 - 7) & 63, (ROW + 1 - 7) & 63
+        bus.wram[K["facing"]] = 8
+        bus.wram[TEXT_PTR], bus.wram[TEXT_PTR + 1] = ptr & 0xFF, ptr >> 8
+        cpu.y = 0x5A
+        call(cpu, "rando_dlgtext", bank=RANDO_BANK)
+        return bus.wram[TEXT_PTR] | bus.wram[TEXT_PTR + 1] << 8, cpu.y & 0xFF
+    runs = {i: hooked(gameptr(i)) for i in range(256)}
+    check("...the hook alone, facing the second stone: $DB and $EE give way, the other 254 lines the game's, Y kept",
+          ({i for i, (p, _) in runs.items() if p != gameptr(i)}, {p for i, (p, _) in runs.items() if i in (0xDB, 0xEE)},
+           {y for _, y in runs.values()}), ({0xDB, 0xEE}, {OPTD}, {0x5A}))
+    check("...a pointer a byte or a page off theirs: left alone",
+          [hooked(p)[0] for p in (gameptr(0xDB) ^ 1, gameptr(0xDB) ^ 0x100, gameptr(0xEE) ^ 1, gameptr(0xEE) ^ 0x100)],
+          [gameptr(0xDB) ^ 1, gameptr(0xDB) ^ 0x100, gameptr(0xEE) ^ 1, gameptr(0xEE) ^ 0x100])
+    others = {}
+    for m in (3, 4, 6):
+        tiles = smap(m)
+        spots = [(i % 64, i // 64) for i, t in enumerate(tiles) if t == TOMB]
+        for x, y in spots:
+            for face, (dx, dy) in STEP.items():
+                if walk(tiles, x + dx, y + dy):
+                    others[(m, x, y, face)] = stand(m, tiles, x + dx, y + dy, face)
+                    break
+    check("...every tomb in Melmond, Crescent Lake and Onrac: \"This is a tomb.\"",
+          (len(others) > 30, {v for v in others.values()}), (True, {("game", 0xEE)}))
+
+
 MSGROWS_TOTAL = 12
 
 
@@ -21557,7 +21730,7 @@ def main():
     Run the suite before committing, not between edits.
     """
     tests = (test_block, test_presets, test_movespeed, test_encounter,
-              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_ffmrules, test_ffmcheck, test_selfcontained, test_altrando, test_placewin, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue,
+              test_noshuffle, test_derive, test_guillotine, test_rando_talk, test_rando_remove, test_winnable, test_goal, test_owsinc, test_rando_early, test_es_reference, test_es_wiring, test_es_masks, test_es_world, test_es_place, test_es_tables, test_es_tree, test_owedits, test_owscreen, test_mapselect, test_altmaps, test_altminimap, test_ffmrules, test_ffmcheck, test_selfcontained, test_altrando, test_placewin, test_rando_place, test_rando_rewards, test_rando_giving, test_rando_shipdock, test_rando_princess, test_roll, test_rando_build, test_rando_dialogue, test_gravestones,
               test_battlespeed, test_lineup, test_respondtable, test_msgdraw,
               test_npcmove, test_magicwrap, test_autosort, test_retarget,
               test_runwait, test_idtreasure, test_statusatk, test_goldxp, test_eobreward,
