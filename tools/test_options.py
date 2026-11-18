@@ -9714,7 +9714,8 @@ def test_sumscreen():
         call(cpu, "DrawPalette_L")              # ...the colours drawn, as the title draws them
         for _ in range(16):                     # the font and colours flushed
             call(cpu, "opt_menu_breathe", dbr=OPTMENU_BANK)
-        font = lambda: bytes(bus.vram[0x4000 + 32 * 0x80:0x4000 + 32 * 0x100])
+        VCHR = 2 * K["VRAM_CHR"]
+        font = lambda: bytes(bus.vram[VCHR + 32 * 0x80:VCHR + 32 * 0x100])
         before = font()
         ngs, ngf = K["NGF_SEED"] - 0x7E0000, K["NGF_OWEDITS"] - 0x7E0000
         bus.wram[ngs:ngs + 4] = seed.to_bytes(4, "little")
@@ -11980,7 +11981,7 @@ def test_ntflush():
     halves, checked word for word at its own tilemap row and at its duplicate
     thirty below.  And what a walking frame's flush costs, bounded."""
     import random, re as _re
-    NTSHADOW, VRAMMAP = 0x1000, 0x0000
+    NTSHADOW, VRAMMAP = 0x1000, K["VRAM_BG1MAP"]
     img = 0xA7 & 0x1F
     fixed = bytes(ROMDATA[img * 0x10000 + 0xC000:img * 0x10000 + 0x10000])
     m = list(_re.finditer(rb"\xA6\x30\xBD..\x85\x10\xBD..\x85\x11\xA5\x31\xC9\x10", fixed, _re.S))
@@ -12086,6 +12087,591 @@ def test_ntflush():
     worst = {k: max(cost(k, x, y) for x, y in ((0, 4), (13, 14), (25, 9), (31, 0))) for k in ("row", "col")}
     check("a walking frame's flush: a column under 1150 instructions, a row under 1000",
           (worst["col"] < 1150, worst["row"] < 1000, worst), (True, True, worst))
+
+
+def m7_reference():
+    """The overworld as the NES draws it, from the game's data alone: the map
+    decoded here (randoref's RLE, not the cartridge's), each metatile's four
+    characters from bank $00's lut_OWTileset and their pixels from bank $02's
+    pattern table, under its palette -- as 16x16 blocks of the value a pixel
+    takes in CGRAM, 0 for colour 0 (the backdrop) and p * 16 + c else.  So
+    pixel (x, y) of the 4096-pixel world is blocks[map[y >> 4][x >> 4]]."""
+    b1 = R.nesbank(ROMDATA, 1)
+    world = []
+    for r in range(256):
+        ptr = b1[2 * r] | b1[2 * r + 1] << 8
+        world.append(R.decode_rle(b1, ptr - 0x8000, 256))
+    tsa = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()[:0x400]
+    chr_ = open(os.path.join(ROOT, "game", "bank_02.dat"), "rb").read()[:0x1000]
+    blocks = []
+    for m in range(128):
+        pal = tsa[0x300 + m] & 3
+        blk = [[0] * 16 for _ in range(16)]
+        for q in range(4):
+            t = tsa[0x100 + 0x80 * q + m]
+            for r in range(8):
+                lo, hi = chr_[t * 16 + r], chr_[t * 16 + 8 + r]
+                for c in range(8):
+                    v = (lo >> (7 - c) & 1) | (hi >> (7 - c) & 1) << 1
+                    blk[(q >> 1) * 8 + r][(q & 1) * 8 + c] = pal * 16 + v if v else 0
+        blocks.append(blk)
+    return world, blocks
+
+
+def hdma_lines(bus, ch, lines=224):
+    """What channel ch's HDMA writes before each screen line, if HDMAEN has
+    it on: entry k of a direct table is sent in line k - 1's hblank (line 0
+    the hardware's first, never shown), so it is screen line k's (ares'
+    hdmaSetup reads the first header, hdmaRun sends).  A list of the bytes
+    sent, or None on a line it sends nothing, so the register keeps what
+    it had."""
+    if not bus.io.get(0x420C, 0) >> ch & 1:
+        return [None] * lines
+    base = 0x4300 + 0x10 * ch
+    mode = bus.io.get(base, 0) & 7
+    n = (1, 2, 2, 4, 4, 4, 2, 4)[mode]
+    bank = bus.io.get(base + 4, 0)
+    addr = bus.io.get(base + 2, 0) | bus.io.get(base + 3, 0) << 8
+    out = []
+    while len(out) < lines:
+        hdr = bus.read(bank, addr)
+        addr += 1
+        if hdr == 0:
+            break
+        count = hdr & 0x7F or 0x80
+        for i in range(count):
+            if hdr & 0x80 or i == 0:
+                out.append([bus.read(bank, addr + j) for j in range(n)])
+                addr += n
+            else:
+                out.append(None)
+    return (out + [None] * lines)[:lines]
+
+
+def m7_lines(bus):
+    """Per screen line, the Mode 7 registers it is drawn with: the vblank's
+    writes (bus.m7), then the HDMA channels aimed at M7A-M7D (two bytes, the
+    shared latch: low, then high) -- {register: value} a line."""
+    base = {r: bus.m7.get(r, 0) for r in (0x211B, 0x211C, 0x211D, 0x211E, 0x211F, 0x2120, 0x210D, 0x210E)}
+    chans = [(ch, 0x2100 | bus.io.get(0x4301 + 0x10 * ch, 0)) for ch in range(8)]
+    chans = [(ch, r) for ch, r in chans if 0x211B <= r <= 0x211E and bus.io.get(0x420C, 0) >> ch & 1]
+    feeds = [(r, hdma_lines(bus, ch)) for ch, r in chans]
+    out, cur = [], dict(base)
+    for y in range(224):
+        for r, feed in feeds:
+            if feed[y] is not None:
+                cur[r] = feed[y][1] << 8 | feed[y][0]
+        out.append(dict(cur))
+    return out
+
+
+def m7_frame(bus):
+    """Per screen line, (ox, oy, a, c): pixel x of it shows plane pixel
+    ((ox + a * x) >> 8, (oy + c * x) >> 8), not wrapped -- ares' arithmetic
+    (ppu-performance/mode7.cpp): the hardware's line is sy + 1, the offsets
+    less the centre clipped to ten bits, each product's low six bits
+    dropped.  Raises unless B and C are 0, which is all the overworld uses."""
+    def s(v, bits):
+        v &= (1 << bits) - 1
+        return v - (1 << bits) if v >> (bits - 1) else v
+    clip = lambda n: (n | ~1023) if n & 0x2000 else (n & 1023)
+    out = []
+    for sy, regs in enumerate(m7_lines(bus)):
+        a, b, c, d = (s(regs[r], 16) for r in (0x211B, 0x211C, 0x211D, 0x211E))
+        if b or c:
+            raise AssertionError("line %d: B, C %r" % (sy, (b, c)))
+        hc, vc, ho, vo = (s(regs[r], 13) for r in (0x211F, 0x2120, 0x210D, 0x210E))
+        y = sy + 1
+        ox = (a * clip(ho - hc) & ~63) + (b * clip(vo - vc) & ~63) + (b * y & ~63) + (hc << 8)
+        oy = (c * clip(ho - hc) & ~63) + (d * clip(vo - vc) & ~63) + (d * y & ~63) + (vc << 8)
+        out.append((ox, oy, a, c))
+    return out
+
+
+def m7_screen(bus):
+    """The 256x224 picture the Mode 7 plane puts on screen from what VRAM,
+    the registers and the HDMA tables hold, each pixel its character's
+    value -- the plane's map in VRAM's low bytes, the characters in the
+    high."""
+    if bus.io.get(0x2105) != 7:
+        raise AssertionError("not Mode 7: BGMODE %r" % bus.io.get(0x2105))
+    v = bus.vram
+    rows = []
+    for ox, oy, a, c in m7_frame(bus):
+        line = []
+        for x in range(256):
+            px, py = ((ox + a * x) >> 8) & 0x3FF, ((oy + c * x) >> 8) & 0x3FF
+            t = v[2 * ((py >> 3) * 128 + (px >> 3))]
+            line.append(v[2 * (t * 64 + (py & 7) * 8 + (px & 7)) + 1])
+        rows.append(line)
+    return rows
+
+
+def m7_seen(bus, wx0, wy0):
+    """Per screen line, per pixel, the map pixel the hardware samples, the
+    plane's coordinates unwrapped to the map's nearest the pivot's (wx0,
+    wy0): the plane is the map mod 1024, so that is the one the plane holds
+    if its rows and columns are right."""
+    out = []
+    for ox, oy, a, c in m7_frame(bus):
+        line = []
+        for x in range(256):
+            px, py = (ox + a * x) >> 8, (oy + c * x) >> 8
+            line.append((wx0 + ((px - wx0 + 512) & 1023) - 512, wy0 + ((py - wy0 + 512) & 1023) - 512))
+        out.append(line)
+    return out
+
+
+def m7_world_misses(bus, world, blocks, wx0, wy0, screen=None):
+    """Screen pixels whose plane value is not the map's at the point the
+    hardware samples (m7_seen): (line, x) of each."""
+    screen = screen or m7_screen(bus)
+    bad = []
+    for sy, line in enumerate(m7_seen(bus, wx0, wy0)):
+        row = screen[sy]
+        for x, (wx, wy) in enumerate(line):
+            wx &= 0xFFF
+            wy &= 0xFFF
+            if blocks[world[wy >> 4][wx >> 4]][wy & 15][wx & 15] != row[x]:
+                bad.append((sy, x))
+    return bad
+
+
+def m7_camera(angle, distance, x, sy, px=120, pline=112):
+    """The map point (east, south of the pivot, in pixels) a camera sees at
+    screen pixel (x, sy): it sits distance pixels from the pivot, south of
+    it and above at angle degrees, looking at it, its focal length the same
+    distance -- one screen pixel one map pixel at the pivot when it looks
+    straight down.  A ray cast through the pixel onto the ground, by vector
+    arithmetic: none of genm7.py's closed forms.  None above the horizon."""
+    import math
+    t = math.radians(angle)
+    cam = (0.0, distance * math.cos(t), distance * math.sin(t))
+    fwd = (0.0, -math.cos(t), -math.sin(t))
+    right = (1.0, 0.0, 0.0)
+    down = (0.0, math.sin(t), -math.cos(t))
+    dx, dy = (x - px) / distance, (sy - pline) / distance
+    ray = [fwd[k] + dx * right[k] + dy * down[k] for k in range(3)]
+    if ray[2] >= 0:
+        return None
+    k = -cam[2] / ray[2]
+    return cam[0] + k * ray[0], cam[1] + k * ray[1]
+
+
+def nes_screen(world, blocks, px0, py0):
+    """What the NES picture shows on the SNES at scroll (px0, py0) in world
+    pixels: its lines 8 to 231 (the HAL's crop), columns 0 to 255."""
+    rows = []
+    for y in range(224):
+        wy = (py0 + y + 8) & 0xFFF
+        mrow, fine = world[wy >> 4], wy & 15
+        line = []
+        for x in range(256):
+            wx = (px0 + x) & 0xFFF
+            line.append(blocks[mrow[wx >> 4]][fine][wx & 15])
+        rows.append(line)
+    return rows
+
+
+def m7_machine():
+    """A machine on the overworld at nothing in particular: the PPU and DMA
+    modelled, a clock for the waits."""
+    bus, cpu = machine()
+    bus.ppu()
+    bus.dma = True
+    bus.frames()
+    return bus, cpu
+
+
+def test_m7view():
+    """The overworld's Mode 7 plane (ow7.asm), tilted (genm7.py), shows the
+    map.  The game enters the overworld here (PrepOverworld) and walks:
+    steps in all four directions on foot, by canoe, by ship and by airship,
+    across the map's edges both ways, at the flat angle, the default and
+    the steepest, each frame flushed (hal_waitvbl, its DMAs run) and the
+    screen the plane makes from VRAM, the registers and the HDMA tables
+    (m7_screen, ares' arithmetic) held, pixel by pixel, to the map drawn
+    here from the game's data alone (m7_reference) at the point the
+    hardware samples -- so every row and column the view reaches is
+    there -- and at the flat angle to the NES picture itself.  And the
+    sampled points to a camera's (m7_camera, a ray cast, not genm7.py's
+    formulas), the pivot fixed at the player's tile; the haze only past
+    FOG_NEAR; R stepping the angle; the objects ConvertOWToSprite places
+    landing on their tiles, and the game's placing at the flat angle;
+    the nametables untouched, the queue sent, the plane and its haze gone
+    at rendering off; what a step and the way in cost."""
+    import random
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import genm7
+    world, blocks = m7_reference()
+    OWX, OWY, MCX, MCY = K["ow_scroll_x"], K["ow_scroll_y"], K["move_ctr_x"], K["move_ctr_y"]
+    VEHICLE, FACING, SPEED = K["vehicle"], K["facing"], K["move_speed"]
+    M7ON, M7CHR, QLEN, LVL = K["h_m7on"], K["h_m7chr"], K["h_m7qlen"], K["h_m7lvl"]
+    NTSH = 0x1000
+    ANGLES, CAM = genm7.ANGLES, genm7.CAMERA
+    FLAT = ANGLES.index(90)
+    STEEP = ANGLES.index(min(ANGLES))
+    NORTH, SOUTH, _, _ = genm7.region()
+    VMIN, VMAX = -(NORTH + 1) * 16, (SOUTH + 1) * 16
+    OW7 = ((0xA1 + K["CHUNK_OW7"]) & 0x1F) * 0x10000
+
+    def lut_word(name, i):
+        a = OW7 + SYM[name] + 2 * i
+        return ROMDATA[a] | ROMDATA[a + 1] << 8
+
+    WEST, EAST = genm7.region()[2:]
+
+    def region_misses(bus):
+        """Metatiles of the region the plane keeps -- M7_NORTH rows north of
+        the pivot's tile to M7_SOUTH south, M7_WEST columns west to M7_EAST
+        east -- whose four characters on the plane are not the map's
+        (lut_M7Row's), the party at rest: all of it, not only what the
+        angle shows, so a row or column drawn a tile short, or from the
+        wrong rows, shows here before it comes into view."""
+        tx, ty = bus.wram[OWX] + 7, bus.wram[OWY] + 7
+        lut = OW7 + SYM["lut_M7Row"]
+        out = []
+        for my in range(ty - NORTH, ty + SOUTH + 1):
+            for mx in range(tx - WEST, tx + EAST + 1):
+                m = world[my & 0xFF][mx & 0xFF]
+                r, c = (my & 63) * 2, (mx & 63) * 2
+                got = [bus.vram[2 * ((r + dr) * 128 + c + dc)] for dr in (0, 1) for dc in (0, 1)]
+                if got != list(ROMDATA[lut + 4 * m:lut + 4 * m + 4]):
+                    out.append((mx & 0xFF, my & 0xFF))
+        return out
+    rnd = random.Random(1117)
+
+    def pivot(bus):
+        """The pivot's map pixel: the centre of the player's tile as the
+        NES draws it, x 112-127 and NES lines 112-127 of the view."""
+        return bus.wram[OWX] * 16 + bus.wram[MCX] + 120, bus.wram[OWY] * 16 + bus.wram[MCY] + 120
+
+    def enter(bus, cpu, x, y, vehicle=1, level=None):
+        """PrepOverworld at angle `level` (an index into ANGLES); -> its
+        state as it returns, then the next frame's flush, which puts the
+        registers up."""
+        bus.wram[OWX], bus.wram[OWY], bus.wram[VEHICLE] = x, y, vehicle
+        bus.wram[K["vehicle_next"]] = vehicle
+        if level is not None:
+            bus.wram[LVL] = level + 1
+        call(cpu, "PrepOverworld")
+        state = (bus.wram[M7ON], bus.wram[M7CHR], bus.wram[QLEN] | bus.wram[QLEN + 1] << 8)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        return state
+
+    #  The way in, at the corners of the map and between: the NES picture
+    #  at the flat angle, the map at every angle.
+    bad = []
+    for x, y in ((0x92, 0x9E), (0, 0), (0xF8, 0xF9), (0x3A, 0xFF), (0xFF, 0x41), (0x3F, 0x3F)):
+        for level in range(len(ANGLES)):
+            if level not in (FLAT, STEEP) and (x, y) != (0x92, 0x9E):
+                continue
+            bus, cpu = m7_machine()
+            bus.wram[NTSH:NTSH + 0x1000] = b"\xa5" * 0x1000
+            state = enter(bus, cpu, x, y, level=level)
+            screen = m7_screen(bus)
+            if level == FLAT and screen != nes_screen(world, blocks, x * 16, y * 16):
+                bad.append("in at (%d, %d): not the NES picture" % (x, y))
+            if m7_world_misses(bus, world, blocks, *pivot(bus), screen=screen) or region_misses(bus):
+                bad.append("in at (%d, %d), %d degrees: not the map" % (x, y, ANGLES[level]))
+            if state != (1, 1, 0):
+                bad.append("in at (%d, %d): on, characters, queue %r" % (x, y, state))
+            if bytes(bus.wram[NTSH:NTSH + 0x1000]) != b"\xa5" * 0x1000:
+                bad.append("in at (%d, %d): the nametables drawn" % (x, y))
+    check("the way in: the NES picture flat, the map at every angle, on, the queue sent, the nametables untouched",
+          bad[:4], [])
+
+    #  The camera: every eighth pixel of every fourth line within a pixel of
+    #  where the ray through it meets the ground, the pivot on the pivot.
+    bad = []
+    for level, angle in enumerate(ANGLES):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, 0x92, 0x9E, level=level)
+        wx0, wy0 = pivot(bus)
+        seen = m7_seen(bus, wx0, wy0)
+        if seen[112][120] != (wx0, wy0):
+            bad.append("%d degrees: the pivot shows %r, not %r" % (angle, seen[112][120], (wx0, wy0)))
+        worst, sums, n = 0, [0.0, 0.0], 0
+        for sy in range(0, 224, 4):
+            for x in range(0, 256, 8):
+                u, v = m7_camera(angle, CAM, x, sy)
+                hx, hy = seen[sy][x]
+                ex, ey = hx - wx0 - u, hy - wy0 - v
+                worst = max(worst, abs(ex), abs(ey))
+                sums[0] += ex
+                sums[1] += ey
+                n += 1
+        mean = [round(t / n, 2) for t in sums]
+        #  The hardware takes the pixel the point is in (-1 to 0), and its
+        #  8.8 matrix and dropped bits add a third of a pixel either way:
+        #  never past 1.6, and half a pixel short on average.  A row or a
+        #  column off would be past both.
+        if angle == 90 and worst > 1e-6:
+            bad.append("flat: %.2f pixels off" % worst)
+        if angle != 90 and (worst > 1.6 or not all(-0.8 < m < -0.2 for m in mean)):
+            bad.append("%d degrees: %.2f pixels at worst, %r on average" % (angle, worst, mean))
+    check("every angle: the pivot fixed, every point the camera's but for the hardware's rounding", bad, [])
+
+    #  Walking, at three angles.  Each frame as EnterOverworldLoop has it:
+    #  the wait (the flush), then OverworldMovement, and a new step when the
+    #  last is done.
+    bad, frames = [], 0
+    worst = {}
+    for level in (FLAT, genm7.DEFAULT, STEEP):
+        for vehicle, spot in ((1, (0x92, 0x9E)), (2, (0x01, 0x02)), (4, (0xFE, 0xFD)), (8, (0x80, 0x00)),
+                              (8, (0x00, 0x80)), (1, (0xFF, 0xFF))):
+            bus, cpu = m7_machine()
+            enter(bus, cpu, *spot, vehicle=vehicle, level=level)
+            bus.wram[NTSH:NTSH + 0x1000] = b"\x5a" * 0x1000
+            for step in range(10):
+                bus.wram[FACING] = rnd.choice((1, 2, 4, 8))
+                call(cpu, "StartMapMove")
+                while True:
+                    px0 = bus.wram[OWX] * 16 + bus.wram[MCX]
+                    py0 = bus.wram[OWY] * 16 + bus.wram[MCY]
+                    n0 = cpu.steps
+                    call(cpu, "OverworldMovement")
+                    n1 = cpu.steps
+                    call(cpu, "hal_waitvbl", bank=0xC0)
+                    key = (level, "game")
+                    worst[key] = max(worst.get(key, 0), n1 - n0)
+                    key = (level, "wait")
+                    worst[key] = max(worst.get(key, 0), cpu.steps - n1)
+                    frames += 1
+                    screen = m7_screen(bus)
+                    if level == FLAT and screen != nes_screen(world, blocks, px0, py0):
+                        bad.append("vehicle %d step %d at (%d, %d): not the NES picture" % (vehicle, step, px0, py0))
+                    if m7_world_misses(bus, world, blocks, px0 + 120, py0 + 120, screen=screen):
+                        bad.append("vehicle %d step %d at (%d, %d), %d degrees: not the map"
+                                   % (vehicle, step, px0, py0, ANGLES[level]))
+                    if bus.wram[QLEN] | bus.wram[QLEN + 1]:
+                        bad.append("vehicle %d step %d: the queue not sent" % (vehicle, step))
+                    if bus.wram[SPEED] == 0:
+                        break
+                miss = region_misses(bus)
+                if miss:
+                    bad.append("vehicle %d step %d, %d degrees: the kept region not the map at %r"
+                               % (vehicle, step, ANGLES[level], miss[:3]))
+                if bad:
+                    break
+            if bytes(bus.wram[NTSH:NTSH + 0x1000]) != b"\x5a" * 0x1000:
+                bad.append("vehicle %d: the nametables drawn" % vehicle)
+    check("walking, %d frames: every frame the map (the NES picture flat), after each step the whole region kept, "
+          "the queue sent, the nametables untouched" % frames, bad[:4], [])
+    #  The NES's way, measured on the build before the plane (2026-11-17):
+    #  a step's dearest frame 5372-6543 instructions of the game's and
+    #  732-1141 of its wait and flush; the way in 261,064.  The flat plane
+    #  took that to ~970 and 241; the tilt adds a row decoded and drawn on
+    #  the frame the pivot reaches a new tile.
+    got = {k: v for k, v in worst.items()}
+    check("...a step's dearest frame: the game's under 5000 instructions, the wait and flush under 500",
+          (max(v for (l, k), v in got.items() if k == "game") < 5000,
+           max(v for (l, k), v in got.items() if k == "wait") < 500, got), (True, True, got))
+    bus, cpu = m7_machine()
+    n0 = cpu.steps
+    enter(bus, cpu, 0x92, 0x9E, level=STEEP)
+    check("...the way in under 200,000", (cpu.steps - n0 < 200_000, cpu.steps - n0), (True, cpu.steps - n0))
+
+    #  The haze: none on a line nearer than FOG_NEAR north of the pivot,
+    #  FOG_RGB past FOG_FAR (the camera's depth), none at the flat angle;
+    #  added to BG1 and the backdrop.
+    bad = []
+    for level, angle in enumerate(ANGLES):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, 0x92, 0x9E, level=level)
+        feeds = [hdma_lines(bus, ch) for ch in range(8)
+                 if bus.io.get(0x4301 + 0x10 * ch) == 0x32 and bus.io.get(0x420C, 0) >> ch & 1]
+        rgb = [0, 0, 0]
+        for sy in range(224):
+            for f in feeds:
+                for b in f[sy] or ():
+                    for k in range(3):
+                        if b >> (5 + k) & 1:
+                            rgb[k] = b & 31
+            depth = -m7_camera(angle, CAM, 120, sy)[1]
+            if depth < genm7.FOG_NEAR - 2 and rgb != [0, 0, 0]:
+                bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
+            if depth > genm7.FOG_FAR + 2 and tuple(rgb) != genm7.FOG_RGB:
+                bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
+        if bus.io.get(0x2131) != (0xA1 if genm7.FOG_SUBTRACT else 0x21) or bus.io.get(0x2130) != 0:
+            bad.append("%d degrees: CGWSEL, CGADSUB %r" % (angle, (bus.io.get(0x2130), bus.io.get(0x2131))))
+        if angle == 90 and len(feeds) != 2:
+            bad.append("flat: %d haze channels" % len(feeds))
+    check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, onto BG1 and the backdrop",
+          bad[:4], [])
+
+    #  R: a press steps the angle once, held or let go nothing more, past the
+    #  last the first; the tables and the haze with it.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=len(ANGLES) - 2)
+    R = K["JOYAUX_R"]
+    got = []
+    for held in (R, R, 0, 0, R, 0, R, R):
+        bus.wram[K["h_joyaux"]] = held
+        call(cpu, "m7_scroll")
+        got.append(bus.wram[LVL] - 1)
+    want = [len(ANGLES) - 1] * 4 + [0, 0, 1, 1]
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    A1T3 = bus.io.get(0x4332, 0) | bus.io.get(0x4333, 0) << 8
+    check("R: a press steps the angle once, past the last the first; M7A's table the angle's",
+          (got, A1T3), (want, lut_word("lut_M7PA", 1)))
+
+    #  Objects (ConvertOWToSprite).  Flat: the game's placing, ported
+    #  here.  Tilted: the sprite's centre within a screen pixel of where the
+    #  camera puts its tile's centre (a quarter more across: the scale is
+    #  the line's, not the point's); off (C set) only where that is past
+    #  the NES's bounds or the rows kept.
+    def nes_place(tx, ty, sx, sy, mcx, mcy):
+        a = (ty - sy) & 0xFF
+        if a >= 0x10:
+            return None
+        a = (a * 16 - mcy - 1) & 0xFF
+        if a >= 0xEC:
+            return None
+        b = (tx - sx) & 0xFF
+        if b >= 0x10:
+            return None
+        b = b * 16 - mcx
+        if b < 0 or b >= 0xF8:
+            return None
+        return b, a
+
+    def place(bus, cpu, tx, ty):
+        cpu.x, cpu.y = tx, ty
+        call(cpu, "ConvertOWToSprite")
+        return None if cpu.p & 1 else (bus.wram[K["spr_x"]], bus.wram[K["spr_y"]])
+
+    def placements():
+        """Every tile of the region and a row and column past it, at rest;
+        the NES view's edges with every fine scroll each way; and random
+        ones."""
+        for dy in range(-NORTH - 1, SOUTH + 2):
+            for dx in range(-WEST - 1, EAST + 2):
+                sx, sy = rnd.randrange(256), rnd.randrange(256)
+                yield sx, sy, 0, 0, (sx + 7 + dx) & 0xFF, (sy + 7 + dy) & 0xFF
+        for d in (-1, 0, 1, 7, 8, 14, 15, 16, 17):
+            for mc in range(16):
+                sx, sy = rnd.randrange(256), rnd.randrange(256)
+                yield sx, sy, mc, 0, (sx + d) & 0xFF, (sy + rnd.randrange(-1, 17)) & 0xFF
+                yield sx, sy, 0, mc, (sx + rnd.randrange(-1, 17)) & 0xFF, (sy + d) & 0xFF
+        for _ in range(300):
+            sx, sy = rnd.randrange(256), rnd.randrange(256)
+            mcx, mcy = (rnd.randrange(16), 0) if rnd.randrange(2) else (0, rnd.randrange(16))
+            yield sx, sy, mcx, mcy, (sx + rnd.randrange(-20, 22)) & 0xFF, (sy + rnd.randrange(-24, 20)) & 0xFF
+
+    bad, n = [], 0
+    for level in (FLAT, genm7.DEFAULT, STEEP):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, 0x92, 0x9E, level=level)
+        for sx, sy, mcx, mcy, tx, ty in placements():
+            bus.wram[OWX], bus.wram[OWY], bus.wram[MCX], bus.wram[MCY] = sx, sy, mcx, mcy
+            call(cpu, "m7_scroll")
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            got = place(bus, cpu, tx, ty)
+            n += 1
+            if level == FLAT:
+                if got != nes_place(tx, ty, sx, sy, mcx, mcy):
+                    bad.append("flat (%d,%d) from (%d,%d)+(%d,%d): %r" % (tx, ty, sx, sy, mcx, mcy, got))
+                continue
+            du = ((tx - sx - 7 + 128) & 0xFF) - 128
+            dv = ((ty - sy - 7 + 128) & 0xFF) - 128
+            u, v = du * 16 - mcx, dv * 16 - mcy
+            #  Where the camera puts the tile's centre: its line from the
+            #  ground's, by bisection on m7_camera, and across by the scale
+            #  there.
+            lo, hi = -60.0, 300.0
+            for _ in range(40):
+                mid = (lo + hi) / 2
+                p = m7_camera(ANGLES[level], CAM, 120, mid)
+                if p is None or p[1] < v:
+                    lo = mid
+                else:
+                    hi = mid
+            line = lo
+            p = m7_camera(ANGLES[level], CAM, 121, line)
+            q = m7_camera(ANGLES[level], CAM, 120, line)
+            xs = 120 + u / (p[0] - q[0])
+            if got is None:
+                if 1 <= line - 1 <= 0xEA and 1 <= xs - 8 <= 0xF6 and VMIN + 1 < v < VMAX - 1:
+                    bad.append("%d degrees (%d,%d) from (%d,%d)+(%d,%d): culled, the camera has it at %.1f, %.1f"
+                               % (ANGLES[level], tx, ty, sx, sy, mcx, mcy, xs, line))
+            elif abs(got[0] + 8 - xs) > 1.25 or abs(got[1] + 1 - line) > 1:
+                bad.append("%d degrees (%d,%d) from (%d,%d)+(%d,%d): its centre at %r, the camera's %.1f, %.1f"
+                           % (ANGLES[level], tx, ty, sx, sy, mcx, mcy, (got[0] + 8, got[1] + 1), xs, line))
+    check("objects, %d placed: flat the game's placing; tilted on their tiles, culled only off screen" % n,
+          bad[:4], [])
+
+    #  Off: a $2001 write with rendering off, and the next flush is mode 1,
+    #  the haze and its channels gone.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E)
+    got = [bus.wram[M7ON], bus.io.get(0x2105), bus.io.get(0x2131), bus.io.get(0x420C, 0) & 0xE8]
+    cpu.a = 0x1E
+    call(cpu, "hal_w2001", bank=0xC0)
+    got.append(bus.wram[M7ON])
+    cpu.a = 0x00
+    call(cpu, "hal_w2001", bank=0xC0)
+    got.append(bus.wram[M7ON])
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    got += [bus.io.get(0x2105), bus.io.get(0x2131), bus.io.get(0x420C, 0) & 0xE8]
+    check("on at the way in (the haze, its four channels), kept at rendering on, gone at rendering off, "
+          "mode 1 the next flush, no haze, no channels",
+          got, [1, 7, 0xA1 if genm7.FOG_SUBTRACT else 0x21, 0xE8, 1, 0, 1, 0, 0])
+
+    #  Off the overworld, a frame with both pulses sounding, as the music
+    #  has them: the plane's bytes untouched and the flush mode 1.  They sat
+    #  at HAL_VARS+$80 once, pulse 2's half of h_swseen, and its period put
+    #  the plane up over the title and every menu (user, 2026-11-17) -- out
+    #  of the harness's sight while no test sent sound.  Pulse 2's period
+    #  recorded, so the frame did write where the flag was.
+    bus, cpu = m7_machine()
+    SHADOW, SW = K["APUSHADOW"], K["h_swseen"]
+    lo, hi = K["M7VARS"], K["M7VARS_END"]
+    bus.wram[K["h_apuok"]] = 1
+    bus.wram[SHADOW + 0x15] = 0x03
+    for base in (0, 4):
+        bus.wram[SHADOW + base:SHADOW + base + 4] = bytes([0xBF, 0x00, 0x23, 0x01])
+    before = bytes(bus.wram[lo:hi])
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    check("a frame of sound off the overworld: pulse 2's period kept, the plane's bytes untouched, mode 1",
+          (bus.wram[SW + 2] | bus.wram[SW + 3] << 8, bytes(bus.wram[lo:hi]) == before, bus.io.get(0x2105)),
+          (0x0123, True, 1))
+
+
+def test_m7rows():
+    """ow_rowring, the Mode 7 overworld's rows (altmaps.inc), decodes a row
+    as LoadOWMapRow puts it in the game's window at mapdata -- the game's
+    map from bank $01 with the map edits written in, or Map Select's: every
+    row of the game's map with no edits and with all of them, every
+    seventh of each other map's, each into the page it is given and no
+    other, the zero page past tmp+5 kept."""
+    MAPN = K["MAPINFO_N"]
+    OWE, MAP = K["RANDO_OWEDITS"] - 0x6000, K["RANDO_MAP"] - 0x6000
+    bad, n = [], 0
+    for m, edits in [(0, 0), (0, K["OWEDIT_FLAGS"])] + [(m, 0) for m in range(1, MAPN)]:
+        bus, cpu = machine()
+        bus.sram[OWE:OWE + 2] = edits.to_bytes(2, "little")
+        bus.sram[MAP] = m
+        bus.wram[K["mapflags"]] = 0
+        for row in range(0, 256, 1 if m == 0 else 7):
+            bus.wram[K["mapdraw_y"]] = row
+            call(cpu, "LoadOWMapRow")
+            want = bytes(bus.sram[0x1000 + (row & 15) * 0x100:][:0x100])
+            page = 0x50 + (row & 31)
+            bus.wram[0x4F00:0x7100] = b"\x5a" * 0x2200
+            zp = bytes(bus.wram[0x16:0x100])
+            cpu.a, cpu.x = row, page
+            call(cpu, "ow_rowring")
+            got = bytes(bus.wram[page * 0x100:][:0x100])
+            rest = bytes(bus.wram[0x4F00:page * 0x100]) + bytes(bus.wram[page * 0x100 + 0x100:0x7100])
+            n += 1
+            if got != want:
+                bad.append("map %d edits %04X row %d" % (m, edits, row))
+            if rest != b"\x5a" * len(rest):
+                bad.append("map %d row %d: written past its page" % (m, row))
+            if bytes(bus.wram[0x16:0x100]) != zp:
+                bad.append("map %d row %d: the zero page past tmp+5 touched" % (m, row))
+    check("ow_rowring, %d rows: the game's window's, into its page alone" % n, bad[:4], [])
 
 
 def test_minimap():
@@ -21896,7 +22482,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_minimap, test_chrflush, test_shoulders, test_rangerows, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_m7view, test_m7rows, test_minimap, test_chrflush, test_shoulders, test_rangerows, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

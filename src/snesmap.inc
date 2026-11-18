@@ -81,6 +81,13 @@ FUNFAR          = TAVERNFAR
 ;  mkrom.py's LOWHALF lays out/fundata.bin there.
 FUNDATAFAR      = $C00000 + (1 + CHUNK_TAVERN) * $10000
 CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the first bank's
+;  The overworld in Mode 7 (ow7.asm): the map's rows and columns into the
+;  plane, its scroll, and the way in.  The last chunk a 2MB image has.  Its
+;  low half holds the plane's 256 characters (tools/genm7.py, out/ow7.bin),
+;  long through HiROM's $C0+N.
+CHUNK_OW7       = $1E
+OW7FAR          = (CHUNK0 + CHUNK_OW7) * $10000
+OW7DATAFAR      = $C00000 + (1 + CHUNK_OW7) * $10000
 ;  The Bestiary (bestiary.asm), a segment of its own in the credits' chunk,
 ;  which had 12KB free: its own chunk is one line in snes.cfg and here.
 CHUNK_BESTIARY  = CHUNK_CREDITS
@@ -1262,13 +1269,19 @@ CHRSHADOW       = $7E8000       ; 16KB: 512 tiles in SNES 4bpp order
 ; ------------------------------------------------------------------------
 
 ; --- SNES VRAM layout (word addresses) ----------------------------------
-VRAM_BG1MAP     = $0000         ; $0000-$0FFF  64x64 tilemap, 4 x $400 words
-VRAM_BG3MAP     = $1000         ; $1000-$13FF  32x32 tilemap (dialog window)
-VRAM_CHR        = $2000         ; $2000-$3FFF  512 tiles, 4bpp (16KB)
-                                ;   BG1 char base  = $2000  (tiles 0-255)
-                                ;   OBJ name base  = $2000, gap 0
-                                ;     -> OBJ tiles 0-255 at $2000 (NES table 0)
-                                ;        OBJ tiles 256-511 at $3000 (table 1)
+;  The upper half.  The lower, $0000-$3FFF, is the overworld's Mode 7 plane
+;  (ow7.asm): its 128x128 map in the low bytes, its 256 characters in the
+;  high, the one place Mode 7 can have them.  Kept apart, the two pictures
+;  never overwrite each other, and the overworld goes in and out of Mode 7
+;  by BGMODE alone.
+VRAM_M7         = $0000         ; $0000-$3FFF  Mode 7: map (low), characters (high)
+VRAM_BG1MAP     = $4000         ; $4000-$4FFF  64x64 tilemap, 4 x $400 words
+VRAM_BG3MAP     = $5000         ; $5000-$53FF  32x32 tilemap (dialog window)
+VRAM_CHR        = $6000         ; $6000-$7FFF  512 tiles, 4bpp (16KB)
+                                ;   BG1 char base  = $6000  (tiles 0-255)
+                                ;   OBJ name base  = $6000, gap 0
+                                ;     -> OBJ tiles 0-255 at $6000 (NES table 0)
+                                ;        OBJ tiles 256-511 at $7000 (table 1)
 
 ; ------------------------------------------------------------------------
 ;  CGRAM
@@ -1323,6 +1336,62 @@ NES_TOP_CROP    = 8
 
 h_emphasis      = HAL_VARS+$3B  ; $2001 bits 7-5, as R/G/B in bits 2-0
 h_greyscale     = HAL_VARS+$3C  ; $2001 bit 0
+
+;  The overworld in Mode 7 (ow7.asm; flush_m7 in hal.asm).  h_m7on is set
+;  as PrepOverworld finishes and cleared by the first $2001 write with
+;  rendering off, which is how every way off the overworld begins: from
+;  one to the other the flush shows the plane, and the NES picture else.
+;  A separate block between CHRQUEUE and OPTWORK, not HAL_VARS: they
+;  were at HAL_VARS+$80 first, which looked free and was pulse 2's half of
+;  h_swseen, and the music turned the plane on over every other screen.
+M7VARS          = $0D80
+h_m7on          = M7VARS+$00    ; nonzero: the overworld is showing, in Mode 7
+h_m7chr         = M7VARS+$01    ; nonzero: VRAM holds the plane's characters
+h_m7hofs        = M7VARS+$02    ; 2 bytes: the plane's scroll, as SetOWScroll
+h_m7vofs        = M7VARS+$04    ; 2 bytes:   last set it
+h_m7qlen        = M7VARS+$06    ; 2 bytes: bytes queued at M7QUEUE
+h_m7addr        = M7VARS+$08    ; 2 bytes: drawing's scratch -- a line's plane address,
+h_m7line        = M7VARS+$0A    ; 2 bytes:   which line (0, 2), metatiles left,
+h_m7left        = M7VARS+$0C    ; 2 bytes:   the map column and row being drawn,
+h_m7x           = M7VARS+$0E    ; 2 bytes:   how many, the piece's
+h_m7row         = M7VARS+$10    ; 2 bytes
+h_m7cnt         = M7VARS+$12    ; 2 bytes
+h_m7n           = M7VARS+$14    ; 2 bytes
+;  The tilt (ow7.asm): which angle, the tile the pivot was in when the plane
+;  last caught up (its rows and columns are drawn around it), and the
+;  angle's tables, for flush_m7's HDMA and m7_objpos.
+h_m7tx          = M7VARS+$16    ; the pivot's tile, column...
+h_m7ty          = M7VARS+$17    ; ...and row
+h_m7lvl         = M7VARS+$18    ; the angle + 1, into genm7.py's ANGLES; 0 till the first way in
+h_m7rprev       = M7VARS+$19    ; R as it read last time (the angle's step)
+h_m7fog         = M7VARS+$1A    ; nonzero: flush_m7 turned the colour maths on
+h_m7cx          = M7VARS+$1C    ; 2 bytes: M7X, the pivot's column on the plane
+h_m7cy          = M7VARS+$1E    ; 2 bytes: M7Y, its row
+h_m7tabA        = M7VARS+$20    ; 2 bytes each: the angle's tables in
+h_m7tabD        = M7VARS+$22    ;   OW7DATAFAR's bank -- M7A's and M7D's
+h_m7tabRG       = M7VARS+$24    ;   HDMA, the haze's two, the lines' inverse
+h_m7tabB        = M7VARS+$26    ;   scales, the objects' lines
+h_m7tabK        = M7VARS+$28
+h_m7tabY        = M7VARS+$2A
+h_m7save        = M7VARS+$2C    ; 6 bytes: the game's tmp..tmp+5 across a row's decoding
+h_m7ntx         = M7VARS+$32    ; the pivot's tile now, column...
+h_m7nty         = M7VARS+$33    ; ...and row
+h_m7pc          = M7VARS+$34    ; 2 bytes: a piece's metatiles; m7_scale's sum
+h_m7math        = M7VARS+$36    ; CGADSUB for the haze: add, or subtract
+h_m7ox          = M7VARS+$37    ; m7_objpos's tile column
+M7VARS_END      = M7VARS+$38
+.assert M7VARS >= CHRQUEUE + CHRQ_CAP * 2 && M7VARS_END <= OPTWORK, error, "the Mode 7 variables overlap the HAL's low WRAM"
+;  The rows of the map the plane is drawn from, 256 tiles a page, row r in
+;  page r mod 32: as far as the steepest angle sees, past the sixteen the
+;  game keeps at mapdata.  Free WRAM between CGSHADOW and CHRSHADOW.
+M7RING          = $7E5000
+M7RING_ROWS     = 32
+.assert M7RING >= CGSHADOW + $200 && M7RING + M7RING_ROWS * $100 <= CHRSHADOW, error, "the Mode 7 ring overlaps the HAL's WRAM"
+;  The plane's rows and columns, queued for the flush: records of a VRAM
+;  word address (2), a VMAIN (1: $00 a row, a byte a word along; $02 a
+;  column, 128 words down) and a count (1), then that many low bytes.
+M7QUEUE         = $7E2000
+M7QUEUE_CAP     = $0800
 
 
 ; DMA channel 1, used for the raster-split HDMA
@@ -1416,6 +1485,11 @@ A1B2            = $4324
 ;  text's colour and the mode 7 matrix with them.  The HAL uses 1, 2 and 4,
 ;  and turns HDMAEN over every frame from its own channels alone, so the two
 ;  never meet.
+DMAP3           = $4330         ; HDMA: the overworld's tilt, M7A (flush_m7)
+BBAD3           = $4331
+A1T3L           = $4332
+A1T3H           = $4333
+A1B3            = $4334
 DMAP5           = $4350
 BBAD5           = $4351
 A1T5L           = $4352
@@ -1498,8 +1572,8 @@ h_apuwave       = HAL_VARS+$78  ; waveform index, pre-shifted into the sequence
 ;  here is what it takes to tell it when one starts over, and what its
 ;  register says.  Two bytes per pulse channel so one index serves both:
 ;  X = 0 for pulse 1, 2 for pulse 2.
-h_swseen        = HAL_VARS+$7E  ; the period the CPU last wrote, to spot writes
-h_sqrst         = HAL_VARS+$C4  ; set by a $4003/$4007 write: the sweep starts
+h_swseen        = HAL_VARS+$7E  ; 4 bytes: the period the CPU last wrote, to spot writes
+h_sqrst         = HAL_VARS+$C4  ; 4 bytes: set by a $4003/$4007 write: the sweep starts
                                 ;   over from the period just written, even if
                                 ;   the bytes were the same as last time
 h_swsent        = HAL_VARS+$BF  ; the sweep register last sent to the SPC700;

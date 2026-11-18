@@ -1,0 +1,38 @@
+--- OLD
+    LDA ow_scroll_x     ; get the overworld scroll position (use this as a scroll_x,
+    ASL A               ;    since there is no scroll_x)
+    ASL A
+    ASL A
+    ASL A               ; *16 (tiles are 16 pixels wide)
+    ORA move_ctr_x      ; OR with move counter (effectively makes the move counter the fine scroll)
+    STA $2005           ; write this as our X scroll
+
+    LDA scroll_y        ; get scroll_y
+    ASL A
+    ASL A
+    ASL A
+    ASL A               ; *16 (tiles are 16 pixels tall)
+    ORA move_ctr_y      ; OR with move counter
+    STA $2005           ; and set as Y scroll
+
+    RTS                 ; then exit
+--- NEW
+    LDA ow_scroll_x     ; get the overworld scroll position (use this as a scroll_x,
+    ASL A               ;    since there is no scroll_x)
+    ASL A
+    ASL A
+    ASL A               ; *16 (tiles are 16 pixels wide)
+    ORA move_ctr_x      ; OR with move counter (effectively makes the move counter the fine scroll)
+    STA $2005           ; write this as our X scroll
+
+    LDA scroll_y        ; get scroll_y
+    ASL A
+    ASL A
+    ASL A
+    ASL A               ; *16 (tiles are 16 pixels tall)
+    ORA move_ctr_y      ; OR with move counter
+    STA $2005           ; and set as Y scroll
+
+.import m7_scroll
+    JSL m7_scroll + OW7FAR  ; the Mode 7 plane's scroll, the same (ow7.asm)
+    RTS                 ; then exit

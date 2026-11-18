@@ -30,6 +30,7 @@
 ;  The map Map Select chose (altmaps.inc): for the fixed bank, the
 ;  randomizer, the options and FUN%.
 .export ow_altrow, mm_altrows, map_newgame, map_freeship, map_freeairship
+.export ow_rowring                 ; the Mode 7 overworld's rows (ow7.asm)
 .export map_domains, map_pinzones, map_flags, dlg_lines, logic_ensure, logic_ensurenat
 .export mm_fillnt, mm_titledest, mm_decordest   ; ...and the minimap's layout, for bank $09
 .import nesio_w2007

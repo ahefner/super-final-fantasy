@@ -1,0 +1,11 @@
+--- OLD
+ConvertOWToSprite:
+    TYA                 ; put the Y coord in A
+--- NEW
+.import m7_objpos
+.export ConvertOWToSprite       ; for tools/test_options.py
+ConvertOWToSprite:
+    JSL m7_objpos + OW7FAR      ; the overworld's tilt places it (V set), or
+    BVC :+                      ;   at the flat angle the game's code below
+    RTS
+:   TYA                 ; put the Y coord in A

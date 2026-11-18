@@ -42,7 +42,7 @@ ORDER     = ["%02X" % n for n in range(16)]
 # up to the last of them when it is mirrored out to 2MB below.
 EXTRA_CHUNKS = {0x11: "OPT", 0x12: "CREDITS", 0x13: "RANDO", 0x14: "OPTTEXT", 0x15: "LOGIC",
                 0x16: "WORLD", 0x17: "ROLL", 0x18: "TACTICS", 0x19: "OWS", 0x1A: "NEWGAME",
-                0x1B: "OPTMENU", 0x1C: "TAVERN", 0x1D: "OPTTEXT2"}
+                0x1B: "OPTMENU", 0x1C: "TAVERN", 0x1D: "OPTTEXT2", 0x1E: "OW7"}
 
 #  Raw data laid into a chunk's low half, $0000-$7FFF of its image bank: the
 #  chunk runs at $8000 up, and banks $A1+N decode that range as I/O and RAM,
@@ -54,7 +54,8 @@ LOWHALF = {0x1C: "fundata.bin",             # FUN%: the scream's sample
            #  each map's record and its rows
            0x19: "maps_19.bin", 0x1A: "maps_1A.bin", 0x1B: "maps_1B.bin", 0x18: "maps_18.bin",
            0x17: "maps_17.bin", 0x16: "maps_16.bin", 0x15: "maps_15.bin", 0x14: "maps_14.bin",
-           0x13: "maps_13.bin", 0x11: "maps_11.bin", 0x1D: "maps_1D.bin"}
+           0x13: "maps_13.bin", 0x11: "maps_11.bin", 0x1D: "maps_1D.bin",
+           0x1E: "ow7.bin"}                 # the overworld's Mode 7 characters (genm7.py)
 
 
 def read(path, want):

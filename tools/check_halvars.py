@@ -28,6 +28,14 @@ per-channel arrays read as h_pestart and h_pestart+4, so they own $BC and $C0
 and nothing between.  Treating that as a five-byte span invents four bytes the
 variable does not own and reports collisions that are not there.
 
+What neither can see is an index.  h_swseen was declared with no width and
+read as h_swseen,x with X = 0 or 2, sixteen bits at a time: four bytes,
+$7E-$81, of which this check knew one.  The overworld's Mode 7 flag was put
+at $80 and pulse 2's period turned the plane on over every other screen
+(2026-11-17).  So a name used with an index register and claiming one byte
+is refused: say how many bytes it spans, or reference the strided ones as
+h_name+k the way the envelope's are.
+
     python3 tools/check_halvars.py
 """
 import collections, glob, os, re, sys
@@ -76,6 +84,17 @@ def main():
         print("   ?? HAL variables          only %d declarations found; not checked"
               % len(owned))
         return 0
+
+    #  Indexed, but claiming its first byte alone: its width is unknown.
+    src = sources()
+    blind = sorted(n for n in owned if len(owned[n]) == 1 and
+                   re.search(re.escape(n) + r"(\s*\+\s*\d+)?\s*,\s*[xyXY]\b", src))
+    if blind:
+        for n in blind:
+            print("   WIDTH  %s is indexed but claims one byte; give it an \"N bytes\"" % n)
+        print("\nan array this check thinks is one byte can overrun its neighbours"
+              "\nunseen.  Declare its width in snesmap.inc.")
+        return 1
 
     who = collections.defaultdict(list)
     for name, offsets in owned.items():

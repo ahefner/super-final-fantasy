@@ -1,0 +1,13 @@
+--- OLD
+    LDA lut_BattleRates   ; However, this value goes unused because the battle rate for overworld
+    STA battlerate        ; is hardcoded... so this is effectively useless for OW (it's used for SM, though).
+
+    RTS                   ; then exit!
+--- NEW
+    LDA lut_BattleRates   ; However, this value goes unused because the battle rate for overworld
+    STA battlerate        ; is hardcoded... so this is effectively useless for OW (it's used for SM, though).
+
+.import m7_enter
+.export PrepOverworld, OverworldMovement, StartMapMove   ; for tools/test_options.py
+    JSL m7_enter + OW7FAR ; the overworld's picture is the Mode 7 plane (ow7.asm)
+    RTS                   ; then exit!

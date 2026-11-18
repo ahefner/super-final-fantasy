@@ -730,3 +730,88 @@ dlg_is:
     PLX
     LDA #1
     RTS
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  ow_rowring -- map row A, all 256 tiles, into the page of bank $7E that X
+;;  names: the Mode 7 overworld's ring of rows (ow7.asm, M7RING), which
+;;  reaches farther than the window LoadOWMapRow keeps.  The row as that
+;;  window has it: Map Select's map's (ow_altrow's decoder), or the game's
+;;  from bank $01 with the map edits written in (DecompressMap's format,
+;;  then ow_edit).  By JSL, emulation mode.  A, X, Y and tmp..tmp+5
+;;  clobbered; the caller keeps whatever of the game's it needs.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+OWPTRFAR  = (CHUNK0 + BANK_OWMAP) * $10000 + lut_OWPtrTbl   ; the game's rows' pointers
+RINGFAR   = $7E0000
+
+    .a8
+    .i8
+ow_rowring:
+    PHB
+    PHA                         ; 2,S: the row
+    PHX                         ; 1,S: the page
+    JSR map_id
+    BEQ rowring_game
+    PHP
+    JSR alt_in                  ; native, A8 I16, X the map's record
+    .i16
+    REP #$20
+    .a16
+    LDA 3,S                     ; (P at 1,S now)
+    AND #$00FF
+    JSR alt_rowptr
+    LDA 2,S
+    AND #$00FF
+    XBA
+    TAX
+    SEP #$20
+    .a8
+    LDY #$0000
+    ALTDECODE RINGFAR
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    PLP
+    BRA rowring_out
+
+rowring_game:
+    CLC
+    XCE
+    REP #$30
+    .a16
+    .i16
+    LDA 2,S
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:OWPTRFAR, X           ; the row in bank $01, at $8000-$BFFF
+    STA z:tmp
+    LDA 1,S
+    AND #$00FF
+    XBA
+    TAX
+    SEP #$20
+    .a8
+    LDA #^OWPTRFAR
+    STA z:tmp+2
+    LDY #$0000
+    ALTDECODE RINGFAR
+    SEP #$30
+    .i8
+    SEC
+    XCE
+    LDA #^RINGFAR               ; ow_edit writes through (tmp): the ring's bank
+    PHA
+    PLB
+    STZ z:tmp
+    LDA 1,S
+    STA z:tmp+1
+    LDA 2,S
+    JSR ow_edit
+rowring_out:
+    PLX
+    PLA
+    PLB
+    RTL

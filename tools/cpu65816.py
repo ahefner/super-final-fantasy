@@ -57,6 +57,13 @@ class Bus:
         self.vaddr = 0
         self.caddr = 0
         self.oaddr = 0
+        #  Mode 7's registers as the plane sees them, sixteen bits each:
+        #  M7A-M7Y ($211B-$2120) and BG1HOFS/BG1VOFS ($210D, $210E), which
+        #  are its scroll.  Each write makes the value the byte written over
+        #  the byte written before it, to any of them -- the hardware's one
+        #  shared latch -- so low then high leaves the word.
+        self.m7 = {}
+        self.m7latch = 0
 
     def _rom(self, bank, addr):
         image = bank & 0x1F                 # 2MB, so the bank number wraps at 32
@@ -169,6 +176,9 @@ class Bus:
             self.io[reg + 5] = self.io[reg + 6] = 0
 
     def _ppu_write(self, addr, val):
+        if addr in (0x210D, 0x210E) or 0x211B <= addr <= 0x2120:
+            self.m7[addr] = val << 8 | self.m7latch
+            self.m7latch = val
         if addr == 0x2102:
             self.oaddr = (self.oaddr & 0x200) | val << 1
         elif addr == 0x2103:

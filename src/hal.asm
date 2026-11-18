@@ -44,6 +44,7 @@
 .export hal_w4015, hal_w4003, hal_w4007, hal_w400b, hal_w400f
 .export hal_altarband, hal_altaroff
 .export hal_flush, pal_prep, nespal_snes  ; for tools/test_options.py
+.export hal_m7sendq                       ; ow7.asm's way in
 .export hal_clearnt, hal_ntfill
 .export hal_swapprg, hal_waitvbl, hal_joyupdate, hal_waitscanline
 .export hal_chrdirty             ; for fun.asm's gibs
@@ -192,6 +193,13 @@ hal_w2001:
     ldx a:h_ppumask
     stx a:h_prevmask            ; what was actually on screen until now
     sta a:h_ppumask
+    ;  Rendering off is how every way off the overworld begins -- a battle,
+    ;  a menu's palette cycle, a teleport's wipe, a reset -- so the Mode 7
+    ;  plane gives way to the NES picture here, for the next flush.
+    and #$18
+    bne :+
+      stz a:h_m7on
+:   lda a:h_ppumask
     lsr a                       ; bits 7-5 emphasise red, green and blue
     lsr a
     lsr a
@@ -1016,9 +1024,9 @@ hal_oamdma:
     lda a:h_t0
     and #$20                    ; "behind background"
     beq @front
-      lda a:h_t1
-      ora #$10                  ; OBJ priority 1: under BG1, over the backdrop
-      bra @stattr
+      lda a:h_t1                ; OBJ priority 0: under BG1, over the backdrop,
+      bra @stattr               ;   in Mode 7 as in mode 1, where nothing but
+                                ;   BG1 is ever on the main screen
 @front:
       lda a:h_t1
       ora #$20                  ; OBJ priority 2: over BG1
@@ -1362,10 +1370,9 @@ hal_waitvbl:
 ;;
 ;;  The credits screen is not the game.  It is SNES code written for the SNES,
 ;;  it runs mode 7, and while it is up it owns VRAM, CGRAM and the PPU's
-;;  registers outright -- mode 7 keeps its tilemap and its characters in the
-;;  first 32KB of VRAM, which is exactly where this layer keeps the tilemap and
-;;  the CHR, so there is no sharing to be had.  Two entry points let it do that
-;;  without knowing anything about the shadows.
+;;  registers outright -- its tilemaps and characters wherever it likes,
+;;  the overworld's Mode 7 plane in the lower half of VRAM included.  Two
+;;  entry points let it do that without knowing anything about the shadows.
 ;;
 ;;  hal_vblaudio is hal_waitvbl without the flush.  The frame's sound still
 ;;  goes out and the frame counter still moves, but nothing reaches the PPU: a
@@ -1465,6 +1472,10 @@ hal_ppureclaim:
     jsr clear_vram_ticked
     jsr clear_cgram
     jsr init_ppu
+    stz a:h_m7on                ; the plane went with the rest of VRAM: the
+    stz a:h_m7chr               ;   overworld's way in sends it again
+    stz a:h_m7qlen
+    stz a:h_m7qlen + 1
 
     ;  The whole of the CHR shadow, straight back.
     lda #$80
@@ -1516,12 +1527,23 @@ hal_flush:
     ;  set it before the transfers, and then it always lands in vblank however
     ;  long they take.  flush_ntsplit still runs last, since its HDMA table
     ;  deliberately overrides BG1HOFS for the dialogue window.
-    jsr flush_scroll
-    jsr flush_pal
+    ;  On the overworld the picture is the Mode 7 plane instead (flush_m7).
+    lda a:h_m7on
+    beq :+
+      jsr flush_m7
+      bra :++
+:   jsr flush_scroll
+:   jsr flush_pal
     jsr flush_chr
     jsr flush_nt
+    jsr flush_m7q
     jsr flush_oam
     stz a:h_hdmaen              ; each of the three below asks for its own channel
+    lda a:h_m7on                ; ...as does the overworld's tilt: channels 3
+    beq :+                      ;   and 5 (M7A, M7D), 6 and 7 (the haze), set
+      lda #$E8                  ;   up by flush_m7
+      sta a:h_hdmaen
+:
     jsr flush_raster
     jsr flush_ntsplit
     jsr flush_altar
@@ -2944,11 +2966,21 @@ flush_apustat:
 ;;  already in NESNT, so the whole row is done in one call, and the smear across
 ;;  the sixteen tilemap cells goes through nt_attr exactly as a $2007 write
 ;;  would have done.
+;;
+;;  On the overworld there is nothing to do: the plane's characters carry
+;;  their palettes (ow7.asm), and the NES picture is not what is showing.
 .a8
 .i8
 hal_drawattr:
     php
-    clc
+    pha
+    lda a:NES_mapflags
+    lsr a                       ; carry: a standard map
+    pla
+    bcs :+
+    plp
+    rtl
+:   clc
     xce                         ; native mode for the whole run: the index into
     rep #$10                    ;   NESNT needs sixteen bits, and dropping back
     sep #$20                    ;   to emulation mode would truncate it to eight
@@ -3491,8 +3523,160 @@ emit_hofs:
     bne @chunk
     rts
 
+; --- the overworld's Mode 7 plane ----------------------------------------
+;;  Mode 7 with the identity matrix is a flat 1024-pixel plane, wrapping,
+;;  scrolled by BG1HOFS and BG1VOFS like any background: the overworld's
+;;  picture exactly, drawn from the game's map (ow7.asm) rather than the
+;;  nametables.  The scroll is the one SetOWScroll last set, kept by
+;;  m7_scroll in h_m7hofs and h_m7vofs.  M7X and M7Y, the transform's
+;;  centre, do nothing to an identity.
+.a8
+.i8
+flush_m7:
+    lda #$07
+    sta a:BGMODE
+    stz a:M7SEL                 ; wrap, no flips
+    lda #$01                    ; A and D 1.0, B and C 0: low byte, high byte
+    stz a:M7A
+    sta a:M7A
+    stz a:M7B
+    stz a:M7B
+    stz a:M7C
+    stz a:M7C
+    stz a:M7D
+    sta a:M7D
+    stz a:M7X
+    stz a:M7X
+    stz a:M7Y
+    stz a:M7Y
+    lda a:h_m7hofs
+    sta a:BG1HOFS
+    lda a:h_m7hofs + 1
+    sta a:BG1HOFS
+    lda a:h_m7vofs
+    sta a:BG1VOFS
+    lda a:h_m7vofs + 1
+    sta a:BG1VOFS
+    ;  The tilt (ow7.asm, genm7.py): M7X and M7Y at the pivot, and a line at
+    ;  a time from the angle's tables in OW7DATAFAR's bank, M7A and M7D --
+    ;  the matrix above is only what the vblank holds -- and the haze in
+    ;  COLDATA, red and green on one channel, blue on another.
+    lda a:h_m7cx
+    sta a:M7X
+    lda a:h_m7cx + 1
+    sta a:M7X
+    lda a:h_m7cy
+    sta a:M7Y
+    lda a:h_m7cy + 1
+    sta a:M7Y
+    lda #$02                    ; mode 2: two bytes into one register
+    sta a:DMAP3
+    sta a:DMAP5
+    sta a:DMAP6
+    stz a:DMAP7                 ; mode 0: one byte
+    lda #<M7A
+    sta a:BBAD3
+    lda #<M7D
+    sta a:BBAD5
+    lda #<COLDATA
+    sta a:BBAD6
+    sta a:BBAD7
+    lda #^OW7DATAFAR
+    sta a:A1B3
+    sta a:A1B5
+    sta a:A1B6
+    sta a:A1B7
+    lda a:h_m7tabA
+    sta a:A1T3L
+    lda a:h_m7tabA + 1
+    sta a:A1T3H
+    lda a:h_m7tabD
+    sta a:A1T5L
+    lda a:h_m7tabD + 1
+    sta a:A1T5H
+    lda a:h_m7tabRG
+    sta a:A1T6L
+    lda a:h_m7tabRG + 1
+    sta a:A1T6H
+    lda a:h_m7tabB
+    sta a:A1T7L
+    lda a:h_m7tabB + 1
+    sta a:A1T7H
+    stz a:CGWSEL                ; the fixed colour, everywhere
+    lda a:h_m7math
+    sta a:CGADSUB               ; onto BG1 and the backdrop
+    sta a:h_m7fog
+    rts
+
+;;  From ow7.asm's way in, by JSL, emulation mode, DBR a bank with the I/O:
+;;  the queue to VRAM now, the screen being dark.
+hal_m7sendq:
+    jsr flush_m7q
+    rtl
+
+;;  The plane's queued rows and columns (M7QUEUE), each record one DMA of
+;;  low bytes -- the map -- at its VMAIN's step.  Every flush, the plane
+;;  showing or not: it is VRAM nothing else uses.  DrawFullMap's fifteen
+;;  rows go in the flush of PrepOverworld's wait, with the screen dark.
+flush_m7q:
+    lda a:h_m7qlen
+    ora a:h_m7qlen + 1
+    bne :+
+    rts
+:   stz a:DMAP0                 ; one register, $2118
+    lda #$18
+    sta a:BBAD0
+    lda #^M7QUEUE
+    sta a:A1B0
+    ENTER16
+    ldx #0
+@rec:
+    lda f:M7QUEUE,x             ; the word address
+    sta a:VMADDL
+    lda f:M7QUEUE + 2,x         ; VMAIN, and the count
+    sep #$20
+    .a8
+    sta a:VMAIN
+    xba
+    rep #$20
+    .a16
+    and #$00FF
+    sta a:DAS0L
+    sta a:h_t0
+    txa
+    clc
+    adc #.loword(M7QUEUE) + 4
+    sta a:A1T0L
+    sep #$20
+    .a8
+    lda #$01
+    sta a:MDMAEN
+    rep #$20
+    .a16
+    txa
+    clc
+    adc #4
+    adc a:h_t0
+    tax
+    cpx a:h_m7qlen
+    bcc @rec
+    stz a:h_m7qlen
+    sep #$20
+    .a8
+    lda #$80                    ; the HAL's step, a word after the high byte
+    sta a:VMAIN
+    LEAVE16
+    rts
+
 ; --- scroll -------------------------------------------------------------
 flush_scroll:
+    lda #$01
+    sta a:BGMODE                ; mode 1: the NES picture, not the plane
+    lda a:h_m7fog
+    beq :+
+      stz a:CGADSUB             ; the plane's haze, off with it
+      stz a:h_m7fog
+:
     ENTER16
     lda a:h_scrollx
     and #$00FF
@@ -5170,17 +5354,17 @@ zerobyte:
 
 ; --- PPU into the shape the translation layer expects --------------------
 init_ppu:
-    lda #$01
-    sta a:OBSEL                 ; 8x8 sprites, characters at $2000 words
+    lda #VRAM_CHR >> 13
+    sta a:OBSEL                 ; 8x8 sprites, characters at VRAM_CHR
     lda #$01
     sta a:BGMODE                ; mode 1: BG1/BG2 4bpp, BG3 2bpp
-    lda #$03
-    sta a:BG1SC                 ; tilemap at $0000, 64x64
-    lda #$10
-    sta a:BG3SC                 ; tilemap at $1000, 32x32
-    lda #$22
-    sta a:BG12NBA               ; BG1 characters at $2000 words
-    lda #$02
+    lda #(VRAM_BG1MAP >> 8) | $03
+    sta a:BG1SC                 ; tilemap at VRAM_BG1MAP, 64x64
+    lda #VRAM_BG3MAP >> 8
+    sta a:BG3SC                 ; tilemap at VRAM_BG3MAP, 32x32
+    lda #(VRAM_CHR >> 12) * $11
+    sta a:BG12NBA               ; BG1 characters at VRAM_CHR
+    lda #VRAM_CHR >> 12
     sta a:BG34NBA
     lda #$11
     sta a:TM                    ; BG1 and sprites on the main screen

@@ -54,10 +54,12 @@ SNES I/O map -- WRAM at $0000, PPU at $2100, SRAM at $6000 -- and the NES's
 memory map lands on top of the SNES's almost unchanged.  ($A1 rather than $81
 because HiROM only reliably decodes SRAM in banks $20-$3F/$A0-$BF; in a 2MB
 image $A0+n mirrors $80+n, so it costs nothing.)  Chunks $00-$0F are the
-NES's banks, $10 the altar beam's HDMA tables, and $11-$19 this project's
+NES's banks, $10 the altar beam's HDMA tables, and $11-$1E this project's
 (`snesmap.inc`): the options bank, the credits, the randomizer, the settings
 screen's text, the logic tables, entrance shuffle and the seed's logic, the
-roll screen, Boss tactics and the map edit screen.  Each sees the fixed bank
+roll screen, Boss tactics, the map edit screen, New Game, the settings
+screen, Taverns and FUN%, more of the settings' text, and the overworld in
+Mode 7.  Each sees the fixed bank
 at the usual address and reaches it with a plain `JSR`.
 
 **Bank switching** is the program bank register.  `SwapPRG` returns into a
@@ -70,6 +72,13 @@ across the sixteen tilemap words they cover -- and DMA'd to VRAM at vblank.
 The native screens (credits in mode 7, New Game's roll and map edit screens)
 borrow the PPU outright through `hal_vblaudio` and give it back with
 `hal_ppureclaim`, which rebuilds the picture from the untouched shadows.
+The overworld is a Mode 7 plane (`src/ow7.asm`), seen through a camera
+tilted back from the NES's straight-down view: per-line HDMA tables built by
+`tools/genm7.py` scale the plane line by line, with a haze added toward the
+top.  The game moves and scrolls as ever; the plane is drawn from the map's
+rows decoded into WRAM, farther north than the game keeps them.  The plane
+has the lower half of VRAM and the NES picture the upper, so the two sit
+side by side and BGMODE picks one.
 
 **No interrupts.** WaitForVBlank polls $4212.  A 65816 in emulation mode loses
 the program bank when it takes an interrupt, which would break bank switching.

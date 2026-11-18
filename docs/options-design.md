@@ -4282,6 +4282,191 @@ enemies the game can produce (2026-11-12, below).
         (2/126)", with one music call a frame on the timed clock.  Mutation:
         twelve, each caught.
 
+### The overworld in Mode 7 (experiment, the new-overworld branch)
+
+**Flat view built 2026-11-17 and played** (on foot, the airship, the way
+between standard maps, the menus, the minimap, battles).  The first build
+broke every other screen -- black, or the plane over them in their palette
+-- and was fixed the same day (**Its variables**, below).  **The tilt built
+2026-11-17, played 2026-11-18: "a good start"**, committed so.  The
+overworld's picture is a Mode 7 plane
+instead of the NES nametables (user, 2026-11-17: port the overworld "to use
+the graphics mode 7", "visually and gameplay identical" to begin with; the
+goal after it is the later Final Fantasies' tilt of the view as the airship
+takes off, to see farther ahead).  Not a setting yet: on the branch the
+overworld is always the plane, always tilted, at an angle R steps through
+(**The tilt**, below), "so we can iterate on the angle and how it aligns
+... then we can add a flag controlling if/how/when the perspective is
+applied" (user, 2026-11-17).
+
+  - **What moved and what did not.**  The game's rules stay in the game's
+    code: movement, vehicles, encounters, the transitions, the scroll, its
+    sixteen map rows at `mapdata`.  Only the drawing changed.  Four hooks
+    in the fixed bank take it to `src/ow7.asm`, `CHUNK_OW7 = $1E`, the
+    last chunk a 2MB image has:
+      - `DrawMapRowCol` (`ow7_rowcol.patch`, 7 bytes): on the overworld,
+        `m7_rowcol` sets carry and nothing is drawn -- not the nametables,
+        not the plane; `m7_scroll` draws the plane.  A standard map's is
+        drawn as ever.  `hal_drawattr` does nothing on the overworld: a
+        plane character carries its palette.
+      - `SetOWScroll` (`ow7_scroll.patch`, 4): `m7_scroll` keeps the
+        plane's scroll, `ow_scroll_x * 16 + move_ctr_x` and the same for y
+        plus `NES_TOP_CROP - 1`, as `flush_scroll` puts BG1VOFS -- the
+        position the game just gave the PPU, a frame behind its counters as
+        the sprites are -- and the pivot on the plane for M7X and M7Y.
+        With the plane up it then draws whatever row or column the view
+        has come to (`m7_sync`) and lets R step the angle.
+      - `PrepOverworld`'s end (`ow7_enter.patch`, 4): `m7_enter` sends the
+        plane's characters if VRAM lost them, draws every row the view can
+        see, and turns the plane on (`h_m7on`).
+      - `ConvertOWToSprite` (`ow7_objpos.patch`, 7): the docked ship, the
+        parked airship, the bridge and the canal, placed through the tilt
+        (`m7_objpos`); at the flat angle V comes back clear and the game's
+        code below the hook places them as ever.
+  - **The plane.**  128x128 characters, 64x64 metatiles: map metatile
+    (x, y) sits at plane metatile (x mod 64, y mod 64), and the plane
+    wraps as the map does.  Its 256 characters are built at build time by
+    `tools/genm7.py` from the game's data -- the pattern table
+    `LoadOWBGCHR` loads (bank `$02`) and the metatiles in
+    `lut_OWTileset` (bank `$00`): each (character, palette) pair drawn out
+    at eight bits a pixel, colour 0 as 0 (the backdrop) and colour c of
+    palette p as p * 16 + c, which is the HAL's CGRAM entry for it.  So
+    the palette, its cycling and fades, the tints and Palette swap reach
+    the plane unchanged.  236 characters on the game's map, character 0
+    blank; `out/ow7.bin` in the chunk's low half (`OW7DATAFAR`), and the
+    metatiles' four corners as `lut_M7Row` and `lut_M7Col`
+    (`gen/ow7.inc`).  No option changes the overworld's tiles: the
+    Japanese tiles are towns', caves' and battles', and a horizontal bridge
+    is a sprite.
+  - **What the plane keeps.**  The tilted view sees farther north than the
+    game's sixteen rows, so the plane is drawn from a copy of the rows:
+    `M7RING` (`$7E5000`, 8KB), the map's rows decoded whole, row r in page
+    r mod 32, by `ow_rowring` in the map-edit chunk (`altmaps.inc`) -- the
+    row as `LoadOWMapRow` leaves it at `mapdata`: Map Select's map's
+    (ow_altrow's decoder), or the game's from bank `$01` with the map edits
+    written in.  The plane keeps `M7_NORTH` (19) rows north of the
+    pivot's tile to `M7_SOUTH` (8) south and `M7_WEST` (15) columns west
+    to `M7_EAST` (16) east: everything the steepest angle shows, with a row
+    and a column to spare (`genm7.region`).  When the pivot steps onto a
+    new tile, `m7_sync` decodes the row coming in and draws it, or draws
+    the column, into the queue for the next flush; at the way in
+    `m7_enter` decodes and draws all 28 rows and sends each at once, the
+    screen being dark.
+  - **VRAM.**  Mode 7 can only have its map and characters in the lower
+    32KB of VRAM, which is where the HAL kept the NES picture, so the HAL's
+    picture moved up: the tilemap to `$4000`, BG3's to `$5000`, the
+    characters (BG and OBJ) to `$6000` (snesmap.inc).  The two pictures
+    never overwrite each other, and the way between them is BGMODE alone:
+    `hal_flush` runs `flush_m7` while `h_m7on` is set, `flush_scroll`
+    (mode 1) otherwise.  The queued rows and columns (`M7QUEUE`,
+    `$7E2000`, records of a VRAM address, a VMAIN and a count, then the map
+    bytes) go in every flush, `flush_m7q`, a DMA each.  The characters stay
+    in VRAM across a soft reset; `hal_ppureclaim` and power-on clear
+    `h_m7chr`, and the next way in sends them, 16KB with the screen dark.
+  - **The tilt.**  A camera orbits the pivot -- the centre of the
+    player's tile, screen x 120 and line 112, where the game draws the
+    party and, in flight, the airship's shadow -- at `CAMERA` (256)
+    pixels, looking down at an angle: 90 degrees is the NES's view.  The
+    pivot stays put on screen whatever the angle (user, 2026-11-17: it
+    "should pivot around the player sprite's location (the mapman, or in
+    the airship its shadow) when changing camera angle, which is anchored
+    at the center of the screen").  Each screen line is then one depth:
+    the plane's scale across it (M7A) and the step down the map to it
+    (M7D), at the pivot 1 across and 1 / sin(angle) down, so the ground
+    foreshortens and the party, a billboard, stands up off it.  Both are
+    tables of a word a line, sent by HDMA on channels 3 and 5 (`flush_m7`
+    points them at the angle's), with M7X and M7Y on the pivot.  The
+    hardware drops the low six bits of D * (VOFS - M7Y) and of D * line
+    separately, and at the pivot's line the two did not cancel: the pivot
+    a pixel north at every tilted angle.  So genm7.py picks each line's D
+    as the hardware will round it (`hw_d`), and 256 at the pivot's line,
+    which cancels.  The angles are `ANGLES`, 90, 75, 65, 55, 50 and 45; R
+    steps through them on the overworld, wrapping, and power-on starts at
+    55 (`DEFAULT`): a tool for choosing, until a setting does.  At 55 the
+    top line looks 12 tiles north instead of 7, and 1.44 times as wide;
+    at 45, 17.6 tiles and 1.78.
+  - **The haze.**  Added colour (CGADSUB `$21` onto BG1 and the backdrop),
+    COLDATA a line by HDMA -- red and green on channel 6, blue on 7 --
+    from nothing at `FOG_NEAR` (120) pixels north of the pivot to
+    `FOG_RGB` (13, 15, 21) at `FOG_FAR` (240).  The flat view sees 112
+    north, so none there.  `FOG_SUBTRACT` makes it a fade to dark instead.
+    `flush_scroll` turns the colour maths off on the first flush without
+    the plane (`h_m7fog`); the altar beam and the APU-status debug are the
+    only other users, in standard maps and debug builds.
+  - **Objects.**  `m7_objpos` takes the tile's centre as the NES draws it,
+    u pixels east and v south of the pivot, and places the 16x16 sprite's
+    centre where the plane shows it: the screen line for v from a table
+    (genm7.py's `point_line`, -320 to 144), and x at 120 + u * k / 256,
+    k the inverse of that line's scale (lines -16 to 239, the lines the
+    HAL crops included: a sprite half off the bottom still shows).  Out to
+    the rows kept rather than the NES's 16x15, so a docked ship far north
+    is drawn there.  The party and the shadow are not moved: they are the
+    pivot.  The flat angle keeps the game's placing exactly; the
+    general one would draw an object a tile past the right edge with the
+    fine scroll over 8, which the game culls.
+  - **Its variables** are a separate block, `M7VARS` at `$0D80`, between
+    `CHRQUEUE` and `OPTWORK`, with an assert that keeps it there.  They
+    were at `HAL_VARS+$80` first, which `check_halvars.py` called free:
+    it was pulse 2's half of `h_swseen`, read as `h_swseen,x` with X 0 or
+    2 and declared with no width, so the check knew of its first byte
+    alone.  Pulse 2's period set `h_m7on`, and the flush put the plane up
+    over the title, the menus and the rest -- black before the overworld
+    had been entered, the overworld in their palette after (user,
+    2026-11-17).  The harness missed it because no test sent sound.  The
+    check now refuses a name used with an index register that claims one
+    byte, and `h_swseen` and `h_sqrst` declare their 4 bytes.
+  - **Off.**  `hal_w2001` clears `h_m7on` on any write with rendering off.
+    Every way off the overworld begins that way -- a battle after its
+    flashes, a menu's palette cycle, a teleport's wipe, the bridge scene,
+    a reset -- and every screen after it draws its picture with the
+    screen dark, so the nametables' stale contents are never seen.
+    "Behind background" sprites take OBJ priority 0 now, not 1: under BG1
+    and over the backdrop in Mode 7 as in mode 1, where nothing but BG1 is
+    ever on the main screen.
+  - **Cost**, in the harness: the way in 261,064 instructions the NES's
+    way, 87,565 flat, 151,461 with the tilt's 28 rows decoded and drawn;
+    a step's dearest frame 5,372-6,543 instructions of the game's the
+    NES's way, under 1,000 flat, 2,956 tilted (the frame a row is decoded
+    and drawn), its wait and flush 732-1,141, 241, 290.  The same at every
+    angle.  The soft reset's way to Continue is still faster than the
+    NES's way.
+  - **Tests.**  `test_m7view` enters the overworld at the map's corners
+    and walks at the flat angle, the default and the steepest: steps every
+    way on foot, by canoe, ship and airship, across the map's edges, each
+    frame flushed with its DMAs run.  The screen the plane makes from
+    VRAM, the registers and the HDMA tables (`m7_screen`: `ares`'
+    arithmetic, the offsets clipped and the products' low bits dropped as
+    `ppu-performance/mode7.cpp` does; `hdma_lines`, entry k on line k as
+    `ares` sends it) is held pixel for pixel to the map drawn from the
+    game's data alone (`m7_reference`) at the point the hardware samples,
+    and at the flat angle to the NES picture; after each step the whole
+    region kept, seen or not.  The sampled points are held to a camera's
+    (`m7_camera`, a ray cast, none of genm7.py's formulas): the pivot
+    exact, every point within 1.6 pixels and half a pixel short on
+    average, the hardware taking the pixel a point is in.  The haze: none
+    nearer than `FOG_NEAR`, all of `FOG_RGB` past `FOG_FAR`.  R: once a
+    press, wrapping.  Objects, 4,824 placed: the game's placing at the flat
+    angle, every tile of the region and the NES view's edges with each
+    fine scroll; tilted, within a screen pixel of the camera's.  The
+    nametables untouched, the queue sent, the plane and its haze gone at
+    rendering off; a frame of sound off the overworld leaving the plane's
+    bytes alone; the costs bounded.  `test_m7rows`: `ow_rowring` against
+    `LoadOWMapRow`, every row of the game's map with no edits and all of
+    them and every seventh of the eight others, into its page alone.
+    Twenty-six mutations of the tilt, all caught -- eight only once the
+    whole kept region and a grid of objects were checked, the screen alone
+    never showing a row or column drawn a tile short.  Not seen in `ares`
+    yet: the display was asleep.
+  - **Not yet:** a setting for if, how and when (the airship's take-off
+    the first idea); a sky above a horizon (no angle shows one).  And from
+    the first play (user, 2026-11-18): the bridge and the land that covers
+    the canal before it is dug "need to be flattened into the tile plane
+    rather than rendered as sprites" -- they lie on the ground, and a
+    sprite stands up off it; the haze does not reach sprites, which "will
+    remain an issue for the ship"; and the ship, the same size however far
+    off, seems to grow as it recedes -- whether it needs a few frames
+    drawn smaller, or fading into the haze hides that well enough, is open.
+
 ### Respond rate
 
 **Decision: independent of the presets.**  It keeps its own title-screen
@@ -5685,7 +5870,11 @@ text region in the game references.
                              Garland's outline, the palette); Palette
                              swap's three hooks 13 and the Exploding
                              Dwarf's four 16 (the map loop, the box, the
-                             frame wait, the wipe; 2026-11-04)
+                             frame wait, the wipe; 2026-11-04); the
+                             overworld in Mode 7's four 22 (the row or
+                             column, the scroll, the way in, the objects'
+                             placing; the new-overworld branch,
+                             2026-11-17: 178 left at the end)
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
@@ -5826,7 +6015,9 @@ text region in the game references.
                              Princess's spots 146 (2026-11-03; Matoya's
                              two masks 8, 2026-11-05); Shard Hunt's common
                              treasure, lut_ShardCommon 32 (2026-11-06)
-    BANK_WORLD   3053 free  (measured 2026-11-06; 5337 on 2026-10-28)
+    BANK_WORLD    880 free  (measured 2026-11-17, after the Mode 7
+                             overworld's row decoder, ow_rowring, 177;
+                             3053 on 2026-11-06, 5337 on 2026-10-28)
                              Shard Hunt 1406 (2026-11-06): shards.inc --
                              goal_won, the Chaos test placement and the map
                              edit screen share, the shards' room both ways,
@@ -5896,6 +6087,15 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
+    BANK_OW7     13910 free  the overworld in Mode 7 (ow7.asm, 2474: the
+                             rows and columns, the scroll, the way in, the
+                             objects, the metatiles' corners 1024, the
+                             angles' table addresses; the new-overworld
+                             branch, 2026-11-17).  The chunk's low half:
+                             its 256 characters, 16KB, then the tilt's
+                             tables, 15,342 bytes for six angles, to
+                             $7BEE.  The last chunk: with it the 2MB image
+                             is full
     BANK_OPTTEXT2 14592 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
@@ -5938,8 +6138,10 @@ full.
 **`BANK_OPT` is no longer the roomy one.**  It absorbed Shop Information's
 renderer and its word and description tables.  When it runs out, claim a
 second chunk: `EXTRA_CHUNKS` in `mkrom.py` plus a `MEM_`/segment pair in
-`snes.cfg` is the whole change, and the ROM has 800KB unused.  That is the
-answer, and it is the only one.
+`snes.cfg` is the whole change -- or was: on the new-overworld branch
+`CHUNK_OW7` took `$1E`, the last chunk, and the 2MB image is full.  What
+is left is the free space inside the chunks above, and the low halves
+`LOWHALF` has not claimed; past that, a 4MB image.
 
 **Where the options chunk actually goes**, since it is mostly not code:
 

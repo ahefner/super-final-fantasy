@@ -1,0 +1,13 @@
+--- OLD
+DrawMapRowCol:
+    LDX mapdraw_nty           ; get target row draw to
+--- NEW
+.import m7_rowcol
+.export DrawMapRowCol           ; for tools/test_options.py
+DrawMapRowCol:
+    ;  On the overworld the row or column goes to the Mode 7 plane instead
+    ;  (ow7.asm), and carry says it went; a standard map's is drawn here.
+    JSL m7_rowcol + OW7FAR
+    BCC :+
+    RTS
+:   LDX mapdraw_nty           ; get target row draw to
