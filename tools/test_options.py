@@ -12321,7 +12321,7 @@ def test_m7view():
 
     WEST, EAST = genm7.region()[2:]
 
-    def region_misses(bus):
+    def region_misses(bus, world=world):
         """Metatiles of the region the plane keeps -- M7_NORTH rows north of
         the pivot's tile to M7_SOUTH south, M7_WEST columns west to M7_EAST
         east -- whose four characters on the plane are not the map's
@@ -12493,11 +12493,11 @@ def test_m7view():
                 bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
             if depth > genm7.FOG_FAR + 2 and tuple(rgb) != genm7.FOG_RGB:
                 bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
-        if bus.io.get(0x2131) != (0xA1 if genm7.FOG_SUBTRACT else 0x21) or bus.io.get(0x2130) != 0:
+        if bus.io.get(0x2131) != (0xB1 if genm7.FOG_SUBTRACT else 0x31) or bus.io.get(0x2130) != 0:
             bad.append("%d degrees: CGWSEL, CGADSUB %r" % (angle, (bus.io.get(0x2130), bus.io.get(0x2131))))
         if angle == 90 and len(feeds) != 2:
             bad.append("flat: %d haze channels" % len(feeds))
-    check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, onto BG1 and the backdrop",
+    check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, onto BG1, the sprites and the backdrop",
           bad[:4], [])
 
     #  R: a press steps the angle once, held or let go nothing more, past the
@@ -12601,6 +12601,274 @@ def test_m7view():
     check("objects, %d placed: flat the game's placing; tilted on their tiles, culled only off screen" % n,
           bad[:4], [])
 
+    #  The bridge and the canal's land, flattened into the plane: their
+    #  tiles the game's 2x2 sprites (lut_OWObjectSprTbl, read here from the
+    #  disassembly, the tiles + $10 in the pattern table soft2000 gives
+    #  sprites, as CHRSHADOW holds them) over the map's metatile under
+    #  each, the sprite's colour c of palette p at CGRAM 192 + 16p + c.
+    #  Their characters, the screen and the whole kept region, at the way
+    #  in and walking by them, at the flat angle and the steepest; and no
+    #  sprite of either while the plane is up.
+    src = open(os.path.join(ROOT, "game", "bank_0F.asm")).read()
+    rows = re.findall(r"\.BYTE\s+([^;\n]+)", src[src.index("lut_OWObjectSprTbl:"):])[1:3]
+    SPR = [[int(v.strip().replace("$", "0x"), 16) for v in r.split(",")] for r in rows]   # bridge, canal
+
+    def with_objects(bus):
+        """The map and its blocks as the plane should show them: the bridge
+        and the canal's land, where they show, metatiles 128 and 129."""
+        w = [list(r) for r in world]
+        b = list(blocks)
+        table = 256 if bus.wram[K["soft2000"]] & 8 else 0
+        for k, base in enumerate((0x08, 0x0C)):
+            vis, x, y = bus.sram[base:base + 3]
+            m = world[y][x]
+            blk = [row[:] for row in blocks[m]]
+            for e, (qx, qy) in enumerate(((0, 0), (0, 1), (1, 0), (1, 1))):     # UL, DL, UR, DR
+                t, attr = SPR[k][2 * e] + 0x10 + table, SPR[k][2 * e + 1]
+                c32 = bus.wram[0x8000 + t * 32:0x8000 + t * 32 + 32]
+                for py in range(8):
+                    for px in range(8):
+                        sx = 7 - px if attr & 0x40 else px
+                        sy = 7 - py if attr & 0x80 else py
+                        c = (c32[2 * sy] >> (7 - sx) & 1) | (c32[2 * sy + 1] >> (7 - sx) & 1) << 1
+                        if c:
+                            blk[qy * 8 + py][qx * 8 + px] = 192 + (attr & 3) * 16 + c
+            b.append(blk)
+            if vis:
+                w[y][x] = 128 + k
+        return w, b
+
+    #  The game's canal; the bridge one tile off the game's, its row and
+    #  column different and the tile under it not the one in row x, column
+    #  x -- at the game's (152, 152) a decode of the wrong one of the two
+    #  would read the same row.
+    CANAL = (102, 164)
+    BRIDGE = next((x, y) for y in range(150, 160) for x in range(150, 160)
+                  if x != y and world[y][x] != world[x][x] and world[y][x] != world[y][y])
+    bad = []
+    for level in (FLAT, STEEP):
+        for x, y, vehicle in ((145, 149, 1), (95, 161, 1)):
+            bus, cpu = m7_machine()
+            bus.sram[0x08:0x0B] = bytes([1, *BRIDGE])
+            bus.sram[0x0C:0x0F] = bytes([1, *CANAL])
+            enter(bus, cpu, x, y, vehicle=vehicle, level=level)
+            w2, b2 = with_objects(bus)
+            chars = [[bus.vram[2 * (n * 64 + i) + 1] for i in range(64)] for n in range(248, 256)]
+            want = []
+            for k in (0, 1):
+                for qx, qy in ((0, 0), (1, 0), (0, 1), (1, 1)):                  # UL, UR, DL, DR
+                    want.append([b2[128 + k][qy * 8 + r][qx * 8 + c] for r in range(8) for c in range(8)])
+            if chars != want:
+                bad.append("%d degrees at (%d, %d): characters 248-255" % (ANGLES[level], x, y))
+            if m7_world_misses(bus, w2, b2, *pivot(bus)) or region_misses(bus, w2):
+                bad.append("%d degrees at (%d, %d): not the map with them" % (ANGLES[level], x, y))
+            for step in range(12):
+                bus.wram[FACING] = rnd.choice((1, 2, 4, 8))
+                call(cpu, "StartMapMove")
+                while True:
+                    px0 = bus.wram[OWX] * 16 + bus.wram[MCX]
+                    py0 = bus.wram[OWY] * 16 + bus.wram[MCY]
+                    call(cpu, "OverworldMovement")
+                    call(cpu, "hal_waitvbl", bank=0xC0)
+                    if m7_world_misses(bus, w2, b2, px0 + 120, py0 + 120):
+                        bad.append("%d degrees, step %d at (%d, %d): not the map with them"
+                                   % (ANGLES[level], step, px0, py0))
+                        break
+                    if bus.wram[SPEED] == 0:
+                        break
+                if region_misses(bus, w2):
+                    bad.append("%d degrees, step %d: the kept region not the map with them" % (ANGLES[level], step))
+                if bad:
+                    break
+            bus.wram[K["sprindex"]] = 0
+            call(cpu, "DrawOWObj_BridgeCanal")
+            if bus.wram[K["sprindex"]] != 0:
+                bad.append("%d degrees: the bridge or canal drawn as sprites" % ANGLES[level])
+    #  ...and as sprites, as ever, with the plane down.
+    bus, cpu = m7_machine()
+    bus.sram[0x08:0x0B] = bytes([1, *BRIDGE])
+    bus.sram[0x0C:0x0F] = bytes([1, *CANAL])
+    bus.wram[OWX], bus.wram[OWY] = 145, 145
+    bus.wram[K["sprindex"]] = 0
+    call(cpu, "DrawOWObj_BridgeCanal")
+    check("the bridge and the canal's land in the plane: their characters, the screen and the region, "
+          "at the way in and walking; no sprites of them with it up, the bridge's with it down",
+          (bad[:4], bus.wram[K["sprindex"]]), ([], 16))
+
+    #  The docked ship at its distance's size (user, 2026-11-18): genm7.py's
+    #  frames in OBJ table 0, held to the ship as the game draws it at the
+    #  flat angle -- its four tiles and flips from the OAM it writes, their
+    #  pixels from CHRSHADOW -- the 16-pixel frame that drawing exactly,
+    #  each other one its nearest-neighbour scaling; then, tilted, one 32x32
+    #  sprite in OAM entry 64, its centre within a pixel and a quarter of
+    #  where the camera puts the ship's tile, its size within a pixel and a
+    #  half of 16 over the camera's scale there, and nothing of the game's.
+    SHIPSIZES = genm7.SHIP_SIZES
+
+    def ship_frame(bus, j):
+        """Frame j's 32x32 colours from VRAM's OBJ table 0."""
+        base = (j % 4) * 4 + (j // 4) * 64
+        box = [[0] * 32 for _ in range(32)]
+        for tr in range(4):
+            for tc in range(4):
+                a = K["VRAM_CHR"] + (base + tr * 16 + tc) * 16
+                for r in range(8):
+                    lo, hi = bus.vram[2 * (a + r)], bus.vram[2 * (a + r) + 1]
+                    for c in range(8):
+                        box[tr * 8 + r][tc * 8 + c] = (lo >> (7 - c) & 1) | (hi >> (7 - c) & 1) << 1
+        return box
+
+    def camera_at(angle, u, v):
+        """The camera's screen position (x, line) of the map point u east
+        and v south of the pivot, and its scale there (map pixels a screen
+        pixel across)."""
+        lo, hi = -60.0, 300.0
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            p = m7_camera(angle, CAM, 120, mid)
+            if p is None or p[1] < v:
+                lo = mid
+            else:
+                hi = mid
+        p, q = m7_camera(angle, CAM, 121, lo), m7_camera(angle, CAM, 120, lo)
+        return 120 + u / (p[0] - q[0]), lo, p[0] - q[0]
+
+    bad = []
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=FLAT)
+    bus.sram[0:3] = bytes([1, 0x92 + 7, 0x9E + 3])
+    bus.wram[K["sprindex"]] = 0
+    call(cpu, "DrawOWObj_Ship")
+    nes = [bytes(bus.wram[0x200 + 4 * i:0x204 + 4 * i]) for i in range(4)]
+    src = [[0] * 16 for _ in range(16)]
+    table = 256 if bus.wram[K["soft2000"]] & 8 else 0
+    ox, oy = min(e[3] for e in nes), min(e[0] for e in nes)
+    for y, t, a, x in nes:
+        c32 = bus.wram[0x8000 + (t + table) * 32:0x8000 + (t + table) * 32 + 32]
+        for r in range(8):
+            for c in range(8):
+                sr, sc = (7 - r if a & 0x80 else r), (7 - c if a & 0x40 else c)
+                src[y - oy + r][x - ox + c] = (c32[2 * sr] >> (7 - sc) & 1) | (c32[2 * sr + 1] >> (7 - sc) & 1) << 1
+    ship_pal = nes[0][2] & 3
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=STEEP)
+    for j, n in enumerate(SHIPSIZES):
+        box = ship_frame(bus, j)
+        want = [[0] * 32 for _ in range(32)]
+        for dy in range(32):
+            for dx in range(32):
+                sx = int((dx - 16 + 0.5) * 16 / n + 8 + 16) - 16
+                sy = int((dy - 16 + 0.5) * 16 / n + 8 + 16) - 16
+                if 0 <= sx < 16 and 0 <= sy < 16:
+                    want[dy][dx] = src[sy][sx]
+        if box != want:
+            bad.append("frame %d (%d across): not the game's ship scaled" % (j, n))
+    if [r[8:24] for r in ship_frame(bus, SHIPSIZES.index(16))[8:24]] != src:
+        bad.append("the 16-pixel frame not the game's ship")
+    for level in (genm7.DEFAULT, STEEP):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, 0x92, 0x9E, level=level)
+        if bus.io.get(0x2101, 0) >> 5 != 1:
+            bad.append("%d degrees: OBSEL's sizes %r" % (ANGLES[level], bus.io.get(0x2101)))
+        for dy in range(-NORTH - 1, SOUTH + 2, 2):
+            for dx in range(-WEST - 1, EAST + 2, 3):
+                sx, sy = rnd.randrange(256), rnd.randrange(256)
+                mcx, mcy = (rnd.randrange(16), 0) if rnd.randrange(2) else (0, rnd.randrange(16))
+                bus.wram[OWX], bus.wram[OWY], bus.wram[MCX], bus.wram[MCY] = sx, sy, mcx, mcy
+                bus.sram[0:3] = bytes([1, (sx + 7 + dx) & 0xFF, (sy + 7 + dy) & 0xFF])
+                call(cpu, "m7_scroll")
+                bus.wram[K["sprindex"]] = 0
+                for i in range(64):
+                    bus.wram[0x200 + 4 * i] = 0xF0
+                call(cpu, "DrawOWObj_Ship")
+                drawn = bus.wram[K["sprindex"]]
+                cpu.a = 0x02
+                call(cpu, "nesio_oamdma")
+                o = K["OAMSHADOW"]
+                x, y, t, a = bus.wram[o + 256:o + 260]
+                hb = bus.wram[o + 528] & 3
+                u, v = dx * 16 - mcx, dy * 16 - mcy
+                xs, line, scale = camera_at(ANGLES[level], u, v)
+                where = "%d degrees, the ship %+d,%+d tiles" % (ANGLES[level], dx, dy)
+                if drawn:
+                    bad.append(where + ": the game drew it too")
+                if y == 0xF0 and not hb:
+                    if -30 <= line - 16 <= 222 and -30 <= xs - 16 <= 254 and VMIN + 2 < v < VMAX - 2:
+                        bad.append(where + ": not drawn, the camera has it at %.1f, %.1f" % (xs, line))
+                    continue
+                cx = x + (-256 if hb & 1 else 0) + 16
+                cy = (y if y < 224 else y - 256) + 16
+                j = next(k for k in range(16) if (k % 4) * 4 + (k // 4) * 64 == t)
+                if (hb & 2, a) != (2, 0x20 | (ship_pal + 4) << 1):
+                    bad.append(where + ": size, attributes %r" % ((hb, a),))
+                if abs(cx - xs) > 1.25 or abs(cy - line) > 1.25:
+                    bad.append(where + ": centre at %d, %d, the camera's %.1f, %.1f" % (cx, cy, xs, line))
+                #  A pixel, but where the frames are two apart (22, 24).
+                if abs(SHIPSIZES[j] - 16 / scale) > (1.5 if SHIPSIZES[j] >= 22 else 1.0):
+                    bad.append(where + ": %d across, the camera's %.1f" % (SHIPSIZES[j], 16 / scale))
+    #  Flat, the game's drawing; none of the ship's, and no ship, nothing.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=FLAT)
+    bus.sram[0:3] = bytes([1, 0x92 + 7, 0x9E + 3])
+    bus.wram[K["sprindex"]] = 0
+    call(cpu, "DrawOWObj_Ship")
+    cpu.a = 0x02
+    call(cpu, "nesio_oamdma")
+    flat = (bus.wram[K["sprindex"]], bus.wram[K["OAMSHADOW"] + 257])
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=STEEP)
+    bus.sram[0:3] = bytes([0, 0x92 + 7, 0x9E + 3])
+    bus.wram[K["sprindex"]] = 0
+    call(cpu, "DrawOWObj_Ship")
+    cpu.a = 0x02
+    call(cpu, "nesio_oamdma")
+    none = (bus.wram[K["sprindex"]], bus.wram[K["OAMSHADOW"] + 257])
+    #  Off: the background's pattern table CHRSHADOW's again, the sizes back.
+    cpu.a = 0
+    call(cpu, "hal_w2001", bank=0xC0)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    vtab = bytes(bus.vram[2 * K["VRAM_CHR"]:2 * K["VRAM_CHR"] + 0x2000])
+    check("the docked ship: its frames the game's ship scaled, one sprite where the camera puts it at its size, "
+          "none of the game's; flat the game's; off, the pattern table and sizes back",
+          (bad[:4], flat, none, vtab == bytes(bus.wram[0x8000:0xA000]), bus.io.get(0x2101, 0) >> 5),
+          ([], (16, 0xF0), (0, 0xF0), True, 0))
+
+    #  The sprites in OBJ palettes 4-7 on the overworld, where the haze
+    #  reaches them: OAM's palettes and their colours there; back in 0-3,
+    #  the same colours, once rendering goes off.
+    def oam_palettes(bus, cpu):
+        """The game's OAM page with a sprite in each palette, sent as its
+        STA $4014 sends it: the SNES palettes they land in."""
+        for i in range(64):
+            bus.wram[0x200 + 4 * i:0x204 + 4 * i] = bytes([0x40, 0x10, i & 3, 0x40])
+        cpu.a = 0x02
+        call(cpu, "nesio_oamdma")
+        return [bus.wram[K["OAMSHADOW"] + 4 * i + 3] >> 1 & 7 for i in range(4)]
+
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E)
+    on_pal = oam_palettes(bus, cpu)
+    def used(base):
+        """The four colours of each of four palettes from CGRAM entry base:
+        all a NES palette has."""
+        return [bytes(bus.cgram[2 * (base + 16 * p):2 * (base + 16 * p + 4)]) for p in range(4)]
+
+    on = used(192)
+    bus.cgram[2 * 128:2 * 192] = b"\x5a" * 128     # (junk: the way out must send them again)
+    cpu.a = 0
+    call(cpu, "hal_w2001", bank=0xC0)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    off_pal = oam_palettes(bus, cpu)
+    off = used(128)
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E)
+    call(cpu, "hal_ppureclaim", bank=0xC0)
+    claimed = oam_palettes(bus, cpu)
+    check("on the overworld the sprites in OBJ palettes 4-7 with their colours there; back in 0-3, the "
+          "colours sent again, at rendering off and when a screen hands the PPU back",
+          (on_pal, off_pal, on == off, any(any(c) for c in on), claimed),
+          ([4, 5, 6, 7], [0, 1, 2, 3], True, True, [0, 1, 2, 3]))
+
     #  Off: a $2001 write with rendering off, and the next flush is mode 1,
     #  the haze and its channels gone.
     bus, cpu = m7_machine()
@@ -12616,7 +12884,7 @@ def test_m7view():
     got += [bus.io.get(0x2105), bus.io.get(0x2131), bus.io.get(0x420C, 0) & 0xE8]
     check("on at the way in (the haze, its four channels), kept at rendering on, gone at rendering off, "
           "mode 1 the next flush, no haze, no channels",
-          got, [1, 7, 0xA1 if genm7.FOG_SUBTRACT else 0x21, 0xE8, 1, 0, 1, 0, 0])
+          got, [1, 7, 0xB1 if genm7.FOG_SUBTRACT else 0x31, 0xE8, 1, 0, 1, 0, 0])
 
     #  Off the overworld, a frame with both pulses sounding, as the music
     #  has them: the plane's bytes untouched and the flush mode 1.  They sat

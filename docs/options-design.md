@@ -4289,7 +4289,10 @@ between standard maps, the menus, the minimap, battles).  The first build
 broke every other screen -- black, or the plane over them in their palette
 -- and was fixed the same day (**Its variables**, below).  **The tilt built
 2026-11-17, played 2026-11-18: "a good start"**, committed so.  The
-overworld's picture is a Mode 7 plane
+bridge and the canal's land flattened and the sprites in the haze (played
+2026-11-18), and the docked ship's frames (built 2026-11-18, not yet
+played), committed on the user's word.  The overworld's picture is a Mode 7
+plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
 goal after it is the later Final Fantasies' tilt of the view as the airship
@@ -4301,7 +4304,7 @@ applied" (user, 2026-11-17).
 
   - **What moved and what did not.**  The game's rules stay in the game's
     code: movement, vehicles, encounters, the transitions, the scroll, its
-    sixteen map rows at `mapdata`.  Only the drawing changed.  Four hooks
+    sixteen map rows at `mapdata`.  Only the drawing changed.  Six hooks
     in the fixed bank take it to `src/ow7.asm`, `CHUNK_OW7 = $1E`, the
     last chunk a 2MB image has:
       - `DrawMapRowCol` (`ow7_rowcol.patch`, 7 bytes): on the overworld,
@@ -4319,10 +4322,15 @@ applied" (user, 2026-11-17).
       - `PrepOverworld`'s end (`ow7_enter.patch`, 4): `m7_enter` sends the
         plane's characters if VRAM lost them, draws every row the view can
         see, and turns the plane on (`h_m7on`).
-      - `ConvertOWToSprite` (`ow7_objpos.patch`, 7): the docked ship, the
-        parked airship, the bridge and the canal, placed through the tilt
-        (`m7_objpos`); at the flat angle V comes back clear and the game's
-        code below the hook places them as ever.
+      - `ConvertOWToSprite` (`ow7_objpos.patch`, 7): the parked airship
+        placed through the tilt (`m7_objpos`); at the flat angle V comes
+        back clear and the game's code below the hook places it as ever.
+      - `DrawOWObj_Ship` (`ow7_ship.patch`, 7): tilted, the docked ship
+        drawn at its distance's size (`m7_ship`) and nothing of the
+        game's; flat, the game's drawing below the hook.
+      - `DrawOWObj_BridgeCanal` (`ow7_flatobjs.patch`, 7): nothing while
+        the plane is up (`m7_flatobjs`), the bridge and the canal's land
+        being in it.
   - **The plane.**  128x128 characters, 64x64 metatiles: map metatile
     (x, y) sits at plane metatile (x mod 64, y mod 64), and the plane
     wraps as the map does.  Its 256 characters are built at build time by
@@ -4385,14 +4393,44 @@ applied" (user, 2026-11-17).
     55 (`DEFAULT`): a tool for choosing, until a setting does.  At 55 the
     top line looks 12 tiles north instead of 7, and 1.44 times as wide;
     at 45, 17.6 tiles and 1.78.
-  - **The haze.**  Added colour (CGADSUB `$21` onto BG1 and the backdrop),
-    COLDATA a line by HDMA -- red and green on channel 6, blue on 7 --
-    from nothing at `FOG_NEAR` (120) pixels north of the pivot to
-    `FOG_RGB` (13, 15, 21) at `FOG_FAR` (240).  The flat view sees 112
+  - **The haze.**  Added colour (CGADSUB `$31` onto BG1, the sprites and
+    the backdrop), COLDATA a line by HDMA -- red and green on channel 6,
+    blue on 7 -- from nothing at `FOG_NEAR` (120) pixels north of the pivot
+    to `FOG_RGB` (13, 15, 21) at `FOG_FAR` (240).  The flat view sees 112
     north, so none there.  `FOG_SUBTRACT` makes it a fade to dark instead.
     `flush_scroll` turns the colour maths off on the first flush without
     the plane (`h_m7fog`); the altar beam and the APU-status debug are the
     only other users, in standard maps and debug builds.
+  - **Sprites in the haze** (user, 2026-11-18: sprites "aren't subject to
+    the current haze effect which will remain an issue for the ship").
+    Colour maths reaches only sprites in OBJ palettes 4-7, so on the
+    overworld the game's four sprite palettes live there: `pal_prep` adds
+    `h_m7objoff` (64) to a sprite colour's CGRAM entry and `hal_oamdma`
+    ORs `h_m7oampal` (`$08`) into each sprite's palette bits, both set by
+    `m7_enter` and cleared, with the palette sent again whole, by the
+    rendering-off write that takes the plane down and by
+    `hal_ppureclaim`.  Each sprite takes its line's haze, as the ground
+    behind it does.  OBJ palettes 4 and 5 are otherwise the Exploding
+    Dwarf's (`h_xpal`), in his cave, which the overworld never shares.
+  - **The bridge and the canal's land, flat** (user, 2026-11-18: they
+    "need to be flattened into the tile plane rather than rendered as
+    sprites").  Metatiles `$80` and `$81`, which no map has, with
+    characters 248-255 (the map uses 236): at the way in `m7_objchars`
+    draws each quarter of the game's 2x2 sprite (`lut_OWObjectSprTbl`,
+    the tiles + `$10` in the pattern table `soft2000` gives sprites, as
+    CHRSHADOW holds it -- a horizontal bridge's overlay included) over the
+    map's character under it, the row decoded into `M7OBJROW` for it: the
+    sprite's pixel where it has colour, at CGRAM 192 + 16p + c with the
+    sprites; the map's where not.  `m7_decode` writes `$80` or `$81` into
+    the ring where the bridge or the canal's land shows.  Their showing
+    changes only off the overworld (the king, the dwarves, New Game), and
+    every way back in builds them afresh.  Not `h_sprtable` for the
+    pattern table: the HAL sets it at the next OAM transfer, and at the
+    way in it still said the background's.  The ship now sails over the
+    bridge, where the game drew the bridge over it; Mode 7's EXTBG, a
+    second picture of the same plane whose top bit is a priority, would
+    put it under again, at the cost of 7-bit colours and the HAL's TM
+    tables learning BG2.
   - **Objects.**  `m7_objpos` takes the tile's centre as the NES draws it,
     u pixels east and v south of the pivot, and places the 16x16 sprite's
     centre where the plane shows it: the screen line for v from a table
@@ -4403,7 +4441,32 @@ applied" (user, 2026-11-17).
     is drawn there.  The party and the shadow are not moved: they are the
     pivot.  The flat angle keeps the game's placing exactly; the
     general one would draw an object a tile past the right edge with the
-    fine scroll over 8, which the game culls.
+    fine scroll over 8, which the game culls.  A sprite keeps its size
+    however far off, so the parked airship seems to grow as it recedes;
+    the docked ship no longer does (below).
+  - **The docked ship at its distance's size** (user, 2026-11-18, having
+    seen it hazed: "The ship needs scaled frames, it still looks too big
+    in the distance").  `genm7.py` draws the ship as `DrawOWObj_Ship`
+    does -- `lut_VehicleSprTbl`'s first entry, facing right, its tiles +
+    `$20` from the object graphics `LoadOWObjectCHR` loads, flips applied
+    -- at `SHIP_SIZES`, 8 to 22 pixels across and 24: 16 frames, the 16
+    the game's drawing unchanged, each nearest-neighbour as Mode 7 samples the ground and
+    centred in 32x32, the tile's centre at the box's.  Together they are
+    an 8KB pattern table (`lut_M7Ship`, in the chunk's code half), which
+    `m7_enter` sends to OBJ table 0 -- the background's pattern table,
+    which the plane never draws from -- and which `hal_w2001` has
+    CHRSHADOW's 8KB sent back over on the way out (the span stretched to
+    it, the word list given up).  `m7_ship` places the ship as
+    `m7_project` does any object, its size 16 pixels times that line's
+    inverse scale, rounded, and hands one 32x32 sprite (the frame
+    `lut_M7ShipTile` gives for that size, in front, the ship's palette in
+    OBJ 4-7) to the HAL in `h_m7xspr`; `hal_oamdma` writes it to OAM entry
+    64, past the game's 64, at the next transfer -- as the sprites the game
+    draws now go then -- or parks the entry off the bottom.  OBSEL gives
+    sprites 8x8 and 32x32 on the overworld (`flush_m7`), 8x8 and 16x16
+    after (`flush_scroll`); nothing of the HAL's sets the size bit.  Near
+    the bottom of a steep view the ship is larger than 16, as the ground
+    there is.
   - **Its variables** are a separate block, `M7VARS` at `$0D80`, between
     `CHRQUEUE` and `OPTWORK`, with an assert that keeps it there.  They
     were at `HAL_VARS+$80` first, which `check_halvars.py` called free:
@@ -4455,17 +4518,35 @@ applied" (user, 2026-11-17).
     them and every seventh of the eight others, into its page alone.
     Twenty-six mutations of the tilt, all caught -- eight only once the
     whole kept region and a grid of objects were checked, the screen alone
-    never showing a row or column drawn a tile short.  Not seen in `ares`
-    yet: the display was asleep.
-  - **Not yet:** a setting for if, how and when (the airship's take-off
-    the first idea); a sky above a horizon (no angle shows one).  And from
-    the first play (user, 2026-11-18): the bridge and the land that covers
-    the canal before it is dug "need to be flattened into the tile plane
-    rather than rendered as sprites" -- they lie on the ground, and a
-    sprite stands up off it; the haze does not reach sprites, which "will
-    remain an issue for the ship"; and the ship, the same size however far
-    off, seems to grow as it recedes -- whether it needs a few frames
-    drawn smaller, or fading into the haze hides that well enough, is open.
+    never showing a row or column drawn a tile short.  The bridge and the
+    canal's land: characters 248-255 against a composite worked out here
+    from CHRSHADOW and the object table read from the disassembly, the
+    screen and the whole region with them, at the way in and walking by
+    them, at the flat angle and the steepest; no sprites of them with the
+    plane up, the bridge's with it down.  The sprites: in OBJ palettes 4-7
+    through the game's OAM transfer, their colours there, back in 0-3 and
+    sent again at rendering off and at `hal_ppureclaim`.  Sixteen more
+    mutations, all caught -- one only once the test's bridge moved off the
+    game's (152, 152), where row and column are the same number.  The
+    ship: its frames held to the ship the game draws at the flat angle --
+    the tiles and flips from the OAM it writes, the pixels from
+    CHRSHADOW -- the 16 exactly, each other its nearest-neighbour scaling;
+    over a grid of places at two angles, one 32x32 sprite, its centre
+    within a pixel and a quarter of the camera's, its size within a pixel
+    of 16 over the camera's scale there (a pixel and a half where the
+    frames are 22 and 24), none of the game's; the game's drawing at the
+    flat angle, nothing without a ship; after, the pattern table and the
+    sprite sizes back.  Seventeen mutations, all caught.
+  - **Not yet:** the setting.  The final one tilts the view only in the
+    airship, as is traditional, and then the parked airship never shows
+    tilted and needs no frames; a third value would keep the tilt on
+    everywhere, "because some people might like it, and it looks cool"
+    (user, 2026-11-18) -- with that one the parked airship grows as it
+    recedes again, unless it gets frames too.  And a sky above a horizon
+    (no angle shows one); the ship under the bridge again.  An experiment
+    in mind (user, 2026-11-18): the castles, the Mirage Tower and perhaps
+    the towns out of the plane and stood up as scaled sprites, so they do
+    not flatten like paint on the ground as the view tilts.
 
 ### Respond rate
 
@@ -5871,10 +5952,11 @@ text region in the game references.
                              swap's three hooks 13 and the Exploding
                              Dwarf's four 16 (the map loop, the box, the
                              frame wait, the wipe; 2026-11-04); the
-                             overworld in Mode 7's four 22 (the row or
+                             overworld in Mode 7's six 36 (the row or
                              column, the scroll, the way in, the objects'
-                             placing; the new-overworld branch,
-                             2026-11-17: 178 left at the end)
+                             placing, the bridge and canal not drawn, the
+                             ship drawn scaled; the new-overworld branch,
+                             2026-11-17 and -18: 164 left at the end)
     BANK_0B        0 free    ends in pinned .INCBIN graphics; nothing to take
     BANK_0C        4 free    declared unused at $BFFC; and 5 bytes of
                              padding inside routines the randomizer took
@@ -6087,11 +6169,13 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7     13910 free  the overworld in Mode 7 (ow7.asm, 2474: the
+    BANK_OW7      4898 free  the overworld in Mode 7 (ow7.asm, 11486: the
                              rows and columns, the scroll, the way in, the
-                             objects, the metatiles' corners 1024, the
-                             angles' table addresses; the new-overworld
-                             branch, 2026-11-17).  The chunk's low half:
+                             objects, the bridge's and canal's characters
+                             561, the metatiles' corners 1032, the angles'
+                             table addresses, the ship's 16 frames 8192;
+                             the new-overworld branch, 2026-11-17 and
+                             -18).  The chunk's low half:
                              its 256 characters, 16KB, then the tilt's
                              tables, 15,342 bytes for six angles, to
                              $7BEE.  The last chunk: with it the 2MB image

@@ -1,0 +1,11 @@
+--- OLD
+DrawOWObj_Ship:
+    LDA ship_vis            ; get ship visibility flag
+--- NEW
+.import m7_ship
+.export DrawOWObj_Ship          ; for tools/test_options.py
+DrawOWObj_Ship:
+    JSL m7_ship + OW7FAR        ; tilted, the ship drawn at its distance's size
+    BCC :+                      ;   (C set); flat, by the game's code below
+    RTS
+:   LDA ship_vis            ; get ship visibility flag

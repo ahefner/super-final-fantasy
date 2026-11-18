@@ -198,7 +198,30 @@ hal_w2001:
     ;  plane gives way to the NES picture here, for the next flush.
     and #$18
     bne :+
+    lda a:h_m7on
+    beq :+
       stz a:h_m7on
+      stz a:h_m7objoff          ; the sprites' palettes back in OBJ 0-3,
+      stz a:h_m7objoff + 1      ;   OAM's and the colours both, re-sent
+      stz a:h_m7oampal
+      lda #1
+      sta a:h_paldirty
+      sta a:h_palforce
+      ;  ...and the background's pattern table, which the scaled ship's
+      ;  frames had: CHRSHADOW's 8KB of it sent again by the next flush,
+      ;  the span stretched over it and the word list given up.
+      stz a:h_chrlo
+      stz a:h_chrlo + 1
+      lda a:h_chrhi + 1
+      cmp #$20
+      bcs @chrspan
+        lda #$FF
+        sta a:h_chrhi
+        lda #$1F
+        sta a:h_chrhi + 1
+@chrspan:
+      lda #$FF
+      sta a:h_chrqn
 :   lda a:h_ppumask
     lsr a                       ; bits 7-5 emphasise red, green and blue
     lsr a
@@ -1020,6 +1043,7 @@ hal_oamdma:
     asl a
     ora a:h_t1
     ora a:h_sprtable
+    ora a:h_m7oampal            ; + 4 on the overworld, where pal_prep has them
     sta a:h_t1
     lda a:h_t0
     and #$20                    ; "behind background"
@@ -1045,6 +1069,28 @@ hal_oamdma:
     cpy #256
     bcc @loop
     LEAVE16
+    ;  Entry 64, past the game's 64: the docked ship ow7.asm drew at its
+    ;  distance's size (m7_ship, h_m7xspr), one 32x32 sprite, drawn with
+    ;  the game's sprites as they come now -- or nothing, off the bottom.
+    lda a:h_m7xon
+    beq @noextra
+      stz a:h_m7xon
+      lda a:h_m7xspr
+      sta a:OAMSHADOW+256
+      lda a:h_m7xspr+1
+      sta a:OAMSHADOW+257
+      lda a:h_m7xspr+2
+      sta a:OAMSHADOW+258
+      lda a:h_m7xspr+3
+      sta a:OAMSHADOW+259
+      lda a:h_m7xhi
+      bra @extrahi
+@noextra:
+      lda #$F0
+      sta a:OAMSHADOW+257
+      lda #0
+@extrahi:
+    sta a:OAMSHADOW+512+16      ; entries 64-67's two bits each: only 64's set
     lda #1
     sta a:h_oamdirty
     ply
@@ -1474,6 +1520,9 @@ hal_ppureclaim:
     jsr init_ppu
     stz a:h_m7on                ; the plane went with the rest of VRAM: the
     stz a:h_m7chr               ;   overworld's way in sends it again
+    stz a:h_m7objoff            ; the sprites in OBJ 0-3 (the palette goes
+    stz a:h_m7objoff + 1        ;   whole, below)
+    stz a:h_m7oampal
     stz a:h_m7qlen
     stz a:h_m7qlen + 1
 
@@ -1656,6 +1705,8 @@ pal_prep:
       asl a
       clc
       adc #128
+      clc                       ; + 64 on the overworld: OBJ palettes 4-7,
+      adc a:h_m7objoff          ;   which the plane's haze reaches (ow7.asm)
       bra @entry
 @bg:
     asl a
@@ -3535,6 +3586,8 @@ emit_hofs:
 flush_m7:
     lda #$07
     sta a:BGMODE
+    lda #(VRAM_CHR >> 13) | $20 ; 8x8 sprites, and 32x32 ones: the scaled ship
+    sta a:OBSEL
     stz a:M7SEL                 ; wrap, no flips
     lda #$01                    ; A and D 1.0, B and C 0: low byte, high byte
     stz a:M7A
@@ -3672,6 +3725,8 @@ flush_m7q:
 flush_scroll:
     lda #$01
     sta a:BGMODE                ; mode 1: the NES picture, not the plane
+    lda #VRAM_CHR >> 13
+    sta a:OBSEL                 ; 8x8 and 16x16 sprites, as init_ppu has them
     lda a:h_m7fog
     beq :+
       stz a:CGADSUB             ; the plane's haze, off with it

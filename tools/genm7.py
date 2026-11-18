@@ -54,9 +54,11 @@ Out:
     gen/ow7.inc      lut_M7Row: per metatile UL, UR, DL, DR (a row's two
                      lines a word each); lut_M7Col: UL, DL, UR, DR (a
                      column's two); the tilt's constants and, per angle,
-                     its tables' addresses in the low half
+                     its tables' addresses in the low half; the docked
+                     ship's frames, SHIP_SIZES across, and which to use
+                     for a size
 """
-import math, os, sys
+import math, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -78,13 +80,19 @@ FOG_NEAR, FOG_FAR = 120, 240        # pixels north of the pivot: no haze nearer,
                                     #   full haze farther
 FOG_RGB = (13, 15, 21)              # added at full, 0-31 each
 FOG_SUBTRACT = False                # a fade to dark instead of a haze
+# ---- the docked ship, drawn at its distance's size (user, 2026-11-18: "The
+#      ship needs scaled frames, it still looks too big in the distance") ----
+SHIP_SIZES = list(range(8, 23)) + [24]  # pixels across: 16 frames, 16 the game's
 # -----------------------------------------------------------------------------
+SHIP_ADD = 0x20                     # DrawOWObj_Ship's tile additive (the ship's graphics)
+OBJCHR_OFF = 0x1C00                 # bank $02 $9C00: LoadOWObjectCHR's source, sprite tile $10 on
 PIVOT_X, PIVOT_LINE = 120, 112      # the player's tile's centre on screen: the
                                     #   NES puts it at x 112-127, NES lines
                                     #   112-127, and the HAL crops 8 lines
 LINES = 224
 TABLES = 0x4000                     # where the tilt's tables start in ow7.bin
 RING = 32                           # rows ow7.asm keeps decoded (M7RING)
+SPECIAL = 248                       # characters 248-255: the bridge's, the canal's
 
 
 def nes_tile(chr_, t):
@@ -116,8 +124,13 @@ def build(chr_, tsa):
                 chars.append(pix)
             four.append(index[pix])
         corners.append(four)
-    if len(chars) > 256:
-        sys.exit("genm7: %d characters, past Mode 7's 256" % len(chars))
+    if len(chars) > SPECIAL:
+        sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
+    #  Metatiles $80 and $81, which no map has: the bridge and the canal's
+    #  land, flattened into the plane (ow7.asm's m7_objchars draws their
+    #  characters at the way in, the sprite over the map's tile under it).
+    corners.append([SPECIAL + k for k in range(4)])
+    corners.append([SPECIAL + 4 + k for k in range(4)])
     return chars, corners
 
 
@@ -231,6 +244,56 @@ def tilt_tables(vmin, vmax):
     return bytes(blob), offs
 
 
+def ship_source():
+    """The docked ship as DrawOWObj_Ship draws it: lut_VehicleSprTbl's first
+    entry (facing right, from the disassembly), its tiles + SHIP_ADD from
+    the object graphics LoadOWObjectCHR loads, each tile's flips applied.
+    -> (16x16 colours 0-3, the palette)."""
+    asm = open(os.path.join(GAME, "bank_0F.asm")).read()
+    row = re.search(r"\.BYTE\s+([^;\n]+)", asm[asm.index("lut_VehicleSprTbl:"):]).group(1)
+    vals = [int(v.strip().replace("$", "0x"), 16) for v in row.split(",")]
+    chr_ = open(os.path.join(GAME, "bank_02.dat"), "rb").read()[OBJCHR_OFF - 0x100:OBJCHR_OFF + 0x600]
+    img = [[0] * 16 for _ in range(16)]
+    for e, (qx, qy) in enumerate(((0, 0), (0, 1), (1, 0), (1, 1))):    # UL, DL, UR, DR
+        t, attr = vals[2 * e] + SHIP_ADD, vals[2 * e + 1]
+        tile = nes_tile(chr_, t)
+        for y in range(8):
+            for x in range(8):
+                sx = 7 - x if attr & 0x40 else x
+                sy = 7 - y if attr & 0x80 else y
+                img[qy * 8 + y][qx * 8 + x] = tile[sy][sx]
+    return img, vals[1] & 3
+
+
+def ship_frames(img):
+    """The ship at each of SHIP_SIZES pixels across, centred in 32x32 (the
+    tile's centre at the box's), nearest-neighbour as Mode 7 samples the
+    ground; as OBJ table 0 on the overworld holds them: frame j a 4x4 block
+    of tiles from tile (j mod 4) * 4 + (j div 4) * 64, SNES 4bpp, the top
+    two planes clear.  -> 8KB."""
+    out = bytearray(0x2000)
+    for j, n in enumerate(SHIP_SIZES):
+        f = n / 16
+        box = [[0] * 32 for _ in range(32)]
+        for dy in range(32):
+            for dx in range(32):
+                sx, sy = math.floor((dx + 0.5 - 16) / f + 8), math.floor((dy + 0.5 - 16) / f + 8)
+                if 0 <= sx < 16 and 0 <= sy < 16:
+                    box[dy][dx] = img[sy][sx]
+        base = (j % 4) * 4 + (j // 4) * 64
+        for tr in range(4):
+            for tc in range(4):
+                t = base + tr * 16 + tc
+                for r in range(8):
+                    p0 = p1 = 0
+                    for c in range(8):
+                        v = box[tr * 8 + r][tc * 8 + c]
+                        p0 |= (v & 1) << (7 - c)
+                        p1 |= (v >> 1 & 1) << (7 - c)
+                    out[t * 32 + 2 * r], out[t * 32 + 2 * r + 1] = p0, p1
+    return bytes(out)
+
+
 def main():
     chr_ = open(os.path.join(GAME, "bank_02.dat"), "rb").read()[CHR_OFF:CHR_OFF + 0x1000]
     tsa = open(os.path.join(GAME, "bank_00.dat"), "rb").read()[TSA_OFF:TSA_OFF + 0x400]
@@ -246,6 +309,7 @@ def main():
     out = ["; generated by tools/genm7.py -- do not edit",
            "; %d Mode 7 characters (out/ow7.bin, the chunk's low half)" % len(chars),
            "M7_CHARS = %d" % len(chars),
+           "M7_SPECIAL = %d          ; the bridge's characters, then the canal's: metatiles $80, $81" % SPECIAL,
            "M7P_ANGLES = %d" % len(ANGLES),
            "M7P_DEFAULT = %d" % DEFAULT,
            "M7P_PIVOTX = %d" % PIVOT_X,
@@ -259,6 +323,19 @@ def main():
            "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0)]
     for k in ("A", "D", "RG", "B", "K", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
+    if len(SHIP_SIZES) != 16:
+        sys.exit("genm7: %d ship frames; OBJ table 0 holds 16 of 32x32" % len(SHIP_SIZES))
+    ship, ship_pal = ship_source()
+    frames = ship_frames(ship)
+    out.append("M7SHIP_PAL = %d          ; the docked ship's sprite palette" % ship_pal)
+    #  For a size n (8-24, from a line's inverse scale), the nearest frame's
+    #  first tile.
+    near = [min(range(16), key=lambda j: (abs(SHIP_SIZES[j] - n), -SHIP_SIZES[j])) for n in range(8, 25)]
+    out.append("lut_M7ShipTile:          ; sizes 8-24")
+    out.append("  .BYTE " + ", ".join("$%02X" % ((j % 4) * 4 + (j // 4) * 64) for j in near))
+    out.append("lut_M7Ship:              ; OBJ table 0 on the overworld: the ship's 16 frames")
+    for i in range(0, len(frames), 16):
+        out.append("  .BYTE " + ", ".join("$%02X" % b for b in frames[i:i + 16]))
     out += ["lut_M7Row:"]
     for m, (a, b, c, d) in enumerate(corners):
         out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, b, c, d, m))

@@ -1379,13 +1379,30 @@ h_m7nty         = M7VARS+$33    ; ...and row
 h_m7pc          = M7VARS+$34    ; 2 bytes: a piece's metatiles; m7_scale's sum
 h_m7math        = M7VARS+$36    ; CGADSUB for the haze: add, or subtract
 h_m7ox          = M7VARS+$37    ; m7_objpos's tile column
-M7VARS_END      = M7VARS+$38
+;  Sprites take the haze: on the overworld the game's sprite palettes live
+;  in OBJ palettes 4-7, the ones colour maths reaches (pal_prep, hal_oamdma).
+h_m7objoff      = M7VARS+$38    ; 2 bytes: 64 on the overworld, added to a sprite colour's CGRAM entry
+h_m7oampal      = M7VARS+$3A    ; $08 on the overworld: OAM's palette bits + 4
+;  The docked ship, drawn at its distance's size (ow7.asm's m7_ship): one
+;  32x32 sprite, OAM entry 64, which hal_oamdma takes at the next transfer.
+h_m7oy          = M7VARS+$3B    ; m7_project's tile row (h_m7ox its column)
+h_m7oline       = M7VARS+$3C    ; ...the centre's screen line + 16
+h_m7ocx         = M7VARS+$3D    ; 2 bytes: ...and its x, signed
+h_m7xspr        = M7VARS+$3F    ; 4 bytes: the sprite as OAM has it: x, y, tile, attributes
+h_m7xhi         = M7VARS+$43    ; its two high-table bits: x's ninth, the size
+h_m7xon         = M7VARS+$44    ; nonzero: there is one this frame
+M7VARS_END      = M7VARS+$45
 .assert M7VARS >= CHRQUEUE + CHRQ_CAP * 2 && M7VARS_END <= OPTWORK, error, "the Mode 7 variables overlap the HAL's low WRAM"
 ;  The rows of the map the plane is drawn from, 256 tiles a page, row r in
 ;  page r mod 32: as far as the steepest angle sees, past the sixteen the
 ;  game keeps at mapdata.  Free WRAM between CGSHADOW and CHRSHADOW.
 M7RING          = $7E5000
 M7RING_ROWS     = 32
+;  The bridge's and the canal's characters, built at the way in: the row
+;  under each, decoded (a page), and the eight characters (512 bytes).
+M7OBJROW        = M7RING + M7RING_ROWS * $100
+M7OBJBUF        = M7OBJROW + $100
+.assert M7OBJBUF + $200 <= CHRSHADOW, error, "the Mode 7 objects' buffers overlap CHRSHADOW"
 .assert M7RING >= CGSHADOW + $200 && M7RING + M7RING_ROWS * $100 <= CHRSHADOW, error, "the Mode 7 ring overlaps the HAL's WRAM"
 ;  The plane's rows and columns, queued for the flush: records of a VRAM
 ;  word address (2), a VMAIN (1: $00 a row, a byte a word along; $02 a

@@ -1,0 +1,11 @@
+--- OLD
+DrawOWObj_BridgeCanal:
+    LDA bridge_vis          ; check if bridge is visible
+--- NEW
+.import m7_flatobjs
+.export DrawOWObj_BridgeCanal, lut_OWObjectSprTbl   ; for ow7.asm and tools/test_options.py
+DrawOWObj_BridgeCanal:
+    JSL m7_flatobjs + OW7FAR    ; with the Mode 7 plane up the bridge and the
+    BCC :+                      ;   canal's land are drawn into it, flat
+    RTS
+:   LDA bridge_vis          ; check if bridge is visible
