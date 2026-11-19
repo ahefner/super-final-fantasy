@@ -90,7 +90,7 @@ BLOBS = [
     (r"bestiary\.bin", "The Bestiary's fiend and Chaos pictures"),
     (r"maps_..\.bin", "Map Select's maps: their minimaps, records and rows"),
     (r"ow7\.bin", "The Mode 7 plane's 256 characters, then the tilt's tables"),
-    (r"ow7land_..\.bin", "The landmarks' frames: castles, the Temple, the Mirage Tower, the volcano"),
+    (r"ow7land_..\.bin", "Frames of the overworld's standing sprites: castles, the Temple, the Mirage Tower, the volcano, the houses, the docked ship"),
 ]
 MIRROR = "A mirror of the high half: code never reads it"
 
@@ -398,7 +398,7 @@ def main():
             elif b <= nes_end and o >= 0x8000:
                 add("The game's sixteen NES banks, as patched", CELL)
             elif o < 0x8000:
-                add("Data in the chunks' low halves (maps, logic, Mode 7, Bestiary, scream, landmarks)", CELL)
+                add("Data in the chunks' low halves (maps, logic, Mode 7, Bestiary, scream, standing sprites)", CELL)
             elif b == nes_end + 1:
                 add("The altar beam's tables", CELL)
             else:
@@ -410,7 +410,7 @@ def main():
                           kb(n[0]), kb(n[2]), kb(n[1] + n[3]))})
     order = ["The game's sixteen NES banks, as patched", "The HAL (the SNES layer under the game)",
              "The added chunks' code and data ($8000-$BFFF)",
-             "Data in the chunks' low halves (maps, logic, Mode 7, Bestiary, scream, landmarks)",
+             "Data in the chunks' low halves (maps, logic, Mode 7, Bestiary, scream, standing sprites)",
              "The altar beam's tables", "Copies of data counted above", "Blank: zeros, or one value repeated"]
     rows = "".join("<tr><td>%s</td><td class=\"n\">%s</td></tr>" % (html.escape(g), kb(groups[g]))
                    for g in order if g in groups)

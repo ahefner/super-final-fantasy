@@ -217,9 +217,12 @@ hal_w2001:
       sta a:h_chrhi
       lda #$3F
       sta a:h_chrhi + 1
-      stz a:M7XBUF              ; no extras now: hal_oamdma hides theirs
-      stz a:h_m7xfront
+      stz a:h_m7xfront          ; no extras now: hal_oamdma hides them,
+      lda #1                    ;   and the next transfer turns OAM's
+      sta a:h_oamdirty          ;   priority back (flush_oam)
       stz a:h_m7upon
+      stz a:h_m7bupon
+      stz a:h_m7upn             ; and no uploads
       lda #$FF
       sta a:h_chrqn
 :   lda a:h_ppumask
@@ -1027,16 +1030,14 @@ hal_oamdma:
       lda #$01
 :   and #$01
     sta a:h_sprtable            ; ...that is the 9th bit of the SNES tile number
-    ;  The game's 64 at OAM's start -- or after the overworld's extras when
-    ;  those stand in front of the party (h_m7xfront: ow7.asm's landmarks).
+    ;  The game's 64 at OAM's start; the overworld's extras after them
+    ;  (ow7.asm's landmarks), drawn in front of them by OAM's priority
+    ;  turned round when they stand in front of the party (flush_oam).
     stz a:h_m7gbase
-    lda a:h_m7xfront
-    beq :+
-      lda #1
-:   sta a:h_m7gbase + 1         ; 0, or 256
-    inc a
-    sta a:h_m7gend + 1
-    stz a:h_m7gend              ; 256, or 512
+    stz a:h_m7gbase + 1
+    stz a:h_m7gend
+    lda #1
+    sta a:h_m7gend + 1          ; 256
     ENTER16
     lda a:h_data
     and #$00FF
@@ -2451,7 +2452,17 @@ flush_oam:
     LEAVE16
     lda #$01
     sta a:MDMAEN
-    rts
+    ;  The overworld's extras, entries 64-127, in front of the party: OAM's
+    ;  priority turned round to start at entry 64 (its word address, 128,
+    ;  with $2103's bit 7), which the PPU keeps till the next write.
+    lda a:h_m7on
+    beq :+
+    lda a:h_m7xfront
+    beq :+
+    lda #$80
+    sta a:OAMADDL
+    sta a:OAMADDH
+:   rts
 
 
 ; --- raster splits ------------------------------------------------------
@@ -3754,13 +3765,10 @@ flush_m7q:
 ;;  From hal_oamdma, emulation mode: the overworld's extras, the 64 entries
 ;;  the game's left (h_m7gbase's other half).  The game's high-table bytes
 ;;  zero, its sprites being 8x8 and on screen's first 256.  With the plane
-;;  up, the listed extras (M7XBUF, built by ow7.asm while the game drew its
-;;  sprites: the docked ship) into their first M7XBUF_MAX entries, their
-;;  high-table byte with them, the rest of those off the bottom; the
-;;  landmarks', M7C_FIRST on, ow7.asm writes itself each frame (m7_lands),
-;;  and they stay.  The plane gone, all 64 off the bottom and their
-;;  high-table bytes zero, once.  The list is spent: the game draws a new
-;;  one each frame, and a frame that draws none shows none.
+;;  up the extras are ow7.asm's, the landmarks, the houses and the docked
+;;  ship, written each frame from SetOWScroll (m7_lands), and they stay.
+;;  The plane gone, all 64 off the bottom and their high-table bytes zero,
+;;  once.
 oam_extras:
     ENTER16
     lda a:h_m7gbase
@@ -3775,109 +3783,39 @@ oam_extras:
     inx
     dey
     bne :-
-    lda a:h_m7gbase
-    eor #$0100
-    sta a:h_t0                  ; the extras' first byte in OAM
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    sta a:h_m7cnt               ; ...and their first high-table byte
-    tax
     sep #$20
     .a8
-    stz a:OAMSHADOW + 512, x
     lda a:h_m7on
-    bne @list
-    ;  The plane gone: every extra off the bottom.
+    bne @kept
     rep #$20
     .a16
-    ldy #8
+    lda a:h_m7gbase
+    eor #$0100
+    tay                         ; the extras' first byte in OAM
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax                         ; ...and their first high-table byte
+    lda #8
+    sta a:h_t1
 :   stz a:OAMSHADOW + 512, x
     inx
     inx
-    dey
-    bne :-
-    lda #256
-    sta a:h_t1                  ; the range's end, from its start
-    bra @hide
-@list:
-    .a8
-    stz a:h_m7pc                ; the next entry's two bits' place in the byte
-    stz a:h_m7pc + 1
-    lda a:M7XBUF
-    cmp #M7XBUF_MAX + 1
-    bcc :+
-    lda #M7XBUF_MAX
-:   sta a:h_t1                  ; how many
-    ldx #0
-    ldy a:h_t0
-@x:
-    lda a:h_t1
-    beq @rest
     dec a:h_t1
-    lda a:M7XBUF + 1, x
-    sta a:OAMSHADOW + 0, y
-    lda a:M7XBUF + 2, x
-    sta a:OAMSHADOW + 1, y
-    lda a:M7XBUF + 3, x
-    sta a:OAMSHADOW + 2, y
-    lda a:M7XBUF + 4, x
-    sta a:OAMSHADOW + 3, y
-    lda a:M7XBUF + 5, x         ; two bits: x's ninth, the size
-    phx
-    ldx a:h_m7pc
-    beq @shifted
-:   asl a
+    bne :-
+    sep #$20
+    .a8
+    lda #$F0
+    ldx #64
+:   sta a:OAMSHADOW + 1, y
+    iny
+    iny
+    iny
+    iny
     dex
     bne :-
-@shifted:
-    ldx a:h_m7cnt
-    ora a:OAMSHADOW + 512, x
-    sta a:OAMSHADOW + 512, x
-    plx
-    inc a:h_m7pc
-    inc a:h_m7pc
-    rep #$20
-    .a16
-    txa
-    clc
-    adc #5
-    tax
-    iny
-    iny
-    iny
-    iny
-    sep #$20
-    .a8
-    bra @x
-@rest:
-    rep #$20
-    .a16
-    lda #M7XBUF_MAX * 4
-    sta a:h_t1                  ; the list's entries' end, from their start
-@hide:
-    lda a:h_t0
-    clc
-    adc a:h_t1
-    sta a:h_t1
-    sep #$20
-    .a8
-    lda a:h_m7on
-    bne @off
-    ldy a:h_t0                  ; (the plane gone: from the first)
-@off:
-    cpy a:h_t1
-    bcs @spent
-    lda #$F0
-    sta a:OAMSHADOW + 1, y
-    iny
-    iny
-    iny
-    iny
-    bra @off
-@spent:
-    stz a:M7XBUF
+@kept:
     lda a:h_m7on
     sta a:h_m7xprev             ; once more after the plane goes, to hide them
     LEAVE16
@@ -3886,73 +3824,59 @@ oam_extras:
 ;;  From hal_w2001, emulation mode, the plane up and a write showing the
 ;;  background but not the sprites (a menu's palette cycle, a battle's
 ;;  flash): the sprite layer stays on for the extras' scenery -- the
-;;  landmarks -- and the game's 64 and the listed extras go off the bottom instead,
-;;  till the game's next transfer.  A, X changed.
+;;  landmarks, the houses, the docked ship -- and the game's 64 go off the
+;;  bottom instead, till the game's next transfer.  A, X changed.
 oam_m7hide:
     phy
     lda #$F0
     ldx #0
-    ldy a:h_m7xfront
-    bne @front
 :   sta a:OAMSHADOW + 1, x      ; the game's, OAM's first half
     inx
     inx
     inx
     inx
     bne :-
-:   sta a:OAMSHADOW + 256 + 1, x  ; the listed, the second's first
-    inx
-    inx
-    inx
-    inx
-    cpx #M7XBUF_MAX * 4
-    bcc :-
-    bra @hidden
-@front:
-:   sta a:OAMSHADOW + 256 + 1, x  ; the game's, behind the landmarks'
-    inx
-    inx
-    inx
-    inx
-    bne :-
-:   sta a:OAMSHADOW + 1, x
-    inx
-    inx
-    inx
-    inx
-    cpx #M7XBUF_MAX * 4
-    bcc :-
-@hidden:
     lda #1
     sta a:h_oamdirty
     ply
     rts
 
-;;  The upload ow7.asm asked for (h_m7upon): a landmark's frame from ROM
-;;  into a slot of the sprite table that is not showing.
+;;  The uploads ow7.asm queued (M7UPQ, h_m7upn): a landmark's frame into a
+;;  slot of the sprite table, a 32x32 frame's rows into a block of the
+;;  other, a row with nothing in it written from one zero byte; at the
+;;  flush that sends the sprites that use them, before them.
 flush_m7up:
-    lda a:h_m7upon
+    lda a:h_m7upn
     bne :+
     rts
-:   stz a:h_m7upon
-    lda #$80
+:   lda #$80
     sta a:VMAIN                 ; a word on after each high byte
-    lda #$01
-    sta a:DMAP0                 ; two registers: $2118, then $2119
     lda #$18
-    sta a:BBAD0
-    lda a:h_m7upbank
-    sta a:A1B0
+    sta a:BBAD0                 ; $2118, then $2119
+    ldx #0
+@one:
     ENTER16
-    lda a:h_m7updst
+    lda a:M7UPQ + 0, x
     sta a:VMADDL
-    lda a:h_m7upsrc
+    lda a:M7UPQ + 2, x
     sta a:A1T0L
-    lda a:h_m7uplen
+    lda a:M7UPQ + 4, x
     sta a:DAS0L
     LEAVE16
+    lda a:M7UPQ + 6, x
+    sta a:A1B0
+    lda a:M7UPQ + 7, x
+    sta a:DMAP0
     lda #$01
     sta a:MDMAEN
+    txa
+    clc
+    adc #8
+    tax
+    dec a:h_m7upn
+    bne @one
+    stz a:h_m7upon
+    stz a:h_m7bupon
     rts
 
 ; --- scroll -------------------------------------------------------------

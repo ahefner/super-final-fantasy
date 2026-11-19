@@ -12325,7 +12325,7 @@ def test_m7view():
     #  the map with that ground; the landmarks' checks, below, hold the
     #  plane and the sprites together to the art (art/landmarks/*.png).
     CHARS = (1 + K["CHUNK_OW7"]) * 0x10000
-    LANDTILES = {m for _, grid, _ in genm7.LANDMARKS for row in grid for m in row}
+    LANDTILES = {m for _, grid, _ in genm7.LANDMARKS for row in grid for m in row} | {m for _, m, _ in genm7.HOUSES}
 
     def plane_block(m):
         """Metatile m as the plane draws it: lut_M7Row's characters."""
@@ -12483,10 +12483,12 @@ def test_m7view():
     #  a step's dearest frame 5372-6543 instructions of the game's and
     #  732-1141 of its wait and flush; the way in 261,064.  The flat plane
     #  took that to ~970 and 241; the tilt adds a row decoded and drawn on
-    #  the frame the pivot reaches a new tile.
+    #  the frame the pivot reaches a new tile.  The landmarks stood up and
+    #  Coneria's town beside them (this walk starts there) take the dearest
+    #  to ~5300 (2026-11-18), still under the NES's way's.
     got = {k: v for k, v in worst.items()}
-    check("...a step's dearest frame: the game's under 5000 instructions, the wait and flush under 500",
-          (max(v for (l, k), v in got.items() if k == "game") < 5000,
+    check("...a step's dearest frame: the game's under 5500 instructions, the wait and flush under 500",
+          (max(v for (l, k), v in got.items() if k == "game") < 5500,
            max(v for (l, k), v in got.items() if k == "wait") < 500, got), (True, True, got))
     bus, cpu = m7_machine()
     n0 = cpu.steps
@@ -12717,27 +12719,52 @@ def test_m7view():
           (bad[:4], bus.wram[K["sprindex"]]), ([], 16))
 
     #  The docked ship at its distance's size (user, 2026-11-18): genm7.py's
-    #  frames in OBJ table 0, held to the ship as the game draws it at the
-    #  flat angle -- its four tiles and flips from the OAM it writes, their
-    #  pixels from CHRSHADOW -- the 16-pixel frame that drawing exactly,
-    #  each other one its nearest-neighbour scaling; then, tilted, one 32x32
-    #  sprite in OAM entry 64, its centre within a pixel and a quarter of
-    #  where the camera puts the ship's tile, its size within a pixel and a
-    #  half of 16 over the camera's scale there, and nothing of the game's.
+    #  32x32 frames (art 0 of lut_M7BFrame), held to the ship as the game
+    #  draws it at the flat angle -- its four tiles and flips from the OAM it
+    #  writes, their pixels from CHRSHADOW -- the 16-pixel frame that drawing
+    #  exactly, each other one its nearest-neighbour scaling; then, tilted,
+    #  m7_scroll's (m7_lands): one 32x32 sprite, the extras' first, from a
+    #  block of OBJ table 0 holding its frame, its centre within a pixel and
+    #  a quarter of where the camera puts the ship's tile, its size within a
+    #  pixel and a half of 16 over the camera's scale there, and nothing of
+    #  the game's.
     SHIPSIZES = genm7.SHIP_SIZES
+    BFR = OW7 + SYM["lut_M7BFrame"]
+
+    def bframe(key):
+        """32x32 frame key's 16 tiles, 4bpp, as its block holds them."""
+        r = BFR + 4 * key
+        at, bank, mask = ROMDATA[r] | ROMDATA[r + 1] << 8, ROMDATA[r + 2], ROMDATA[r + 3]
+        src, out = (bank - 0xC0) * 0x10000 + at, bytearray()
+        for row in range(4):
+            out += ROMDATA[src:src + 128] if mask >> row & 1 else bytes(128)
+            src += 128 if mask >> row & 1 else 0
+        return bytes(out)
+
+    def bbox(tiles, planes=4):
+        """A 32x32 frame's colours from its 16 tiles."""
+        box = [[0] * 32 for _ in range(32)]
+        for t in range(16):
+            for r in range(8):
+                for c in range(8):
+                    b = 7 - c
+                    v = 0
+                    for pl in range(planes):
+                        v |= (tiles[32 * t + (16 if pl >= 2 else 0) + 2 * r + (pl & 1)] >> b & 1) << pl
+                    box[(t // 4) * 8 + r][(t % 4) * 8 + c] = v
+        return box
+
+    def block_vram(bus, b):
+        """Block b of OBJ table 0 as VRAM holds it: its 16 tiles, 4bpp."""
+        out = bytearray()
+        tile = (b % 4) * 4 + (b // 4) * 64
+        for row in range(4):
+            a = K["VRAM_CHR"] + (tile + row * 16) * 16
+            out += bytes(bus.vram[2 * a:2 * a + 128])
+        return bytes(out)
 
     def ship_frame(bus, j):
-        """Frame j's 32x32 colours from VRAM's OBJ table 0."""
-        base = (j % 4) * 4 + (j // 4) * 64
-        box = [[0] * 32 for _ in range(32)]
-        for tr in range(4):
-            for tc in range(4):
-                a = K["VRAM_CHR"] + (base + tr * 16 + tc) * 16
-                for r in range(8):
-                    lo, hi = bus.vram[2 * (a + r)], bus.vram[2 * (a + r) + 1]
-                    for c in range(8):
-                        box[tr * 8 + r][tc * 8 + c] = (lo >> (7 - c) & 1) | (hi >> (7 - c) & 1) << 1
-        return box
+        return bbox(bframe(j), planes=2)
 
     def camera_at(angle, u, v):
         """The camera's screen position (x, line) of the map point u east
@@ -12797,6 +12824,9 @@ def test_m7view():
                 mcx, mcy = (rnd.randrange(16), 0) if rnd.randrange(2) else (0, rnd.randrange(16))
                 bus.wram[OWX], bus.wram[OWY], bus.wram[MCX], bus.wram[MCY] = sx, sy, mcx, mcy
                 bus.sram[0:3] = bytes([1, (sx + 7 + dx) & 0xFF, (sy + 7 + dy) & 0xFF])
+                #  Its frame asked for and sent, then drawn from its block.
+                call(cpu, "m7_scroll")
+                call(cpu, "hal_waitvbl", bank=0xC0)
                 call(cpu, "m7_scroll")
                 bus.wram[K["sprindex"]] = 0
                 for i in range(64):
@@ -12805,30 +12835,52 @@ def test_m7view():
                 drawn = bus.wram[K["sprindex"]]
                 cpu.a = 0x02
                 call(cpu, "nesio_oamdma")
-                #  The extras' first entry: 64, or 0 where a landmark stands
-                #  in front of the party (h_m7xfront).
-                xb = 0 if bus.wram[K["h_m7xfront"]] else 256
-                x, y, t, a = bus.wram[K["OAMSHADOW"] + xb:K["OAMSHADOW"] + xb + 4]
-                hb = bus.wram[K["OAMSHADOW"] + 512 + xb // 16] & 3
+                call(cpu, "hal_waitvbl", bank=0xC0)
+                #  The ship's sprite among the extras, 64-127: its palette's,
+                #  large (an entry parked is small: at $F0 a large one's top
+                #  shows, wrapped); y $F0 if none.
+                SHIPATTR = 0x20 | (ship_pal + 4) << 1
+                ent = next((i for i in range(64, 128) if bus.oam[4 * i + 3] == SHIPATTR
+                            and bus.oam[512 + i // 4] >> (2 * (i % 4)) & 2), None)
+                if ent is None:
+                    x, y, t, a, hb = 0, 0xF0, 0, 0, 0
+                else:
+                    x, y, t, a = bus.oam[4 * ent:4 * ent + 4]
+                    hb = bus.oam[512 + ent // 4] >> (2 * (ent % 4)) & 3
                 u, v = dx * 16 - mcx, dy * 16 - mcy
                 xs, line, scale = camera_at(ANGLES[level], u, v)
                 where = "%d degrees, the ship %+d,%+d tiles" % (ANGLES[level], dx, dy)
                 if drawn:
                     bad.append(where + ": the game drew it too")
-                if y == 0xF0 and not hb:
+                if ent is None:
                     if -30 <= line - 16 <= 222 and -30 <= xs - 16 <= 254 and VMIN + 2 < v < VMAX - 2:
                         bad.append(where + ": not drawn, the camera has it at %.1f, %.1f" % (xs, line))
                     continue
                 cx = x + (-256 if hb & 1 else 0) + 16
                 cy = (y if y < 224 else y - 256) + 16
-                j = next(k for k in range(16) if (k % 4) * 4 + (k // 4) * 64 == t)
-                if (hb & 2, a) != (2, 0x20 | (ship_pal + 4) << 1):
-                    bad.append(where + ": size, attributes %r" % ((hb, a),))
+                b = next((k for k in range(16) if (k % 4) * 4 + (k // 4) * 64 == t), None)
+                j = bus.wram[K["h_m7bkey"] + b] if b is not None else 0xFF
+                if (hb & 2, a) != (2, 0x20 | (ship_pal + 4) << 1) or j > 15:
+                    bad.append(where + ": size, attributes, frame %r" % ((hb, a, j),))
+                    continue
+                if block_vram(bus, b) != bframe(j):
+                    bad.append(where + ": block %d not holding frame %d" % (b, j))
                 if abs(cx - xs) > 1.25 or abs(cy - line) > 1.25:
                     bad.append(where + ": centre at %d, %d, the camera's %.1f, %.1f" % (cx, cy, xs, line))
                 #  A pixel, but where the frames are two apart (22, 24).
                 if abs(SHIPSIZES[j] - 16 / scale) > (1.5 if SHIPSIZES[j] >= 22 else 1.0):
                     bad.append(where + ": %d across, the camera's %.1f" % (SHIPSIZES[j], 16 / scale))
+    #  Aboard, none: the party's sprite is the ship then.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, vehicle=4, level=STEEP)
+    bus.sram[0:3] = bytes([1, 0x92 + 7, 0x9E + 3])
+    for _ in range(2):
+        call(cpu, "m7_scroll")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+    O = K["OAMSHADOW"]
+    if any(bus.wram[O + 4 * i + 3] == 0x20 | (ship_pal + 4) << 1 and bus.wram[O + 512 + i // 4] >> (2 * (i % 4)) & 2
+           for i in range(64, 128)):
+        bad.append("aboard: the docked ship drawn")
     #  Flat, the game's drawing; none of the ship's, and no ship, nothing.
     bus, cpu = m7_machine()
     enter(bus, cpu, 0x92, 0x9E, level=FLAT)
@@ -12899,23 +12951,30 @@ def test_m7view():
         base = 1 + max(y for y in range(h) if any(v is not None for v in stand[y]))
         return stand[:base], under, base, pal
 
-    ART = {name: own_art(name, grid) for name, grid, _ in genm7.LANDMARKS}
-    GRID = {name: grid for name, grid, _ in genm7.LANDMARKS}
+    LANDS = [(name, grid) for name, grid, _ in genm7.LANDMARKS]
+    HOUSE = {name: m for name, m, _ in genm7.HOUSES}
+    GRID = dict(LANDS + [(name, ((m,),)) for name, m in HOUSE.items()])
+    ART = {name: own_art(name, grid) for name, grid in GRID.items()}
     L_K0, L_N, L_SLOT = K["M7L_K0"], K["M7L_FRAMES"], K["M7L_SLOT"]
     SLOT0, SLOTW = K["M7L_SLOT0"], K["M7L_SLOTW"]
     ONE = 16 - L_K0                                     # the size index of k 1
     LFR = OW7 + SYM["lut_M7LFrame"]
     SPRBASE = (1 + K["M7L_SPRCHUNK"]) * 0x10000
     sx8 = lambda b: b - 256 if b & 0x80 else b
+    HOUSEATTR = 0x20 | (4 << 1)                         # palette 4, table 0
 
     def frame_rec(key):
-        """Frame key (art * 16 + size): its tiles and its sprites."""
+        """Landmark frame key (art * 16 + size): its tiles and its sprites
+        (dx, dy, tile) from its anchor, from its list: the corner's place,
+        the last sprite's, then each from the corner."""
         r = LFR + 8 * key
         tiles, bank = ROMDATA[r] | ROMDATA[r + 1] << 8, ROMDATA[r + 2]
         spr, nt, ns = ROMDATA[r + 3] | ROMDATA[r + 4] << 8, ROMDATA[r + 5], ROMDATA[r + 6]
         tb, sb = (bank - 0xC0) * 0x10000 + tiles, SPRBASE + spr
+        x0, y0 = sx8(ROMDATA[sb]), sx8(ROMDATA[sb + 2])
         return (ROMDATA[tb:tb + 32 * nt],
-                [(sx8(ROMDATA[sb + 3 * i]), sx8(ROMDATA[sb + 3 * i + 1]), ROMDATA[sb + 3 * i + 2]) for i in range(ns)])
+                [(x0 + ROMDATA[sb + 4 + 4 * i], y0 + ROMDATA[sb + 5 + 4 * i], ROMDATA[sb + 6 + 4 * i])
+                 for i in range(ns)])
 
     def tile_pixel(tdata, t, r, c):
         b = 7 - c
@@ -12927,8 +12986,8 @@ def test_m7view():
         return 0 if v == 4 else v - 4 if v < 8 else 16 + v - 8
 
     def lands_on(tiles):
-        """{(column, top row): name} of every landmark on a map, its grid
-        whole there (wrapping)."""
+        """{(column, top row): name} of every landmark and house on a map,
+        its grid whole there (wrapping)."""
         out = {}
         for name, grid in GRID.items():
             rows, cols = len(grid), len(grid[0])
@@ -12942,10 +13001,34 @@ def test_m7view():
         return out
 
     def anchor_of(name, x, y):
-        """A landmark's base point on the 4096-pixel map: its middle, its
-        lowest standing row's foot."""
+        """A landmark's or house's base point on the 4096-pixel map: its
+        middle, its lowest standing row's foot."""
         fig, _, base, _ = ART[name]
         return x * 16 + len(fig[0]) // 2, y * 16 + base
+
+    def read_list(mi):
+        """Map mi's list from ROM: [(group header, [records])], a landmark's
+        record (art, column, bottom row, front, x offset, y offset), a row of
+        houses' ($80 + art, row, front, y offset, [columns])."""
+        a = OW7 + SYM["lut_M7LMaps"] + 2 * mi
+        p = OW7 + (ROMDATA[a] | ROMDATA[a + 1] << 8)
+        out = []
+        while ROMDATA[p]:
+            head = tuple(ROMDATA[p:p + 6])
+            q, recs = p + 6, []
+            for _ in range(head[0]):
+                if ROMDATA[q] & 0x80:
+                    n = ROMDATA[q + 4]
+                    recs.append(tuple(ROMDATA[q:q + 4]) + (list(ROMDATA[q + 5:q + 5 + n]),))
+                    q += 5 + n
+                else:
+                    recs.append(tuple(ROMDATA[q:q + 6]))
+                    q += 6
+            if q - p - 6 != head[5]:
+                recs.append(None)
+            out.append((head, recs))
+            p = q
+        return out
 
     #  The art in the cartridge.
     bad = []
@@ -12959,20 +13042,33 @@ def test_m7view():
     ON = [lands_on(t) for t in MAPS]
     ARTOF = {}
     for mi, tiles in enumerate(MAPS):
-        a = OW7 + SYM["lut_M7LMaps"] + 2 * mi
-        p = OW7 + (ROMDATA[a] | ROMDATA[a + 1] << 8)
         listed = {}
-        while ROMDATA[p] != 0xFF:
-            art, x, yb, front, ox, oy = ROMDATA[p:p + 6]
-            listed[(x, yb)] = (art, front, sx8(ox), sx8(oy))
-            p += 6
+        for head, recs in read_list(mi):
+            n, yhi, ywin, xhi, xwin, size = head
+            if None in recs:
+                bad.append("map %d: a group's bytes not its records'" % mi)
+                continue
+            for rec in recs:
+                if rec[0] & 0x80:
+                    art, y, front, oy, cols = rec
+                    places = [(x, y, (art, front, 0, sx8(oy))) for x in cols]
+                else:
+                    art, x, y, front, ox, oy = rec
+                    places = [(x, y, (art, front, sx8(ox), sx8(oy)))]
+                for x, y, what in places:
+                    listed[(x, y)] = what
+                    #  m7_lands takes the group in only if its window holds
+                    #  each member.
+                    if (yhi - y) & 255 > ywin - 35 or (xhi - x) & 255 > xwin - 37:
+                        bad.append("map %d: (%d, %d) past its group's window %r" % (mi, x, y, head))
         want = {}
         for (x, y), name in ON[mi].items():
             fig, _, base, _ = ART[name]
             rows = len(GRID[name])
             ax, ay = anchor_of(name, x, y)
-            got = listed.get((x, (y + rows - 1) & 255))
-            want[(x, (y + rows - 1) & 255)] = name
+            yb = (y + rows - 1) & 255
+            got = listed.get((x, yb))
+            want[(x, yb)] = name
             if got is None:
                 bad.append("map %d: %s at (%d, %d) not listed" % (mi, name, x, y))
                 continue
@@ -12980,7 +13076,8 @@ def test_m7view():
             #  metatile's centre; in front of the party north of the row
             #  its foot is in.
             if (got[2], got[3]) != (ax - x * 16 - 8, base - (rows - 1) * 16 - 8) \
-                    or got[1] != (y + (base - 17) // 16 + 1) & 255:
+                    or got[1] != (y + (base - 17) // 16 + 1) & 255 \
+                    or bool(got[0] & 0x80) != (name in HOUSE):
                 bad.append("map %d: %s at (%d, %d) listed %r" % (mi, name, x, y, got))
             ARTOF.setdefault(name, set()).add(got[0])
         if set(listed) != set(want):
@@ -12990,30 +13087,50 @@ def test_m7view():
         if n != whole:
             bad.append("map %d: %d landmark tiles, %d in whole landmarks" % (mi, n, whole))
     for name, arts in ARTOF.items():
-        fig, _, base, pal = ART[name]
+        fig, under, base, pal = ART[name]
         if len(arts) != 1:
             bad.append("%s: arts %r" % (name, arts))
             continue
-        tdata, sl = frame_rec(arts.pop() * 16 + ONE)
-        got = {}
-        for dx, dy, t in sl:
-            for r in range(8):
-                for c in range(8):
-                    v = tile_pixel(tdata, t, r, c)
-                    if v:
-                        got[(len(fig[0]) // 2 + dx + c, base + dy + r)] = as_plane(v)
+        art = arts.pop()
         want = {(x, y): v for y, row in enumerate(fig) for x, v in enumerate(row) if v is not None}
+        got = {}
+        if art & 0x80:
+            #  A house's 32x32 frame at k 1: its art, its base's middle at
+            #  the box's bottom middle.
+            box = bbox(bframe((art & 0x7F) * 16 + ONE))
+            for by in range(32):
+                for bx in range(32):
+                    if box[by][bx]:
+                        got[(bx - 16 + len(fig[0]) // 2, by - 32 + base)] = as_plane(box[by][bx])
+        else:
+            tdata, sl = frame_rec(art * 16 + ONE)
+            for dx, dy, t in sl:
+                for r in range(8):
+                    for c in range(8):
+                        v = tile_pixel(tdata, t, r, c)
+                        if v:
+                            got[(len(fig[0]) // 2 + dx + c, base + dy + r)] = as_plane(v)
+            #  Under its lowest standing row, the ground black (user,
+            #  2026-11-18: "a full black shape underneath the footprint of
+            #  the castle"); a house has none ("They don't need shadows").
+            if any(under[base - 1][x] != 0 for x, v in enumerate(fig[base - 1]) if v is not None):
+                bad.append("%s: not black under its foot" % name)
         if got != want:
             bad.append("%s: its frame at k 1 not its art (%d of %d)" % (name, len(set(got.items()) ^ set(want.items())), len(want)))
-        #  Under its lowest standing row, the ground black (user, 2026-11-18:
-        #  "a full black shape underneath the footprint of the castle").
-        under = ART[name][1]
-        if any(under[base - 1][x] != 0 for x, v in enumerate(fig[base - 1]) if v is not None):
-            bad.append("%s: not black under its foot" % name)
     if set(ARTOF) != set(GRID):
         bad.append("landmarks on no map: %r" % sorted(set(GRID) - set(ARTOF)))
-    check("the landmarks' art in the cartridge: the plane's ground and the frames the PNGs', every map's "
-          "list its landmarks, black under each one's foot", bad[:4], [])
+    ARTOF_ALL = {}
+    for mi in range(len(MAPS)):
+        for head, recs in read_list(mi):
+            for rec in recs:
+                if rec and rec[0] & 0x80:
+                    for x in rec[4]:
+                        name = ON[mi].get((x, rec[1]))
+                        if name:
+                            ARTOF_ALL.setdefault(name, set()).add(rec[0])
+    check("the landmarks' and houses' art in the cartridge: the plane's ground and the frames the PNGs', "
+          "every map's list its landmarks and houses, in groups whose windows hold them; black under "
+          "each landmark's foot", bad[:4], [])
 
     def run_frame(bus, cpu):
         """One frame of the game's sprites through the HAL: drawn, flushed,
@@ -13043,27 +13160,41 @@ def test_m7view():
                 out.append((i, x - (256 if hb else 0), y if y < 0xE0 else y - 256, t))
         return out
 
+    def house_sprites(bus):
+        """The houses' sprites OAM shows: 32x32, OBJ palette 4, table 0:
+        (index, x, y, tile)."""
+        out = []
+        for i in range(64, 128):
+            x, y, t, a = bus.oam[4 * i:4 * i + 4]
+            hb = bus.oam[512 + i // 4] >> (2 * (i % 4)) & 3
+            if a == HOUSEATTR and hb & 2:
+                out.append((i, x - (256 if hb & 1 else 0), y if y < 0xE0 else y - 256, t))
+        return out
+
     def composite(bus, screen, cover=None):
-        """The plane's picture with the landmarks' sprites over it, each of
-        their colours as the plane's; into cover, if given, the screen
-        pixels they cover."""
+        """The plane's picture with the landmarks' and houses' sprites over
+        it, each of their colours as the plane's, the first in OAM on top;
+        into cover, if given, the screen pixels they cover."""
         out = [row[:] for row in screen]
-        for i, x, y, t in land_sprites(bus):
-            a = K["VRAM_CHR"] + 0x1000 + t * 16
-            for r in range(8):
-                if not 0 <= y + r < 224:
-                    continue
-                w0 = bus.vram[2 * (a + r)], bus.vram[2 * (a + r) + 1]
-                w1 = bus.vram[2 * (a + 8 + r)], bus.vram[2 * (a + 8 + r) + 1]
-                for c in range(8):
-                    if not 0 <= x + c < 256:
+        spr = [(i, x, y, [(0, 0, K["VRAM_CHR"] + 0x1000 + t * 16)]) for i, x, y, t in land_sprites(bus)]
+        spr += [(i, x, y, [(c * 8, r * 8, K["VRAM_CHR"] + ((t + c + 16 * r) & 0xFF) * 16)
+                           for r in range(4) for c in range(4)]) for i, x, y, t in house_sprites(bus)]
+        for i, x, y, tiles in sorted(spr, key=lambda e: -e[0]):
+            for ox, oy, a in tiles:
+                for r in range(8):
+                    if not 0 <= y + oy + r < 224:
                         continue
-                    b = 7 - c
-                    v = (w0[0] >> b & 1) | (w0[1] >> b & 1) << 1 | (w1[0] >> b & 1) << 2 | (w1[1] >> b & 1) << 3
-                    if v:
-                        out[y + r][x + c] = as_plane(v)
-                        if cover is not None:
-                            cover.add((y + r, x + c))
+                    w0 = bus.vram[2 * (a + r)], bus.vram[2 * (a + r) + 1]
+                    w1 = bus.vram[2 * (a + 8 + r)], bus.vram[2 * (a + 8 + r) + 1]
+                    for c in range(8):
+                        if not 0 <= x + ox + c < 256:
+                            continue
+                        b = 7 - c
+                        v = (w0[0] >> b & 1) | (w0[1] >> b & 1) << 1 | (w1[0] >> b & 1) << 2 | (w1[1] >> b & 1) << 3
+                        if v:
+                            out[y + oy + r][x + ox + c] = as_plane(v)
+                            if cover is not None:
+                                cover.add((y + oy + r, x + ox + c))
         return out
 
     def slot_holds(bus, slot, key):
@@ -13130,28 +13261,55 @@ def test_m7view():
         return out
 
     def upload_asked(bus, where):
-        """After m7_scroll: an upload asked for is a frame's tiles, all of
-        them, from where the cartridge has them, into the slot h_m7lkey
-        names it in."""
-        if not bus.wram[K["h_m7upon"]]:
-            return
-        word = lambda a: bus.wram[K[a]] | bus.wram[K[a] + 1] << 8
-        s, r = divmod(word("h_m7updst") - (K["VRAM_CHR"] + 0x1000 + SLOT0 * 16), SLOTW * 16)
-        key = bus.wram[K["h_m7lkey"] + s] if 0 <= s < 3 and not r else None
-        if key is None or key == 0xFF:
-            bad.append(where + ": an upload into $%04X, no slot's" % word("h_m7updst"))
-            return
-        tdata, _ = frame_rec(key)
-        src = (bus.wram[K["h_m7upbank"]] - 0xC0) * 0x10000 + word("h_m7upsrc")
-        if word("h_m7uplen") != len(tdata) or ROMDATA[src:src + len(tdata)] != tdata:
-            bad.append(where + ": slot %d's upload %d bytes, not frame $%02X's %d" % (s, word("h_m7uplen"), key, len(tdata)))
+        """After m7_scroll: the uploads queued (M7UPQ) are frames' tiles,
+        all of them, from where the cartridge has them: a landmark's into
+        the slot h_m7lkey names it in, a 32x32 frame's four rows into the
+        block h_m7bkey names it in, a row it has nothing in from a zero;
+        one of each at most."""
+        Q, n = K["M7UPQ"], bus.wram[K["h_m7upn"]]
+        rec = [bus.wram[Q + 8 * i:Q + 8 * i + 8] for i in range(n)]
+        lands = blocks = 0
+        rows = {}
+        for r in rec:
+            dst, src, ln = r[0] | r[1] << 8, r[2] | r[3] << 8, r[4] | r[5] << 8
+            bank, mode = r[6], r[7]
+            data = bytes([ROMDATA[(bank & 0x1F) * 0x10000 + src]]) * ln if mode == 0x09 else \
+                ROMDATA[(bank - 0xC0) * 0x10000 + src:(bank - 0xC0) * 0x10000 + src + ln]
+            s, rr = divmod(dst - (K["VRAM_CHR"] + 0x1000 + SLOT0 * 16), SLOTW * 16)
+            if 0 <= s < 3 and not rr and mode == 0x01:
+                key = bus.wram[K["h_m7lkey"] + s]
+                lands += 1
+                if key == 0xFF or data != frame_rec(key)[0]:
+                    bad.append(where + ": slot %d's upload not frame $%02X's %d bytes" % (s, key, len(frame_rec(key)[0])))
+                continue
+            t, rr = divmod(dst - K["VRAM_CHR"], 16)
+            b = next((b for b in range(16) if (t - ((b % 4) * 4 + (b // 4) * 64)) in (0, 16, 32, 48)), None)
+            if rr or b is None or ln != 128:
+                bad.append(where + ": an upload into $%04X, no slot's or block's" % dst)
+                continue
+            rows.setdefault(b, {})[(t - ((b % 4) * 4 + (b // 4) * 64)) // 16] = data
+        for b, rw in rows.items():
+            key = bus.wram[K["h_m7bkey"] + b]
+            blocks += 1
+            if sorted(rw) != [0, 1, 2, 3] or key == 0xFF or b"".join(rw[i] for i in range(4)) != bframe(key):
+                bad.append(where + ": block %d's upload not frame $%02X's rows" % (b, key))
+        if lands > 1 or blocks > 1:
+            bad.append(where + ": %d landmarks' and %d 32x32 frames queued" % (lands, blocks))
 
     def slots_hold(bus, where):
-        """After a flush: every slot holding the frame h_m7lkey names."""
+        """After a flush: every slot and block holding the frame h_m7lkey
+        and h_m7bkey name, and M7BREV their other way round."""
         for s in range(3):
             key = bus.wram[K["h_m7lkey"] + s]
             if key != 0xFF and not slot_holds(bus, s, key):
                 bad.append(where + ": slot %d not holding its frame $%02X" % (s, key))
+        rev = {k: v - 1 for k, v in enumerate(bus.wram[K["M7BREV"] & 0xFFFF:(K["M7BREV"] & 0xFFFF) + 256]) if v}
+        keyed = {bus.wram[K["h_m7bkey"] + b]: b for b in range(16) if bus.wram[K["h_m7bkey"] + b] != 0xFF}
+        if rev != keyed:
+            bad.append(where + ": M7BREV %r, the blocks %r" % (sorted(rev.items())[:4], sorted(keyed.items())[:4]))
+        for k, b in keyed.items():
+            if block_vram(bus, b) != bframe(k):
+                bad.append(where + ": block %d not holding its frame $%02X" % (b, k))
         if bus.wram[K["h_m7oux"]:K["h_m7oux"] + 2] != b"\0\0" or bus.wram[K["h_m7ouy"]:K["h_m7ouy"] + 2] != b"\0\0":
             bad.append(where + ": m7_project's offsets left for the objects")
 
@@ -13173,8 +13331,107 @@ def test_m7view():
                     b.append(blk)
         return w, b
 
+    def rotated(bus):
+        """The extras in front of the party: OAM's priority turned round to
+        start at entry 64 ($2102 $80, $2103 bit 7), as the flush left it."""
+        return bus.io.get(0x2103, 0) & 0x80 != 0 and bus.io.get(0x2102, 0) == 0x80
+
+    def want_front(bus, level, px0, py0):
+        """In front of the party, as m7_lands has it, from the game's map's
+        list: in a group near (its window), a landmark near the pivot's
+        tile and kept (its base on the screen or below, within 64 of its
+        sides) or a row of houses near and kept (its line on the screen or
+        below, its boxes' top not below it), the party's row (the pivot's
+        tile's) north of its front row."""
+        prow = bus.wram[K["h_m7ty"]]
+        sx, sy = bus.wram[OWX], bus.wram[OWY]
+        for (n, yhi, ywin, xhi, xwin, size), recs in read_list(0):
+            if (yhi - sy + 15) & 255 >= ywin or (xhi - sx + 11) & 255 >= xwin:
+                continue
+            for rec in recs:
+                if rec[0] & 0x80:
+                    art, y, front, oy, cols = rec
+                    x, ox = cols[0], 0
+                else:
+                    art, x, y, front, ox, oy = rec
+                    if (x - sx - 7 + 18) & 255 >= 37:
+                        continue
+                if (y - sy - 7 + 22) & 255 >= 35:
+                    continue
+                u, v = x * 16 + 8 + sx8(ox), y * 16 + 8 + sx8(oy)
+                xs, line, scale = camera_at(ANGLES[level], u - px0, v - py0)
+                if not VMIN <= v - py0 <= K["M7P_VMAX"] or line < 0:
+                    continue
+                if rec[0] & 0x80 and line - 32 >= 224 or not rec[0] & 0x80 and not -64 <= xs < 320:
+                    continue
+                if (prow - front + 128) % 256 - 128 < 0:
+                    return True
+        return False
+
+    def wpivot(bus):
+        """The pivot as m7_scroll had it (the plane's scroll, ten bits),
+        near the counters as they are after the move."""
+        w = [bus.wram[OWX] * 16 + bus.wram[MCX], bus.wram[OWY] * 16 + bus.wram[MCY]]
+        sc = [bus.wram[K["h_m7hofs"]] | bus.wram[K["h_m7hofs"] + 1] << 8,
+              (bus.wram[K["h_m7vofs"]] | bus.wram[K["h_m7vofs"] + 1] << 8) - (K["NES_TOP_CROP"] - 1)]
+        return [w[i] + (sc[i] - w[i] + 512) % 1024 - 512 + 120 for i in (0, 1)]
+
+    def house_oamshadow(bus):
+        """The houses' sprites as m7_scroll left them in OAMSHADOW."""
+        out = []
+        O = K["OAMSHADOW"]
+        for i in range(64, 128):
+            x, y, t, a = bus.wram[O + 4 * i:O + 4 * i + 4]
+            hb = bus.wram[O + 512 + i // 4] >> (2 * (i % 4)) & 3
+            if a == HOUSEATTR and hb & 2:
+                out.append((i, x - (256 if hb & 1 else 0), y if y < 0xE0 else y - 256, t))
+        return out
+
+    def houses_placed(bus, where, level, px0, py0, ktol=0.05, settled=True, oam=True):
+        """The houses shown (OAM, or OAMSHADOW as m7_scroll left them)
+        against the camera's placing of the game's map's: each 32x32
+        sprite's box standing on a house's base where the camera has it,
+        within a pixel and a half, from a block holding a frame of that
+        house's art at its size; every house whose box the screen shows,
+        shown -- settled, or else whenever a block holds its art.  ->
+        how many."""
+        spr = house_sprites(bus) if oam else house_oamshadow(bus)
+        near = []
+        for (x, y), name in ON[0].items():
+            if name in HOUSE:
+                u, v = anchor_of(name, x, y)
+                if VMIN <= v - py0 <= K["M7P_VMAX"]:
+                    near.append((name,) + camera_at(ANGLES[level], u - px0, v - py0))
+        for i, sx, sy, t in spr:
+            ax, ay = sx + 16, sy + 32
+            name, xs, cl, scale = min(near, key=lambda h: abs(h[1] - ax) + abs(h[2] - ay))
+            b = next((b for b in range(16) if (b % 4) * 4 + (b // 4) * 64 == t), None)
+            key = bus.wram[K["h_m7bkey"] + b] if b is not None else 0xFF
+            if abs(ax - xs) > 1.5 or abs(ay - cl) > 1.5:
+                bad.append(where + ": a house's base at %d, %d, the camera's %.1f, %.1f" % (ax, ay, xs, cl))
+            elif key == 0xFF or oam and block_vram(bus, b) != bframe(key) or key >> 4 != ARTNUM[name]:
+                bad.append(where + ": %s from block %r, frame $%02X" % (name, b, key))
+            else:
+                k = min(max(1 / scale, L_K0 / 16), (L_K0 + L_N - 1) / 16)
+                if ktol is not None and abs(((key & 15) + L_K0) / 16 - k) > ktol:
+                    bad.append(where + ": %s at k %d/16, the camera's %.3f" % (name, (key & 15) + L_K0, 1 / scale))
+        onscreen = [name for name, xs, cl, scale in near if cl >= 0 and -16 < xs + 16 and xs - 16 < 256
+                    and cl - 32 < 224 and cl > 0]
+        arts = {bus.wram[K["h_m7bkey"] + b] >> 4 for b in range(16) if bus.wram[K["h_m7bkey"] + b] != 0xFF}
+        if len(spr) < len(onscreen) and (settled or all(ARTNUM[n] in arts for n in onscreen)) \
+                or len(spr) > len(onscreen):
+            bad.append(where + ": %d houses shown, %d on the screen" % (len(spr), len(onscreen)))
+        return len(spr)
+
+    ARTNUM = {name: next(iter(arts)) & 0x7F for name, arts in
+              ((n, {r for r in ARTOF_ALL[n]}) for n in HOUSE)}
     FW, FB = flat_world(MAPS[0], ON[0])
+    once = set()
     for (x, y), name in sorted(ON[0].items()):
+        if name in once:
+            continue
+        if name in HOUSE:
+            once.add(name)                              # (one of each art's)
         for dx, dy, mcx, mcy in ((1, 5, 0, 0), (-2, 3, 6, 0), (3, 1, 0, 9)):
             px, py = x + dx, y + dy
             bus, cpu = m7_machine()
@@ -13189,15 +13446,18 @@ def test_m7view():
             if got != want:
                 n = sum(a != b for ra, rb in zip(got, want) for a, b in zip(ra, rb))
                 bad.append("flat, %s, the party at (%d, %d)+(%d, %d): %d pixels not the art" % (name, px, py, mcx, mcy, n))
-            spr = land_sprites(bus)
+            spr = house_sprites(bus) if name in HOUSE else land_sprites(bus)
             if not spr:
                 bad.append("flat at (%d, %d): no %s" % (px, py, name))
-            if spr and min(i for i, sx, sy, t in spr) < 64:
+            if rotated(bus):
                 bad.append("flat at (%d, %d): %s in front of the party" % (px, py, name))
 
     #  Tilted, each where and as big as the camera has it, in front of the
-    #  party just when the party stands north of its foot's row.
+    #  party just when the party stands north of its foot's row (or of a
+    #  house's near it).
     for (x, y), name in sorted(ON[0].items()):
+        if name in HOUSE:
+            continue
         rows = len(GRID[name])
         for level in (genm7.DEFAULT, STEEP):
             for dx, dy, mcx, mcy in ((1, rows + 2, 0, 0), (-2, rows + 5, 0, 9), (3, rows, 5, 0), (1, rows - 2, 0, 0)):
@@ -13215,10 +13475,33 @@ def test_m7view():
                 if shown != [name]:
                     bad.append(where + ": shown %r" % shown)
                     continue
-                front = min(i for i, sx, sy, t in land_sprites(bus)) < 64
-                base = ART[name][2]
-                if front != (py <= y + (base - 17) // 16):
+                front = rotated(bus)
+                if front != want_front(bus, level, (px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120):
                     bad.append(where + ": in front %r" % front)
+    #  The houses, a town at a time, settled (a 32x32 frame uploaded a
+    #  flush): each where and as big as the camera has it, every one the
+    #  screen shows, in front of the party just when it should be.
+    towns = {}
+    for (x, y), name in sorted(ON[0].items()):
+        if name in HOUSE:
+            towns.setdefault(name, (x, y))
+    for name, (x, y) in sorted(towns.items()):
+        for level in (genm7.DEFAULT, STEEP):
+            for dx, dy, mcx, mcy in ((1, 3, 0, 0), (-1, 6, 0, 7), (2, 1, 9, 0)):
+                px, py = x + dx, y + dy
+                bus, cpu = m7_machine()
+                enter(bus, cpu, px - 7, py - 7, level=level)
+                bus.wram[MCX], bus.wram[MCY] = mcx, mcy
+                for _ in range(5):
+                    call(cpu, "m7_scroll")
+                    run_frame(bus, cpu)
+                call(cpu, "hal_waitvbl", bank=0xC0)
+                where = "%d degrees, %s, the party at (%d, %d)+(%d, %d)" % (ANGLES[level], name, px, py, mcx, mcy)
+                pv = ((px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120)
+                if not houses_placed(bus, where, level, *pv):
+                    bad.append(where + ": no houses")
+                if rotated(bus) != want_front(bus, level, pv[0], pv[1]):
+                    bad.append(where + ": in front %r" % rotated(bus))
     #  ...and far to the side, near the top, at the steepest angle: eleven
     #  columns off and more, where the screen still shows them.
     for (x, y), name in sorted(ON[0].items()):
@@ -13285,7 +13568,7 @@ def test_m7view():
     for mapname, names in (("Sandy Ridge", ("coneria", "mirage")), ("Great Lake", ("coneria", "northwest-ffr", "mirage"))):
         mi = next(i for i, e in enumerate(ENTRIES) if e[3] == mapname)
         here = [(n, x, y) for (x, y), n in ON[mi].items() if n in names]
-        every = [(n, x, y) for (x, y), n in ON[mi].items()]
+        every = [(n, x, y) for (x, y), n in ON[mi].items() if n not in HOUSE]
         cx = round(sum(x for _, x, _ in here) / len(here))
         cy = max(y for _, _, y in here) + 4
         bus, cpu = m7_machine()
@@ -13353,8 +13636,7 @@ def test_m7view():
     #  off/lands, and when transitioning in and out of menus"); the
     #  game's sprites go with the sprites off, as the NES has them.
     def party_shown(bus):
-        return sum(1 for i in range(128) if bus.oam[4 * i + 1] < 0xE0
-                   and not is_land(bus.oam[4 * i + 2], bus.oam[4 * i + 3]))
+        return sum(1 for i in range(64) if bus.oam[4 * i + 1] < 0xE0)
 
     def run_frames(bus, cpu, name, a, look):
         """Routine `name` run to its return with A = a, look(bus) at the
@@ -13435,7 +13717,7 @@ def test_m7view():
     #  in front of them and behind (OAM's halves swapped).
     def land_drawn(bus):
         """Landmark entries in OAMSHADOW's extras, as m7_scroll leaves them."""
-        xb = K["OAMSHADOW"] + (0 if bus.wram[K["h_m7xfront"]] else 256)
+        xb = K["OAMSHADOW"] + 256
         return sum(1 for i in range(4, 64) if bus.wram[xb + 4 * i + 1] != 0xF0)
 
     def game_shown(bus):
@@ -13483,8 +13765,19 @@ def test_m7view():
             page = bytes(bus.wram[0x200:0x300])
             cpu.a = 0x02
             call(cpu, "nesio_oamdma")
+            used0 = bus.wram[K["h_m7bused"]] | bus.wram[K["h_m7bused"] + 1] << 8
             call(cpu, "OverworldMovement")
             upload_asked(bus, "walking past Coneria's")
+            #  A 32x32 frame never uploaded into a block the last frame's
+            #  houses took: one of them may want it this frame yet.
+            Q = K["M7UPQ"]
+            for i in range(bus.wram[K["h_m7upn"]]):
+                t, rr = divmod((bus.wram[Q + 8 * i] | bus.wram[Q + 8 * i + 1] << 8) - K["VRAM_CHR"], 16)
+                b = next((b for b in range(16) if (b % 4) * 4 + (b // 4) * 64 == t), None)
+                if b is not None and used0 >> b & 1:
+                    bad.append("walking past Coneria's: an upload into block %d, the last frame's" % b)
+            houses_placed(bus, "walking past Coneria's, the frame before", STEEP,
+                          *wpivot(bus), ktol=None, settled=False, oam=False)
             uploads += bus.wram[K["h_m7upon"]]
             last = drawn(bus) if land_drawn(bus) else None
             flips += bus.wram[K["h_m7xfront"]] != front0
@@ -13502,11 +13795,18 @@ def test_m7view():
     if flips < 2 or hidden:
         bad.append("walking past it: in front and behind %d times, the game's sprites not its page's %d frames"
                    % (flips, hidden))
-    #  The palette mirror; the way out.
+    #  The palette mirror; the way out: OAM's priority turned back at the
+    #  first flush, though nothing of the game's is sent before it.
     on = (bytes(bus.cgram[2 * 196:2 * 204]), bytes(bus.cgram[0:8]) + bytes(bus.cgram[32:40]))
+    bus.wram[K["h_m7xfront"]] = 1
+    bus.wram[K["h_oamdirty"]] = 1
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    turned = rotated(bus)
     cpu.a = 0
     call(cpu, "hal_w2001", bank=0xC0)
     call(cpu, "hal_waitvbl", bank=0xC0)
+    if not turned or rotated(bus):
+        bad.append("the way out: OAM's priority %s" % ("never turned" if not turned else "left turned"))
     cpu.a = 0x02
     call(cpu, "nesio_oamdma")
     call(cpu, "hal_waitvbl", bank=0xC0)

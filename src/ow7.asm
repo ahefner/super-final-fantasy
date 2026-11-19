@@ -47,7 +47,7 @@
 .import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
 .export lut_M7Row, lut_M7Col, lut_M7LFrame, lut_M7LMaps   ; for tools/test_options.py
-.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7Ship, lut_M7ShipTile
+.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7ShipSize, lut_M7BFrame
 
 .segment "BANK_OW7"
 
@@ -73,8 +73,8 @@ QUEUE     = M7QUEUE & $FFFF
 .assert ^M7RING = ^M7QUEUE, error, "the ring and the queue share a bank"
 M7LSPRFAR = $C00000 + (1 + M7L_SPRCHUNK) * $10000 ; the landmarks' sprite lists, long
 .assert M7L_SPRITES <= 64 - M7C_FIRST, error, "a landmark frame's sprites past the extras' 64"
+.assert M7UPQ_MAX >= 5, error, "the queue: a landmark's frame and a 32x32 frame's four rows a flush"
 .assert M7L_SLOT <= M7L_SLOTW && M7L_SLOT0 + 3 * M7L_SLOTW <= $100, error, "the landmarks' three slots past the sprite table"
-.assert M7C_FIRST = 4, error, "the listed extras: entries 0-3, their high-table byte oam_extras' alone"
 
 
 .a8
@@ -695,21 +695,36 @@ m7_enter:
     .i16
     JSR m7_tables
     JSR m7_objchars
-    ;  The landmarks: no slot holds a frame, none on screen, nothing waits,
-    ;  no extras yet -- every OAMSHADOW entry off the bottom, the high
-    ;  table zero, the halves the NES's way round (the game's next transfer
+    ;  The landmarks: no slot or block holds a frame, nothing waits, no
+    ;  extras yet -- every OAMSHADOW entry off the bottom, the high table
+    ;  zero, the halves the NES's way round (the game's next transfer
     ;  fills the game's range).
     REP #$20
     .a16
     LDA #$FFFF
     STA a:h_m7lkey
     STA a:h_m7lkey + 1
+    LDX #16 - 2
+:   STA a:h_m7bkey, X
+    DEX
+    DEX
+    BPL :-
+    LDA #0
+    LDX #256 - 2
+:   STA f:M7BREV, X
+    DEX
+    DEX
+    BPL :-
+    LDA #$FFFF
     STZ a:h_m7oux
     STZ a:h_m7ouy
+    LDA #$FFFF
+    STA a:h_m7gtile             ; the groups near: none worked out yet
     SEP #$20
     .a8
     STZ a:h_m7upon
-    STZ a:M7XBUF
+    STZ a:h_m7bupon
+    STZ a:h_m7upn
     STZ a:h_m7xfront
     STZ a:h_m7ccount
     LDX #0
@@ -725,29 +740,6 @@ m7_enter:
     INX
     CPX #512 + 32
     BCC :-
-    ;  The docked ship's frames into OBJ table 0 -- the background's pattern
-    ;  table, which the plane does not draw from; hal_w2001 has CHRSHADOW's
-    ;  sent back over them on the way out.
-    LDA #$80
-    STA a:VMAIN
-    REP #$20
-    .a16
-    LDA #VRAM_CHR
-    STA a:VMADDL
-    LDA #.loword(lut_M7Ship)
-    STA a:A1T0L
-    LDA #$2000
-    STA a:DAS0L
-    SEP #$20
-    .a8
-    LDA #$01
-    STA a:DMAP0                 ; two registers: $2118, then $2119
-    LDA #<VMDATAL
-    STA a:BBAD0
-    LDA #^OW7FAR
-    STA a:A1B0
-    LDA #$01
-    STA a:MDMAEN
     ;  The sprites into OBJ palettes 4-7, where the haze reaches them: their
     ;  colours re-sent there, and OAM's palettes moved up (hal_oamdma), until
     ;  rendering goes off (hal_w2001).
@@ -1116,14 +1108,14 @@ m7_project:
     ADC #-M7P_VMIN              ; v - M7P_VMIN, the table's index
     CMP #M7P_VMAX - M7P_VMIN + 1
     BCC :+
-    JMP @off
+    JMP m7_projout
 :   ASL A                       ; (a word each)
     ADC a:h_m7tabY
     TAX
     LDA f:OW7DATAFAR, X         ; the line, signed; $8000 none
     CMP #$8000
     BNE :+
-    JMP @off
+    JMP m7_projout
 :   STA a:h_m7oline
     SEC
     SBC #M7P_PIVOTLINE
@@ -1172,7 +1164,7 @@ m7_project:
     EOR #$FFFF
     INC A
 :   CMP #$0200
-    BCS @off                    ; past the columns kept, and the multiply's reach
+    BCS m7_projout                    ; past the columns kept, and the multiply's reach
     STA a:h_m7n                 ; |u|, nine bits
     JSR m7_scale                ; |u| * k / 256
     BIT a:h_m7x
@@ -1186,7 +1178,7 @@ m7_project:
     .a8
     CLC
     RTS
-@off:
+m7_projout:
     SEP #$20
     .a8
     SEC
@@ -1271,161 +1263,51 @@ m7_objpos:
 .i8
 ;;  From DrawOWObj_Ship (ow7_ship.patch), emulation mode.  At the flat
 ;;  angle, or with the plane off, C clear and the game draws the ship.  Else
-;;  C set and the game draws nothing: the ship, if it shows, is one 32x32
-;;  sprite of genm7.py's frames, the nearest its line's size -- 16 pixels
-;;  times k, rounded, 8 to 24 -- its centre where the plane shows its
-;;  tile's (m7_project), handed to the HAL for OAM at the next transfer,
-;;  as the game's sprites drawn now go then.  Palette
-;;  M7SHIP_PAL in OBJ 4-7, in front, OBJ table 0, onto the listed extras
-;;  (M7XBUF).  X and Y kept.
+;;  C set and the game draws nothing: the docked ship is m7_lands', one
+;;  32x32 sprite at its line's size, drawn every overworld frame with the
+;;  landmarks.
 m7_ship:
     LDA a:h_m7on
-    BEQ @game
+    BEQ :+
     LDA a:h_m7lvl
-    CMP #2
-    BCS :+
-@game:
-    CLC
+    CMP #2                      ; (the angle + 1: 1 the flat)
+    BCS @tilted
+:   CLC
     RTL
-:   LDA f:SRAMFAR7 + ship_vis
-    BNE :+
-    SEC                         ; not the party's yet: nothing
-    RTL
-:   PHX
-    PHY
-    LDA f:SRAMFAR7 + ship_x
-    STA a:h_m7ox
-    LDA f:SRAMFAR7 + ship_y
-    STA a:h_m7oy
-    STZ a:h_m7oux               ; the tile's centre itself
-    STZ a:h_m7oux + 1
-    STZ a:h_m7ouy
-    STZ a:h_m7ouy + 1
-    CLC
-    XCE
-    REP #$10
-    .i16
-    JSR m7_project
-    BCS @done
-    REP #$20
-    .a16
-    LDA a:h_m7cnt
-    CLC
-    ADC #8
-    LSR A
-    LSR A
-    LSR A
-    LSR A                       ; 16 * k / 256, rounded
-    CMP #8
-    BCS :+
-    LDA #8
-:   CMP #25
-    BCC :+
-    LDA #24
-:   SEC
-    SBC #8
-    TAX
-    SEP #$20
-    .a8
-    LDA f:OW7FAR + lut_M7ShipTile, X
-    STA a:h_m7save + 2
-    LDA #$20 | ((M7SHIP_PAL + 4) << 1)  ; in front; OBJ palettes 4-7; table 0
-    STA a:h_m7save + 3
-    REP #$20
-    .a16
-    LDA a:h_m7oline
-    CLC
-    ADC #31 - 16                ; the box's top (the line - 16), + 31: on
-    CMP #224 + 31               ;   screen from -31 to 223
-    BCS @done
-    SBC #31 - 1                 ; (carry clear: one more taken)
-    SEP #$20
-    .a8
-    STA a:h_m7save + 1          ; a top above the screen wraps, as the SNES draws it
-    REP #$20
-    .a16
-    LDA a:h_m7ocx
-    CLC
-    ADC #31 - 16                ; the box's left, + 31: on screen from -31 to 255
-    CMP #256 + 31
-    BCS @done
-    SEC
-    SBC #31
-    SEP #$20
-    .a8
-    STA a:h_m7save
-    XBA
-    AND #$01                    ; x's ninth bit
-    ORA #$02                    ; the large size: 32x32
-    STA a:h_m7save + 4
-    JSR m7_xadd                 ; onto the extras (M7XBUF)
-@done:
-    SEP #$30
-    .a8
-    .i8
-    SEC
-    XCE
-    PLY
-    PLX
+@tilted:
     SEC
     RTL
-
-.a8
-.i16
-;;  The sprite at h_m7save -- x, y, tile, attributes, high bits -- onto the
-;;  extras (M7XBUF), if there is room.  A8 I16.
-m7_xadd:
-    LDA a:M7XBUF
-    CMP #M7XBUF_MAX
-    BCS @full
-    REP #$20
-    .a16
-    AND #$00FF
-    STA a:h_m7pc
-    ASL A
-    ASL A
-    ADC a:h_m7pc                ; five bytes each
-    TAX
-    SEP #$20
-    .a8
-    LDA a:h_m7save
-    STA a:M7XBUF + 1, X
-    LDA a:h_m7save + 1
-    STA a:M7XBUF + 2, X
-    LDA a:h_m7save + 2
-    STA a:M7XBUF + 3, X
-    LDA a:h_m7save + 3
-    STA a:M7XBUF + 4, X
-    LDA a:h_m7save + 4
-    STA a:M7XBUF + 5, X
-    INC a:M7XBUF
-@full:
-    RTS
 
 
 .a8
 .i16
-;;  The landmarks stood up (user, 2026-11-18: Coneria's castle, then "the
-;;  other castles, mirage tower, and the volcano"): those on the map in
-;;  play (genm7.py's list for RANDO_MAP; past the list, the game's map's)
-;;  near the pivot's tile, each placed by its base as any object
-;;  (m7_project) -- its base below the screen while its top shows -- and
-;;  M7L_VIS of them at most, the nearest (M7LVIS).  Each is drawn in
-;;  genm7.py's frame for its line's inverse scale, k in sixteenths, upwards
-;;  from its base as 8x8 sprites into OAMSHADOW's extras from entry
-;;  M7C_FIRST on, the nearest first, so in front.  From m7_scroll, by the
-;;  scroll the flush gives the plane with them, every overworld frame --
-;;  the airship's take-off and landing and a menu's palette cycle, which
-;;  draw none of the game's sprites, among them.  A frame is drawn from
-;;  whichever of three slots in the sprite table holds it (h_m7lkey); if
-;;  none does, it is uploaded into one no other takes (m7_lupload) by the
-;;  flush that sends these sprites, before them.  One upload a flush: with
-;;  one waiting, or no slot free, a slot holding the
-;;  same art at another size stands in, and with none the landmark waits a
-;;  frame.  The landmarks stand in front of the party when it is north of
-;;  one's base row, tilted and not in the air: OAMSHADOW's halves swapped
-;;  when that changes (m7_front).  Entries the last frame held and this one
-;;  does not, off the bottom (h_m7ccount).  A8 I16.
+;;  The landmarks stood up -- the castles, the Temple of Fiends, the Mirage
+;;  Tower and the volcano (user, 2026-11-18) -- with the towns' houses and
+;;  the docked ship: those on the map in play (genm7.py's list for
+;;  RANDO_MAP, in groups culled whole, each group's the southmost first;
+;;  past the list, the game's map's) near the pivot's tile, each placed by
+;;  its base as any object (m7_project; the members of a row share its
+;;  line) -- its base below the screen while its top shows -- and drawn at
+;;  genm7.py's frame for its line's inverse scale, k in sixteenths, into
+;;  OAMSHADOW's extras: the ship and the houses first, one 32x32 sprite
+;;  each, as the list has them (M7HBUF); then the landmarks, M7L_VIS at
+;;  most, the nearest first (M7LVIS), each upwards from its base as 8x8
+;;  sprites.  A first is in front.  From m7_scroll, by the scroll the flush
+;;  gives the plane with them, every overworld frame -- the airship's
+;;  take-off and landing and a menu's palette cycle, which draw none of the
+;;  game's sprites, among them.  A landmark's frame is drawn from whichever
+;;  of three slots in the sprite table holds it, a 32x32 frame from
+;;  whichever of sixteen blocks in the other (h_m7lkey; h_m7bkey and
+;;  M7BREV); if none does, it is uploaded -- into a slot no other landmark
+;;  takes this frame, or a block no house took this frame or the last
+;;  (m7_lupload, m7_bupload) -- at the flush that sends these sprites,
+;;  before them.  One landmark's frame and one 32x32 frame a flush: with
+;;  one waiting, or none free, one holding the same art at another size
+;;  stands in, and with none it waits a frame.  They stand in front of the
+;;  party when it is north of one's base row, tilted and not in the air:
+;;  OAMSHADOW's halves swapped when that changes (m7_front).  Entries the
+;;  last frame held and this one does not, off the bottom (h_m7ccount).
+;;  A8 I16.
 m7_lands:
     LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
     CMP #M7L_MAPS
@@ -1438,193 +1320,78 @@ m7_lands:
     TAX
     LDA f:OW7FAR + lut_M7LMaps, X
     STA a:h_m7lptr
+    STZ a:h_m7bused
     SEP #$20
     .a8
     STZ a:h_m7lnvis
+    STZ a:h_m7hn
     STZ a:h_m7lfront
-    BRA @each
-@skip16:
-    SEP #$20
-    .a8
-@skip:
-    JMP @next
-@each:
-    LDX a:h_m7lptr
-    LDA f:OW7FAR, X             ; its art; $FF past the last
-    CMP #$FF
-    BNE :+
-    JMP @listed
-    ;  Near: its bottom row from 22 north of the pivot's to 12 south, its
-    ;  column within 18 (m7_project has the exact bounds).
-:   LDA f:OW7FAR + 2, X
-    SEC
-    SBC z:ow_scroll_y
-    SEC
-    SBC #7
-    CLC
-    ADC #22
-    CMP #22 + 13
-    BCS @skip
-    LDA f:OW7FAR + 1, X
-    SEC
-    SBC z:ow_scroll_x
-    SEC
-    SBC #7
-    CLC
-    ADC #18
-    CMP #18 + 19
-    BCS @skip
-    LDA f:OW7FAR + 1, X
-    STA a:h_m7ox
-    LDA f:OW7FAR + 2, X
-    STA a:h_m7oy
-    REP #$20
-    .a16
-    LDA f:OW7FAR + 4, X         ; its base: pixels east of its left
-    AND #$00FF                  ;   column's centre, and south of its
-    EOR #$0080                  ;   bottom row's, signed bytes
-    SEC
-    SBC #$0080
-    STA a:h_m7oux
-    LDA f:OW7FAR + 5, X
-    AND #$00FF
-    EOR #$0080
-    SEC
-    SBC #$0080
-    STA a:h_m7ouy
-    SEP #$20
-    .a8
-    JSR m7_project
-    BCS @skip
-    REP #$20
-    .a16
-    LDA a:h_m7ocx
-    CLC
-    ADC #64
-    CMP #256 + 128              ; its base's x within 64 of the screen
-    BCS @skip16
-    LDA a:h_m7oline
-    BPL :+
-    JMP @next16                 ; its base above the top: none of it shows
-:   LDA a:h_m7cnt
-    CLC
-    ADC #8
-    LSR A
-    LSR A
-    LSR A
-    LSR A                       ; k in sixteenths, rounded
-    SEC
-    SBC #M7L_K0
-    BPL :+
-    LDA #0
-:   CMP #M7L_FRAMES
+    JSR m7_lship
+    JSR m7_gnear                ; the groups near, worked out again if due
+    STZ a:h_m7gi
+@near:
+    LDA a:h_m7gi
+    CMP a:h_m7gnn
     BCC :+
-    LDA #M7L_FRAMES - 1
-:   STA a:h_m7n                 ; its size
-    SEP #$20
-    .a8
-    LDX a:h_m7lptr
-    LDA f:OW7FAR, X
-    ASL A
-    ASL A
-    ASL A
-    ASL A
-    ORA a:h_m7n
-    STA a:h_m7n                 ; the frame wanted: art * 16 + size
-    LDA a:h_m7ty
-    SEC
-    SBC f:OW7FAR + 3, X         ; the party north of its row: in front
-    BPL :+
-    STA a:h_m7lfront
-    ;  Into M7LVIS, the nearest (the greatest line) first; past M7L_VIS,
-    ;  the farthest left out.
+    JMP @listed
 :   REP #$20
     .a16
-    LDA a:h_m7lnvis
     AND #$00FF
     ASL A
-    ASL A
-    ASL A
-    STA a:h_m7pc                ; past the entries
-    LDY #0
-@find:
-    CPY a:h_m7pc
-    BCS @insert
-    LDA a:h_m7oline
-    CMP a:M7LVIS, Y             ; (both 0-400 here)
-    BCS @insert
-    TYA
-    CLC
-    ADC #8
-    TAY
-    BRA @find
-@insert:
-    CPY #8 * M7L_VIS
-    BCS @next16                 ; farther than every one kept
-    LDX a:h_m7pc
-    CPX #8 * M7L_VIS
-    BCC :+
-    LDX #8 * (M7L_VIS - 1)      ; all kept: the farthest falls off
-:   STY a:h_m7left
-@shift:
-    CPX a:h_m7left
-    BEQ @put
-    LDA a:M7LVIS - 8, X
-    STA a:M7LVIS, X
-    LDA a:M7LVIS - 6, X
-    STA a:M7LVIS + 2, X
-    LDA a:M7LVIS - 4, X
-    STA a:M7LVIS + 4, X
-    LDA a:M7LVIS - 2, X
-    STA a:M7LVIS + 6, X
-    TXA
-    SEC
-    SBC #8
     TAX
-    BRA @shift
-@put:
-    LDA a:h_m7oline
-    STA a:M7LVIS, Y
-    LDA a:h_m7ocx
-    STA a:M7LVIS + 2, Y
+    LDA a:M7GNEAR, X
+    TAX                         ; its header
+    CLC
+    ADC #M7L_GROUP
+    STA a:h_m7lptr              ; its records
     SEP #$20
     .a8
-    LDA a:h_m7n
-    STA a:M7LVIS + 4, Y
-    LDA a:h_m7lnvis
-    CMP #M7L_VIS
-    BCS @next
-    INC a:h_m7lnvis
-    BRA @next
-@next16:
-    SEP #$20
-    .a8
-@next:
+    INC a:h_m7gi
+    LDA f:OW7FAR, X
+    STA a:h_m7gn
+@member:
+    LDX a:h_m7lptr
+    LDA f:OW7FAR, X
+    BMI @row
+    JSR m7_lmember              ; a landmark
+    LDA #M7L_REC
+    BRA @advance
+@row:
+    JSR m7_lrow                 ; a row of houses
+    LDX a:h_m7lptr
+    LDA f:OW7FAR + 4, X
+    CLC
+    ADC #M7L_ROW
+@advance:
     REP #$20
     .a16
-    LDA a:h_m7lptr
+    AND #$00FF
     CLC
-    ADC #M7L_REC
+    ADC a:h_m7lptr
     STA a:h_m7lptr
     SEP #$20
     .a8
-    JMP @each
+    DEC a:h_m7gn
+    BNE @member
+    BRA @near
 
 @listed:
     REP #$20
     .a16
-    STZ a:h_m7oux               ; (m7_objpos and m7_ship place tiles' centres)
+    STZ a:h_m7oux               ; (m7_objpos places tiles' centres)
     STZ a:h_m7ouy
+    LDA a:h_m7bused
+    STA a:h_m7bprev             ; the blocks this frame's took, for the next
     LDA a:h_m7lnvis
     AND #$00FF
     ASL A
     ASL A
     ASL A
-    STA a:h_m7pc                ; past the entries
+    STA a:h_m7pc                ; past the landmarks
     SEP #$20
     .a8
-    ;  Each its frame from the slot that holds it...
     STZ a:h_m7lused
+    ;  Each landmark its frame from the slot that holds it...
     LDY #0
 @exact:
     CPY a:h_m7pc
@@ -1662,11 +1429,11 @@ m7_lands:
     LDA a:M7LVIS + 5, Y
     CMP #$FF
     BNE @onext
-    LDA a:h_m7upon
-    BNE @borrow
     ;  ...or uploaded into a slot no other takes this frame (the flush
     ;  sends the tiles before the sprites, so the last frame's never show
     ;  the new ones)...
+    LDA a:h_m7upon
+    BNE @borrow
     LDX #0
 :   LDA f:OW7FAR + lut_M7LBit, X
     AND a:h_m7lused
@@ -1675,8 +1442,8 @@ m7_lands:
     CPX #3
     BCC :-
 @borrow:
-    ;  ...or, with an upload waiting or no slot free, drawn at the size a
-    ;  slot holding its art has, till its frame comes; with none, not drawn.
+    ;  ...or, with an upload waiting or none free, drawn at the size a slot
+    ;  holding its art has, till its frame comes; with none, not drawn.
     LDA a:M7LVIS + 4, Y
     AND #$F0
     STA a:h_m7save + 3
@@ -1715,6 +1482,7 @@ m7_lands:
     SEP #$20
     .a8
     BRA @other
+
 @slotted:
     ;  In front of the party, or behind?
     LDA a:h_m7lvl
@@ -1731,14 +1499,65 @@ m7_lands:
     LDA #0
 @front:
     JSR m7_front
-    ;  Their sprites, the nearest's first, into the extras from M7C_FIRST
-    ;  on: Y walks OAMSHADOW.
+    ;  The ship's and the houses' sprites, as placed, into the extras from
+    ;  M7C_FIRST on: Y walks OAMSHADOW.
     REP #$20
     .a16
     LDA a:h_m7save + 4
     CLC
     ADC #M7C_FIRST * 4
     TAY
+    LDX #0
+    SEP #$20
+    .a8
+    LDA a:h_m7hn
+    BEQ @houses
+    STA a:h_m7gn                ; (the extras' first entry starts a high-table byte)
+    STZ a:h_m7save + 3          ; the high-table byte so far
+    STZ a:h_m7gw                ; the entry's place in it, times 4
+@hcopy:
+    REP #$20
+    .a16
+    LDA a:M7HBUF + 0, X         ; x, line
+    STA a:OAMSHADOW + 0, Y
+    LDA a:M7HBUF + 2, X         ; tile, attributes
+    STA a:OAMSHADOW + 2, Y
+    LDA a:M7HBUF + 4, X         ; x's ninth bit, the size
+    PHX
+    ORA a:h_m7gw
+    AND #$000F
+    TAX
+    SEP #$20
+    .a8
+    LDA f:OW7FAR + lut_M7XB, X  ; at its place
+    ORA a:h_m7save + 3
+    STA a:h_m7save + 3
+    PLX
+    INX
+    INX
+    INX
+    INX
+    INX
+    INY
+    INY
+    INY
+    INY
+    LDA a:h_m7gw
+    CLC
+    ADC #4
+    AND #$0F
+    STA a:h_m7gw
+    BNE :+
+    JSR m7_hbyte                ; four done: their byte
+:   DEC a:h_m7gn
+    BNE @hcopy
+    LDA a:h_m7gw
+    BEQ @houses
+    JSR m7_hbyte                ; the last, part filled
+@houses:
+    ;  Then the landmarks', the nearest's first.
+    REP #$20
+    .a16
     STZ a:h_m7lptr              ; (M7LVIS's entry now)
 @land:
     LDX a:h_m7lptr
@@ -1766,7 +1585,7 @@ m7_lands:
     ASL A
     TAX                         ; its frame's record
     LDA f:OW7FAR + lut_M7LFrame + 3, X
-    STA a:h_m7addr              ; its sprites
+    STA a:h_m7addr              ; its sprite list
     LDA f:OW7FAR + lut_M7LFrame + 6, X
     AND #$00FF
     STA a:h_m7left              ; how many
@@ -1778,51 +1597,168 @@ m7_lands:
     CLC
     ADC a:h_m7left
     CMP #64 + 1
-    BCC @spr
+    BCC :+
     JMP @nextland
-@spr:
+    ;  Its corner and its last sprite's, from the list's head (signed
+    ;  bytes): x0, x1, y0, y1.
+:   LDX a:h_m7addr
+    LDA f:M7LSPRFAR, X          ; x0
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
+    CLC
+    ADC a:h_m7ocx
+    STA a:h_m7x                 ; (borrowed: its left)
+    LDA f:M7LSPRFAR + 2, X      ; y0
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
+    CLC
+    ADC a:h_m7row
+    STA a:h_m7cnt               ; (borrowed: its top)
+    TXA
+    CLC
+    ADC #4
+    STA a:h_m7addr              ; its sprites
+    ;  On the screen across, the common case: no sprite to clip across,
+    ;  none with x's ninth bit -- x and line, tile and attributes, a word
+    ;  each; the rows below the screen and above it passed by whole (a
+    ;  frame's sprites are listed row by row, the top's first).
+    LDA a:h_m7x
+    BPL :+
+    JMP @slow
+:   LDA f:M7LSPRFAR + 1, X      ; x1
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
+    CLC
+    ADC a:h_m7ocx
+    CMP #256
+    BCC :+
+    JMP @slow
+:   LDA #223
+    SEC
+    SBC a:h_m7cnt               ; the last row shown, from the corner:
+    BPL :+                      ;   223 - top
+    JMP @nextland               ; (all of it below)
+:   CMP #256
+    BCS @kept                   ; (none of it below)
+    STA a:h_m7n                 ; (borrowed)
+    LDA a:h_m7left
+    DEC A
+    ASL A
+    ASL A
+    CLC
+    ADC a:h_m7addr
+    TAX                         ; the last sprite
+    SEP #$20
+    .a8
+@under:
+    LDA f:M7LSPRFAR + 1, X      ; its row from the corner
+    CMP a:h_m7n
+    BCC @kept8
+    BEQ @kept8
+    DEX
+    DEX
+    DEX
+    DEX
+    DEC a:h_m7left
+    BNE @under
+    REP #$20
+    .a16
+    JMP @nextland
+@kept8:
+    REP #$20
+    .a16
+@kept:
+    LDA #$FFF9                  ; (-7)
+    SEC
+    SBC a:h_m7cnt               ; the first row shown: -7 - top, at least 0
+    BPL :+
+    LDA #0
+:   STA a:h_m7n                 ; (borrowed)
+    LDA a:h_m7cnt
+    XBA
+    AND #$FF00
+    ORA a:h_m7x
+    STA a:h_m7fbase             ; line, x (the line's low byte: a top above
+    LDA a:h_m7line              ;   the screen wraps, as the SNES draws it)
+    ORA #($20 | (4 << 1) | 1) << 8  ; in front of the plane; OBJ palette 4; the sprite table
+    STA a:h_m7ftile
+    LDX a:h_m7addr
+    SEP #$20
+    .a8
+@above:
+    LDA f:M7LSPRFAR + 1, X      ; its row from the corner
+    CMP a:h_m7n
+    BCS @fast8
+    INX
+    INX
+    INX
+    INX
+    DEC a:h_m7left
+    BNE @above
+    REP #$20
+    .a16
+    JMP @nextland
+@fast8:
+    REP #$20
+    .a16
+@fast:
+    LDA f:M7LSPRFAR, X          ; x and line from the corner
+    CLC
+    ADC a:h_m7fbase
+    STA a:OAMSHADOW + 0, Y
+    LDA f:M7LSPRFAR + 2, X      ; the tile in the frame
+    CLC
+    ADC a:h_m7ftile
+    STA a:OAMSHADOW + 2, Y
+    INX
+    INX
+    INX
+    INX
+    INY
+    INY
+    INY
+    INY
+    DEC a:h_m7left
+    BNE @fast
+    JMP @nextland
+@slow:
+    ;  Part of it off the screen: each sprite clipped, x's ninth bit set
+    ;  where it is past the left.
     LDA a:h_m7left
     BNE :+
     JMP @nextland
 :   DEC a:h_m7left
     LDX a:h_m7addr
-    LDA f:M7LSPRFAR, X          ; dx, dy
-    STA a:h_m7cnt
     LDA f:M7LSPRFAR + 2, X      ; the tile in the frame
     AND #$00FF
     CLC
     ADC a:h_m7line
     STA a:h_m7n
-    TXA
-    CLC
-    ADC #3
-    STA a:h_m7addr
-    LDA a:h_m7cnt
-    XBA
+    LDA f:M7LSPRFAR + 1, X      ; its line from the corner
     AND #$00FF
-    EOR #$0080
-    SEC
-    SBC #$0080                  ; dy
     CLC
-    ADC a:h_m7row
+    ADC a:h_m7cnt
     CLC
     ADC #7                      ; on screen from -7 to 223
     CMP #224 + 7
-    BCS @spr
+    BCS @skip
     SEC
     SBC #7
     STA a:h_m7save + 2          ; (a top above the screen wraps, as the SNES draws it)
-    LDA a:h_m7cnt
+    LDA f:M7LSPRFAR, X          ; its x from the corner
     AND #$00FF
-    EOR #$0080
-    SEC
-    SBC #$0080                  ; dx
     CLC
-    ADC a:h_m7ocx
+    ADC a:h_m7x
     CLC
     ADC #7                      ; on screen from -7 to 255
     CMP #256 + 7
-    BCS @spr
+    BCS @skip
     SEC
     SBC #7
     SEP #$20
@@ -1835,40 +1771,25 @@ m7_lands:
     LDA #$20 | (4 << 1) | 1     ; in front of the plane; OBJ palette 4; the sprite table
     STA a:OAMSHADOW + 3, Y
     XBA
-    BEQ @put1                   ; x's ninth bit, into the high table
-    REP #$20
-    .a16
-    TYA
-    LSR A
-    LSR A
-    AND #$0003
-    TAX
-    SEP #$20
-    .a8
-    LDA f:OW7FAR + lut_M7XBit, X
-    STA a:h_m7save + 3
-    REP #$20
-    .a16
-    TYA
-    LSR A
-    LSR A
-    LSR A
-    LSR A
-    TAX                         ; the entry's high-table byte
-    SEP #$20
-    .a8
-    LDA a:h_m7save + 3
-    ORA a:OAMSHADOW + 512, X
-    STA a:OAMSHADOW + 512, X
-@put1:
+    BEQ @put                    ; x's ninth bit, into the high table
+    LDA #$01
+    JSR m7_xbits
+@put:
     REP #$20
     .a16
     INY
     INY
     INY
     INY
-    JMP @spr
+@skip:
+    .a16
+    LDA a:h_m7addr
+    CLC
+    ADC #4
+    STA a:h_m7addr
+    JMP @slow
 @nextland:
+    .a16
     LDA a:h_m7lptr
     CLC
     ADC #8
@@ -1907,108 +1828,918 @@ m7_lands:
     STA a:h_oamdirty
     RTS
 
-;;  The landmarks in front of the party (A 1) or behind it (0): if that is
-;;  not how OAMSHADOW is arranged, its two halves swapped -- the game's 64
-;;  and the extras, and their high-table halves -- and h_m7xfront so for
-;;  hal_oamdma.  Then the extras' first byte in OAMSHADOW at h_m7save + 4,
-;;  and the landmarks' high-table bytes, M7C_FIRST on, zero.  A8 I16.
-m7_front:
-    CMP a:h_m7xfront
-    BEQ @arranged
-    STA a:h_m7xfront
-    REP #$20
-    .a16
-    LDX #256 - 2
-:   LDA a:OAMSHADOW, X
-    TAY
-    LDA a:OAMSHADOW + 256, X
-    STA a:OAMSHADOW, X
-    TYA
-    STA a:OAMSHADOW + 256, X
-    DEX
-    DEX
-    BPL :-
-    LDX #16 - 2
-:   LDA a:OAMSHADOW + 512, X
-    TAY
-    LDA a:OAMSHADOW + 512 + 16, X
-    STA a:OAMSHADOW + 512, X
-    TYA
-    STA a:OAMSHADOW + 512 + 16, X
-    DEX
-    DEX
-    BPL :-
-    SEP #$20
-    .a8
-@arranged:
-    REP #$20
-    .a16
-    LDA a:h_m7xfront
-    AND #$00FF
-    EOR #$0001
-    XBA
-    STA a:h_m7save + 4          ; the extras' first byte: 256, or 0 in front
-    LSR A
-    LSR A
-    LSR A
-    LSR A
-    CLC
-    ADC #M7C_FIRST / 4
-    TAX                         ; the landmarks' first high-table byte
-    SEP #$20
-    .a8
-    LDY #16 - M7C_FIRST / 4
-:   STZ a:OAMSHADOW + 512, X
-    INX
-    DEY
-    BNE :-
-    RTS
 
-lut_M7XBit:                     ; an entry's x-ninth bit in its high-table byte
-    .BYTE $01, $04, $10, $40
-
-;;  Frame A (art * 16 + size) into slot X, at the next flush (flush_m7up):
-;;  its tiles from its record's bank and address to the slot's.  A8 I16;
-;;  X and Y kept.
-m7_lupload:
+.a8
+.i16
+;;  The high-table byte the house copy has built (h_m7save + 3), for the
+;;  four entries before Y; then a new one.  A8 I16; X and Y kept.
+m7_hbyte:
     PHX
     REP #$20
     .a16
+    TYA
+    DEC A
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    TAX                         ; their high-table byte
+    SEP #$20
+    .a8
+    LDA a:h_m7save + 3
+    ORA a:OAMSHADOW + 512, X
+    STA a:OAMSHADOW + 512, X
+    STZ a:h_m7save + 3
+    PLX
+    RTS
+
+;;  The map's groups near the pivot's tile (genm7.py's windows, each its
+;;  last row and column within them) into M7GNEAR, from the list at
+;;  h_m7lptr: worked out again when the scroll has moved a tile, on a frame
+;;  m7_sync has queued no row or column for (the windows' margin covers
+;;  the tile the list may lag by); at once with none yet (h_m7gtile $FFFF,
+;;  m7_enter's).  A8 I16.
+m7_gnear:
+    REP #$20
+    .a16
+    LDA z:ow_scroll_x           ; (and ow_scroll_y, the byte after)
+    CMP a:h_m7gtile
+    BEQ @kept
+    LDX a:h_m7gtile
+    INX
+    BEQ @work                   ; none yet
+    LDX a:h_m7qlen
+    BNE @kept                   ; a row or column queued: the next frame
+@work:
+    STA a:h_m7gtile
+    SEP #$20
+    .a8
+    STZ a:h_m7gnn
+@group:
+    LDX a:h_m7lptr
+    LDA f:OW7FAR, X             ; its records; 0 past the last
+    BEQ @kept
+    ;  Near: its rows' last from 22 north of the pivot's (scroll + 7) to
+    ;  12 south, widened by the rows it spans; its columns' last within 18,
+    ;  so (genm7.py's windows).
+    LDA f:OW7FAR + 1, X
+    SEC
+    SBC z:ow_scroll_y
+    CLC
+    ADC #22 - 7
+    CMP f:OW7FAR + 2, X
+    BCS @far
+    LDA f:OW7FAR + 3, X
+    SEC
+    SBC z:ow_scroll_x
+    CLC
+    ADC #18 - 7
+    CMP f:OW7FAR + 4, X
+    BCS @far
+    LDA a:h_m7gnn
+    CMP #M7G_MAX
+    BCS @far
+    INC a:h_m7gnn
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAY
+    TXA
+    STA a:M7GNEAR, Y
+    SEP #$20
+    .a8
+@far:
+    LDA f:OW7FAR + 5, X         ; past its header and its records
+    CLC
+    ADC #M7L_GROUP
+    REP #$20
+    .a16
+    AND #$00FF
+    ADC a:h_m7lptr
+    STA a:h_m7lptr
+    SEP #$20
+    .a8
+    BRA @group
+@kept:
+    SEP #$20
+    .a8
+    RTS
+
+;;  A's two bits -- x's ninth, the size -- into the high table at entry Y's
+;;  place.  A8 I16; X changed, Y kept.
+m7_xbits:
+    STA a:h_m7save + 3
+    REP #$20
+    .a16
+    TYA
+    AND #$000C                  ; the entry's place in its byte, times 4
+    ORA a:h_m7save + 3
+    AND #$000F
+    TAX
+    SEP #$20
+    .a8
+    LDA f:OW7FAR + lut_M7XB, X
+    STA a:h_m7save + 3
+    REP #$20
+    .a16
+    TYA
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    TAX                         ; the entry's high-table byte
+    SEP #$20
+    .a8
+    LDA a:h_m7save + 3
+    ORA a:OAMSHADOW + 512, X
+    STA a:OAMSHADOW + 512, X
+    RTS
+
+lut_M7XB:                       ; two bits b at place p (p * 4 + b): b << 2p
+    .REPEAT 16, i
+    .BYTE (i .MOD 4) << (2 * (i / 4))
+    .ENDREP
+
+
+.a8
+.i16
+;;  The landmark at h_m7lptr: placed (m7_project), and if it shows, a
+;;  candidate (m7_lvisadd).  A8 I16.
+m7_lmember:
+    LDX a:h_m7lptr
+    ;  Near: its bottom row from 22 north of the pivot's to 12 south, its
+    ;  column within 18 (m7_project has the exact bounds).
+    LDA f:OW7FAR + 2, X
+    SEC
+    SBC z:ow_scroll_y
+    SEC
+    SBC #7
+    CLC
+    ADC #22
+    CMP #22 + 13
+    BCS @out
+    LDA f:OW7FAR + 1, X
+    SEC
+    SBC z:ow_scroll_x
+    SEC
+    SBC #7
+    CLC
+    ADC #18
+    CMP #18 + 19
+    BCC :+
+@out:
+    RTS
+:   LDA f:OW7FAR + 1, X
+    STA a:h_m7ox
+    LDA f:OW7FAR + 2, X
+    STA a:h_m7oy
+    REP #$20
+    .a16
+    LDA f:OW7FAR + 4, X         ; its base: pixels east of its left
+    AND #$00FF                  ;   column's centre, and south of its
+    EOR #$0080                  ;   bottom row's, signed bytes
+    SEC
+    SBC #$0080
+    STA a:h_m7oux
+    LDA f:OW7FAR + 5, X
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
+    STA a:h_m7ouy
+    SEP #$20
+    .a8
+    JSR m7_project
+    BCS @out
+    JSR m7_lsize
+    BCS @out
+    LDX a:h_m7lptr
+    LDA a:h_m7ty
+    SEC
+    SBC f:OW7FAR + 3, X         ; the party north of its row: in front
+    BPL :+
+    STA a:h_m7lfront
+:   LDA f:OW7FAR, X             ; its art
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ORA a:h_m7n
+    STA a:h_m7n                 ; the frame wanted: art * 16 + size
+    JMP m7_lvisadd
+
+
+.a8
+.i16
+;;  The row of houses at h_m7lptr: the row placed once -- m7_project at
+;;  its first column: the line, k and that one's x -- its frame and its
+;;  block once (m7_hblock), and each house's x from the first one's, k
+;;  times the columns between, over 16; each that shows a 32x32 sprite into
+;;  M7HBUF, its box standing on its base.  A8 I16.
+m7_lrow:
+    LDX a:h_m7lptr
+    LDA f:OW7FAR + 1, X         ; near: the row from 22 north of the
+    SEC                         ;   pivot's to 12 south
+    SBC z:ow_scroll_y
+    SEC
+    SBC #7
+    CLC
+    ADC #22
+    CMP #22 + 13
+    BCC :+
+@out:
+    RTS
+:   LDA f:OW7FAR + 1, X
+    STA a:h_m7oy
+    LDA f:OW7FAR + 5, X         ; its first column
+    STA a:h_m7ox
+    REP #$20
+    .a16
+    STZ a:h_m7oux               ; (a house's base is its tile's middle)
+    LDA f:OW7FAR + 3, X
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
+    STA a:h_m7ouy
+    SEP #$20
+    .a8
+    JSR m7_project
+    BCS @out
+    REP #$20
+    .a16
+    LDA a:h_m7oline
+    BPL :+
+    JMP @out16                  ; its base above the top: none of it shows
+:
+    SEC
+    SBC #32                     ; its boxes' top
+    CLC
+    ADC #31                     ; on screen from -31 to 223
+    CMP #224 + 31
+    BCC :+
+    JMP @out16
+:   SEC
+    SBC #31
+    STA a:h_m7fbase
+    LDA a:h_m7cnt
+    CLC
+    ADC #8
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; k in sixteenths, rounded
+    SEC
+    SBC #M7L_K0
+    BPL :+
+    LDA #0
+:   CMP #M7L_FRAMES
+    BCC :+
+    LDA #M7L_FRAMES - 1
+:   SEP #$20
+    .a8
+    STA a:h_m7n
+    LDX a:h_m7lptr
+    LDA a:h_m7ty
+    SEC
+    SBC f:OW7FAR + 2, X         ; the party north of its row: in front
+    BPL :+
+    STA a:h_m7lfront
+:   LDA f:OW7FAR, X             ; $80 + its art
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ORA a:h_m7n
+    STA a:h_m7n                 ; the frame wanted: art * 16 + size
+    JSR m7_hblock
+    BCC :+
+    RTS
+:
+    LDA f:OW7FAR + lut_M7BTile, X
+    STA a:h_m7ftile             ; its tile in table 0
+    LDX a:h_m7lptr
+    LDA f:OW7FAR + 4, X
+    STA a:h_m7gw                ; how many
+    REP #$20
+    .a16
+    TXA
+    CLC
+    ADC #M7L_ROW
+    STA a:h_m7addr              ; their columns
+    SEP #$20
+    .a8
+@house:
+    LDA a:h_m7hn
+    CMP #M7H_MAX
+    BCC :+
+    RTS
+:
+    LDX a:h_m7addr
+    LDA f:OW7FAR, X
+    SEC
+    SBC a:h_m7ox                ; columns from the first
+    STA a:WRMPYA
+    STA a:h_m7save + 2
+    LDA a:h_m7cnt
+    STA a:WRMPYB                ; * k's low byte (eight cycles)
+    REP #$20
+    .a16
+    LDA a:h_m7cnt
+    AND #$0100
+    BEQ :+
+    LDA a:h_m7save + 2          ; + its high bit's
+    AND #$00FF
+    XBA
+:   CLC
+    ADC a:RDMPYL
+    CLC
+    ADC #8
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; (the columns * 16) * k / 256, rounded
+    CLC
+    ADC a:h_m7ocx
+    SEC
+    SBC #16                     ; its box's left
+    CLC
+    ADC #31                     ; on screen from -31 to 255
+    CMP #256 + 31
+    BCS @next16
+    SEC
+    SBC #31
+    STA a:h_m7x
+    LDA a:h_m7hn
+    AND #$00FF
+    STA a:h_m7pc
+    ASL A
+    ASL A
+    ADC a:h_m7pc
+    TAY                         ; five bytes each
+    SEP #$20
+    .a8
+    LDA a:h_m7x
+    STA a:M7HBUF + 0, Y
+    LDA a:h_m7fbase             ; (a top above the screen wraps, as the SNES draws it)
+    STA a:M7HBUF + 1, Y
+    LDA a:h_m7ftile
+    STA a:M7HBUF + 2, Y
+    LDA #$20 | (4 << 1)         ; in front of the plane; OBJ palette 4; table 0
+    STA a:M7HBUF + 3, Y
+    LDA a:h_m7x + 1
+    AND #$01                    ; x's ninth bit
+    ORA #$02                    ; the large size, 32x32
+    STA a:M7HBUF + 4, Y
+    INC a:h_m7hn
+@next:
+    REP #$20
+    .a16
+@next16:
+    INC a:h_m7addr
+    SEP #$20
+    .a8
+    DEC a:h_m7gw
+    BEQ :+
+    JMP @house
+:   RTS
+@out16:
+    SEP #$20
+    .a8
+    RTS
+
+
+.a8
+.i16
+;;  After m7_project: on the screen enough to keep -- its base's x within
+;;  64 of the screen, its base not above the top -- C clear, and its size,
+;;  k in sixteenths from M7L_K0, in h_m7n; C set if not.  A8 I16.
+m7_lsize:
+    REP #$20
+    .a16
+    LDA a:h_m7ocx
+    CLC
+    ADC #64
+    CMP #256 + 128
+    BCS @off
+    LDA a:h_m7oline
+    BMI @off
+    LDA a:h_m7cnt
+    CLC
+    ADC #8
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; k in sixteenths, rounded
+    SEC
+    SBC #M7L_K0
+    BPL :+
+    LDA #0
+:   CMP #M7L_FRAMES
+    BCC :+
+    LDA #M7L_FRAMES - 1
+:   SEP #$20
+    .a8
+    STA a:h_m7n
+    CLC
+    RTS
+@off:
+    SEP #$20
+    .a8
+    SEC
+    RTS
+
+
+.a8
+.i16
+;;  The docked ship, tilted (at the flat angle the game draws it): when the
+;;  party has it and is not aboard (the party's sprite is the ship
+;;  then), placed at its tile's centre at the frame nearest its line's size
+;;  -- 16 pixels times k, rounded, 8 to 24 -- 32x32 art 0 (m7_hput).  A8
+;;  I16.
+m7_lship:
+    LDA a:h_m7lvl
+    CMP #2
+    BCC @out                    ; flat: the game's
+    LDA f:SRAMFAR7 + ship_vis
+    BEQ @out                    ; not the party's yet
+    LDA z:vehicle
+    CMP #$04
+    BNE :+
+@out:
+    RTS                         ; (aboard)
+:   LDA f:SRAMFAR7 + ship_x
+    STA a:h_m7ox
+    LDA f:SRAMFAR7 + ship_y
+    STA a:h_m7oy
+    REP #$20
+    .a16
+    STZ a:h_m7oux
+    STZ a:h_m7ouy
+    SEP #$20
+    .a8
+    JSR m7_project
+    BCS @out
+    REP #$20
+    .a16
+    LDA a:h_m7ocx
+    CLC
+    ADC #64
+    CMP #256 + 128
+    BCS @no16
+    LDA a:h_m7cnt
+    CLC
+    ADC #8
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; 16 * k / 256, rounded
+    CMP #8
+    BCS :+
+    LDA #8
+:   CMP #25
+    BCC :+
+    LDA #24
+:   SEC
+    SBC #8
+    TAX
+    SEP #$20
+    .a8
+    LDA f:OW7FAR + lut_M7ShipSize, X
+    STA a:h_m7n                 ; art 0: its frame is its name
+    LDA a:h_m7ty
+    SEC
+    SBC f:SRAMFAR7 + ship_y     ; the party north of its row: in front
+    BPL :+
+    STA a:h_m7lfront
+:   JMP m7_hput
+@no16:
+    SEP #$20
+    .a8
+    RTS
+
+
+.a8
+.i16
+;;  The block for 32x32 frame h_m7n: the one holding it (M7BREV); or one no
+;;  house took this frame or the last, the frame uploaded there, if no 32x32
+;;  upload waits; or one holding its art at another size, till its frame
+;;  comes.  -> C clear, X the block, taken this frame (h_m7bused); C set
+;;  none.  A8 I16; Y kept.
+m7_hblock:
+    REP #$20
+    .a16
+    LDA a:h_m7n
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA f:M7BREV, X             ; its block + 1, 0 none
+    BEQ @new
+    DEC A
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    BRA @have
+@new:
+    LDA a:h_m7bupon
+    BNE @borrow
+    REP #$20
+    .a16
+    LDA a:h_m7bused
+    ORA a:h_m7bprev
+    STA a:h_m7pc                ; taken this frame or the last
+    LDX #0
+:   LDA f:OW7FAR + lut_M7BBit, X
+    AND a:h_m7pc
+    BEQ @free
+    INX
+    INX
+    CPX #32
+    BCC :-
+    SEP #$20
+    .a8
+    BRA @borrow
+@free:
+    .a16
+    TXA
+    LSR A
+    TAX                         ; the block
+    SEP #$20
+    .a8
+    JSR m7_bkeep                ; it holds this frame now
+    JSR m7_bupload              ; (X and Y kept)
+    BRA @have
+@borrow:
+    LDA a:h_m7n
+    AND #$F0
+    STA a:h_m7save + 3
+    LDX #0
+:   LDA a:h_m7bkey, X
+    CMP #$FF
+    BEQ :+
+    AND #$F0
+    CMP a:h_m7save + 3
+    BEQ @have
+:   INX
+    CPX #16
+    BCC :--
+    SEC                         ; none: not drawn
+    RTS
+@have:
+    JSR m7_bmark
+    CLC
+    RTS
+
+
+.a8
+.i16
+;;  The docked ship at h_m7oline, h_m7ocx, frame h_m7n: its block
+;;  (m7_hblock), and its 32x32 sprite into M7HBUF if it shows, its box
+;;  centred on its tile's centre.  A8 I16.
+m7_hput:
+    LDA a:h_m7hn
+    CMP #M7H_MAX
+    BCS @out
+    JSR m7_hblock
+    BCS @out
+    REP #$20
+    .a16
+    LDA a:h_m7ocx
+    SEC
+    SBC #16
+    STA a:h_m7ftile             ; its box's left
+    LDA a:h_m7oline
+    SEC
+    SBC #16                     ; its box's top
+    CLC
+    ADC #31                     ; on screen from -31 to 223
+    CMP #224 + 31
+    BCS @off
+    SEC
+    SBC #31
+    STA a:h_m7fbase
+    LDA a:h_m7ftile
+    CLC
+    ADC #31                     ; on screen from -31 to 255
+    CMP #256 + 31
+    BCS @off
+    LDA a:h_m7hn
+    AND #$00FF
+    STA a:h_m7pc
+    ASL A
+    ASL A
+    ADC a:h_m7pc
+    TAY                         ; five bytes each
+    SEP #$20
+    .a8
+    LDA a:h_m7ftile
+    STA a:M7HBUF + 0, Y
+    LDA a:h_m7fbase             ; (a top above the screen wraps, as the SNES draws it)
+    STA a:M7HBUF + 1, Y
+    LDA f:OW7FAR + lut_M7BTile, X
+    STA a:M7HBUF + 2, Y
+    LDA #$20 | ((M7SHIP_PAL + 4) << 1)  ; its palette in OBJ 4-7; table 0
+    STA a:M7HBUF + 3, Y
+    LDA a:h_m7ftile + 1
+    AND #$01                    ; x's ninth bit
+    ORA #$02                    ; the large size, 32x32
+    STA a:M7HBUF + 4, Y
+    INC a:h_m7hn
+@out:
+    RTS
+@off:
+    SEP #$20
+    .a8
+    RTS
+
+
+.a8
+.i16
+;;  The candidate -- h_m7oline, h_m7ocx, frame h_m7n -- into M7LVIS, the
+;;  nearest (the greatest line) first; past M7L_VIS, the farthest left out.
+;;  A8 I16.
+m7_lvisadd:
+    REP #$20
+    .a16
+    LDA a:h_m7lnvis
     AND #$00FF
     ASL A
     ASL A
     ASL A
+    STA a:h_m7pc                ; past the entries
+    TAY
+    ;  No nearer than the last kept, the common case (a group's members
+    ;  come the nearest first): after it, if there is room.
+    BEQ @find0
+    CPY #8 * M7L_VIS
+    BCS @find0
+    LDA a:h_m7oline
+    CMP a:M7LVIS - 8, Y         ; (both 0-400 here)
+    BCC @put
+    BEQ @put
+@find0:
+    LDY #0
+@find:
+    CPY a:h_m7pc
+    BCS @insert
+    LDA a:h_m7oline
+    CMP a:M7LVIS, Y
+    BCS @insert                 ; as near or nearer
+    TYA
+    CLC
+    ADC #8
+    TAY
+    BRA @find
+@insert:
+    CPY #8 * M7L_VIS
+    BCS @full                   ; farther than every one kept
+    LDX a:h_m7pc
+    CPX #8 * M7L_VIS
+    BCC :+
+    LDX #8 * (M7L_VIS - 1)      ; all kept: the farthest falls off
+:   STY a:h_m7left
+@shift:
+    CPX a:h_m7left
+    BEQ @put
+    LDA a:M7LVIS - 8, X
+    STA a:M7LVIS, X
+    LDA a:M7LVIS - 6, X
+    STA a:M7LVIS + 2, X
+    LDA a:M7LVIS - 4, X
+    STA a:M7LVIS + 4, X
+    LDA a:M7LVIS - 2, X
+    STA a:M7LVIS + 6, X
+    TXA
+    SEC
+    SBC #8
     TAX
+    BRA @shift
+@put:
+    LDA a:h_m7oline
+    STA a:M7LVIS, Y
+    LDA a:h_m7ocx
+    STA a:M7LVIS + 2, Y
+    SEP #$20
+    .a8
+    LDA a:h_m7n
+    STA a:M7LVIS + 4, Y
+    LDA a:h_m7lnvis
+    CMP #M7L_VIS
+    BCS :+
+    INC a:h_m7lnvis
+:   RTS
+@full:
+    SEP #$20
+    .a8
+    RTS
+
+
+.a8
+.i16
+;;  Block X to hold frame h_m7n: h_m7bkey and M7BREV so, the frame it held
+;;  no longer there.  A8 I16; X and Y kept.
+m7_bkeep:
+    PHX
+    LDA a:h_m7bkey, X
+    CMP #$FF
+    BEQ @new
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX
+    SEP #$20
+    .a8
+    LDA #0
+    STA f:M7BREV, X             ; the frame it held: in no block now
+@new:
+    PLX
+    PHX
+    LDA a:h_m7n
+    STA a:h_m7bkey, X
+    REP #$20
+    .a16
+    AND #$00FF
+    TAX                         ; the frame it holds
+    SEP #$20
+    .a8
+    LDA 1, S                    ; the block
+    INC A
+    STA f:M7BREV, X
+    PLX
+    RTS
+
+.a8
+.i16
+;;  Block X taken this frame: its bit in h_m7bused.  A8 I16; X and Y kept.
+m7_bmark:
+    PHX
+    REP #$20
+    .a16
+    TXA
+    ASL A
+    TAX
+    LDA f:OW7FAR + lut_M7BBit, X
+    ORA a:h_m7bused
+    STA a:h_m7bused
+    SEP #$20
+    .a8
+    PLX
+    RTS
+
+
+.a8
+.i16
+;;  Frame A (art * 16 + size) of a landmark into slot X, at the next flush:
+;;  queued (M7UPQ).  A8 I16; X and Y kept.
+m7_lupload:
+    PHX
+    PHY
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    TAX                         ; its record
+    LDA a:h_m7upn
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    TAY                         ; the queue's next
     LDA f:OW7FAR + lut_M7LFrame, X      ; its tiles
-    STA a:h_m7upsrc
+    STA a:M7UPQ + 2, Y
     LDA f:OW7FAR + lut_M7LFrame + 5, X  ; how many
     AND #$00FF
     XBA
     LSR A
     LSR A
     LSR A                       ; 32 bytes each
-    STA a:h_m7uplen
+    STA a:M7UPQ + 4, Y
     SEP #$20
     .a8
     LDA f:OW7FAR + lut_M7LFrame + 2, X  ; their bank
-    STA a:h_m7upbank
+    STA a:M7UPQ + 6, Y
+    LDA #$01                    ; read along
+    STA a:M7UPQ + 7, Y
     REP #$20
     .a16
-    PLA                         ; the slot
-    PHA
+    LDA 3, S                    ; the slot
     ASL A
     TAX
     LDA f:OW7FAR + lut_M7LDst, X
-    STA a:h_m7updst
+    STA a:M7UPQ + 0, Y
     SEP #$20
     .a8
+    INC a:h_m7upn
     LDA #1
     STA a:h_m7upon
+    PLY
+    PLX
+    RTS
+
+.a8
+.i16
+;;  32x32 frame h_m7n into block X, at the next flush: its four
+;;  rows of four tiles queued (M7UPQ), each 16 tiles below the last, a row
+;;  the frame has nothing in written from one zero byte.  A8 I16; X and Y
+;;  kept.
+m7_bupload:
+    PHX
+    PHY
+    LDA a:h_m7n
+    REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    ASL A
+    TAX                         ; its record, four bytes
+    LDA f:OW7FAR + lut_M7BFrame, X      ; its rows
+    STA a:h_m7addr
+    SEP #$20
+    .a8
+    LDA f:OW7FAR + lut_M7BFrame + 2, X  ; their bank
+    STA a:h_m7save + 2
+    LDA f:OW7FAR + lut_M7BFrame + 3, X  ; which rows it has
+    STA a:h_m7save + 3
+    REP #$20
+    .a16
+    LDA 3, S                    ; the block
+    TAX
+    LDA f:OW7FAR + lut_M7BTile, X
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    CLC
+    ADC #VRAM_CHR               ; its first tile's word address
+    STA a:h_m7save
+    LDA a:h_m7upn
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    TAY                         ; the queue's next
+    LDX #4
+@row:
+    SEP #$20
+    .a8
+    LSR a:h_m7save + 3          ; this row's bit
+    BCC @zero
+    LDA a:h_m7save + 2
+    STA a:M7UPQ + 6, Y
+    LDA #$01                    ; read along
+    STA a:M7UPQ + 7, Y
+    REP #$20
+    .a16
+    LDA a:h_m7addr
+    STA a:M7UPQ + 2, Y
+    CLC
+    ADC #128
+    STA a:h_m7addr
+    BRA @dst
+@zero:
+    .a8
+    LDA #^OW7FAR
+    STA a:M7UPQ + 6, Y
+    LDA #$09                    ; one byte read over and over
+    STA a:M7UPQ + 7, Y
+    REP #$20
+    .a16
+    LDA #.loword(m7_zero)
+    STA a:M7UPQ + 2, Y
+@dst:
+    LDA a:h_m7save
+    STA a:M7UPQ + 0, Y
+    CLC
+    ADC #16 * 16                ; the next row of tiles
+    STA a:h_m7save
+    LDA #4 * 32
+    STA a:M7UPQ + 4, Y
+    TYA
+    CLC
+    ADC #8
+    TAY
+    SEP #$20
+    .a8
+    INC a:h_m7upn
+    DEX
+    BNE @row
+    LDA #1
+    STA a:h_m7bupon
+    PLY
     PLX
     RTS
 
 ;;  The slots: each one's first tile in the sprite table, its VRAM word
-;;  address, its bit in h_m7lused.
+;;  address, its bit in h_m7lused.  The blocks: each one's first tile in
+;;  table 0, its bit in h_m7bused.
 lut_M7LTile:
     .WORD M7L_SLOT0, M7L_SLOT0 + M7L_SLOTW, M7L_SLOT0 + 2 * M7L_SLOTW
 lut_M7LDst:
@@ -2017,6 +2748,37 @@ lut_M7LDst:
     .WORD VRAM_CHR + $1000 + (M7L_SLOT0 + 2 * M7L_SLOTW) * 16
 lut_M7LBit:
     .BYTE $01, $02, $04
+lut_M7BTile:
+    .REPEAT 16, b
+    .BYTE (b .MOD 4) * 4 + (b / 4) * 64
+    .ENDREP
+lut_M7BBit:
+    .REPEAT 16, b
+    .WORD 1 << b
+    .ENDREP
+m7_zero:
+    .BYTE 0
+
+
+;;  The extras in front of the party (A 1) or behind it (0): h_m7xfront so,
+;;  for the flush, which turns OAM's priority round to start at the extras,
+;;  entry 64, when they are in front (flush_oam); they stay at 64-127 and
+;;  the game's at 0-63 either way.  Then the extras' first byte in
+;;  OAMSHADOW at h_m7save + 4, and their high-table bytes zero.  A8 I16.
+m7_front:
+    STA a:h_m7xfront
+    REP #$20
+    .a16
+    LDA #256
+    STA a:h_m7save + 4          ; the extras' first byte
+    LDX #16 - 2
+:   STZ a:OAMSHADOW + 512 + 16, X
+    DEX
+    DEX
+    BPL :-
+    SEP #$20
+    .a8
+    RTS
 
 
 .a16

@@ -4297,8 +4297,11 @@ enough to continue pursuing this"); its shadow, its going in transitions
 and its popping in at the screen's bottom fixed the same day and played
 ("Yes, this looks good"), committed on the user's word.  Then the other
 castles, the Temple of Fiends, the Mirage Tower and the volcano the same
-way, from PNGs the user retouches, on every map: built 2026-11-18, not yet
-played, committed on the user's word.**  The
+way, from PNGs the user retouches, on every map: built 2026-11-18,
+committed on the user's word.  And the towns' houses the same way,
+without shadows, the docked ship among them: built 2026-11-18; with the
+landmarks played 2026-11-19 ("I've tested it"; some minor visual glitches
+left for later), committed on the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4334,9 +4337,9 @@ applied" (user, 2026-11-17).
       - `ConvertOWToSprite` (`ow7_objpos.patch`, 7): the parked airship
         placed through the tilt (`m7_objpos`); at the flat angle V comes
         back clear and the game's code below the hook places it as ever.
-      - `DrawOWObj_Ship` (`ow7_ship.patch`, 7): tilted, the docked ship
-        drawn at its distance's size (`m7_ship`) and nothing of the
-        game's; flat, the game's drawing below the hook.
+      - `DrawOWObj_Ship` (`ow7_ship.patch`, 7): tilted, nothing of the
+        game's (`m7_ship`), the docked ship being `m7_lands`'; flat, the
+        game's drawing below the hook.
       - `DrawOWObj_BridgeCanal` (`ow7_flatobjs.patch`, 7): nothing while
         the plane is up (`m7_flatobjs`), the bridge and the canal's land
         being in it.
@@ -4464,19 +4467,18 @@ applied" (user, 2026-11-17).
     `$20` from the object graphics `LoadOWObjectCHR` loads, flips applied
     -- at `SHIP_SIZES`, 8 to 22 pixels across and 24: 16 frames, the 16
     the game's drawing unchanged, each nearest-neighbour as Mode 7 samples the ground and
-    centred in 32x32, the tile's centre at the box's.  Together they are
-    an 8KB pattern table (`lut_M7Ship`, in the chunk's code half), which
-    `m7_enter` sends to OBJ table 0 -- the background's pattern table,
-    which the plane never draws from -- and which `hal_w2001` has
-    CHRSHADOW's 8KB sent back over on the way out (the span stretched to
-    it, the word list given up).  `m7_ship` places the ship as
-    `m7_project` does any object, its size 16 pixels times that line's
-    inverse scale, rounded, and hands one 32x32 sprite (the frame
-    `lut_M7ShipTile` gives for that size, in front, the ship's palette in
-    OBJ 4-7) to the HAL on `M7XBUF`'s list; `hal_oamdma` writes it to the
-    extras' first entry, past the game's 64, at the next transfer -- as the
-    sprites the game draws now go then -- or parks the entry off the
-    bottom.  OBSEL gives
+    centred in 32x32, the tile's centre at the box's.  At first they were
+    an 8KB pattern table sent to OBJ table 0 at the way in, handed to the
+    HAL on a list as the game drew its sprites; since the houses (below)
+    they are 32x32 art 0 among the houses' (`lut_M7BFrame`), in a NES
+    chunk's low half, and the ship is drawn with the landmarks from
+    `m7_scroll` (`m7_lship`): when the party has it and is not aboard,
+    placed as `m7_project` places any object, its size 16 pixels times
+    that line's inverse scale, rounded (`lut_M7ShipSize`), one 32x32
+    sprite from whichever of table 0's sixteen blocks holds that frame,
+    uploaded as a house's is, the extras' first.  OBJ table 0 is the
+    background's pattern table, which the plane never draws from;
+    `hal_w2001` has CHRSHADOW's sent back over it on the way out.  OBSEL gives
     sprites 8x8 and 32x32 on the overworld (`flush_m7`), 8x8 and 16x16
     after (`flush_scroll`); nothing of the HAL's sets the size bit.  Near
     the bottom of a steep view the ship is larger than 16, as the ground
@@ -4516,43 +4518,56 @@ applied" (user, 2026-11-17).
     tiles, so the ring needs no writes, and the plane has 201 characters
     now, the landmarks' pictures no longer among them.  Where they stand
     is worked out from each map's tiles at the build: a list a map
-    (`lut_M7LMaps`, by `RANDO_MAP`, every map Map Select offers), six
-    bytes a landmark -- its picture, its column and bottom row, the party's
-    row from which it stands in front, its base's offsets from that
-    row's tile.  A landmark's metatile anywhere but in a whole one, on any
-    map, stops the build; none does today.
+    (`lut_M7LMaps`, by `RANDO_MAP`, every map Map Select offers), in
+    groups culled whole -- those within six tiles of one another, a town
+    with its castle, a landmark otherwise alone -- each its header (how
+    many records, its window: its last row and the rows it spans, its
+    last column and the columns, and its records' bytes) and its records,
+    the southmost first: six bytes a landmark -- its picture, its column
+    and bottom row, the party's row from which it stands in front, its
+    base's offsets from that row's tile -- and for a row of houses of one
+    art five bytes and its houses' columns.  A landmark's or a house's
+    metatile anywhere but in a whole one, on any map, stops the build;
+    none does today.  Which groups are near is worked out again only when
+    the scroll moves a tile, and then on a frame that draws no new row or
+    column of the plane (`m7_gnear`, `M7GNEAR`): the windows have a tile
+    to spare.
 
-    `m7_lands`, from `m7_scroll` every overworld frame, walks the list.
-    Each landmark within 22 rows north and 12 south of the pivot's tile,
+    `m7_lands`, from `m7_scroll` every overworld frame, walks the near
+    groups.  Each landmark within 22 rows north and 12 south of the pivot's tile,
     and 18 columns either side, is placed (`m7_project`); if its base is
     on the screen or below it and within 64 pixels of its sides, it is
     kept, three at most, the nearest first (`M7LVIS`).  Each takes the
     frame for its line's k: 15 frames, k 9/16 to 23/16, 1 among them, each
     the 8x8 tiles that have any of it and their places from the base,
     nearest-neighbour as the plane samples.  At k 1 a frame is its art
-    pixel for pixel, so the flat view is the art's.  The frames, about
-    52KB, are in the low halves of NES chunks `$0F` and `$0E`, which
-    nothing else uses (`mkrom.py`'s `LOWHALF`; the maps' logic slots now
-    stop at chunk `$0D`, 26 of them for Map Select's 15 at most), the
-    sprite lists all in `$0F`'s.  Three slots in the sprite table, 48
+    pixel for pixel, so the flat view is the art's.  The frames, the
+    landmarks', the houses' and the docked ship's, about 82KB, are in the
+    low halves of NES chunks `$0F`, `$0E` and `$0D`, which nothing else
+    uses (`mkrom.py`'s `LOWHALF`; the maps' logic slots now stop at chunk
+    `$0C`, 24 of them for Map Select's 15 at most), the sprite lists all
+    in `$0F`'s.  Three slots in the sprite table, 48
     tiles each, `$70`-`$FF`, hold what shows: a frame is drawn from the
     slot holding it; if none does, `flush_m7up` sends it into a slot no
     other landmark takes this frame, at the flush that sends the sprites,
     ahead of them, so no sprite on screen ever reads half a frame.  One
     upload a flush: with one waiting, or no slot free, a slot holding the
     same picture at another size stands in, and with none the landmark
-    waits a frame.  Their sprites go into OAMSHADOW's extras from entry 4,
-    the nearest's first so in front, all of a landmark or none of it if
-    the 60 would overflow.  Their colours are BG palettes 0 and 1, which
+    waits a frame.  Their sprites go into OAMSHADOW's extras, entries
+    64-127, after the docked ship's and the houses' (below), the nearest's
+    first so in front, all of a landmark or none of it if the 64 would
+    overflow.  A frame on the screen across goes in at about 16
+    instructions a sprite -- x and line, tile and attributes, a word each
+    -- its rows above the screen and below passed by whole (its list: its
+    corner's place and its last sprite's from the base, then each sprite
+    from the corner, row by row); one cut at a side is clipped sprite by
+    sprite.  Their colours are BG palettes 0 and 1, which
     `pal_prep` also writes, on the overworld, to OBJ palette 4's spare
     entries (CGRAM 196-203): colour c of palette p is 4 + 4p + c there,
     black 4 (the Mirage Tower and the volcano are palette 1's), and the
-    haze reaches them.  The ship's sprite, drawn with the game's, goes on
-    a list, `M7XBUF` at `$0F00`, four at most, which `hal_oamdma`
-    (`oam_extras`) writes to the extras' first four entries at the
-    transfer with their high-table byte, parks the rest of the four, and
-    spends; the landmarks' it leaves alone, and once the plane is gone
-    parks all 64.  Drawn from the scroll, they show on every overworld
+    haze reaches them.  `hal_oamdma` leaves the extras alone while the
+    plane is up, and once it is gone parks all 64.  Drawn from the scroll,
+    they show on every overworld
     frame, whether the game draws its sprites or not (user, 2026-11-18:
     Coneria's "disappears when the airship takes off/lands, and when
     transitioning in and out of menus" -- `AirshipTransitionFrame` draws
@@ -4561,26 +4576,59 @@ applied" (user, 2026-11-17).
     what it no longer uses.  With the background on and the sprites off --
     the palette cycle, a battle's flashes -- `hal_w2001` keeps the sprite
     layer on while the plane is up, the landmarks being scenery, and parks
-    the game's 64 and the list's four in OAMSHADOW instead
-    (`oam_m7hide`), till the game's next transfer.  When a landmark
-    stands in front of the party -- tilted, the party north of its base's
-    row and not in the airship -- the extras take entries 0-63 and the
-    game's 64 move to 64-127 (`h_m7xfront`, `h_m7gbase`): `m7_lands`
-    decides it and, when it changes, swaps OAMSHADOW's halves and the high
-    table's (`m7_front`), so the next transfer writes the game's where
-    they now are.  Its base can be below the screen with its top on it
+    the game's 64 in OAMSHADOW instead (`oam_m7hide`), till the game's
+    next transfer.  When a landmark or a house stands in front of the
+    party -- tilted, the party north of its base's row and not in the
+    airship -- the extras are drawn over the game's sprites by OAM's
+    priority turned round: `flush_oam`, after the transfer, sets the OAM
+    address to entry 64 with `$2103`'s bit 7, and the PPU keeps it till
+    the next write (`h_m7xfront`, which `m7_front` sets); the game's stay
+    at 0-63 and the extras at 64-127 either way.  At first `m7_front`
+    swapped OAMSHADOW's halves instead, 1,300 instructions on each frame
+    the party crossed a row -- with the houses, every row through a town;
+    the way out turns the priority back at its first transfer.  Its base can be below the screen with its top on it
     (user, 2026-11-18: Coneria's "pops in" from the bottom "when the row
     of tiles its grounded on aren't visible"): the objects' table runs
     south past the screen (above); past k 23/16 one is drawn at 23/16, a
     little short for a top just showing at 45 and 50 degrees.  The way
-    out sends CHRSHADOW back over the slots, all of `$70`-`$FF`, with the
-    ship's table.  Per frame at 45 degrees, the dearest of a walk: near
-    Coneria's 4,623 instructions moving, it drawn (4,337 with Coneria's
-    alone, before the list), away from every landmark 3,134 (2,998); 109
-    drawing the game's sprites, 2,539 the transfer.  With three in view
-    (Great Lake) 6,799 moving: 3,665 over a frame with none, about what
-    slowed the Exploding Dwarf's walking frames (2026-11-04), so to watch
-    in play.
+    out sends CHRSHADOW back over the slots, all of `$70`-`$FF`, and over
+    table 0.
+  - **The towns' houses stood up** (user, 2026-11-18: "converting the
+    towns to scaled sprites as well.  They don't need shadows"; "I guess
+    you need 32x32 to upscale them").  Each house tile -- Coneria's,
+    Pravoka's, Elfland's, Melmond's, Crescent Lake's, Gaia's, Onrac's,
+    Lefein's, 33 on every map; Coneria's and Lefein's one picture, and
+    Melmond's, Gaia's and Onrac's -- stands as one 32x32 sprite at its
+    distance's size, from art the user retouches (`art/landmarks/house-*`,
+    laid out as the landmarks', the ground under it plain courtyard or
+    grass: no shadow; `--extract` cut them, what the ground colours do not
+    reach from the edge).  A row of a town's houses is placed once
+    (`m7_lrow`): `m7_project` at its first, the line and k shared, each
+    one's x from the first one's -- k times the columns between, over 16,
+    by the CPU's multiplier -- about 45 instructions a house.  Its frame,
+    k 9/16 to 23/16 as a landmark's (a 32x32 frame stored as four rows of
+    four tiles, a row with nothing in it as none, written from one zero
+    byte), comes from whichever of OBJ table 0's sixteen blocks holds it
+    (`h_m7bkey`, and `M7BREV` the other way round, to find it at once);
+    if none does, it is uploaded into one no house took this frame or the
+    last, before the sprites, one 32x32 frame a flush, a block holding the
+    same picture at another size standing in meanwhile.  The docked ship
+    shares the blocks (above).  The ship's and the houses' sprites go into
+    the extras first, as placed (`M7HBUF`), then the landmarks': a town's
+    houses stand in front of its castle.  A row stands in front of the
+    party when the party is north of it.
+  - **What it costs**, per walking frame at 45 degrees, the dearest of a
+    walk (a frame that also draws the plane a new row): beside Coneria's
+    castle and town 5,315 instructions moving, Crescent Lake's town 4,389,
+    away from every landmark and town 2,970; three landmarks and a town in
+    view (Great Lake) 6,566; 107 drawing the game's sprites, 2,468 the
+    transfer.  The first houses cost some 550 instructions each, going
+    through the landmarks' list and slots; a row placed once, the near
+    groups kept, OAM's priority turned round instead of the halves
+    swapped, and the fast path past rows off the screen took them to the
+    above.  The walk test's dearest step frame (from beside Coneria) is
+    held under 5,500 of the game's: under the NES's way's 5,372-6,543
+    before the plane.  The castle alone, played, was 4,623.
   - **Its variables** are a separate block, `M7VARS` at `$0D80`, between
     `CHRQUEUE` and `OPTWORK`, with an assert that keeps it there.  They
     were at `HAL_VARS+$80` first, which `check_halvars.py` called free:
@@ -4679,16 +4727,38 @@ applied" (user, 2026-11-17).
     once), a tile uploaded as 64 bytes (it spilled into a slot nothing
     named), the offsets left for the objects, and the slots given back
     only to `$BF`.  Coneria's earlier mutations are this list's now, its
-    castle code gone.  The
-    ship: its frames held to the ship the game draws at the flat angle --
-    the tiles and flips from the OAM it writes, the pixels from
-    CHRSHADOW -- the 16 exactly, each other its nearest-neighbour scaling;
-    over a grid of places at two angles, one 32x32 sprite, its centre
-    within a pixel and a quarter of the camera's, its size within a pixel
-    of 16 over the camera's scale there (a pixel and a half where the
-    frames are 22 and 24), none of the game's; the game's drawing at the
-    flat angle, nothing without a ship; after, the pattern table and the
-    sprite sizes back.  Seventeen mutations, all caught.
+    castle code gone.  The houses: their art and frames held to the PNGs
+    as the landmarks' (a 32x32 frame at k 1 the picture, its base's middle
+    at the box's bottom), every map's rows of them listed, each group's
+    window holding its members; one of each picture seen flat, the art;
+    each town at two angles from three places, settled, each house's box
+    on its base within a pixel and a half of the camera's, from a block
+    holding a frame of its picture at its size, every house the screen
+    shows shown, in front of the party as the list's groups say it should
+    be (the test works that out from the ROM's list: a group near by its
+    window, a member by its rows and columns, kept by its line); walking
+    past Coneria's, every frame each house from a block of its picture,
+    none missing while a block holds its picture, no upload into a block
+    the last frame's houses took, every block holding the frame it names
+    and `M7BREV` their other way round, each upload a whole frame's four
+    rows; the way out, OAM's priority turned back though nothing of the
+    game's is sent.  The ship: its frames held to the ship the game draws
+    at the flat angle -- the tiles and flips from the OAM it writes, the
+    pixels from CHRSHADOW -- the 16 exactly, each other its
+    nearest-neighbour scaling; over a grid of places at two angles, one
+    32x32 sprite among the extras, from a block holding its frame, its
+    centre within a pixel and a quarter of the camera's, its size within a
+    pixel of 16 over the camera's scale there (a pixel and a half where
+    the frames are 22 and 24), none of the game's; none aboard; the game's
+    drawing at the flat angle, nothing without a ship; after, the pattern
+    table and the sprite sizes back.  With the houses, thirty-nine
+    mutations of the landmarks, the houses, the ship and OAM's priority:
+    thirty-seven caught -- four only once the test looked further (the
+    priority left turned off the overworld, a block the last frame took
+    taken again, no house stand-in, the ship drawn aboard) -- and two that
+    change nothing today: the rows above the screen drawn (more than seven
+    lines up, a sprite's are below the screen, wrapped, so hidden), and a
+    row's houses of two pictures taken as one (no map has such a row).
   - **Not yet:** the setting.  The final one tilts the view only in the
     airship, as is traditional, and then the parked airship never shows
     tilted and needs no frames; a third value would keep the tilt on
@@ -6320,21 +6390,23 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      2423 free  the overworld in Mode 7 (ow7.asm, 13961: the
+    BANK_OW7      7095 free  the overworld in Mode 7 (ow7.asm, 9289: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
-                             table addresses, the ship's 16 frames 8192,
-                             the landmarks stood up, their code and their
-                             lists and frame records; the new-overworld
-                             branch, 2026-11-17 and -18).  The chunk's low
+                             table addresses, the landmarks, the houses
+                             and the docked ship stood up, their code and
+                             their lists and frame records; the ship's 16
+                             frames, 8192, moved out with the houses; the
+                             new-overworld branch, 2026-11-17 and -18).  The chunk's low
                              half: its 256 characters, 16KB, then the
                              tilt's tables, 15,444 bytes for six angles,
                              to $7C54.  The last chunk: with it the 2MB
-                             image is full.  The landmarks' frames are in
-                             NES chunks $0F's and $0E's low halves, which
-                             only mirrored their high halves before:
-                             30,538 and 21,472 bytes of 32KB each
+                             image is full.  The landmarks', the houses'
+                             and the ship's frames are in NES chunks $0F's,
+                             $0E's and $0D's low halves, which only
+                             mirrored their high halves before: 32,384,
+                             31,712 and 17,920 bytes of 32KB each
     BANK_OPTTEXT2 14592 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
@@ -6358,9 +6430,10 @@ text region in the game references.
                              the SPC700, the samples its own; the Mode 7
                              overworld's plane, its scroll and queue, the
                              sprites' palettes and extras, the
-                             landmarks' upload, the sprites off without
-                             them 902, 2026-11-17 and -18, on the
-                             new-overworld branch: 4942 left)
+                             landmarks' uploads, the sprites off without
+                             them, OAM's priority turned round 758,
+                             2026-11-17 and -18, on the new-overworld
+                             branch: 5086 left)
     SPC700 RAM               the program 1422 of the 1536 below the
                              directory (genspc.py); the game's samples
                              $2F00-$EFFF, the scream 8347 of 49408

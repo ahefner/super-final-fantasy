@@ -117,13 +117,28 @@ LANDMARKS = [
     ("mirage",    ((0x0D,), (0x1D,)),           dict(ground=(2, 3), foot=22, right=11, fillmt=0x45)),
     ("volcano",   ((0x64, 0x65), (0x74, 0x75)), dict(ground=(1,), foot=22)),
 ]
+#  The towns' houses (user, 2026-11-18: "converting the towns to scaled
+#  sprites as well.  They don't need shadows"): each one metatile, stood up
+#  as one 32x32 sprite at its distance's size, the ground under it plain.
+#  How --extract cuts each: its ground colours, the plain one under it.
+HOUSES = [
+    ("house-coneria",  0x49, dict(ground=(2, 1), foot=16, fill=2)),
+    ("house-pravoka",  0x4A, dict(ground=(2, 1), foot=16, fill=2)),
+    ("house-elfland",  0x4C, dict(ground=(1,), foot=16, fill=1)),
+    ("house-melmond",  0x4D, dict(ground=(1,), foot=16, fill=1)),
+    ("house-crescent", 0x4E, dict(ground=(2, 1), foot=16, fill=2)),
+    ("house-gaia",     0x5A, dict(ground=(1,), foot=16, fill=1)),
+    ("house-onrac",    0x5D, dict(ground=(1,), foot=16, fill=1)),
+    ("house-lefein",   0x6D, dict(ground=(2, 1), foot=16, fill=2)),
+]
 ART = os.path.join(ROOT, "art", "landmarks")
 ART_GAP = 4                         # key-coloured columns between the art and the ground
 KEY = (255, 0, 255)                 # the art's "nothing here"
 LAND_SLOT = 48                      # tiles a frame may take: three slots, sprite table $70-$FF
 LAND_SPRITES = 60                   # sprites a frame may take: the extras past the ship's four
-LAND_CHUNKS = (0x0F, 0x0E)          # the frames: these NES chunks' low halves, unused
+LAND_CHUNKS = (0x0F, 0x0E, 0x0D)    # the frames: these NES chunks' low halves, unused
                                     #   (their code runs at $8000 up; mkrom.py's LOWHALF)
+GROUP_NEAR = 6                      # tiles apart at most within a group culled whole
 TALLEST = 64                        # pixels an object stands at k 1, at most: the
                                     #   objects' table runs on south till one that
                                     #   tall, its base below the screen, shows none
@@ -446,7 +461,7 @@ def extract(blocks, tsa):
     retouched by hand (user, 2026-11-18: "extracting these and the
     corresponding shadows to a PNG file for manual editing")."""
     import pngio
-    for name, tiles, how in LANDMARKS:
+    for name, tiles, how in LANDMARKS + [(n, ((m,),), how) for n, m, how in HOUSES]:
         path = os.path.join(ART, name + ".png")
         if os.path.exists(path):
             print("genm7: %s is there; left as it is" % os.path.relpath(path, ROOT))
@@ -497,8 +512,6 @@ def read_art(tsa, name, tiles):
     if not shown:
         sys.exit("genm7: %s has nothing standing" % rel)
     base = max(shown) + 1
-    if base < 17:
-        sys.exit("genm7: %s stands on row %d, in its first metatile row" % (rel, base))
     return stand[:base], under, base, pal
 
 
@@ -539,12 +552,104 @@ def land_frames(fig, base, ax):
     return out
 
 
+def block_tiles(box):
+    """A 32x32 box of colours 0-15 as a 32x32 sprite's 4x4 tiles, SNES 4bpp:
+    -> (each row of four tiles with any colour in it, 128 bytes, the rows
+    end to end; their mask, bit r row r).  A row with none is not stored:
+    the upload writes it from a zero."""
+    data, mask = bytearray(), 0
+    for tr in range(4):
+        row = bytearray()
+        for tc in range(4):
+            t = bytearray(32)
+            for r in range(8):
+                for c in range(8):
+                    v = box[tr * 8 + r][tc * 8 + c]
+                    for plane in range(4):
+                        if v >> plane & 1:
+                            t[(16 if plane >= 2 else 0) + 2 * r + (plane & 1)] |= 0x80 >> c
+            row += t
+        if any(row):
+            data += row
+            mask |= 1 << tr
+    return bytes(data), mask
+
+
+def house_frames(fig, base, ax):
+    """A house at each of LAND_KS in a 32x32 box, its base's middle at the
+    box's bottom middle: box pixel (bx, by) shows its pixel (ax + (bx - 16
+    + 0.5) / k, base + (by - 32 + 0.5) / k), colour c of BG palette p as 4 +
+    4p + c, black 4, as the landmarks' are.  -> [(rows, mask)]."""
+    out = []
+    width = len(fig[0])
+    for k in LAND_KS:
+        box = [[0] * 32 for _ in range(32)]
+        for by in range(32):
+            for bx in range(32):
+                sx = math.floor(ax + (bx - 16 + 0.5) / k)
+                sy = math.floor(base + (by - 32 + 0.5) / k)
+                v = fig[sy][sx] if 0 <= sx < width and 0 <= sy < base else None
+                if v is not None:
+                    box[by][bx] = 4 if v == 0 else 4 + 4 * (v >> 4) + (v & 3)
+        if base * k > 32 or width * k > 32:
+            sys.exit("genm7: a house past its 32x32 box at k %.3f" % k)
+        out.append(block_tiles(box))
+    return out
+
+
+def ship_frames(img):
+    """The docked ship at each of SHIP_SIZES pixels across, centred in a
+    32x32 box (the tile's centre at the box's), nearest-neighbour as Mode 7
+    samples the ground, its colours 0-3 of its sprite palette.
+    -> [(rows, mask)]."""
+    out = []
+    for n in SHIP_SIZES:
+        f = n / 16
+        box = [[0] * 32 for _ in range(32)]
+        for dy in range(32):
+            for dx in range(32):
+                sx, sy = math.floor((dx + 0.5 - 16) / f + 8), math.floor((dy + 0.5 - 16) / f + 8)
+                if 0 <= sx < 16 and 0 <= sy < 16:
+                    box[dy][dx] = img[sy][sx]
+        out.append(block_tiles(box))
+    return out
+
+
+def groups_of(members):
+    """Members [(record, x, bottom row)] into groups culled whole: those
+    within GROUP_NEAR tiles of one another, by way of others (wrapping).
+    -> [(members, lowest row, rows spanned less one, lowest column, columns
+    spanned less one)], each group's span measured from its first member,
+    its members the southmost first."""
+    near = lambda a, b: abs((a[1] - b[1] + 128) % 256 - 128) <= GROUP_NEAR and \
+        abs((a[2] - b[2] + 128) % 256 - 128) <= GROUP_NEAR
+    left, out = list(members), []
+    while left:
+        group, todo = [left.pop(0)], None
+        todo = [group[0]]
+        while todo:
+            m = todo.pop()
+            for o in [o for o in left if near(m, o)]:
+                left.remove(o)
+                group.append(o)
+                todo.append(o)
+        x0, y0 = group[0][1], group[0][2]
+        #  The nearest first: the southmost row; in a row its houses of an
+        #  art together (one record, placed once), then its landmarks.
+        group.sort(key=lambda m: (-((m[2] - y0 + 128) % 256 - 128), not m[0][0] & 0x80, m[0][0], m[0][5], m[1]))
+        dxs = [(m[1] - x0 + 128) % 256 - 128 for m in group]
+        dys = [(m[2] - y0 + 128) % 256 - 128 for m in group]
+        out.append((group, (y0 + min(dys)) & 255, max(dys) - min(dys),
+                    (x0 + min(dxs)) & 255, max(dxs) - min(dxs)))
+    return out
+
+
 def find_landmarks(t, what):
-    """Where each landmark is on a map (65,536 tiles): [(its LANDMARKS
-    index, its left column, its bottom row)].  A landmark's metatile
+    """Where each landmark is on a map (65,536 tiles): [(its index in
+    LANDMARKS and then HOUSES, its left column, its bottom row)].  A landmark's metatile
     anywhere but in one whole is an error: the plane draws it as ground."""
     found, covered = [], set()
-    for i, (name, tiles, _) in enumerate(LANDMARKS):
+    for i, (name, tiles, _) in enumerate(LANDMARKS + [(n, ((m,),), how) for n, m, how in HOUSES]):
         rows, cols = len(tiles), len(tiles[0])
         at = t.find(bytes([tiles[0][0]]))
         while at >= 0:
@@ -554,41 +659,12 @@ def find_landmarks(t, what):
                 found.append((i, x, (y + rows - 1) & 255))
                 covered.update(cells)
             at = t.find(bytes([tiles[0][0]]), at + 1)
-    alls = {m for _, tiles, _ in LANDMARKS for row in tiles for m in row}
+    alls = {m for _, tiles, _ in LANDMARKS for row in tiles for m in row} | {m for _, m, _ in HOUSES}
     stray = [(p & 255, p >> 8, t[p]) for p in range(65536) if t[p] in alls and p not in covered]
     if stray:
         sys.exit("genm7: %s has landmark tiles not in a whole landmark: %s"
                  % (what, ", ".join("$%02X at (%d, %d)" % (m, x, y) for x, y, m in stray[:6])))
     return found
-
-
-def ship_frames(img):
-    """The ship at each of SHIP_SIZES pixels across, centred in 32x32 (the
-    tile's centre at the box's), nearest-neighbour as Mode 7 samples the
-    ground; as OBJ table 0 on the overworld holds them: frame j a 4x4 block
-    of tiles from tile (j mod 4) * 4 + (j div 4) * 64, SNES 4bpp, the top
-    two planes clear.  -> 8KB."""
-    out = bytearray(0x2000)
-    for j, n in enumerate(SHIP_SIZES):
-        f = n / 16
-        box = [[0] * 32 for _ in range(32)]
-        for dy in range(32):
-            for dx in range(32):
-                sx, sy = math.floor((dx + 0.5 - 16) / f + 8), math.floor((dy + 0.5 - 16) / f + 8)
-                if 0 <= sx < 16 and 0 <= sy < 16:
-                    box[dy][dx] = img[sy][sx]
-        base = (j % 4) * 4 + (j // 4) * 64
-        for tr in range(4):
-            for tc in range(4):
-                t = base + tr * 16 + tc
-                for r in range(8):
-                    p0 = p1 = 0
-                    for c in range(8):
-                        v = box[tr * 8 + r][tc * 8 + c]
-                        p0 |= (v & 1) << (7 - c)
-                        p1 |= (v >> 1 & 1) << (7 - c)
-                    out[t * 32 + 2 * r], out[t * 32 + 2 * r + 1] = p0, p1
-    return bytes(out)
 
 
 def main():
@@ -598,10 +674,13 @@ def main():
     if sys.argv[1:] == ["--extract"]:
         extract(blocks, tsa)
         return
-    #  The landmarks' art; each metatile of one drawn in the plane as the
-    #  ground under it, the same wherever two share it.
-    arts, kinds, ground, owner = [], [], {}, {}
-    for name, tiles, _ in LANDMARKS:
+    #  The landmarks' and the houses' art; each metatile of one drawn in the
+    #  plane as the ground under it, the same wherever two share it.  A
+    #  landmark's picture is an 8x8-sprite art, a house's a 32x32 one: arts
+    #  the same picture share their frames.
+    arts, barts, kinds, ground, owner = [], [], [], {}, {}
+    everything = [(n, t, False) for n, t, _ in LANDMARKS] + [(n, ((m,),), True) for n, m, _ in HOUSES]
+    for name, tiles, house in everything:
         fig, under, base, pal = read_art(tsa, name, tiles)
         for r, row in enumerate(tiles):
             for c, m in enumerate(row):
@@ -610,16 +689,21 @@ def main():
                     sys.exit("genm7: metatile $%02X's ground differs in art/landmarks/%s.png and %s.png"
                              % (m, owner[m], name))
                 ground[m], owner[m] = block, name
+        pool = barts if house else arts
         key = (tuple(map(tuple, fig)), base)
-        if key not in [a[0] for a in arts]:
-            arts.append((key, fig, base))
-        kinds.append(([a[0] for a in arts].index(key), base, len(tiles), 16 * len(tiles[0])))
+        if key not in [a[0] for a in pool]:
+            pool.append((key, fig, base))
+        art = [a[0] for a in pool].index(key) + (1 if house else 0)   # (the ship is 32x32 art 0)
+        kinds.append(((0x80 | art) if house else art, base, len(tiles), 16 * len(tiles[0])))
     chars, corners, index = build(chr_, tsa, ground)
     specials(chars, corners)
-    #  Their frames: every sprite list in LAND_CHUNKS[0]'s low half (ow7.asm
-    #  reads them from one bank), each art's tiles in whichever has room.
-    if len(arts) > 15:
-        sys.exit("genm7: %d landmarks' arts; a frame is named art * 16 + size, $FF none" % len(arts))
+    if len(arts) > 15 or len(barts) + 1 > 15:
+        sys.exit("genm7: %d and %d arts; a frame is named art * 16 + size, $FF none" % (len(arts), len(barts) + 1))
+    #  The landmarks' frames: every sprite list in LAND_CHUNKS[0]'s low half
+    #  (ow7.asm reads them from one bank): its corner's place from the
+    #  anchor, the last sprite's (signed), and each sprite's from that corner
+    #  with its tile.  Their tiles, and the houses' and the ship's rows, in
+    #  whichever of LAND_CHUNKS has room.
     allframes = [land_frames(fig, base, len(fig[0]) // 2) for _, fig, base in arts]
     blobs = {c: bytearray() for c in LAND_CHUNKS}
     sprat = []
@@ -628,23 +712,46 @@ def main():
             if not tiles or len(tiles) > LAND_SLOT or len(sprites) > LAND_SPRITES:
                 sys.exit("genm7: a landmark's frame takes %d tiles and %d sprites, not 1-%d and %d"
                          % (len(tiles), len(sprites), LAND_SLOT, LAND_SPRITES))
+            x0, y0 = min(dx for dx, _, _ in sprites), min(dy for _, dy, _ in sprites)
+            x1, y1 = max(dx for dx, _, _ in sprites), max(dy for _, dy, _ in sprites)
             sprat.append(len(blobs[LAND_CHUNKS[0]]))
-            blobs[LAND_CHUNKS[0]] += bytes(b for dx, dy, t in sprites for b in (dx & 0xFF, dy & 0xFF, t))
-    records = []
-    for frames in allframes:
-        size = sum(32 * len(t) for t, _ in frames)
+            blobs[LAND_CHUNKS[0]] += bytes(v & 0xFF for v in (x0, x1, y0, y1))
+            blobs[LAND_CHUNKS[0]] += bytes(b for dx, dy, t in sprites for b in (dx - x0, dy - y0, t, 0))
+    def place(size):
         room = [c for c in LAND_CHUNKS if len(blobs[c]) + size <= 0x8000]
         if not room:
             sys.exit("genm7: the landmarks' frames past %s's low halves" % ", ".join("$%02X" % c for c in LAND_CHUNKS))
-        blob = blobs[room[0]]
+        return room[0]
+    records = []
+    for frames in allframes:
+        c = place(sum(32 * len(t) for t, _ in frames))
         for tiles, sprites in frames:
-            records.append((len(blob), 0xC1 + room[0], sprat[len(records)], len(tiles), len(sprites)))
-            blob += b"".join(tiles)
-    #  Where they stand on each of Map Select's maps (genmaps.py's list).
+            records.append((len(blobs[c]), 0xC1 + c, sprat[len(records)], len(tiles), len(sprites)))
+            blobs[c] += b"".join(tiles)
+    #  The 32x32 frames: the docked ship's (art 0, SHIP_SIZES), the houses'.
+    ship, ship_pal = ship_source()
+    bframes = [ship_frames(ship)] + [house_frames(fig, base, len(fig[0]) // 2) for _, fig, base in barts]
+    brecords = []
+    for frames in bframes:
+        c = place(sum(len(d) for d, _ in frames))
+        recs = []
+        for data, mask in frames:
+            recs.append((len(blobs[c]), 0xC1 + c, mask))
+            blobs[c] += data
+        brecords.append(recs + [(0, 0, 0)] * (16 - len(recs)))
+    #  Where they stand on each of Map Select's maps (genmaps.py's list), in
+    #  groups culled whole.
     import genmaps
     lists = []
     for entry in genmaps.parse():
-        lists.append(find_landmarks(bytes(genmaps.tiles_of(entry)[0]), entry[3]))
+        members = []
+        for k, x, y in find_landmarks(bytes(genmaps.tiles_of(entry)[0]), entry[3]):
+            art, base, rows, width = kinds[k]
+            top = (y - rows + 1) & 255
+            rec = (art, x, y, (top + (base - 17) // 16 + 1) & 255,
+                   (width // 2 - 8) & 0xFF, (base - (rows - 1) * 16 - 8) & 0xFF)
+            members.append((rec, x, y, everything[k][0]))
+        lists.append(groups_of(members))
     north, south, west, east = region()
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tables, offs = tilt_tables(vmin, vmax)
@@ -672,39 +779,66 @@ def main():
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
     out.append("lut_M7PS: .WORD %s          ; k's step a line, x65536" % ", ".join("$%04X" % slope(a) for a in ANGLES))
     if len(SHIP_SIZES) != 16:
-        sys.exit("genm7: %d ship frames; OBJ table 0 holds 16 of 32x32" % len(SHIP_SIZES))
-    ship, ship_pal = ship_source()
-    frames = ship_frames(ship)
+        sys.exit("genm7: %d ship frames; a 32x32 art has 16" % len(SHIP_SIZES))
     out.append("M7SHIP_PAL = %d          ; the docked ship's sprite palette" % ship_pal)
-    #  For a size n (8-24, from a line's inverse scale), the nearest frame's
-    #  first tile.
+    #  For a size n (8-24, from a line's inverse scale), the nearest frame.
     near = [min(range(16), key=lambda j: (abs(SHIP_SIZES[j] - n), -SHIP_SIZES[j])) for n in range(8, 25)]
-    out.append("lut_M7ShipTile:          ; sizes 8-24")
-    out.append("  .BYTE " + ", ".join("$%02X" % ((j % 4) * 4 + (j // 4) * 64) for j in near))
-    out.append("lut_M7Ship:              ; OBJ table 0 on the overworld: the ship's 16 frames")
-    for i in range(0, len(frames), 16):
-        out.append("  .BYTE " + ", ".join("$%02X" % b for b in frames[i:i + 16]))
+    out.append("lut_M7ShipSize:          ; sizes 8-24: the docked ship's frame")
+    out.append("  .BYTE " + ", ".join("%d" % j for j in near))
     out.append("M7L_FRAMES = %d          ; a landmark's sizes: k M7L_K0 / 16 on, a sixteenth apart" % len(LAND_KS))
     out.append("M7L_K0 = %d" % round(LAND_KS[0] * 16))
     out.append("M7L_SLOT = %d            ; tiles a frame may take" % LAND_SLOT)
     out.append("M7L_SPRITES = %d         ; sprites a frame may take" % LAND_SPRITES)
     out.append("M7L_MAPS = %d             ; Map Select's maps, a list each" % len(lists))
-    out.append("M7L_REC = 6              ; a list's record: art, column, bottom row, the party's")
-    out.append("                         ;   row from which it stands in front, x and y offsets")
+    out.append("M7L_REC = 6              ; a landmark's record: art, column, bottom row, the")
+    out.append("                         ;   party's row from which it stands in front, x and y")
+    out.append("                         ;   offsets")
+    out.append("M7L_ROW = 5              ; a row of houses' record: $80 + their 32x32 art, the")
+    out.append("                         ;   row, the party's row from which they stand in front,")
+    out.append("                         ;   the y offset, how many; then each one's column, west")
+    out.append("                         ;   to east")
+    out.append("M7L_GROUP = 6            ; a group's header: records (0 past the last), its")
+    out.append("                         ;   last bottom row, the window m7_lands takes it in (35")
+    out.append("                         ;   rows widened by those it spans), its last column, its")
+    out.append("                         ;   window (37 columns, so), its records' bytes")
     out.append("lut_M7LMaps:")
     out.append("  .WORD " + ", ".join("m7l_map%d" % i for i in range(len(lists))))
-    for i, found in enumerate(lists):
+    for i, groups in enumerate(lists):
         out.append("m7l_map%d:" % i)
-        for k, x, y in found:
-            art, base, rows, width = kinds[k]
-            top = (y - rows + 1) & 255
-            out.append("  .BYTE %d, %d, %d, %d, $%02X, $%02X   ; %s" % (
-                art, x, y, (top + (base - 17) // 16 + 1) & 255,
-                (width // 2 - 8) & 0xFF, (base - (rows - 1) * 16 - 8) & 0xFF, LANDMARKS[k][0]))
-        out.append("  .BYTE $FF")
+        for members, y0, ys, x0, xs in groups:
+            #  A row's houses of one art, one record: placed together.
+            recs = []
+            for rec, x, y, name in members:
+                last = recs[-1] if recs else None
+                if rec[0] & 0x80 and last and last[0] == "row" and last[1][0] == rec[0] and \
+                        last[1][2] == rec[2] and last[1][5] == rec[5]:
+                    last[2].append(x)
+                    last[3].append(name)
+                elif rec[0] & 0x80:
+                    if rec[4] != 0:
+                        sys.exit("genm7: a house not centred in its metatile")
+                    recs.append(["row", rec, [x], [name]])
+                else:
+                    recs.append(["one", rec, name])
+            body = []
+            for r in recs:
+                if r[0] == "one":
+                    body.append("  .BYTE %d, %d, %d, %d, $%02X, $%02X   ; %s" % (r[1] + (r[2],)))
+                else:
+                    art, x, y, front, ox, oy = r[1]
+                    cols = sorted(r[2])
+                    body.append("  .BYTE $%02X, %d, %d, $%02X, %d, %s   ; %s" % (
+                        art, y, front, oy, len(cols), ", ".join("%d" % c for c in cols), r[3][0]))
+            size = sum(6 if r[0] == "one" else 5 + len(r[2]) for r in recs)
+            if size > 255:
+                sys.exit("genm7: a group of %d bytes" % size)
+            out.append("  .BYTE %d, %d, %d, %d, %d, %d" % (len(recs), (y0 + ys) & 255, 35 + ys,
+                                                       (x0 + xs) & 255, 37 + xs, size))
+            out += body
+        out.append("  .BYTE 0")
     out.append("M7L_SPRCHUNK = $%02X       ; the chunk whose low half has the sprite lists" % LAND_CHUNKS[0])
     out.append("lut_M7LFrame:            ; per art, 16 sizes (the last unused): its tiles' address")
-    out.append("                         ;   and bank, its sprites' (dx, dy, tile), how many of each")
+    out.append("                         ;   and bank, its sprite list's, how many of each")
     for i, (at, bank, spr, nt, ns) in enumerate(records):
         out.append("  .WORD $%04X" % at)
         out.append("  .BYTE $%02X" % bank)
@@ -712,6 +846,12 @@ def main():
         out.append("  .BYTE %d, %d, 0" % (nt, ns))
         if i % len(LAND_KS) == len(LAND_KS) - 1:
             out.append("  .BYTE 0, 0, 0, 0, 0, 0, 0, 0")
+    out.append("lut_M7BFrame:            ; per 32x32 art (the ship's, the houses'), 16 sizes: its")
+    out.append("                         ;   rows' address and bank, which rows")
+    for recs in brecords:
+        for at, bank, mask in recs:
+            out.append("  .WORD $%04X" % at)
+            out.append("  .BYTE $%02X, $%02X" % (bank, mask))
     for c in LAND_CHUNKS:
         with open(OUTLAND % c, "wb") as f:
             f.write(bytes(blobs[c]))

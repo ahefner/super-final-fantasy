@@ -1408,34 +1408,57 @@ h_m7xprev       = M7VARS+$44    ; extras OAM held after the last transfer, to hi
 h_m7oux         = M7VARS+$45    ; 2 bytes: m7_project: pixels east of the tile's centre,
 h_m7ouy         = M7VARS+$47    ; 2 bytes:   and south, the point placed
 ;  The landmarks' three slots in the sprite table's free tiles: each the
-;  frame it holds, as art * 16 + size ($FF none); and the upload flush_m7up
-;  makes, a frame's tiles from ROM into a slot, before the sprites that use
-;  it.
+;  frame it holds, as art * 16 + size ($FF none).  The houses' and the
+;  docked ship's sixteen blocks of 4x4 tiles in the other table, the
+;  background's, which the plane does not draw from: each the 32x32 frame
+;  it holds, the same way.  And the uploads flush_m7up makes, frames from
+;  ROM into them, before the sprites that use them (M7UPQ).
 h_m7lkey        = M7VARS+$49    ; 3 bytes: the frame in slot 0, 1, 2
-h_m7upon        = M7VARS+$4C    ; nonzero: an upload for the next flush
-h_m7upbank      = M7VARS+$4D    ; its source's bank,
-h_m7upsrc       = M7VARS+$4E    ; 2 bytes: address,
-h_m7updst       = M7VARS+$50    ; 2 bytes: VRAM word address,
-h_m7uplen       = M7VARS+$52    ; 2 bytes: bytes
+h_m7upon        = M7VARS+$4C    ; nonzero: a landmark's frame queued for the next flush
+h_m7upn         = M7VARS+$4D    ; the uploads queued at M7UPQ
+h_m7bupon       = M7VARS+$4E    ; nonzero: a 32x32 frame queued
+h_m7gn          = M7VARS+$4F    ; m7_lands: a group's members left
+h_m7gw          = M7VARS+$50    ; ...the window a group's span widens
+h_m7hn          = M7VARS+$51    ; the houses and the ship placed this frame (M7HBUF)
 h_m7oline       = M7VARS+$54    ; 2 bytes: m7_project's screen line, signed
 h_m7lused       = M7VARS+$56    ; the slots this frame's landmarks take, a bit each
 h_m7lnvis       = M7VARS+$57    ; the landmarks this frame shows (M7LVIS)
 h_m7lfront      = M7VARS+$58    ; nonzero: one of them stands south of the party
 h_m7lptr        = M7VARS+$59    ; 2 bytes: the map's list, as m7_lands walks it
-M7VARS_END      = M7VARS+$5B
-M7XBUF          = $0F00         ; the listed extras: a count, then 5 bytes each: x, y, tile, attributes, high bits
-M7XBUF_MAX      = 4             ; ...in the extras' first four entries, their high-table byte whole
-M7C_FIRST       = M7XBUF_MAX    ; the landmarks' first entry in the extras' 64
-.assert M7XBUF >= OPTWORK + $100 && M7XBUF + 1 + M7XBUF_MAX * 5 <= M7LVIS, error, "M7XBUF overlaps its neighbours"
+h_m7bkey        = M7VARS+$5B    ; 16 bytes: the frame in block 0-15
+h_m7bused       = M7VARS+$6B    ; 2 bytes: the blocks this frame's take, a bit each
+h_m7fbase       = M7VARS+$6D    ; 2 bytes: a frame wholly on screen: its corner, x and line
+h_m7ftile       = M7VARS+$6F    ; 2 bytes:   its slot's first tile, and its attributes
+h_m7bprev       = M7VARS+$71    ; 2 bytes: the blocks the last frame's houses took
+h_m7gtile       = M7VARS+$73    ; 2 bytes: the scroll (tiles) M7GNEAR was worked out at, $FFFF none
+h_m7gnn         = M7VARS+$75    ; the groups in M7GNEAR
+h_m7gi          = M7VARS+$76    ; m7_lands: the next of them
+M7VARS_END      = M7VARS+$77
+M7C_FIRST       = 0             ; the landmarks' first entry in the extras' 64
+;  The uploads queued, M7UPQ_MAX at most, 8 bytes each: VRAM word address
+;  (2), source address (2), bytes (2), source bank (1), DMAP ($01 the source
+;  read along, $09 one zero byte read over and over).
+M7UPQ           = $0F00
+M7UPQ_MAX       = 6
+.assert M7UPQ >= OPTWORK + $100 && M7UPQ + 8 * M7UPQ_MAX <= M7LVIS, error, "M7UPQ overlaps its neighbours"
 ;  The landmarks a frame shows, nearest first, M7L_VIS at most, 8 bytes
 ;  each: the base's screen line (2 bytes, signed), its x (2 bytes, signed),
 ;  the frame wanted (art * 16 + size), the slot drawn from ($FF none).
-M7LVIS          = $0F20
-M7L_VIS         = 3
-.assert M7LVIS + 8 * M7L_VIS <= NTSHADOW, error, "M7LVIS overlaps NTSHADOW"
+M7LVIS          = $0F40
+M7L_VIS         = 6
+;  The docked ship and the houses a frame shows, as placed, M7H_MAX at
+;  most: each its 32x32 sprite's x, line, tile, attributes and high bits.
+M7HBUF          = M7LVIS + 8 * M7L_VIS
+M7H_MAX         = 16
+;  The map's groups near the pivot's tile, as m7_gnear last worked them
+;  out: their headers' addresses in the list, M7G_MAX at most.
+M7GNEAR         = M7HBUF + 5 * M7H_MAX
+M7G_MAX         = 8
+.assert M7GNEAR + 2 * M7G_MAX <= NTSHADOW, error, "M7GNEAR overlaps NTSHADOW"
 ;  The landmarks' slots: sprite table tiles $70-$9F, $A0-$CF and $D0-$FF,
 ;  which the overworld's sprites leave unused (LoadOWObjectCHR fills
-;  $10-$6F); a frame takes M7L_SLOT at most.
+;  $10-$6F); a frame takes M7L_SLOT at most.  The blocks: table 0's 256
+;  tiles, block b from tile (b mod 4) * 4 + (b div 4) * 64.
 M7L_SLOT0       = $70
 M7L_SLOTW       = $30
 .assert M7VARS >= CHRQUEUE + CHRQ_CAP * 2 && M7VARS_END <= OPTWORK, error, "the Mode 7 variables overlap the HAL's low WRAM"
@@ -1449,6 +1472,10 @@ M7RING_ROWS     = 32
 M7OBJROW        = M7RING + M7RING_ROWS * $100
 M7OBJBUF        = M7OBJROW + $100
 .assert M7OBJBUF + $200 <= CHRSHADOW, error, "the Mode 7 objects' buffers overlap CHRSHADOW"
+;  Which block holds each 32x32 frame: frame k's entry its block + 1, 0
+;  none (h_m7bkey's other way round), for m7_lands to look up at once.
+M7BREV          = M7OBJBUF + $200
+.assert M7BREV + $100 <= CHRSHADOW, error, "M7BREV overlaps CHRSHADOW"
 .assert M7RING >= CGSHADOW + $200 && M7RING + M7RING_ROWS * $100 <= CHRSHADOW, error, "the Mode 7 ring overlaps the HAL's WRAM"
 ;  The plane's rows and columns, queued for the flush: records of a VRAM
 ;  word address (2), a VMAIN (1: $00 a row, a byte a word along; $02 a
