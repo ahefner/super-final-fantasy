@@ -2066,7 +2066,7 @@ and the LUTE's line beside the game's own.  Fifteen mutations, all caught.
 
 **Save on game over** (user, 2026-11-17: "port the save game on game over
 feature"; "One row, three values - Off, On, DW", in Variations, off in every
-preset, back to the title after as FFR does; built, not yet played) is FFR's
+preset, back to the title after as FFR does; played 2026-11-17, On with the airship and DW) is FFR's
 `SaveGameWhenGameOver`, with its `SaveGameDWMode` as the third value
 (`Saving.cs`, `EnableSaveOnDeath`; `asm/1B_8FF5_GameOverAndRestart.asm`).
 When the party falls, "Party perished" is cleared as ever, and then, before
@@ -4295,7 +4295,10 @@ played), committed on the user's word.  **Coneria's castle stood up as
 sprites: a prototype, built and played 2026-11-18 ("I like the 3D effect
 enough to continue pursuing this"); its shadow, its going in transitions
 and its popping in at the screen's bottom fixed the same day and played
-("Yes, this looks good"), committed on the user's word.**  The
+("Yes, this looks good"), committed on the user's word.  Then the other
+castles, the Temple of Fiends, the Mirage Tower and the volcano the same
+way, from PNGs the user retouches, on every map: built 2026-11-18, not yet
+played, committed on the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4322,10 +4325,9 @@ applied" (user, 2026-11-17).
         position the game just gave the PPU, a frame behind its counters as
         the sprites are -- and the pivot on the plane for M7X and M7Y.
         With the plane up it then draws whatever row or column the view
-        has come to (`m7_sync`), lets R step the angle, and on the game's
-        map puts Coneria's castle into OAM (`m7_castle`): every overworld
-        frame sets the scroll, those that draw none of the game's sprites
-        among them.
+        has come to (`m7_sync`), lets R step the angle, and puts the
+        landmarks into OAM (`m7_lands`): every overworld frame sets the
+        scroll, those that draw none of the game's sprites among them.
       - `PrepOverworld`'s end (`ow7_enter.patch`, 4): `m7_enter` sends the
         plane's characters if VRAM lost them, draws every row the view can
         see, and turns the plane on (`h_m7on`).
@@ -4479,75 +4481,106 @@ applied" (user, 2026-11-17).
     after (`flush_scroll`); nothing of the HAL's sets the size bit.  Near
     the bottom of a steep view the ship is larger than 16, as the ground
     there is.
-  - **Coneria's castle stood up** (user, 2026-11-18: castles, the Mirage
+  - **The landmarks stood up** (user, 2026-11-18: castles, the Mirage
     Tower and perhaps the towns as scaled sprites "to add a better sense
     of 3D (they don't flatten out like they're painted on the ground when
-    the camera tilts)"; "let's try Coneria Castle").  A prototype, on the
-    game's map alone.  The castle is its six metatiles at (152, 157), two
-    across and three down; `genm7.py` takes it off the ground -- what is not
-    grass above the courtyard's wall, and across the wall and below it the
-    castle's whole width, the green at its foot with it -- and leaves the
-    ground behind it (metatiles `$82`-`$87`, eight characters of the 12
-    that were free): grass above the wall, and from the wall down its
-    footprint black, joining the shadow the art has to its right (user,
-    2026-11-18: "The shadow should be a full black shape underneath the
-    footprint of the castle"; the courtyard there had shown grey "in
-    between as things scale and move").  `m7_decode`
-    writes them into the ring at its six places.  The castle itself is
-    sprites, standing on its base -- the middle of its two columns, 41
-    pixels below its top -- placed as any object (`m7_project`, which now
-    takes a point's offset from its tile's centre), drawn upward at that
-    line's inverse scale: 15 frames, k 9/16 to 23/16 a sixteenth apart, 1
-    among them, each the 8x8 tiles that have any of it (6 to 39) and their
-    places from the base, nearest-neighbour as the plane samples.  At k 1
-    it is the painted castle pixel for pixel over the ground left behind,
-    so the flat view is the NES's exactly.  Its colours are BG palette 0's
-    four, which `pal_prep` also writes, on the overworld, to OBJ palette 4's
-    spare entries 4-7 (CGRAM 196-199): its pixels are 4 + c there, colour
-    0's black opaque, and the haze reaches them.
-    The frames (9,692 bytes, `ow7obj.asm`'s segment in the settings' second
-    text chunk) are too many to keep in VRAM at once -- 302 tiles, and the
-    sprite table's free tiles on the overworld are 144, `$70`-`$FF` -- so
-    two slots of 40, `$70` and `$98`, hold what shows: `m7_castle` picks the
-    frame, uses whichever slot has it, or has `flush_m7up` DMA it into the
-    other at the next flush, the one that sends the sprites using it, ahead
-    of them: a slot nothing showing reads is written (the user's
-    "current/next frame versions").  One upload a flush; up to 1,280
-    bytes.  `m7_castle` runs from `m7_scroll` and writes the castle's
-    sprites into OAMSHADOW itself, the extras' entries 4 on, so it shows
-    on every overworld frame, whether the game draws its sprites or not (user,
-    2026-11-18: it "disappears when the airship takes off/lands, and when
+    the camera tilts)"; "let's try Coneria Castle"; Coneria's played, "the
+    other castles, mirage tower, and the volcano").  Seven, by their
+    metatiles (`genm7.py`'s `LANDMARKS`): Coneria's castle, two across and
+    three down; Northwest Castle, Elfland's, the Castle of Ordeals, the
+    Temple of Fiends and the volcano, two by two; the Mirage Tower, one
+    across.  And an eighth: Northwest Castle as FFR's drawn maps have it,
+    under Elfland's towers.  Each one's art is a PNG in `art/landmarks/`,
+    to be retouched by hand (user, 2026-11-18: "I'd suggest extracting
+    these and the corresponding shadows to a PNG file for manual editing,
+    and use that in the build process").  On the left, the landmark
+    standing, magenta (or a clear pixel) where it is not; four columns;
+    on the right, the ground under it, its footprint and shadows.  The
+    build reads every pixel as the nearest of magenta, black and the
+    landmark's palette's three, and refuses magenta on the ground, or two
+    PNGs giving one metatile different ground.  A landmark's base is the
+    row below its lowest standing pixel, its anchor that row's middle.
+    `genm7.py --extract` cut the starting points from the tiles, writing
+    one only where there is none: Coneria's as it was cut before (it reads
+    back the same, pixel for pixel); the others, what their ground colours
+    do not reach from the picture's edge, the foot's rows filled out, the
+    ground under them black from the foot's top and grass or sand above.
+    The Temple's small pillar stands whole and its shadow stays on the
+    slab (user, 2026-11-18: "you chopped off the bottom half of the small
+    pillar in front of the temple"); the Temple stands on the pillar's
+    foot, four pixels south of where its walls meet the slab.  Elfland's, Ordeals' and FFR's
+    Northwest Castle have one picture, so they share frames: six in all.
+
+    The plane draws a landmark's metatiles, wherever they are, as its
+    ground: `genm7.py` makes their characters from the PNGs, not the
+    tiles, so the ring needs no writes, and the plane has 201 characters
+    now, the landmarks' pictures no longer among them.  Where they stand
+    is worked out from each map's tiles at the build: a list a map
+    (`lut_M7LMaps`, by `RANDO_MAP`, every map Map Select offers), six
+    bytes a landmark -- its picture, its column and bottom row, the party's
+    row from which it stands in front, its base's offsets from that
+    row's tile.  A landmark's metatile anywhere but in a whole one, on any
+    map, stops the build; none does today.
+
+    `m7_lands`, from `m7_scroll` every overworld frame, walks the list.
+    Each landmark within 22 rows north and 12 south of the pivot's tile,
+    and 18 columns either side, is placed (`m7_project`); if its base is
+    on the screen or below it and within 64 pixels of its sides, it is
+    kept, three at most, the nearest first (`M7LVIS`).  Each takes the
+    frame for its line's k: 15 frames, k 9/16 to 23/16, 1 among them, each
+    the 8x8 tiles that have any of it and their places from the base,
+    nearest-neighbour as the plane samples.  At k 1 a frame is its art
+    pixel for pixel, so the flat view is the art's.  The frames, about
+    52KB, are in the low halves of NES chunks `$0F` and `$0E`, which
+    nothing else uses (`mkrom.py`'s `LOWHALF`; the maps' logic slots now
+    stop at chunk `$0D`, 26 of them for Map Select's 15 at most), the
+    sprite lists all in `$0F`'s.  Three slots in the sprite table, 48
+    tiles each, `$70`-`$FF`, hold what shows: a frame is drawn from the
+    slot holding it; if none does, `flush_m7up` sends it into a slot no
+    other landmark takes this frame, at the flush that sends the sprites,
+    ahead of them, so no sprite on screen ever reads half a frame.  One
+    upload a flush: with one waiting, or no slot free, a slot holding the
+    same picture at another size stands in, and with none the landmark
+    waits a frame.  Their sprites go into OAMSHADOW's extras from entry 4,
+    the nearest's first so in front, all of a landmark or none of it if
+    the 60 would overflow.  Their colours are BG palettes 0 and 1, which
+    `pal_prep` also writes, on the overworld, to OBJ palette 4's spare
+    entries (CGRAM 196-203): colour c of palette p is 4 + 4p + c there,
+    black 4 (the Mirage Tower and the volcano are palette 1's), and the
+    haze reaches them.  The ship's sprite, drawn with the game's, goes on
+    a list, `M7XBUF` at `$0F00`, four at most, which `hal_oamdma`
+    (`oam_extras`) writes to the extras' first four entries at the
+    transfer with their high-table byte, parks the rest of the four, and
+    spends; the landmarks' it leaves alone, and once the plane is gone
+    parks all 64.  Drawn from the scroll, they show on every overworld
+    frame, whether the game draws its sprites or not (user, 2026-11-18:
+    Coneria's "disappears when the airship takes off/lands, and when
     transitioning in and out of menus" -- `AirshipTransitionFrame` draws
     the airship and not `DrawOWSprites`, and the palette cycle no
-    sprites); it keeps the frame's count (`h_m7ccount`), and the next
-    parks what it no longer uses.  The ship's sprite, drawn with the
-    game's, goes on a list, `M7XBUF` at `$0F00`, four at most, which
-    `hal_oamdma` (`oam_extras`) writes to the extras' first four entries at
-    the transfer with their high-table byte, parks the rest of the four,
-    and spends; the castle's it leaves alone, and once the plane is gone
-    parks all 64.  With the background on and the sprites off -- the
-    palette cycle, a battle's flashes -- `hal_w2001` keeps the sprite
-    layer on while the plane is up, the castle being scenery, and parks
+    sprites); a frame's count is kept (`h_m7ccount`), and the next parks
+    what it no longer uses.  With the background on and the sprites off --
+    the palette cycle, a battle's flashes -- `hal_w2001` keeps the sprite
+    layer on while the plane is up, the landmarks being scenery, and parks
     the game's 64 and the list's four in OAMSHADOW instead
-    (`oam_m7hide`), till the game's next transfer.  When the castle
-    stands in front of the party -- tilted, the party north of its base and
-    not in the airship -- the extras take entries 0-63 and the game's 64
-    move to 64-127 (`h_m7xfront`, `h_m7gbase`): `m7_castle` decides it
-    and, when it changes, swaps OAMSHADOW's halves and the high table's
-    (`m7_front`), so the next transfer writes the game's where they now
-    are.  Its base can be below the screen with its top on it (user,
-    2026-11-18: it "pops in" from the bottom "when the row of tiles its
-    grounded on aren't visible"): the objects' table runs south past the
-    screen (above); past k 23/16 it is drawn at 23/16, a little short for
-    a top just showing at 45 and 50 degrees.  The way out sends CHRSHADOW
-    back over the slots with the ship's table.  Per frame near it at 45
-    degrees, the dearest of a walk: 4,337 instructions moving, the castle
-    drawn (3,036 in the prototype, which drew it with the game's sprites),
-    109 drawing the game's sprites (1,637), 2,539 the transfer (3,685),
-    some 1,400 fewer in all; away from it 2,998, 109 and 2,539 -- against
-    some 9,600 for a frame the NES's way before the plane.  On another map the castle stays painted: a
-    general version would find each landmark from the map, and the towns
-    would want more ROM than the image has.
+    (`oam_m7hide`), till the game's next transfer.  When a landmark
+    stands in front of the party -- tilted, the party north of its base's
+    row and not in the airship -- the extras take entries 0-63 and the
+    game's 64 move to 64-127 (`h_m7xfront`, `h_m7gbase`): `m7_lands`
+    decides it and, when it changes, swaps OAMSHADOW's halves and the high
+    table's (`m7_front`), so the next transfer writes the game's where
+    they now are.  Its base can be below the screen with its top on it
+    (user, 2026-11-18: Coneria's "pops in" from the bottom "when the row
+    of tiles its grounded on aren't visible"): the objects' table runs
+    south past the screen (above); past k 23/16 one is drawn at 23/16, a
+    little short for a top just showing at 45 and 50 degrees.  The way
+    out sends CHRSHADOW back over the slots, all of `$70`-`$FF`, with the
+    ship's table.  Per frame at 45 degrees, the dearest of a walk: near
+    Coneria's 4,623 instructions moving, it drawn (4,337 with Coneria's
+    alone, before the list), away from every landmark 3,134 (2,998); 109
+    drawing the game's sprites, 2,539 the transfer.  With three in view
+    (Great Lake) 6,799 moving: 3,665 over a frame with none, about what
+    slowed the Exploding Dwarf's walking frames (2026-11-04), so to watch
+    in play.
   - **Its variables** are a separate block, `M7VARS` at `$0D80`, between
     `CHRQUEUE` and `OPTWORK`, with an assert that keeps it there.  They
     were at `HAL_VARS+$80` first, which `check_halvars.py` called free:
@@ -4609,41 +4642,44 @@ applied" (user, 2026-11-17).
     sent again at rendering off and at `hal_ppureclaim`.  Sixteen more
     mutations, all caught -- one only once the test's bridge moved off the
     game's (152, 152), where row and column are the same number.  The
-    castle, as the game runs a frame (its sprites drawn, the flush, the
-    transfer, the flush): flat, the plane and its sprites together the
-    NES picture pixel for pixel, at rest and with fine scroll on every side
-    of it, behind the party; tilted, its base within a pixel and a quarter
-    of the camera's, its size within a 20th of the camera's scale there,
-    its slot holding its frame, in front only with the party north of it;
-    walking past it, north across its base and back, every frame's
-    sprites from a slot holding the frame they were drawn with, across the
-    uploads, the party shown every frame as the castle goes in front and
-    behind; the ground under its towers grass; its colours mirrored; the
-    slots and the extras gone after.  Nineteen mutations, all caught --
-    one, the ground keeping the castle painted, only once the ground under
-    it was checked for grass: the flat picture cannot see it, the standing
-    castle covering its painted twin exactly.  Its refinements: in each
-    row from the wall to its base, the ground black from the full-size
-    frame's leftmost pixel to its rightmost, and tilted at two angles, on
-    either side and with fine scroll, every pixel of its footprint the
-    screen shows beside it black (and some shown); with its base below the
-    screen and its top on it, at every tilted angle, drawn, its base
-    within a pixel and a quarter of the camera's line, its size the
-    camera's or the largest frame; through ten frames of the airship's
-    take-off, a palette cycle out and one back in, and the sprites off and
-    on by a $2001 write with the game's in OAM: the castle shown, the
-    sprite layer on, the game's sprites gone while the sprites are off
-    and back after.  Fourteen more mutations, all caught -- three only once
-    the test looked further: the halves swapped a word short (the
-    party's count came out right with a stray copy, so the test holds the
-    game's sprites shown to the page it sent), the castle's count never
-    kept (the walk read that count to know the castle was drawn, so it
-    looks in OAMSHADOW, and holds what shows to one frame's sprites), and
-    the objects' table only to the rows kept (enough for this castle
-    tilted, not at the flat angle, which the test had left out).  Of the
-    prototype's nineteen, two are equivalent now: the upload into the slot
-    showing, since it lands in the flush that switches the sprites to it,
-    and the list left at rendering off, which the next transfer parks.  The
+    landmarks: their art in the cartridge -- each one's metatiles in the
+    plane its PNG's ground, its frame at k 1 its PNG's picture (the PNGs
+    read by the test itself, not by `genm7.py`), every map's list its
+    landmarks, found in its tiles here, and no landmark tile out of a
+    whole one, black under each one's foot; as the game runs a frame (its
+    sprites drawn, the flush, the transfer, the flush): flat, the plane
+    and the sprites together the art, pixel for pixel, all seven of the
+    game's map seen from three places each, behind the party; tilted at
+    two angles, each one's base within a pixel and a quarter of the
+    camera's, its size within a 20th of the camera's scale there, its slot
+    holding its frame, in front just with the party north of its foot's
+    row, and at the steepest angle eleven to thirteen columns to the side
+    near the top; with its base below the screen and its top on it,
+    Coneria's at every angle and the volcano's at two, drawn where the
+    camera has it at its size or the largest frame; through ten frames of
+    the airship's take-off, a palette cycle out and one back in, and the
+    sprites off and on by a $2001 write with the game's in OAM: shown, the
+    sprite layer on, the game's sprites gone while the sprites are off and
+    back after; walking past Coneria's, north across its base and back,
+    every frame's sprites from a slot holding the frame they were drawn
+    with, every slot holding the frame it names, every upload asked for a
+    whole frame into its slot, the party shown every frame as the
+    landmark goes in front and behind; two at once on Sandy Ridge
+    (Coneria's and the Mirage Tower, the two palettes) and three on Great
+    Lake (and Northwest Castle), R stepped round every angle there and a
+    walk among them, every frame each where the camera has it, the
+    nearest first in OAM, none left undrawn while a slot holds its
+    picture; their colours mirrored; the three slots used and, on the way
+    out, the sprite table back.  Nineteen mutations, all caught -- seven
+    only once the test looked further: the base a row up (the test had
+    read the PNGs through `genm7.py`, sharing the bug; it reads them
+    itself now), the farthest first (the order was held to the list's, not
+    the camera's), the columns kept to ten (no landmark to the side was
+    looked at), no stand-in (only an angle step needs two new frames at
+    once), a tile uploaded as 64 bytes (it spilled into a slot nothing
+    named), the offsets left for the objects, and the slots given back
+    only to `$BF`.  Coneria's earlier mutations are this list's now, its
+    castle code gone.  The
     ship: its frames held to the ship the game draws at the flat angle --
     the tiles and flips from the OAM it writes, the pixels from
     CHRSHADOW -- the 16 exactly, each other its nearest-neighbour scaling;
@@ -4659,9 +4695,9 @@ applied" (user, 2026-11-17).
     everywhere, "because some people might like it, and it looks cool"
     (user, 2026-11-18) -- with that one the parked airship grows as it
     recedes again, unless it gets frames too.  And a sky above a horizon
-    (no angle shows one); the ship under the bridge again.  If Coneria's
-    castle stood up looks right in play: the other castles, the Mirage
-    Tower and perhaps the towns the same way, found on every map.
+    (no angle shows one); the ship under the bridge again.  The towns
+    stood up too, perhaps, which would want frames in more of the free low
+    halves.
 
 ### Respond rate
 
@@ -6284,17 +6320,21 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      3959 free  the overworld in Mode 7 (ow7.asm, 12425: the
+    BANK_OW7      2423 free  the overworld in Mode 7 (ow7.asm, 13961: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
                              table addresses, the ship's 16 frames 8192,
-                             Coneria's castle stood up 939; the
-                             new-overworld branch, 2026-11-17 and -18).  The chunk's low half:
-                             its 256 characters, 16KB, then the tilt's
-                             tables, 15,444 bytes for six angles, to
-                             $7C54.  The last chunk: with it the 2MB image
-                             is full
+                             the landmarks stood up, their code and their
+                             lists and frame records; the new-overworld
+                             branch, 2026-11-17 and -18).  The chunk's low
+                             half: its 256 characters, 16KB, then the
+                             tilt's tables, 15,444 bytes for six angles,
+                             to $7C54.  The last chunk: with it the 2MB
+                             image is full.  The landmarks' frames are in
+                             NES chunks $0F's and $0E's low halves, which
+                             only mirrored their high halves before:
+                             30,538 and 21,472 bytes of 32KB each
     BANK_OPTTEXT2 14592 free the descriptions past the first bank's:
                              Taverns' three (~300; 2026-11-02), Rebellious
                              Princess's two (147; 2026-11-03), FUN%'s and
@@ -6302,11 +6342,11 @@ text region in the game references.
                              2026-11-03), the Exploding Dwarf's (85;
                              2026-11-04), the Goal's eleven (1070;
                              2026-11-06, Shard Hunt's six among them),
-                             Graphics' (85; 2026-11-14); and after them,
-                             a separate segment, BANK_OW7OBJ, Coneria's
-                             castle's 15 frames for the Mode 7 overworld
-                             (10,065; the new-overworld branch,
-                             2026-11-18): 4153 left, by ld65's map
+                             Graphics' (85; 2026-11-14): 14,218 left, by
+                             ld65's map (Coneria's castle's frames, there
+                             for a day on the new-overworld branch, moved
+                             to a NES chunk's low half with the other
+                             landmarks')
     HALCODE      5844 free   not available; see below (Stereo Sound's
                              apu_pan 39, 2026-11-03: hardware, a pan
                              register the game sets; the Exploding
@@ -6317,10 +6357,10 @@ text region in the game references.
                              2026-11-04: the game's samples carried to
                              the SPC700, the samples its own; the Mode 7
                              overworld's plane, its scroll and queue, the
-                             sprites' palettes and extras, the castle's
-                             upload, the sprites off without it 909,
-                             2026-11-17 and -18, on the new-overworld
-                             branch: 4935 left)
+                             sprites' palettes and extras, the
+                             landmarks' upload, the sprites off without
+                             them 902, 2026-11-17 and -18, on the
+                             new-overworld branch: 4942 left)
     SPC700 RAM               the program 1422 of the 1536 below the
                              directory (genspc.py); the game's samples
                              $2F00-$EFFF, the scream 8347 of 49408

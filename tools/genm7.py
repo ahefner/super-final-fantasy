@@ -44,11 +44,18 @@ A haze is added the farther north a line looks (COLDATA, additive colour
 maths, two HDMA tables: red and green, then blue), from FOG_NEAR pixels
 north of the pivot to full at FOG_FAR -- nothing on the flat view, which
 sees 112 north.  And for the objects ow7.asm places (the ship, the airship
-parked, Coneria's castle), the screen line a point v pixels north or south
+parked, the landmarks), the screen line a point v pixels north or south
 of the pivot lands on -- south past the screen's bottom, as far as an
 object TALLEST high standing there still shows -- and per angle the step
 of a line's inverse scale, which is linear in the line, so ow7.asm puts
 them where the plane shows their tiles, at its size there.
+
+The landmarks -- the castles, the Temple of Fiends, the Mirage Tower and
+the volcano (LANDMARKS) -- stand up as sprites, their art from
+art/landmarks/*.png (read_art, which says how they are laid out; --extract
+writes a starting point where there is none): each one's metatiles drawn in
+the plane as the ground under it, its frames at LAND_KS, and where each
+stands on each of Map Select's maps (genmaps.py's), found in their tiles.
 
 Out:
     out/ow7.bin      16KB: character n's 64 pixels at n * 64, row by row;
@@ -58,7 +65,11 @@ Out:
                      column's two); the tilt's constants and, per angle,
                      its tables' addresses in the low half; the docked
                      ship's frames, SHIP_SIZES across, and which to use
-                     for a size
+                     for a size; the landmarks' lists, a map each, and
+                     their frames' records
+    out/ow7land_XX.bin
+                     the landmarks' frames, tiles and sprite lists, in
+                     NES chunk XX's low half (LAND_CHUNKS)
 """
 import math, os, re, sys
 
@@ -67,7 +78,7 @@ ROOT = os.path.dirname(HERE)
 GAME = os.path.join(ROOT, "game")
 OUTBIN = os.path.join(ROOT, "out", "ow7.bin")
 OUTINC = os.path.join(ROOT, "gen", "ow7.inc")
-OUTOBJ = os.path.join(ROOT, "gen", "ow7obj.inc")
+OUTLAND = os.path.join(ROOT, "out", "ow7land_%02X.bin")
 
 CHR_OFF = 0x0000        # bank $02 $8000: the overworld's BG pattern table
 TSA_OFF = 0x0000        # bank $00 $8000: lut_OWTileset
@@ -86,15 +97,33 @@ FOG_SUBTRACT = False                # a fade to dark instead of a haze
 # ---- the docked ship, drawn at its distance's size (user, 2026-11-18: "The
 #      ship needs scaled frames, it still looks too big in the distance") ----
 SHIP_SIZES = list(range(8, 23)) + [24]  # pixels across: 16 frames, 16 the game's
-# ---- Coneria's castle, stood up as sprites (user, 2026-11-18: castles that
-#      "don't flatten out like they're painted on the ground"; "let's try
-#      Coneria Castle") ----------------------------------------------------
-CASTLE_KS = [n / 16 for n in range(9, 24)]  # its sizes, as inverse scales: 15, 1 among them
-# -----------------------------------------------------------------------------
-CASTLE_AT = (152, 157)              # its top-left metatile on the game's map, 2 across, 3 down
-CASTLE_TILES = ((0x09, 0x0A), (0x19, 0x1A), (0x01, 0x02))
-GRASS, YARD = 0x76, 0x3D            # the grass behind its towers, the courtyard below
-CASTLE_SLOT = 40                    # tiles a frame may take: two slots, sprite table $70-$BF
+# ---- the castles, the Temple of Fiends, the Mirage Tower and the volcano,
+#      stood up as sprites (user, 2026-11-18: castles that "don't flatten out
+#      like they're painted on the ground"; Coneria's first, then "the other
+#      castles, mirage tower, and the volcano") -------------------------------
+LAND_KS = [n / 16 for n in range(9, 24)]  # their sizes, as inverse scales: 15, 1 among them
+#  Each: its name, its art's file in art/landmarks/, and its metatiles row by
+#  row -- the plane draws each of them, wherever it is, as the ground under
+#  it -- and how --extract cuts a starting point from the map's tiles.
+LANDMARKS = [
+    ("coneria",   ((0x09, 0x0A), (0x19, 0x1A), (0x01, 0x02)), None),
+    ("northwest", ((0x09, 0x0A), (0x29, 0x2A)), dict(ground=(1,), foot=16)),
+    #  ...as FFR's drawn maps have it, under Elfland's towers
+    ("northwest-ffr", ((0x0B, 0x0C), (0x29, 0x2A)), dict(ground=(1,), foot=15)),
+    ("elfland",   ((0x0B, 0x0C), (0x1B, 0x1C)), dict(ground=(1,), foot=15)),
+    ("ordeals",   ((0x0B, 0x0C), (0x38, 0x39)), dict(ground=(1,), foot=15)),
+    ("temple",    ((0x47, 0x48), (0x57, 0x58)), dict(ground=(1, 2), foot=9, below=30,
+                                                     pillar=(26, 17, 22), fill=1)),
+    ("mirage",    ((0x0D,), (0x1D,)),           dict(ground=(2, 3), foot=22, right=11, fillmt=0x45)),
+    ("volcano",   ((0x64, 0x65), (0x74, 0x75)), dict(ground=(1,), foot=22)),
+]
+ART = os.path.join(ROOT, "art", "landmarks")
+ART_GAP = 4                         # key-coloured columns between the art and the ground
+KEY = (255, 0, 255)                 # the art's "nothing here"
+LAND_SLOT = 48                      # tiles a frame may take: three slots, sprite table $70-$FF
+LAND_SPRITES = 60                   # sprites a frame may take: the extras past the ship's four
+LAND_CHUNKS = (0x0F, 0x0E)          # the frames: these NES chunks' low halves, unused
+                                    #   (their code runs at $8000 up; mkrom.py's LOWHALF)
 TALLEST = 64                        # pixels an object stands at k 1, at most: the
                                     #   objects' table runs on south till one that
                                     #   tall, its base below the screen, shows none
@@ -121,10 +150,11 @@ def m7_pixels(chr_, t, pal):
     return bytes((pal * 16 + c) if c else 0 for row in nes_tile(chr_, t) for c in row)
 
 
-def build(chr_, tsa):
+def build(chr_, tsa, ground):
     """-> (characters as a list of 64-byte strings, per metatile the four
     corners' character numbers UL, UR, DL, DR, the characters' numbers by
-    their pixels)."""
+    their pixels).  A metatile in ground (its 16x16 pixels) is drawn so --
+    the landmarks' -- and the characters of its tiles are not made."""
     ul, ur, dl, dr, at = (tsa[0x100 + 0x80 * k:0x180 + 0x80 * k] for k in range(5))
     chars = [bytes(64)]
     index = {chars[0]: 0}
@@ -132,8 +162,11 @@ def build(chr_, tsa):
     for m in range(METATILES):
         pal = at[m] & 3
         four = []
-        for t in (ul[m], ur[m], dl[m], dr[m]):
-            pix = m7_pixels(chr_, t, pal)
+        for q, t in enumerate((ul[m], ur[m], dl[m], dr[m])):
+            if m in ground:
+                pix = bytes(ground[m][(q >> 1) * 8 + y][(q & 1) * 8 + x] for y in range(8) for x in range(8))
+            else:
+                pix = m7_pixels(chr_, t, pal)
             if pix not in index:
                 index[pix] = len(chars)
                 chars.append(pix)
@@ -142,25 +175,12 @@ def build(chr_, tsa):
     return chars, corners, index
 
 
-def specials(chars, corners, index, ground):
+def specials(chars, corners):
     """Metatiles $80 and $81, which no map has: the bridge and the canal's
     land, flattened into the plane (ow7.asm's m7_objchars draws their
-    characters at the way in, the sprite over the map's tile under it).
-    Then $82-$87, the ground under Coneria's castle (CASTLE_TILES' places,
-    row by row), their characters new where no metatile has them."""
+    characters at the way in, the sprite over the map's tile under it)."""
     corners.append([SPECIAL + k for k in range(4)])
     corners.append([SPECIAL + 4 + k for k in range(4)])
-    for ty in range(3):
-        for tx in range(2):
-            four = []
-            for q in range(4):
-                pix = bytes(ground[ty * 16 + (q >> 1) * 8 + y][tx * 16 + (q & 1) * 8 + x]
-                            for y in range(8) for x in range(8))
-                if pix not in index:
-                    index[pix] = len(chars)
-                    chars.append(pix)
-                four.append(index[pix])
-            corners.append(four)
     if len(chars) > SPECIAL:
         sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
 
@@ -333,29 +353,41 @@ def blocks_of(chr_, tsa):
     return out
 
 
-def castle(blocks):
-    """Coneria's castle off the ground.  -> (the castle, 32 across and as
-    tall as it stands, None where it is not; the ground under it, its six
-    metatiles' pixels with the castle taken out; the base, in pixels from
-    its top-left metatile's top).
+def grid_image(blocks, tiles):
+    """A landmark's metatiles' pixels, as the plane has them (pal * 16 + c)."""
+    return [[blocks[tiles[y // 16][x // 16]][y % 16][x % 16] for x in range(16 * len(tiles[0]))]
+            for y in range(16 * len(tiles))]
 
-    Its top two rows are drawn over grass (colour 1), its last over the
-    courtyard, and the courtyard's top wall runs behind its middle: the
-    castle is what is not grass above the wall, and across each row of
+
+def land_palette(tsa, name, tiles):
+    """The BG palette of a landmark's metatiles: one, 0 or 1 (its sprites
+    are drawn in OBJ palette 4's spare entries, where the HAL copies those
+    two: colour c of palette p as 4 + 4p + c)."""
+    at = tsa[0x300:0x380]
+    pals = {at[m] & 3 for row in tiles for m in row}
+    if len(pals) != 1 or not pals <= {0, 1}:
+        sys.exit("genm7: %s's metatiles take palettes %s, not one of 0 and 1" % (name, sorted(pals)))
+    return pals.pop()
+
+
+def land_colours(tsa, pal):
+    """The art's four colours as the game's map palette has them: black (the
+    backdrop), then palette pal's three."""
+    import genpal
+    owpal = tsa[0x380:0x3B0]
+    return [genpal.NESPAL[owpal[0] & 0x3F]] + [genpal.NESPAL[owpal[pal * 4 + c] & 0x3F] for c in (1, 2, 3)]
+
+
+def cut_coneria(img):
+    """--extract's Coneria: its top two rows are drawn over grass, its last
+    over the courtyard, and the courtyard's top wall runs behind its middle.
+    The castle is what is not grass above the wall, and across each row of
     the wall and below, everything from its leftmost such pixel to its
     rightmost, the green at its foot with it.  Under it: grass above the
     wall; from the wall down, its footprint, black (user, 2026-11-18: "a
-    full black shape underneath the footprint of the castle") -- where the
-    castle standing and the ground tilted under it part by a pixel, as the
-    two scale and move, its shadow shows there, not the courtyard."""
-    img = [[0] * 32 for _ in range(48)]
-    for ty, row in enumerate(CASTLE_TILES):
-        for tx, m in enumerate(row):
-            for y in range(16):
-                for x in range(16):
-                    img[ty * 16 + y][tx * 16 + x] = blocks[m][y][x]
-    green = blocks[GRASS][0][0]
-    #  The wall: the rows of the middle metatile row whose left edge is not grass.
+    full black shape underneath the footprint of the castle")."""
+    green = img[0][0]
+    yard = img[47][0]
     wall = [y for y in range(16, 32) if img[y][0] != green]
     mask = [[False] * 32 for _ in range(48)]
     for y in range(min(wall)):
@@ -364,55 +396,170 @@ def castle(blocks):
     #  wall's battlements, past it, stay on the ground.
     body = [x for y in range(min(wall) - 8, min(wall)) for x in range(32) if mask[y][x]]
     for y in range(min(wall), 48):
-        ground = img[y][0] if y in wall else blocks[YARD][y % 16][0]
+        ground = img[y][0] if y in wall else yard
         xs = [x for x in range(min(body), max(body) + 1) if img[y][x] not in (ground, green)]
         if xs:
             mask[y] = [min(xs) <= x <= max(xs) for x in range(32)]
-    base = max(y for y in range(48) if any(mask[y])) + 1
-    ground = [row[:] for row in img]
-    for y in range(48):
-        for x in range(32):
-            if mask[y][x]:
-                ground[y][x] = green if y < min(wall) else 0
-    fig = [[img[y][x] if mask[y][x] else None for x in range(32)] for y in range(base)]
-    return fig, ground, base
+    under = [[(green if y < min(wall) else 0) if mask[y][x] else img[y][x] for x in range(32)] for y in range(48)]
+    return mask, under
 
 
-def castle_frames(fig, base):
-    """The castle at each of CASTLE_KS, anchored at its base's middle: for
-    each, the 8x8 tiles that have any of it (SNES 4bpp, colour c of its
-    palette as 4 + c, in OBJ palette 4's spare entries), and the sprites,
-    (dx, dy, tile), dx and dy the tile's corner from the anchor.  A screen
-    pixel (ox, oy) from the anchor shows the castle's pixel (16 + (ox +
-    0.5) / k, base + (oy + 0.5) / k), nearest-neighbour; at k 1 exactly the castle's
-    pixel."""
+def cut(img, blocks, pal, ground, foot, below=None, right=None, pillar=None, fill=None, fillmt=None):
+    """--extract's others: the landmark is every pixel not reached from the
+    picture's edge through its ground colours (ground, palette pal's), above
+    row below and left of column right -- past row pillar[0], only columns
+    pillar[1]-pillar[2] -- and from row foot down each row's span of it
+    whole.  Under it: from foot down black, its footprint; above, ground
+    colour fill, or metatile fillmt's pixels."""
+    h, w = len(img), len(img[0])
+    below = h if below is None else below
+    right = w - 1 if right is None else right
+    gset = {pal * 16 + c for c in ground}
+    ext = [[x > right or y >= below for x in range(w)] for y in range(h)]
+    todo = [(x, y) for y in range(below) for x in range(right + 1)
+            if (y == 0 or x == 0 or x == right) and img[y][x] in gset]
+    for x, y in todo:
+        ext[y][x] = True
+    while todo:
+        x, y = todo.pop()
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= nx < w and 0 <= ny < h and not ext[ny][nx] and img[ny][nx] in gset:
+                ext[ny][nx] = True
+                todo.append((nx, ny))
+    mask = [[not ext[y][x] for x in range(w)] for y in range(h)]
+    if pillar:
+        for y in range(pillar[0], h):
+            mask[y] = [m and pillar[1] <= x <= pillar[2] for x, m in enumerate(mask[y])]
+    for y in range(foot, h):
+        xs = [x for x in range(w) if mask[y][x]]
+        if xs:
+            mask[y] = [min(xs) <= x <= max(xs) for x in range(w)]
+    under = [[(0 if y >= foot else blocks[fillmt][y % 16][x % 16] if fillmt is not None
+               else pal * 16 + (fill or ground[0])) if mask[y][x] else img[y][x]
+              for x in range(w)] for y in range(h)]
+    return mask, under
+
+
+def extract(blocks, tsa):
+    """--extract: each landmark's art, cut from its metatiles, into
+    art/landmarks/NAME.png, where there is none: a starting point, to be
+    retouched by hand (user, 2026-11-18: "extracting these and the
+    corresponding shadows to a PNG file for manual editing")."""
+    import pngio
+    for name, tiles, how in LANDMARKS:
+        path = os.path.join(ART, name + ".png")
+        if os.path.exists(path):
+            print("genm7: %s is there; left as it is" % os.path.relpath(path, ROOT))
+            continue
+        pal = land_palette(tsa, name, tiles)
+        img = grid_image(blocks, tiles)
+        mask, under = cut_coneria(img) if how is None else cut(img, blocks, pal, **how)
+        w = len(img[0])
+        code = lambda v: 1 + (v & 3)            # black 1, colour c 1 + c
+        idx = [[code(img[y][x]) if mask[y][x] else 0 for x in range(w)] + [0] * ART_GAP +
+               [code(under[y][x]) for x in range(w)] for y in range(len(img))]
+        pngio.png_write_indexed(path, idx, [KEY] + land_colours(tsa, pal))
+        print("genm7: wrote %s" % os.path.relpath(path, ROOT))
+
+
+def read_art(tsa, name, tiles):
+    """art/landmarks/NAME.png -> (the landmark standing, as tall as it is,
+    None where it is not; the ground under it, its metatiles' pixels; its
+    base, the row past its lowest; its palette).  Left, the landmark, the
+    key colour (or a clear pixel) where it is not; ART_GAP columns; right,
+    the ground, every pixel one of the four.  Each pixel the nearest of
+    black, the palette's three and the key."""
+    import pngio
+    pal = land_palette(tsa, name, tiles)
+    cols = land_colours(tsa, pal)
+    path = os.path.join(ART, name + ".png")
+    rel = os.path.relpath(path, ROOT)
+    if not os.path.exists(path):
+        sys.exit("genm7: no %s (tools/genm7.py --extract writes a starting point)" % rel)
+    w, h = 16 * len(tiles[0]), 16 * len(tiles)
+    pw, ph, rows, _ = pngio.png_read(path)
+    if (pw, ph) != (2 * w + ART_GAP, h):
+        sys.exit("genm7: %s is %dx%d, not %dx%d: the landmark, %d columns, the ground"
+                 % (rel, pw, ph, 2 * w + ART_GAP, h, ART_GAP))
+    choice = [KEY] + cols
+    def val(px):
+        if px[3] < 128:
+            return None
+        i = min(range(5), key=lambda i: sum((px[k] - choice[i][k]) ** 2 for k in range(3)))
+        return None if i == 0 else 0 if i == 1 else pal * 16 + i - 1
+    stand = [[val(rows[y][x]) for x in range(w)] for y in range(h)]
+    under = [[val(rows[y][w + ART_GAP + x]) for x in range(w)] for y in range(h)]
+    for y in range(h):
+        for x in range(w):
+            if under[y][x] is None:
+                sys.exit("genm7: %s: the ground at (%d, %d) is the key colour" % (rel, x, y))
+    shown = [y for y in range(h) if any(v is not None for v in stand[y])]
+    if not shown:
+        sys.exit("genm7: %s has nothing standing" % rel)
+    base = max(shown) + 1
+    if base < 17:
+        sys.exit("genm7: %s stands on row %d, in its first metatile row" % (rel, base))
+    return stand[:base], under, base, pal
+
+
+def land_frames(fig, base, ax):
+    """A landmark at each of LAND_KS, anchored at its base, column ax: for
+    each, the 8x8 tiles that have any of it (SNES 4bpp, colour c of BG
+    palette p as 4 + 4p + c, black 4: OBJ palette 4's spare entries), and
+    the sprites, (dx, dy, tile), dx and dy the tile's corner from the
+    anchor.  A screen pixel (ox, oy) from the anchor shows its pixel (ax +
+    (ox + 0.5) / k, base + (oy + 0.5) / k), nearest-neighbour; at k 1
+    exactly its pixel."""
     out = []
-    for k in CASTLE_KS:
+    width = len(fig[0])
+    for k in LAND_KS:
         tiles, sprites = [], []
-        half, tall = math.ceil(16 * k / 8) * 8, math.ceil(base * k / 8) * 8
+        left, right = math.ceil(ax * k / 8) * 8, math.ceil((width - ax) * k / 8) * 8
+        tall = math.ceil(base * k / 8) * 8
         for dy in range(-tall, 0, 8):
-            for dx in range(-half, half, 8):
+            for dx in range(-left, right, 8):
                 pix = []
                 for y in range(8):
                     for x in range(8):
-                        sx = math.floor(16 + (dx + x + 0.5) / k)
+                        sx = math.floor(ax + (dx + x + 0.5) / k)
                         sy = math.floor(base + (dy + y + 0.5) / k)
-                        v = fig[sy][sx] if 0 <= sx < 32 and 0 <= sy < base else None
-                        pix.append(0 if v is None else 4 + (v & 3))
+                        v = fig[sy][sx] if 0 <= sx < width and 0 <= sy < base else None
+                        pix.append(0 if v is None else 4 if v == 0 else 4 + 4 * (v >> 4) + (v & 3))
                 if any(pix):
                     t = bytearray(32)
                     for y in range(8):
                         for x in range(8):
                             v = pix[y * 8 + x]
-                            for plane in range(3):
+                            for plane in range(4):
                                 if v >> plane & 1:
                                     t[(16 if plane >= 2 else 0) + 2 * y + (plane & 1)] |= 0x80 >> x
                     sprites.append((dx, dy, len(tiles)))
                     tiles.append(bytes(t))
-        if len(tiles) > CASTLE_SLOT:
-            sys.exit("genm7: the castle at %.3f takes %d tiles, past a slot's %d" % (k, len(tiles), CASTLE_SLOT))
         out.append((tiles, sprites))
     return out
+
+
+def find_landmarks(t, what):
+    """Where each landmark is on a map (65,536 tiles): [(its LANDMARKS
+    index, its left column, its bottom row)].  A landmark's metatile
+    anywhere but in one whole is an error: the plane draws it as ground."""
+    found, covered = [], set()
+    for i, (name, tiles, _) in enumerate(LANDMARKS):
+        rows, cols = len(tiles), len(tiles[0])
+        at = t.find(bytes([tiles[0][0]]))
+        while at >= 0:
+            x, y = at & 255, at >> 8
+            cells = [((y + r) & 255) * 256 + ((x + c) & 255) for r in range(rows) for c in range(cols)]
+            if [t[p] for p in cells] == [m for row in tiles for m in row]:
+                found.append((i, x, (y + rows - 1) & 255))
+                covered.update(cells)
+            at = t.find(bytes([tiles[0][0]]), at + 1)
+    alls = {m for _, tiles, _ in LANDMARKS for row in tiles for m in row}
+    stray = [(p & 255, p >> 8, t[p]) for p in range(65536) if t[p] in alls and p not in covered]
+    if stray:
+        sys.exit("genm7: %s has landmark tiles not in a whole landmark: %s"
+                 % (what, ", ".join("$%02X at (%d, %d)" % (m, x, y) for x, y, m in stray[:6])))
+    return found
 
 
 def ship_frames(img):
@@ -447,10 +594,57 @@ def ship_frames(img):
 def main():
     chr_ = open(os.path.join(GAME, "bank_02.dat"), "rb").read()[CHR_OFF:CHR_OFF + 0x1000]
     tsa = open(os.path.join(GAME, "bank_00.dat"), "rb").read()[TSA_OFF:TSA_OFF + 0x400]
-    chars, corners, index = build(chr_, tsa)
-    fig, ground, base = castle(blocks_of(chr_, tsa))
-    specials(chars, corners, index, ground)
-    frames_c = castle_frames(fig, base)
+    blocks = blocks_of(chr_, tsa)
+    if sys.argv[1:] == ["--extract"]:
+        extract(blocks, tsa)
+        return
+    #  The landmarks' art; each metatile of one drawn in the plane as the
+    #  ground under it, the same wherever two share it.
+    arts, kinds, ground, owner = [], [], {}, {}
+    for name, tiles, _ in LANDMARKS:
+        fig, under, base, pal = read_art(tsa, name, tiles)
+        for r, row in enumerate(tiles):
+            for c, m in enumerate(row):
+                block = [under[r * 16 + y][c * 16:c * 16 + 16] for y in range(16)]
+                if m in ground and ground[m] != block:
+                    sys.exit("genm7: metatile $%02X's ground differs in art/landmarks/%s.png and %s.png"
+                             % (m, owner[m], name))
+                ground[m], owner[m] = block, name
+        key = (tuple(map(tuple, fig)), base)
+        if key not in [a[0] for a in arts]:
+            arts.append((key, fig, base))
+        kinds.append(([a[0] for a in arts].index(key), base, len(tiles), 16 * len(tiles[0])))
+    chars, corners, index = build(chr_, tsa, ground)
+    specials(chars, corners)
+    #  Their frames: every sprite list in LAND_CHUNKS[0]'s low half (ow7.asm
+    #  reads them from one bank), each art's tiles in whichever has room.
+    if len(arts) > 15:
+        sys.exit("genm7: %d landmarks' arts; a frame is named art * 16 + size, $FF none" % len(arts))
+    allframes = [land_frames(fig, base, len(fig[0]) // 2) for _, fig, base in arts]
+    blobs = {c: bytearray() for c in LAND_CHUNKS}
+    sprat = []
+    for frames in allframes:
+        for tiles, sprites in frames:
+            if not tiles or len(tiles) > LAND_SLOT or len(sprites) > LAND_SPRITES:
+                sys.exit("genm7: a landmark's frame takes %d tiles and %d sprites, not 1-%d and %d"
+                         % (len(tiles), len(sprites), LAND_SLOT, LAND_SPRITES))
+            sprat.append(len(blobs[LAND_CHUNKS[0]]))
+            blobs[LAND_CHUNKS[0]] += bytes(b for dx, dy, t in sprites for b in (dx & 0xFF, dy & 0xFF, t))
+    records = []
+    for frames in allframes:
+        size = sum(32 * len(t) for t, _ in frames)
+        room = [c for c in LAND_CHUNKS if len(blobs[c]) + size <= 0x8000]
+        if not room:
+            sys.exit("genm7: the landmarks' frames past %s's low halves" % ", ".join("$%02X" % c for c in LAND_CHUNKS))
+        blob = blobs[room[0]]
+        for tiles, sprites in frames:
+            records.append((len(blob), 0xC1 + room[0], sprat[len(records)], len(tiles), len(sprites)))
+            blob += b"".join(tiles)
+    #  Where they stand on each of Map Select's maps (genmaps.py's list).
+    import genmaps
+    lists = []
+    for entry in genmaps.parse():
+        lists.append(find_landmarks(bytes(genmaps.tiles_of(entry)[0]), entry[3]))
     north, south, west, east = region()
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tables, offs = tilt_tables(vmin, vmax)
@@ -490,30 +684,37 @@ def main():
     out.append("lut_M7Ship:              ; OBJ table 0 on the overworld: the ship's 16 frames")
     for i in range(0, len(frames), 16):
         out.append("  .BYTE " + ", ".join("$%02X" % b for b in frames[i:i + 16]))
-    out.append("M7C_X = %d               ; Coneria's castle: its top-left metatile on the game's map" % CASTLE_AT[0])
-    out.append("M7C_Y = %d" % CASTLE_AT[1])
-    out.append("M7C_BASE = %d             ; its base, pixels below that metatile's top" % base)
-    out.append("M7C_GROUND = $82          ; the ground under it, metatiles $82-$87 row by row")
-    out.append("M7C_FRAMES = %d           ; its sizes: k 9/16 on, a sixteenth apart" % len(CASTLE_KS))
-    out.append("M7C_K0 = %d" % round(CASTLE_KS[0] * 16))
-    out.append("M7C_SLOT = %d             ; tiles a frame may take" % CASTLE_SLOT)
-    obj = ["; generated by tools/genm7.py -- do not edit",
-           "; Coneria's castle stood up: per size (k 9/16 on), its tiles' address,",
-           "; its sprites' address (dx, dy, tile), how many tiles, how many sprites",
-           "lut_M7CFrame:"]
-    for i, (tiles, sprites) in enumerate(frames_c):
-        obj.append("  .WORD m7c_tiles%d, m7c_spr%d" % (i, i))
-        obj.append("  .BYTE %d, %d" % (len(tiles), len(sprites)))
-    for i, (tiles, sprites) in enumerate(frames_c):
-        obj.append("m7c_spr%d:" % i)
-        for dx, dy, t in sprites:
-            obj.append("  .BYTE $%02X, $%02X, $%02X" % (dx & 0xFF, dy & 0xFF, t))
-        obj.append("m7c_tiles%d:" % i)
-        blob = b"".join(tiles)
-        for j in range(0, len(blob), 16):
-            obj.append("  .BYTE " + ", ".join("$%02X" % b for b in blob[j:j + 16]))
-    with open(OUTOBJ, "w") as f:
-        f.write("\n".join(obj) + "\n")
+    out.append("M7L_FRAMES = %d          ; a landmark's sizes: k M7L_K0 / 16 on, a sixteenth apart" % len(LAND_KS))
+    out.append("M7L_K0 = %d" % round(LAND_KS[0] * 16))
+    out.append("M7L_SLOT = %d            ; tiles a frame may take" % LAND_SLOT)
+    out.append("M7L_SPRITES = %d         ; sprites a frame may take" % LAND_SPRITES)
+    out.append("M7L_MAPS = %d             ; Map Select's maps, a list each" % len(lists))
+    out.append("M7L_REC = 6              ; a list's record: art, column, bottom row, the party's")
+    out.append("                         ;   row from which it stands in front, x and y offsets")
+    out.append("lut_M7LMaps:")
+    out.append("  .WORD " + ", ".join("m7l_map%d" % i for i in range(len(lists))))
+    for i, found in enumerate(lists):
+        out.append("m7l_map%d:" % i)
+        for k, x, y in found:
+            art, base, rows, width = kinds[k]
+            top = (y - rows + 1) & 255
+            out.append("  .BYTE %d, %d, %d, %d, $%02X, $%02X   ; %s" % (
+                art, x, y, (top + (base - 17) // 16 + 1) & 255,
+                (width // 2 - 8) & 0xFF, (base - (rows - 1) * 16 - 8) & 0xFF, LANDMARKS[k][0]))
+        out.append("  .BYTE $FF")
+    out.append("M7L_SPRCHUNK = $%02X       ; the chunk whose low half has the sprite lists" % LAND_CHUNKS[0])
+    out.append("lut_M7LFrame:            ; per art, 16 sizes (the last unused): its tiles' address")
+    out.append("                         ;   and bank, its sprites' (dx, dy, tile), how many of each")
+    for i, (at, bank, spr, nt, ns) in enumerate(records):
+        out.append("  .WORD $%04X" % at)
+        out.append("  .BYTE $%02X" % bank)
+        out.append("  .WORD $%04X" % spr)
+        out.append("  .BYTE %d, %d, 0" % (nt, ns))
+        if i % len(LAND_KS) == len(LAND_KS) - 1:
+            out.append("  .BYTE 0, 0, 0, 0, 0, 0, 0, 0")
+    for c in LAND_CHUNKS:
+        with open(OUTLAND % c, "wb") as f:
+            f.write(bytes(blobs[c]))
     out += ["lut_M7Row:"]
     for m, (a, b, c, d) in enumerate(corners):
         out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, b, c, d, m))

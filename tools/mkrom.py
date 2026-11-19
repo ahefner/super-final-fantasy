@@ -55,7 +55,10 @@ LOWHALF = {0x1C: "fundata.bin",             # FUN%: the scream's sample
            0x19: "maps_19.bin", 0x1A: "maps_1A.bin", 0x1B: "maps_1B.bin", 0x18: "maps_18.bin",
            0x17: "maps_17.bin", 0x16: "maps_16.bin", 0x15: "maps_15.bin", 0x14: "maps_14.bin",
            0x13: "maps_13.bin", 0x11: "maps_11.bin", 0x1D: "maps_1D.bin",
-           0x1E: "ow7.bin"}                 # the overworld's Mode 7 characters (genm7.py)
+           0x1E: "ow7.bin",                 # the overworld's Mode 7 characters (genm7.py)
+           #  ...and its landmarks' frames (genm7.py's LAND_CHUNKS): NES chunks,
+           #  whose low halves the logic slots stop short of (genmaps.py)
+           0x0F: "ow7land_0F.bin", 0x0E: "ow7land_0E.bin"}
 
 
 def read(path, want):

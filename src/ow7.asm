@@ -15,9 +15,9 @@
 ;                airship's shadow stand -- on the plane for M7X and M7Y.
 ;                Then whatever row or column the view has just come to,
 ;                drawn (m7_sync), R stepping the angle (for now), and
-;                Coneria's castle stood up, into OAM (m7_castle): from
-;                here, as every overworld frame sets its scroll, the frames
-;                the game draws no sprites in among them.
+;                the landmarks stood up, into OAM (m7_lands): from here,
+;                as every overworld frame sets its scroll, the frames the
+;                game draws no sprites in among them.
 ;    m7_enter    PrepOverworld's end: the plane's characters if VRAM lost
 ;                them, every row and column the view can see, and the
 ;                plane on (h_m7on).
@@ -44,9 +44,9 @@
 .include "Constants.inc"
 .include "variables.inc"
 
-.import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl, lut_M7CFrame
+.import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
-.export lut_M7Row, lut_M7Col            ; for tools/test_options.py
+.export lut_M7Row, lut_M7Col, lut_M7LFrame, lut_M7LMaps   ; for tools/test_options.py
 .export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7Ship, lut_M7ShipTile
 
 .segment "BANK_OW7"
@@ -71,7 +71,9 @@ RING      = M7RING & $FFFF              ; the ring and the queue, by DBR $7E
 RINGEND   = RING + M7RING_ROWS * $100
 QUEUE     = M7QUEUE & $FFFF
 .assert ^M7RING = ^M7QUEUE, error, "the ring and the queue share a bank"
-.assert M7C_SLOT <= 64 - M7C_FIRST, error, "a castle frame's sprites past the extras' 64"
+M7LSPRFAR = $C00000 + (1 + M7L_SPRCHUNK) * $10000 ; the landmarks' sprite lists, long
+.assert M7L_SPRITES <= 64 - M7C_FIRST, error, "a landmark frame's sprites past the extras' 64"
+.assert M7L_SLOT <= M7L_SLOTW && M7L_SLOT0 + 3 * M7L_SLOTW <= $100, error, "the landmarks' three slots past the sprite table"
 .assert M7C_FIRST = 4, error, "the listed extras: entries 0-3, their high-table byte oam_extras' alone"
 
 
@@ -97,8 +99,8 @@ m7_rowcol:
 ;;  the 1024-pixel plane, down by NES_TOP_CROP - 1 as flush_scroll puts
 ;;  BG1VOFS; and the pivot on the plane, M7X and M7Y, at its column and
 ;;  line on screen (the hardware's line is the screen's + 1).  With the
-;;  plane up, R, the rows and columns, and on the game's map the castle,
-;;  placed by the same scroll the flush gives the plane.  Everything kept.
+;;  plane up, R, the rows and columns, and the landmarks, placed by the
+;;  same scroll the flush gives the plane.  Everything kept.
 m7_scroll:
     PHP
     PHA
@@ -148,9 +150,7 @@ m7_scroll:
     BEQ :+
     JSR m7_step
     JSR m7_sync
-    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
-    BNE :+                      ; (a prototype: the game's map alone)
-    JSR m7_castle
+    JSR m7_lands
 :   SEP #$30
     .i8
     SEC
@@ -445,33 +445,6 @@ m7_decode:
     INX
     CPX #8
     BCC @obj
-    ;  Coneria's castle, on the game's map: its six metatiles the ground under
-    ;  it ($82-$87), the castle itself being sprites (m7_castle).
-    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
-    AND #$00FF
-    BNE @nocastle
-    LDA a:h_m7row
-    SEC
-    SBC #M7C_Y
-    AND #$00FF
-    CMP #3
-    BCS @nocastle
-    ASL A
-    ADC #M7C_GROUND             ; the row's two: $82 + 2 * its row, and + 1
-    STA a:h_m7n
-    LDA a:h_m7row
-    AND #M7RING_ROWS - 1
-    CLC
-    ADC #>RING
-    XBA
-    ORA #M7C_X
-    TAX
-    LDA a:h_m7n
-    INC A
-    XBA
-    ORA a:h_m7n
-    STA f:M7RING & $FF0000, X   ; both: $82 + 2r, then $83 + 2r
-@nocastle:
     LDA a:h_m7save
     STA z:tmp
     LDA a:h_m7save+2
@@ -722,19 +695,19 @@ m7_enter:
     .i16
     JSR m7_tables
     JSR m7_objchars
-    ;  Coneria's castle: neither slot holds a frame, nothing waits, no
-    ;  extras yet -- every OAMSHADOW entry off the bottom, the high table
-    ;  zero, the halves the NES's way round (the game's next transfer
+    ;  The landmarks: no slot holds a frame, none on screen, nothing waits,
+    ;  no extras yet -- every OAMSHADOW entry off the bottom, the high
+    ;  table zero, the halves the NES's way round (the game's next transfer
     ;  fills the game's range).
     REP #$20
     .a16
     LDA #$FFFF
-    STA a:h_m7cframe
+    STA a:h_m7lkey
+    STA a:h_m7lkey + 1
     STZ a:h_m7oux
     STZ a:h_m7ouy
     SEP #$20
     .a8
-    STZ a:h_m7cslot
     STZ a:h_m7upon
     STZ a:M7XBUF
     STZ a:h_m7xfront
@@ -1432,47 +1405,108 @@ m7_xadd:
 
 .a8
 .i16
-;;  Coneria's castle stood up (user, 2026-11-18): its base -- the middle of
-;;  its two columns, M7C_BASE below its top -- placed as any object
-;;  (m7_project), and genm7.py's frame for that line's inverse scale, k in
-;;  sixteenths, drawn upwards from it as 8x8 sprites into OAMSHADOW's
-;;  extras from entry M7C_FIRST on: from m7_scroll, by the scroll the
-;;  flush gives the plane with them, every overworld frame -- the airship's
-;;  take-off and landing and a menu's palette cycle, which draw none of the
-;;  game's sprites, among them -- and with its base below the screen while
-;;  its top shows.  The frame from whichever of two slots in the sprite
-;;  table holds it; if neither does, uploaded into the other (m7_cupload)
-;;  by the flush that sends these sprites, before them, so neither slot is
-;;  written while it shows.  One upload a flush; with one waiting, the slot
-;;  in use as it is.  In front of the party when the party stands north of
-;;  the castle's base, tilted and not in the air: OAMSHADOW's halves
-;;  swapped when that changes (m7_oamswap).  Entries the last frame held
-;;  and this one does not, off the bottom (h_m7ccount).  A8 I16.
-m7_castle:
-    LDA #M7C_X
+;;  The landmarks stood up (user, 2026-11-18: Coneria's castle, then "the
+;;  other castles, mirage tower, and the volcano"): those on the map in
+;;  play (genm7.py's list for RANDO_MAP; past the list, the game's map's)
+;;  near the pivot's tile, each placed by its base as any object
+;;  (m7_project) -- its base below the screen while its top shows -- and
+;;  M7L_VIS of them at most, the nearest (M7LVIS).  Each is drawn in
+;;  genm7.py's frame for its line's inverse scale, k in sixteenths, upwards
+;;  from its base as 8x8 sprites into OAMSHADOW's extras from entry
+;;  M7C_FIRST on, the nearest first, so in front.  From m7_scroll, by the
+;;  scroll the flush gives the plane with them, every overworld frame --
+;;  the airship's take-off and landing and a menu's palette cycle, which
+;;  draw none of the game's sprites, among them.  A frame is drawn from
+;;  whichever of three slots in the sprite table holds it (h_m7lkey); if
+;;  none does, it is uploaded into one no other takes (m7_lupload) by the
+;;  flush that sends these sprites, before them.  One upload a flush: with
+;;  one waiting, or no slot free, a slot holding the
+;;  same art at another size stands in, and with none the landmark waits a
+;;  frame.  The landmarks stand in front of the party when it is north of
+;;  one's base row, tilted and not in the air: OAMSHADOW's halves swapped
+;;  when that changes (m7_front).  Entries the last frame held and this one
+;;  does not, off the bottom (h_m7ccount).  A8 I16.
+m7_lands:
+    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
+    CMP #M7L_MAPS
+    BCC :+
+    LDA #0                      ; a map past the list: the game's, as map_id has it
+:   REP #$20
+    .a16
+    AND #$00FF
+    ASL A
+    TAX
+    LDA f:OW7FAR + lut_M7LMaps, X
+    STA a:h_m7lptr
+    SEP #$20
+    .a8
+    STZ a:h_m7lnvis
+    STZ a:h_m7lfront
+    BRA @each
+@skip16:
+    SEP #$20
+    .a8
+@skip:
+    JMP @next
+@each:
+    LDX a:h_m7lptr
+    LDA f:OW7FAR, X             ; its art; $FF past the last
+    CMP #$FF
+    BNE :+
+    JMP @listed
+    ;  Near: its bottom row from 22 north of the pivot's to 12 south, its
+    ;  column within 18 (m7_project has the exact bounds).
+:   LDA f:OW7FAR + 2, X
+    SEC
+    SBC z:ow_scroll_y
+    SEC
+    SBC #7
+    CLC
+    ADC #22
+    CMP #22 + 13
+    BCS @skip
+    LDA f:OW7FAR + 1, X
+    SEC
+    SBC z:ow_scroll_x
+    SEC
+    SBC #7
+    CLC
+    ADC #18
+    CMP #18 + 19
+    BCS @skip
+    LDA f:OW7FAR + 1, X
     STA a:h_m7ox
-    LDA #M7C_Y + 2
+    LDA f:OW7FAR + 2, X
     STA a:h_m7oy
     REP #$20
     .a16
-    LDA #8                      ; between its two columns
+    LDA f:OW7FAR + 4, X         ; its base: pixels east of its left
+    AND #$00FF                  ;   column's centre, and south of its
+    EOR #$0080                  ;   bottom row's, signed bytes
+    SEC
+    SBC #$0080
     STA a:h_m7oux
-    LDA #M7C_BASE - 40          ; its base, from its bottom row's centre
+    LDA f:OW7FAR + 5, X
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080
     STA a:h_m7ouy
     SEP #$20
     .a8
     JSR m7_project
+    BCS @skip
     REP #$20
     .a16
-    STZ a:h_m7oux
-    STZ a:h_m7ouy
-    SEP #$20
-    .a8
-    BCC :+
-    JMP @none
-:   REP #$20
-    .a16
-    LDA a:h_m7cnt
+    LDA a:h_m7ocx
+    CLC
+    ADC #64
+    CMP #256 + 128              ; its base's x within 64 of the screen
+    BCS @skip16
+    LDA a:h_m7oline
+    BPL :+
+    JMP @next16                 ; its base above the top: none of it shows
+:   LDA a:h_m7cnt
     CLC
     ADC #8
     LSR A
@@ -1480,101 +1514,281 @@ m7_castle:
     LSR A
     LSR A                       ; k in sixteenths, rounded
     SEC
-    SBC #M7C_K0
+    SBC #M7L_K0
     BPL :+
     LDA #0
-:   CMP #M7C_FRAMES
+:   CMP #M7L_FRAMES
     BCC :+
-    LDA #M7C_FRAMES - 1
-:   STA a:h_m7n                 ; the frame wanted
-    LDA a:h_m7cslot
+    LDA #M7L_FRAMES - 1
+:   STA a:h_m7n                 ; its size
+    SEP #$20
+    .a8
+    LDX a:h_m7lptr
+    LDA f:OW7FAR, X
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ORA a:h_m7n
+    STA a:h_m7n                 ; the frame wanted: art * 16 + size
+    LDA a:h_m7ty
+    SEC
+    SBC f:OW7FAR + 3, X         ; the party north of its row: in front
+    BPL :+
+    STA a:h_m7lfront
+    ;  Into M7LVIS, the nearest (the greatest line) first; past M7L_VIS,
+    ;  the farthest left out.
+:   REP #$20
+    .a16
+    LDA a:h_m7lnvis
     AND #$00FF
-    TAX                         ; the slot in use
+    ASL A
+    ASL A
+    ASL A
+    STA a:h_m7pc                ; past the entries
+    LDY #0
+@find:
+    CPY a:h_m7pc
+    BCS @insert
+    LDA a:h_m7oline
+    CMP a:M7LVIS, Y             ; (both 0-400 here)
+    BCS @insert
+    TYA
+    CLC
+    ADC #8
+    TAY
+    BRA @find
+@insert:
+    CPY #8 * M7L_VIS
+    BCS @next16                 ; farther than every one kept
+    LDX a:h_m7pc
+    CPX #8 * M7L_VIS
+    BCC :+
+    LDX #8 * (M7L_VIS - 1)      ; all kept: the farthest falls off
+:   STY a:h_m7left
+@shift:
+    CPX a:h_m7left
+    BEQ @put
+    LDA a:M7LVIS - 8, X
+    STA a:M7LVIS, X
+    LDA a:M7LVIS - 6, X
+    STA a:M7LVIS + 2, X
+    LDA a:M7LVIS - 4, X
+    STA a:M7LVIS + 4, X
+    LDA a:M7LVIS - 2, X
+    STA a:M7LVIS + 6, X
+    TXA
+    SEC
+    SBC #8
+    TAX
+    BRA @shift
+@put:
+    LDA a:h_m7oline
+    STA a:M7LVIS, Y
+    LDA a:h_m7ocx
+    STA a:M7LVIS + 2, Y
     SEP #$20
     .a8
     LDA a:h_m7n
-    CMP a:h_m7cframe, X
-    BEQ @slot
-    TXA
-    EOR #1
-    TAX                         ; the other
-    LDA a:h_m7n
-    CMP a:h_m7cframe, X
-    BEQ @switch
-    LDA a:h_m7upon
-    BEQ @upload
-    TXA                         ; an upload already waits: the slot in use
-    EOR #1
-    TAX
-    BRA @slot
-@upload:
-    LDA a:h_m7n
-    STA a:h_m7cframe, X
-    JSR m7_cupload
-@switch:
-    TXA
-    STA a:h_m7cslot
-@slot:
-    LDA a:h_m7cframe, X
-    CMP #$FF
-    BNE :+
-    JMP @none                   ; nothing there yet
-:   PHX
+    STA a:M7LVIS + 4, Y
+    LDA a:h_m7lnvis
+    CMP #M7L_VIS
+    BCS @next
+    INC a:h_m7lnvis
+    BRA @next
+@next16:
+    SEP #$20
+    .a8
+@next:
     REP #$20
     .a16
-    AND #$00FF
-    STA a:h_m7pc
-    ASL A
-    ADC a:h_m7pc
-    ASL A                       ; six bytes a frame's record
-    TAX
-    LDA f:OW7OBJFAR + lut_M7CFrame + 2, X  ; its sprites
-    STA a:h_m7addr
-    LDA f:OW7OBJFAR + lut_M7CFrame + 5, X  ; how many
-    AND #$00FF
-    STA a:h_m7left
-    PLX
-    LDA #M7C_SLOT0
-    CPX #0
-    BEQ :+
-    LDA #M7C_SLOT1
-:   STA a:h_m7line              ; (borrowed: the slot's first tile)
-    LDA a:h_m7oline
-    STA a:h_m7row               ; (borrowed: the base's screen line)
-    ;  In front of the party, or behind?
+    LDA a:h_m7lptr
+    CLC
+    ADC #M7L_REC
+    STA a:h_m7lptr
     SEP #$20
     .a8
+    JMP @each
+
+@listed:
+    REP #$20
+    .a16
+    STZ a:h_m7oux               ; (m7_objpos and m7_ship place tiles' centres)
+    STZ a:h_m7ouy
+    LDA a:h_m7lnvis
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    STA a:h_m7pc                ; past the entries
+    SEP #$20
+    .a8
+    ;  Each its frame from the slot that holds it...
+    STZ a:h_m7lused
+    LDY #0
+@exact:
+    CPY a:h_m7pc
+    BCS @exacted
+    LDA #$FF
+    STA a:M7LVIS + 5, Y
+    LDA a:M7LVIS + 4, Y
+    LDX #0
+:   CMP a:h_m7lkey, X
+    BEQ :+
+    INX
+    CPX #3
+    BCC :-
+    BRA @exnext
+:   TXA
+    STA a:M7LVIS + 5, Y
+    LDA f:OW7FAR + lut_M7LBit, X
+    ORA a:h_m7lused
+    STA a:h_m7lused
+@exnext:
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #8
+    TAY
+    SEP #$20
+    .a8
+    BRA @exact
+@exacted:
+    LDY #0
+@other:
+    CPY a:h_m7pc
+    BCS @slotted
+    LDA a:M7LVIS + 5, Y
+    CMP #$FF
+    BNE @onext
+    LDA a:h_m7upon
+    BNE @borrow
+    ;  ...or uploaded into a slot no other takes this frame (the flush
+    ;  sends the tiles before the sprites, so the last frame's never show
+    ;  the new ones)...
+    LDX #0
+:   LDA f:OW7FAR + lut_M7LBit, X
+    AND a:h_m7lused
+    BEQ @free
+    INX
+    CPX #3
+    BCC :-
+@borrow:
+    ;  ...or, with an upload waiting or no slot free, drawn at the size a
+    ;  slot holding its art has, till its frame comes; with none, not drawn.
+    LDA a:M7LVIS + 4, Y
+    AND #$F0
+    STA a:h_m7save + 3
+    LDX #0
+:   LDA a:h_m7lkey, X
+    CMP #$FF
+    BEQ :+
+    AND #$F0
+    CMP a:h_m7save + 3
+    BEQ @lend
+:   INX
+    CPX #3
+    BCC :--
+    BRA @onext
+@lend:
+    LDA a:h_m7lkey, X
+    STA a:M7LVIS + 4, Y
+    BRA @take
+@free:
+    LDA a:M7LVIS + 4, Y
+    STA a:h_m7lkey, X
+    JSR m7_lupload              ; (X and Y kept)
+@take:
+    TXA
+    STA a:M7LVIS + 5, Y
+    LDA f:OW7FAR + lut_M7LBit, X
+    ORA a:h_m7lused
+    STA a:h_m7lused
+@onext:
+    REP #$20
+    .a16
+    TYA
+    CLC
+    ADC #8
+    TAY
+    SEP #$20
+    .a8
+    BRA @other
+@slotted:
+    ;  In front of the party, or behind?
     LDA a:h_m7lvl
     CMP #2
     BCC @behind                 ; flat, the NES's way: the party over all
     LDA z:vehicle
     CMP #$08
-    BEQ @behind                 ; the airship flies over it
-    LDA a:h_m7ty
-    CMP #M7C_Y + (M7C_BASE - 17) / 16 + 1
-    BCS @behind
+    BEQ @behind                 ; the airship flies over them
+    LDA a:h_m7lfront
+    BEQ @behind
     LDA #1
     BRA @front
 @behind:
     LDA #0
 @front:
     JSR m7_front
-    ;  Its sprites, into the extras from M7C_FIRST on: Y walks OAMSHADOW.
+    ;  Their sprites, the nearest's first, into the extras from M7C_FIRST
+    ;  on: Y walks OAMSHADOW.
     REP #$20
     .a16
     LDA a:h_m7save + 4
     CLC
     ADC #M7C_FIRST * 4
     TAY
+    STZ a:h_m7lptr              ; (M7LVIS's entry now)
+@land:
+    LDX a:h_m7lptr
+    CPX a:h_m7pc
+    BCC :+
+    JMP @rest
+:   LDA a:M7LVIS + 5, X
+    AND #$00FF
+    CMP #$00FF
+    BNE :+
+    JMP @nextland               ; no slot this frame
+:   ASL A
+    TAX
+    LDA f:OW7FAR + lut_M7LTile, X
+    STA a:h_m7line              ; (borrowed: the slot's first tile)
+    LDX a:h_m7lptr
+    LDA a:M7LVIS, X
+    STA a:h_m7row               ; (borrowed: the base's screen line)
+    LDA a:M7LVIS + 2, X
+    STA a:h_m7ocx
+    LDA a:M7LVIS + 4, X
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    TAX                         ; its frame's record
+    LDA f:OW7FAR + lut_M7LFrame + 3, X
+    STA a:h_m7addr              ; its sprites
+    LDA f:OW7FAR + lut_M7LFrame + 6, X
+    AND #$00FF
+    STA a:h_m7left              ; how many
+    TYA                         ; room for them all in the extras, or
+    SEC                         ;   none of it drawn
+    SBC a:h_m7save + 4
+    LSR A
+    LSR A
+    CLC
+    ADC a:h_m7left
+    CMP #64 + 1
+    BCC @spr
+    JMP @nextland
 @spr:
     LDA a:h_m7left
     BNE :+
-    JMP @rest
+    JMP @nextland
 :   DEC a:h_m7left
     LDX a:h_m7addr
-    LDA f:OW7OBJFAR, X          ; dx, dy
+    LDA f:M7LSPRFAR, X          ; dx, dy
     STA a:h_m7cnt
-    LDA f:OW7OBJFAR + 2, X      ; the tile in the frame
+    LDA f:M7LSPRFAR + 2, X      ; the tile in the frame
     AND #$00FF
     CLC
     ADC a:h_m7line
@@ -1621,7 +1835,7 @@ m7_castle:
     LDA #$20 | (4 << 1) | 1     ; in front of the plane; OBJ palette 4; the sprite table
     STA a:OAMSHADOW + 3, Y
     XBA
-    BEQ @put                    ; x's ninth bit, into the high table
+    BEQ @put1                   ; x's ninth bit, into the high table
     REP #$20
     .a16
     TYA
@@ -1646,7 +1860,7 @@ m7_castle:
     LDA a:h_m7save + 3
     ORA a:OAMSHADOW + 512, X
     STA a:OAMSHADOW + 512, X
-@put:
+@put1:
     REP #$20
     .a16
     INY
@@ -1654,17 +1868,12 @@ m7_castle:
     INY
     INY
     JMP @spr
-@none:
-    SEP #$20
-    .a8
-    LDA #0
-    JSR m7_front                ; none drawn: behind, as the NES has it
-    REP #$20
-    .a16
-    LDA a:h_m7save + 4
+@nextland:
+    LDA a:h_m7lptr
     CLC
-    ADC #M7C_FIRST * 4
-    TAY
+    ADC #8
+    STA a:h_m7lptr
+    JMP @land
 @rest:
     ;  This frame's count; the last one's entries past it off the bottom.
     TYA
@@ -1698,11 +1907,11 @@ m7_castle:
     STA a:h_oamdirty
     RTS
 
-;;  The castle in front of the party (A 1) or behind it (0): if that is not
-;;  how OAMSHADOW is arranged, its two halves swapped -- the game's 64 and
-;;  the extras, and their high-table halves -- and h_m7xfront so for
+;;  The landmarks in front of the party (A 1) or behind it (0): if that is
+;;  not how OAMSHADOW is arranged, its two halves swapped -- the game's 64
+;;  and the extras, and their high-table halves -- and h_m7xfront so for
 ;;  hal_oamdma.  Then the extras' first byte in OAMSHADOW at h_m7save + 4,
-;;  and the castle's high-table bytes, M7C_FIRST on, zero.  A8 I16.
+;;  and the landmarks' high-table bytes, M7C_FIRST on, zero.  A8 I16.
 m7_front:
     CMP a:h_m7xfront
     BEQ @arranged
@@ -1745,7 +1954,7 @@ m7_front:
     LSR A
     CLC
     ADC #M7C_FIRST / 4
-    TAX                         ; the castle's first high-table byte
+    TAX                         ; the landmarks' first high-table byte
     SEP #$20
     .a8
     LDY #16 - M7C_FIRST / 4
@@ -1758,44 +1967,56 @@ m7_front:
 lut_M7XBit:                     ; an entry's x-ninth bit in its high-table byte
     .BYTE $01, $04, $10, $40
 
-;;  Frame h_m7n of the castle into slot X, at the next flush (flush_m7up):
-;;  its tiles from OW7OBJFAR to the slot's.  A8 I16; X kept.
-m7_cupload:
+;;  Frame A (art * 16 + size) into slot X, at the next flush (flush_m7up):
+;;  its tiles from its record's bank and address to the slot's.  A8 I16;
+;;  X and Y kept.
+m7_lupload:
     PHX
     REP #$20
     .a16
-    LDA a:h_m7n
     AND #$00FF
-    STA a:h_m7pc
     ASL A
-    ADC a:h_m7pc
+    ASL A
     ASL A
     TAX
-    LDA f:OW7OBJFAR + lut_M7CFrame, X      ; its tiles
+    LDA f:OW7FAR + lut_M7LFrame, X      ; its tiles
     STA a:h_m7upsrc
-    LDA f:OW7OBJFAR + lut_M7CFrame + 4, X  ; how many
+    LDA f:OW7FAR + lut_M7LFrame + 5, X  ; how many
     AND #$00FF
-    ASL A
-    ASL A
-    ASL A
-    ASL A
-    ASL A                       ; 32 bytes each
+    XBA
+    LSR A
+    LSR A
+    LSR A                       ; 32 bytes each
     STA a:h_m7uplen
-    PLX
-    PHX
-    LDA #VRAM_CHR + $1000 + M7C_SLOT0 * 16
-    CPX #0
-    BEQ :+
-    LDA #VRAM_CHR + $1000 + M7C_SLOT1 * 16
-:   STA a:h_m7updst
     SEP #$20
     .a8
-    LDA #^OW7OBJFAR
+    LDA f:OW7FAR + lut_M7LFrame + 2, X  ; their bank
     STA a:h_m7upbank
+    REP #$20
+    .a16
+    PLA                         ; the slot
+    PHA
+    ASL A
+    TAX
+    LDA f:OW7FAR + lut_M7LDst, X
+    STA a:h_m7updst
+    SEP #$20
+    .a8
     LDA #1
     STA a:h_m7upon
     PLX
     RTS
+
+;;  The slots: each one's first tile in the sprite table, its VRAM word
+;;  address, its bit in h_m7lused.
+lut_M7LTile:
+    .WORD M7L_SLOT0, M7L_SLOT0 + M7L_SLOTW, M7L_SLOT0 + 2 * M7L_SLOTW
+lut_M7LDst:
+    .WORD VRAM_CHR + $1000 + M7L_SLOT0 * 16
+    .WORD VRAM_CHR + $1000 + (M7L_SLOT0 + M7L_SLOTW) * 16
+    .WORD VRAM_CHR + $1000 + (M7L_SLOT0 + 2 * M7L_SLOTW) * 16
+lut_M7LBit:
+    .BYTE $01, $02, $04
 
 
 .a16

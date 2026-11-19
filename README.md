@@ -143,6 +143,8 @@ been played on a console.
     tools/check*.py       build-time checks, and placement and logic sweeps
     tools/mutate.py       breaks the source on purpose to show tests bite
     tools/drive.py        scripted input for testing
+    tools/romviz.py       the built image drawn bank by bank: out/romviz.html
+    art/landmarks/        the Mode 7 landmarks' art, to retouch by hand (genm7.py)
     patches/              routines that cannot be translated locally
     patches/debug/        gated behind FFDEBUG; never in a normal build
     worldgraph/           the world as a graph, which the logic is distilled from

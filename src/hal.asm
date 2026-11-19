@@ -208,18 +208,15 @@ hal_w2001:
       sta a:h_paldirty
       sta a:h_palforce
       ;  ...and the background's pattern table, which the scaled ship's
-      ;  frames had: CHRSHADOW's 8KB of it sent again by the next flush,
-      ;  the span stretched over it and the word list given up.
+      ;  frames had, and the landmarks' three slots in the sprite table,
+      ;  tiles $70-$FF: CHRSHADOW's 16KB sent again by the next flush, the
+      ;  span stretched over it all and the word list given up.
       stz a:h_chrlo
       stz a:h_chrlo + 1
-      lda a:h_chrhi + 1
-      cmp #$38                  ; ...and the castle's two slots in the
-      bcs @chrspan              ;   sprite table, tiles $70-$BF: to $37FF
-        lda #$FF
-        sta a:h_chrhi
-        lda #$37
-        sta a:h_chrhi + 1
-@chrspan:
+      lda #$FF
+      sta a:h_chrhi
+      lda #$3F
+      sta a:h_chrhi + 1
       stz a:M7XBUF              ; no extras now: hal_oamdma hides theirs
       stz a:h_m7xfront
       stz a:h_m7upon
@@ -281,7 +278,7 @@ hal_w2001:
     jsr tm_from_mask
     sta a:h_tmcur
     ;  On the Mode 7 overworld the sprite layer carries scenery as well,
-    ;  Coneria's castle standing: with the background shown and the
+    ;  the landmarks standing: with the background shown and the
     ;  sprites not, it stays on, and the game's sprites go from OAM
     ;  instead (oam_m7hide).
     cmp #$01
@@ -1031,7 +1028,7 @@ hal_oamdma:
 :   and #$01
     sta a:h_sprtable            ; ...that is the 9th bit of the SNES tile number
     ;  The game's 64 at OAM's start -- or after the overworld's extras when
-    ;  those stand in front of the party (h_m7xfront: ow7.asm's castle).
+    ;  those stand in front of the party (h_m7xfront: ow7.asm's landmarks).
     stz a:h_m7gbase
     lda a:h_m7xfront
     beq :+
@@ -1779,10 +1776,10 @@ pal_prep:
     sta f:PALSTAGE + 0,x        ; CGADD, twice: mode 3's pattern
     sta f:PALSTAGE + 1,x
     inc a:h_palsendn
-    ;  On the overworld BG palette 0's four again at CGRAM 196-199, OBJ
-    ;  palette 4's spare entries: Coneria's castle stood up as sprites is
-    ;  drawn in them (ow7.asm), and takes the haze there as sprites do.
-    cpy #4
+    ;  On the overworld BG palettes 0 and 1 again at CGRAM 196-203, OBJ
+    ;  palette 4's spare entries: the landmarks stood up as sprites are
+    ;  drawn in them (ow7.asm), and take the haze there as sprites do.
+    cpy #8
     bcs @nocastle
     lda a:h_m7objoff
     beq @nocastle
@@ -3760,7 +3757,7 @@ flush_m7q:
 ;;  up, the listed extras (M7XBUF, built by ow7.asm while the game drew its
 ;;  sprites: the docked ship) into their first M7XBUF_MAX entries, their
 ;;  high-table byte with them, the rest of those off the bottom; the
-;;  castle's, M7C_FIRST on, ow7.asm writes itself each frame (m7_castle),
+;;  landmarks', M7C_FIRST on, ow7.asm writes itself each frame (m7_lands),
 ;;  and they stay.  The plane gone, all 64 off the bottom and their
 ;;  high-table bytes zero, once.  The list is spent: the game draws a new
 ;;  one each frame, and a frame that draws none shows none.
@@ -3888,8 +3885,8 @@ oam_extras:
 
 ;;  From hal_w2001, emulation mode, the plane up and a write showing the
 ;;  background but not the sprites (a menu's palette cycle, a battle's
-;;  flash): the sprite layer stays on for the extras' scenery -- the castle
-;;  -- and the game's 64 and the listed extras go off the bottom instead,
+;;  flash): the sprite layer stays on for the extras' scenery -- the
+;;  landmarks -- and the game's 64 and the listed extras go off the bottom instead,
 ;;  till the game's next transfer.  A, X changed.
 oam_m7hide:
     phy
@@ -3912,7 +3909,7 @@ oam_m7hide:
     bcc :-
     bra @hidden
 @front:
-:   sta a:OAMSHADOW + 256 + 1, x  ; the game's, behind the castle's
+:   sta a:OAMSHADOW + 256 + 1, x  ; the game's, behind the landmarks'
     inx
     inx
     inx
@@ -3931,8 +3928,8 @@ oam_m7hide:
     ply
     rts
 
-;;  The upload ow7.asm asked for (h_m7upon): a frame of Coneria's castle
-;;  from ROM into a slot of the sprite table that is not showing.
+;;  The upload ow7.asm asked for (h_m7upon): a landmark's frame from ROM
+;;  into a slot of the sprite table that is not showing.
 flush_m7up:
     lda a:h_m7upon
     bne :+

@@ -88,9 +88,10 @@ CHUNK_OPTTEXT2  = $1D           ; the settings screen's descriptions, past the f
 CHUNK_OW7       = $1E
 OW7FAR          = (CHUNK0 + CHUNK_OW7) * $10000
 OW7DATAFAR      = $C00000 + (1 + CHUNK_OW7) * $10000
-;  Coneria's castle stood up: its frames (ow7obj.asm, gen/ow7obj.inc), in
-;  the settings' second text chunk's free space, read and DMA'd from there.
-OW7OBJFAR       = (CHUNK0 + CHUNK_OPTTEXT2) * $10000
+;  The landmarks stood up (ow7.asm's m7_lands): their frames, in the low
+;  halves of two NES chunks, which the game's code never addresses
+;  (tools/genm7.py's LAND_CHUNKS, out/ow7land_*.bin; mkrom.py's LOWHALF);
+;  each frame's record (gen/ow7.inc's lut_M7LFrame) gives its bank.
 ;  The Bestiary (bestiary.asm), a segment of its own in the credits' chunk,
 ;  which had 12KB free: its own chunk is one line in snes.cfg and here.
 CHUNK_BESTIARY  = CHUNK_CREDITS
@@ -1389,43 +1390,54 @@ h_m7oampal      = M7VARS+$3A    ; $08 on the overworld: OAM's palette bits + 4
 ;  The docked ship, drawn at its distance's size (ow7.asm's m7_ship): one
 ;  32x32 sprite, OAM entry 64, which hal_oamdma takes at the next transfer.
 h_m7oy          = M7VARS+$3B    ; m7_project's tile row (h_m7ox its column)
-h_m7ccount      = M7VARS+$3C    ; the castle's entries that may hold a sprite (m7_castle)
+h_m7ccount      = M7VARS+$3C    ; the landmarks' entries that may hold a sprite (m7_lands)
 h_m7ocx         = M7VARS+$3D    ; 2 bytes: m7_project's x, signed (h_m7oline its line)
 ;  The extra sprites, 64 of OAM's 128: entries 64 on, or 0 on with the
-;  game's after them when the castle stands in front of the party
+;  game's after them when a landmark stands in front of the party
 ;  (h_m7xfront).  Their first M7XBUF_MAX are M7XBUF's -- the docked ship
 ;  scaled, listed while the game draws its sprites, taken in by hal_oamdma
-;  at the next transfer (oam_extras) -- and from M7C_FIRST on, Coneria's
-;  castle stood up, which ow7.asm writes into OAMSHADOW itself each frame
-;  from SetOWScroll (m7_castle), so that it stays through the frames the
-;  game draws no sprites in: an airship's take-off and landing, a menu's
-;  palette cycle.
+;  at the next transfer (oam_extras) -- and from M7C_FIRST on, the
+;  landmarks stood up, which ow7.asm writes into OAMSHADOW itself each
+;  frame from SetOWScroll (m7_lands), so that they stay through the frames
+;  the game draws no sprites in: an airship's take-off and landing, a
+;  menu's palette cycle.
 h_m7xfront      = M7VARS+$3F    ; nonzero: the extras in front, OAMSHADOW arranged so
 h_m7gbase       = M7VARS+$40    ; 2 bytes: hal_oamdma's: the game's sprites' first byte in OAM,
 h_m7gend        = M7VARS+$42    ; 2 bytes:   and past their last
 h_m7xprev       = M7VARS+$44    ; extras OAM held after the last transfer, to hide when gone
 h_m7oux         = M7VARS+$45    ; 2 bytes: m7_project: pixels east of the tile's centre,
 h_m7ouy         = M7VARS+$47    ; 2 bytes:   and south, the point placed
-;  The castle's two slots in the sprite table's free tiles: each the frame
-;  it holds ($FF none), the one the last sprites used; and the upload
-;  flush_m7up makes, a frame's tiles from ROM into the other slot.
-h_m7cslot       = M7VARS+$49    ; the slot the castle's sprites use, 0 or 1
-h_m7cframe      = M7VARS+$4A    ; 2 bytes: the frame in slot 0, in slot 1
+;  The landmarks' three slots in the sprite table's free tiles: each the
+;  frame it holds, as art * 16 + size ($FF none); and the upload flush_m7up
+;  makes, a frame's tiles from ROM into a slot, before the sprites that use
+;  it.
+h_m7lkey        = M7VARS+$49    ; 3 bytes: the frame in slot 0, 1, 2
 h_m7upon        = M7VARS+$4C    ; nonzero: an upload for the next flush
 h_m7upbank      = M7VARS+$4D    ; its source's bank,
 h_m7upsrc       = M7VARS+$4E    ; 2 bytes: address,
 h_m7updst       = M7VARS+$50    ; 2 bytes: VRAM word address,
 h_m7uplen       = M7VARS+$52    ; 2 bytes: bytes
 h_m7oline       = M7VARS+$54    ; 2 bytes: m7_project's screen line, signed
-M7VARS_END      = M7VARS+$56
+h_m7lused       = M7VARS+$56    ; the slots this frame's landmarks take, a bit each
+h_m7lnvis       = M7VARS+$57    ; the landmarks this frame shows (M7LVIS)
+h_m7lfront      = M7VARS+$58    ; nonzero: one of them stands south of the party
+h_m7lptr        = M7VARS+$59    ; 2 bytes: the map's list, as m7_lands walks it
+M7VARS_END      = M7VARS+$5B
 M7XBUF          = $0F00         ; the listed extras: a count, then 5 bytes each: x, y, tile, attributes, high bits
 M7XBUF_MAX      = 4             ; ...in the extras' first four entries, their high-table byte whole
-M7C_FIRST       = M7XBUF_MAX    ; the castle's first entry in the extras' 64
-.assert M7XBUF >= OPTWORK + $100 && M7XBUF + 1 + M7XBUF_MAX * 5 <= NTSHADOW, error, "M7XBUF overlaps its neighbours"
-;  The castle's slots: sprite table tiles $70-$97 and $98-$BF, which the
-;  overworld's sprites leave unused (LoadOWObjectCHR fills $10-$6F).
-M7C_SLOT0       = $70
-M7C_SLOT1       = $98
+M7C_FIRST       = M7XBUF_MAX    ; the landmarks' first entry in the extras' 64
+.assert M7XBUF >= OPTWORK + $100 && M7XBUF + 1 + M7XBUF_MAX * 5 <= M7LVIS, error, "M7XBUF overlaps its neighbours"
+;  The landmarks a frame shows, nearest first, M7L_VIS at most, 8 bytes
+;  each: the base's screen line (2 bytes, signed), its x (2 bytes, signed),
+;  the frame wanted (art * 16 + size), the slot drawn from ($FF none).
+M7LVIS          = $0F20
+M7L_VIS         = 3
+.assert M7LVIS + 8 * M7L_VIS <= NTSHADOW, error, "M7LVIS overlaps NTSHADOW"
+;  The landmarks' slots: sprite table tiles $70-$9F, $A0-$CF and $D0-$FF,
+;  which the overworld's sprites leave unused (LoadOWObjectCHR fills
+;  $10-$6F); a frame takes M7L_SLOT at most.
+M7L_SLOT0       = $70
+M7L_SLOTW       = $30
 .assert M7VARS >= CHRQUEUE + CHRQ_CAP * 2 && M7VARS_END <= OPTWORK, error, "the Mode 7 variables overlap the HAL's low WRAM"
 ;  The rows of the map the plane is drawn from, 256 tiles a page, row r in
 ;  page r mod 32: as far as the steepest angle sees, past the sixteen the
