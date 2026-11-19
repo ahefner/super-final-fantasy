@@ -1,0 +1,5 @@
+--- OLD
+CyclePalettes:
+--- NEW
+.export CyclePalettes           ; for tools/test_options.py (Mode 7's castle through a menu's fade)
+CyclePalettes:

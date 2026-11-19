@@ -1,0 +1,5 @@
+--- OLD
+DrawOWSprites:
+--- NEW
+.export DrawOWSprites           ; for tools/test_options.py (Mode 7's castle and ship)
+DrawOWSprites:

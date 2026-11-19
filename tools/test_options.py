@@ -12319,6 +12319,32 @@ def test_m7view():
         a = OW7 + SYM[name] + 2 * i
         return ROMDATA[a] | ROMDATA[a + 1] << 8
 
+    #  On the game's map Coneria's castle is sprites (m7_castle), and the
+    #  plane has the ground under it: metatiles $82-$87, their characters
+    #  from the chunk's low half.  The plane's checks hold it to that map;
+    #  the castle's checks, below, hold the plane and the sprites together to
+    #  the NES picture.
+    CHARS = (1 + K["CHUNK_OW7"]) * 0x10000
+
+    def castle_world(world, blocks):
+        w = [list(r) for r in world]
+        b = list(blocks) + [None, None]                 # $80, $81: the bridge's, the canal's (with_objects)
+        lut = OW7 + SYM["lut_M7Row"]
+        for m in range(0x82, 0x88):
+            blk = [[0] * 16 for _ in range(16)]
+            for q, c in enumerate(ROMDATA[lut + 4 * m:lut + 4 * m + 4]):
+                pix = ROMDATA[CHARS + c * 64:CHARS + c * 64 + 64]
+                for y in range(8):
+                    for x in range(8):
+                        blk[(q >> 1) * 8 + y][(q & 1) * 8 + x] = pix[y * 8 + x]
+            b.append(blk)
+        for r in range(3):
+            for c in range(2):
+                w[genm7.CASTLE_AT[1] + r][genm7.CASTLE_AT[0] + c] = 0x82 + 2 * r + c
+        return w, b
+
+    world0, blocks0 = world, blocks
+    world, blocks = castle_world(world0, blocks0)
     WEST, EAST = genm7.region()[2:]
 
     def region_misses(bus, world=world):
@@ -12633,7 +12659,7 @@ def test_m7view():
                         c = (c32[2 * sy] >> (7 - sx) & 1) | (c32[2 * sy + 1] >> (7 - sx) & 1) << 1
                         if c:
                             blk[qy * 8 + py][qx * 8 + px] = 192 + (attr & 3) * 16 + c
-            b.append(blk)
+            b[128 + k] = blk
             if vis:
                 w[y][x] = 128 + k
         return w, b
@@ -12784,9 +12810,11 @@ def test_m7view():
                 drawn = bus.wram[K["sprindex"]]
                 cpu.a = 0x02
                 call(cpu, "nesio_oamdma")
-                o = K["OAMSHADOW"]
-                x, y, t, a = bus.wram[o + 256:o + 260]
-                hb = bus.wram[o + 528] & 3
+                #  The extras' first entry: 64, or 0 where the castle stands
+                #  in front of the party (h_m7xfront).
+                xb = 0 if bus.wram[K["h_m7xfront"]] else 256
+                x, y, t, a = bus.wram[K["OAMSHADOW"] + xb:K["OAMSHADOW"] + xb + 4]
+                hb = bus.wram[K["OAMSHADOW"] + 512 + xb // 16] & 3
                 u, v = dx * 16 - mcx, dy * 16 - mcy
                 xs, line, scale = camera_at(ANGLES[level], u, v)
                 where = "%d degrees, the ship %+d,%+d tiles" % (ANGLES[level], dx, dy)
@@ -12832,6 +12860,431 @@ def test_m7view():
           "none of the game's; flat the game's; off, the pattern table and sizes back",
           (bad[:4], flat, none, vtab == bytes(bus.wram[0x8000:0xA000]), bus.io.get(0x2101, 0) >> 5),
           ([], (16, 0xF0), (0, 0xF0), True, 0))
+
+    #  Coneria's castle stood up (user, 2026-11-18: "let's try Coneria
+    #  Castle"), as the game runs a frame: the sprites drawn (DrawOWSprites,
+    #  m7_castle's extras), the flush (the upload), the transfer, the flush.
+    #  Flat, the plane and the castle's sprites together the NES picture,
+    #  pixel for pixel, the castle painted (m7_reference's map) -- at rest
+    #  and with fine scroll, every side of it; tilted, its base within a
+    #  pixel and a quarter of where the camera puts it, its size within a
+    #  20th of the camera's there, its slot holding its frame's tiles;
+    #  walking past it, every frame the slot the shown sprites use holding
+    #  the frame they were drawn with, though a new one is written every
+    #  few steps; in front of the party only tilted, the party north of it
+    #  and on foot; its colours mirrored; the slots and the extras gone on
+    #  the way out.
+    FR = (0xA1 + K["CHUNK_OPTTEXT2"] & 0x1F) * 0x10000 + SYM["lut_M7CFrame"]
+    OW7OBJ = (0xA1 + K["CHUNK_OPTTEXT2"] & 0x1F) * 0x10000
+
+    def frame_rec(f):
+        r = FR + 6 * f
+        tiles, spr = ROMDATA[r] | ROMDATA[r + 1] << 8, ROMDATA[r + 2] | ROMDATA[r + 3] << 8
+        nt, ns = ROMDATA[r + 4], ROMDATA[r + 5]
+        tdata = ROMDATA[OW7OBJ + tiles:OW7OBJ + tiles + 32 * nt]
+        sl = [(ROMDATA[OW7OBJ + spr + 3 * i] - (256 if ROMDATA[OW7OBJ + spr + 3 * i] & 0x80 else 0),
+               ROMDATA[OW7OBJ + spr + 3 * i + 1] - (256 if ROMDATA[OW7OBJ + spr + 3 * i + 1] & 0x80 else 0),
+               ROMDATA[OW7OBJ + spr + 3 * i + 2]) for i in range(ns)]
+        return tdata, sl
+
+    def run_frame(bus, cpu):
+        """One frame of the game's sprites through the HAL: drawn, flushed,
+        transferred."""
+        for i in range(64):
+            bus.wram[0x200 + 4 * i] = 0xF0
+        bus.wram[K["sprindex"]] = 0
+        call(cpu, "DrawOWSprites")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        cpu.a = 0x02
+        call(cpu, "nesio_oamdma")
+
+    def castle_sprites(bus):
+        """The castle's sprites OAM shows, the sprite table's tiles in its
+        slots (the party's palette 0 is OBJ 4 too): (index, x, y, tile)."""
+        out = []
+        for i in range(128):
+            x, y, t, a = bus.oam[4 * i:4 * i + 4]
+            #  (A top just above the screen wraps, as the SNES draws it:
+            #  $F9-$FF; $F0 is an entry parked.)
+            if a & 1 and K["M7C_SLOT0"] <= t < K["M7C_SLOT1"] + 40 and (y < 0xE0 or y >= 0xF9):
+                hb = bus.oam[512 + i // 4] >> (2 * (i % 4)) & 1
+                out.append((i, x - (256 if hb else 0), y if y < 0xE0 else y - 256, t))
+        return out
+
+    def composite(bus, screen, cover=None):
+        """The plane's picture with the castle's sprites over it, each of its
+        colours 4 + c as BG palette 0's c; into cover, if given, the screen
+        pixels they cover."""
+        out = [row[:] for row in screen]
+        for i, x, y, t in castle_sprites(bus):
+            a = K["VRAM_CHR"] + 0x1000 + t * 16
+            for r in range(8):
+                if not 0 <= y + r < 224:
+                    continue
+                w0 = bus.vram[2 * (a + r)], bus.vram[2 * (a + r) + 1]
+                w1 = bus.vram[2 * (a + 8 + r)], bus.vram[2 * (a + 8 + r) + 1]
+                for c in range(8):
+                    if not 0 <= x + c < 256:
+                        continue
+                    b = 7 - c
+                    v = (w0[0] >> b & 1) | (w0[1] >> b & 1) << 1 | (w1[0] >> b & 1) << 2 | (w1[1] >> b & 1) << 3
+                    if v:
+                        out[y + r][x + c] = v - 4
+                        if cover is not None:
+                            cover.add((y + r, x + c))
+        return out
+
+    def slot_holds(bus, slot, f):
+        tdata, _ = frame_rec(f)
+        base = K["VRAM_CHR"] + 0x1000 + (K["M7C_SLOT1"] if slot else K["M7C_SLOT0"]) * 16
+        return bytes(bus.vram[2 * base:2 * base + len(tdata)]) == tdata
+
+    bad = []
+    CX, CY = genm7.CASTLE_AT
+    C_BASE = int(re.search(r"M7C_BASE = (\d+)", open(os.path.join(ROOT, "gen", "ow7.inc")).read()).group(1))
+    C_K0 = round(genm7.CASTLE_KS[0] * 16)
+    for px, py, mcx, mcy in ((153, 162, 0, 0), (149, 160, 6, 0), (158, 159, 0, 0), (153, 167, 0, 11),
+                             (146, 157, 0, 0), (153, 151, 0, 4), (157, 165, 13, 0), (160, 161, 3, 0),
+                             (153, 156, 0, 0)):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, px - 7, py - 7, level=FLAT)
+        bus.wram[MCX], bus.wram[MCY] = mcx, mcy
+        call(cpu, "m7_scroll")
+        run_frame(bus, cpu)
+        run_frame(bus, cpu)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        got = composite(bus, m7_screen(bus))
+        want = nes_screen(world0, blocks0, (px - 7) * 16 + mcx, (py - 7) * 16 + mcy)
+        if got != want:
+            n = sum(a != b for ra, rb in zip(got, want) for a, b in zip(ra, rb))
+            bad.append("flat, the party at (%d, %d)+(%d, %d): %d pixels not the NES picture" % (px, py, mcx, mcy, n))
+        spr = castle_sprites(bus)
+        if not spr and abs(py - CY) < 6:
+            bad.append("flat at (%d, %d): no castle" % (px, py))
+        if spr and min(i for i, x, y, t in spr) < 64:
+            bad.append("flat at (%d, %d): the castle in front of the party" % (px, py))
+    for level in (genm7.DEFAULT, STEEP):
+        for px, py, mcx, mcy in ((153, 162, 0, 0), (150, 166, 0, 9), (156, 158, 5, 0), (153, 155, 0, 0)):
+            bus, cpu = m7_machine()
+            enter(bus, cpu, px - 7, py - 7, level=level)
+            bus.wram[MCX], bus.wram[MCY] = mcx, mcy
+            call(cpu, "m7_scroll")
+            run_frame(bus, cpu)
+            run_frame(bus, cpu)
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            where = "%d degrees, the party at (%d, %d)+(%d, %d)" % (ANGLES[level], px, py, mcx, mcy)
+            slot = bus.wram[K["h_m7cslot"]]
+            f = bus.wram[K["h_m7cframe"] + slot]
+            spr = castle_sprites(bus)
+            u = CX * 16 + 16 - ((px - 7) * 16 + mcx + 120)
+            v = CY * 16 + C_BASE - ((py - 7) * 16 + mcy + 120)
+            xs, line, scale = camera_at(ANGLES[level], u, v)
+            if not spr:
+                bad.append(where + ": no castle")
+                continue
+            if not slot_holds(bus, slot, f):
+                bad.append(where + ": slot %d not holding frame %d" % (slot, f))
+            tdata, sl = frame_rec(f)
+            base = K["M7C_SLOT1"] if slot else K["M7C_SLOT0"]
+            byt = {t: (dx, dy) for dx, dy, t in sl}
+            anchors = {(x - byt[t - base][0], y - byt[t - base][1]) for i, x, y, t in spr if t - base in byt}
+            if len(anchors) != 1:
+                bad.append(where + ": the sprites not one frame's: %r" % sorted(anchors)[:3])
+                continue
+            ax, ay = anchors.pop()
+            if abs(ax - xs) > 1.25 or abs(ay - line) > 1.25:
+                bad.append(where + ": the base at %d, %d, the camera's %.1f, %.1f" % (ax, ay, xs, line))
+            if abs((f + C_K0) / 16 - 1 / scale) > 0.05:
+                bad.append(where + ": k %.3f, the camera's %.3f" % ((f + C_K0) / 16, 1 / scale))
+            first = min(i for i, x, y, t in spr)
+            front = first < 64
+            if front != (py <= CY + (C_BASE - 17) // 16):
+                bad.append(where + ": in front %r" % front)
+    #  The ground under it: where its full-size frame stands above the
+    #  courtyard's wall, the plane shows the grass behind it, not a castle
+    #  painted flat under the one standing.
+    grass = blocks0[0x76][0][0]
+    wall = next(y for y in range(16) if blocks0[world0[CY + 1][CX]][y][0] != grass) + 16
+    tdata, sl = frame_rec(16 - C_K0)
+    painted = 0
+    for dx, dy, t in sl:
+        for r in range(8):
+            for c in range(8):
+                b = 7 - c
+                v = (tdata[32 * t + 2 * r] >> b & 1) | (tdata[32 * t + 2 * r + 1] >> b & 1) << 1 \
+                    | (tdata[32 * t + 16 + 2 * r] >> b & 1) << 2
+                mx, my = CX * 16 + 16 + dx + c, CY * 16 + C_BASE + dy + r
+                if v and my < CY * 16 + wall and blocks[world[my >> 4][mx >> 4]][my & 15][mx & 15] != grass:
+                    painted += 1
+    if painted:
+        bad.append("the ground under it: %d pixels of castle painted behind it" % painted)
+
+    #  The ground it stands on, from the courtyard's wall to its base,
+    #  black (user, 2026-11-18: "a full black shape underneath the
+    #  footprint of the castle"): where the castle and the tilted ground
+    #  part by a pixel, as they scale and move, the shadow shows, not the
+    #  courtyard -- in each of those rows, from the full-size frame's
+    #  leftmost pixel to its rightmost, the ground colour 0.
+    span = {}
+    for dx, dy, t in sl:
+        for r in range(8):
+            for c in range(8):
+                b = 7 - c
+                v = (tdata[32 * t + 2 * r] >> b & 1) | (tdata[32 * t + 2 * r + 1] >> b & 1) << 1 \
+                    | (tdata[32 * t + 16 + 2 * r] >> b & 1) << 2
+                mx, my = CX * 16 + 16 + dx + c, CY * 16 + C_BASE + dy + r
+                if v and my >= CY * 16 + wall:
+                    lo, hi = span.get(my, (mx, mx))
+                    span[my] = (min(lo, mx), max(hi, mx))
+    grey = sum(1 for my, (lo, hi) in span.items() for mx in range(lo, hi + 1)
+               if blocks[world[my >> 4][mx >> 4]][my & 15][mx & 15] != 0)
+    if grey or len(span) != C_BASE - wall:
+        bad.append("its footprint: %d pixels of ground under it not black, %d rows" % (grey, len(span)))
+    #  ...and as the screen shows it, tilted, from either side and with
+    #  fine scroll: every plane pixel showing a point of the castle's
+    #  footprint (the painted castle's pixels there, where the ground now
+    #  differs) black, and some shown.
+    seen = 0
+    for level in (genm7.DEFAULT, STEEP):
+        for px, py, mcx, mcy in ((153, 163, 0, 0), (150, 162, 7, 0), (157, 164, 0, 5), (152, 166, 11, 0)):
+            bus, cpu = m7_machine()
+            enter(bus, cpu, px - 7, py - 7, level=level)
+            bus.wram[MCX], bus.wram[MCY] = mcx, mcy
+            call(cpu, "m7_scroll")
+            run_frame(bus, cpu)
+            run_frame(bus, cpu)
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            plane = m7_screen(bus)
+            cover = set()
+            composite(bus, plane, cover)
+            if not cover:
+                bad.append("%d degrees at (%d, %d)+(%d, %d): no castle" % (ANGLES[level], px, py, mcx, mcy))
+            pts = m7_seen(bus, (px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120)
+            for sy in range(224):
+                for x in range(256):
+                    wx, wy = pts[sy][x]
+                    if (sy, x) in cover or not (CY * 16 + wall <= wy < CY * 16 + 48) \
+                            or not CX * 16 <= wx < CX * 16 + 32:
+                        continue
+                    if blocks0[world0[wy >> 4][wx >> 4]][wy & 15][wx & 15] == \
+                            blocks[world[wy >> 4][wx >> 4]][wy & 15][wx & 15]:
+                        continue
+                    seen += 1
+                    if plane[sy][x] != 0:
+                        bad.append("%d degrees at (%d, %d)+(%d, %d): line %d x %d shows ground %d under the castle"
+                                   % (ANGLES[level], px, py, mcx, mcy, sy, x, plane[sy][x]))
+    if not seen:
+        bad.append("its footprint: never seen beside it")
+
+    #  Its base below the screen, its top on it (user, 2026-11-18: it
+    #  "pops in" from the bottom "when the row of tiles its grounded on
+    #  aren't visible"): drawn, where the camera puts its base, at the
+    #  camera's size or the largest frame, as the party walks north from
+    #  it; at every angle, the flat one too.
+    for level in range(len(ANGLES)):
+        shown = 0
+        for py in range(149, 157):
+            for mcy in (0, 4, 8, 12):
+                bus, cpu = m7_machine()
+                enter(bus, cpu, 153 - 7, py - 7, level=level)
+                bus.wram[MCY] = mcy
+                call(cpu, "m7_scroll")
+                run_frame(bus, cpu)
+                call(cpu, "hal_waitvbl", bank=0xC0)
+                u = CX * 16 + 16 - ((153 - 7) * 16 + 120)
+                v = CY * 16 + C_BASE - ((py - 7) * 16 + mcy + 120)
+                xs, line, scale = camera_at(ANGLES[level], u, v)
+                k = 1 / scale
+                top = line - C_BASE * min(k, (C_K0 + len(genm7.CASTLE_KS) - 1) / 16)
+                where = "%d degrees, the party at (153, %d)+(0, %d): base at line %.1f" % (ANGLES[level], py, mcy, line)
+                spr = castle_sprites(bus)
+                if line < 224 or top > 216:
+                    continue
+                if not spr:
+                    bad.append(where + ": its top at %.1f, not drawn" % top)
+                    continue
+                shown += 1
+                slot = bus.wram[K["h_m7cslot"]]
+                f = bus.wram[K["h_m7cframe"] + slot]
+                tdata, sl = frame_rec(f)
+                base = K["M7C_SLOT1"] if slot else K["M7C_SLOT0"]
+                byt = {t: (dx, dy) for dx, dy, t in sl}
+                anchors = {(x - byt[t - base][0], y - byt[t - base][1]) for i, x, y, t in spr if t - base in byt}
+                if len(anchors) != 1:
+                    bad.append(where + ": the sprites not one frame's")
+                    continue
+                ax, ay = anchors.pop()
+                if abs(ax - xs) > 1.25 or abs(ay - line) > 1.25:
+                    bad.append(where + ": the base at %d, %d, the camera's %.1f, %.1f" % (ax, ay, xs, line))
+                want = min(max(round(k * 16), C_K0), C_K0 + len(genm7.CASTLE_KS) - 1)
+                if abs(f + C_K0 - want) > 1:
+                    bad.append(where + ": k %d/16, the camera's %.3f" % (f + C_K0, k))
+        if not shown:
+            bad.append("%d degrees: never its base below the screen and its top on it" % ANGLES[level])
+
+    #  Through an airship's take-off (AirshipTransitionFrame, which draws
+    #  the airship, its shadow, the ship, the bridge and the canal, not
+    #  DrawOWSprites) and a menu's palette cycle out and back in
+    #  (CyclePalettes, the sprites off), the castle stays on screen as the
+    #  ground does (user, 2026-11-18: it "disappears when the airship takes
+    #  off/lands, and when transitioning in and out of menus"); the
+    #  game's sprites go with the sprites off, as the NES has them.
+    def party_shown(bus):
+        return sum(1 for i in range(128) if bus.oam[4 * i + 1] < 0xE0
+                   and not K["M7C_SLOT0"] <= bus.oam[4 * i + 2] < K["M7C_SLOT1"] + 40)
+
+    def run_frames(bus, cpu, name, a, look):
+        """Routine `name` run to its return with A = a, look(bus) at the
+        start of each of its frames' waits: what the last flush put up."""
+        addr = SYM[name]
+        stop = SYM["hal_waitvbl"]
+        s0 = cpu.s
+        cpu.a = a
+        cpu.pbr, cpu.pc = SYMBANK.get(name, 0xA7), addr
+        cpu.push(0xFF)
+        cpu.push(0xFF)
+        cpu.push(0xFD)
+        for _ in range(20_000_000):
+            if cpu.pc == 0xFFFE:
+                break
+            if cpu.pbr == 0xC0 and cpu.pc == stop:
+                look(bus)
+            cpu.steps += 1
+            cpu.step()
+        else:
+            raise RuntimeError("%s ran away" % name)
+        cpu.s = s0
+
+    lost = []
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 153 - 7, 163 - 7, level=genm7.DEFAULT)
+    call(cpu, "m7_scroll")
+    run_frame(bus, cpu)
+    run_frame(bus, cpu)
+    bus.wram[K["tmp"] + 10] = 0x6F
+    for n in range(10):
+        call(cpu, "AirshipTransitionFrame")
+        if not castle_sprites(bus):
+            lost.append("take-off frame %d" % n)
+    seen = []
+    look = lambda bus: seen.append((bool(castle_sprites(bus)), bus.io.get(0x212C, 0) & 0x11, party_shown(bus)))
+    run_frames(bus, cpu, "CyclePalettes", 0x00, look)
+    out = seen[:]
+    del seen[:]
+    call(cpu, "PrepOverworld")
+    run_frames(bus, cpu, "CyclePalettes", 0x01, look)
+    if len(out) < 8 or len(seen) < 8:
+        lost.append("the cycles %d and %d frames" % (len(out), len(seen)))
+    for n, (c, tm, party) in enumerate(out):
+        if n >= 1 and (not c or tm != 0x11) or n >= 2 and party:
+            lost.append("cycling out, frame %d: castle %r, TM $%02X, %d of the game's" % (n, c, tm, party))
+    for n, (c, tm, party) in enumerate(seen):
+        if n >= 2 and (not c or tm != 0x11 or party):
+            lost.append("cycling in, frame %d: castle %r, TM $%02X, %d of the game's" % (n, c, tm, party))
+    #  The sprites off by a $2001 write with the game's in OAM (a battle's
+    #  flash): theirs off the bottom, the layer on for the castle; and back.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 153 - 7, 163 - 7, level=genm7.DEFAULT)
+    call(cpu, "m7_scroll")
+    run_frame(bus, cpu)
+    run_frame(bus, cpu)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    flash = [party_shown(bus) >= 4]
+    cpu.a = 0x0A
+    call(cpu, "hal_w2001", bank=0xC0)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    flash += [party_shown(bus), bool(castle_sprites(bus)), bus.io.get(0x212C, 0) & 0x11]
+    cpu.a = 0x1E
+    call(cpu, "hal_w2001", bank=0xC0)
+    run_frame(bus, cpu)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    flash += [party_shown(bus) >= 4, bool(castle_sprites(bus))]
+    if flash != [True, 0, True, 0x11, True, True]:
+        lost.append("the sprites off and on: %r" % flash)
+    bad += lost[:3]
+
+    #  Walking past it, tilted, north across its base and back: the castle
+    #  drawn at a frame (m7_scroll, from OverworldMovement) shows at the
+    #  next flush, one frame's sprites and nothing left of another's, its
+    #  slot holding that frame then; and every frame the game's sprites
+    #  shown are the page it transferred, the castle going in front of them
+    #  and behind (OAM's halves swapped).
+    def castle_drawn(bus):
+        """Castle entries in OAMSHADOW's extras, as m7_scroll leaves them."""
+        xb = K["OAMSHADOW"] + (0 if bus.wram[K["h_m7xfront"]] else 256)
+        return sum(1 for i in range(4, 64) if bus.wram[xb + 4 * i + 1] != 0xF0)
+
+    def game_shown(bus):
+        return sorted((bus.oam[4 * i], bus.oam[4 * i + 1], bus.oam[4 * i + 2]) for i in range(128)
+                      if bus.oam[4 * i + 1] < 0xE0 and bus.oam[4 * i + 3] & 1
+                      and not K["M7C_SLOT0"] <= bus.oam[4 * i + 2] < K["M7C_SLOT1"] + 40)
+
+    def page_shows(page):
+        return sorted((page[4 * i + 3], (page[4 * i] - 7) & 0xFF, page[4 * i + 1]) for i in range(64)
+                      if (page[4 * i] - 7) & 0xFF < 0xE0)
+
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 153 - 7, 164 - 7, level=STEEP)
+    drawn = []
+    tears = frames = uploads = flips = hidden = 0
+    page = None
+    front0 = bus.wram[K["h_m7xfront"]]
+    path = [8] * 8 + [2] * 3 + [4] * 9 + [1] * 3 + [8] * 3
+    for step, facing in enumerate(path):
+        bus.wram[FACING] = facing
+        call(cpu, "StartMapMove")
+        while True:
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            spr = castle_sprites(bus)
+            if drawn and drawn[-1] is not None:
+                s0, f0 = drawn[-1]
+                base = K["M7C_SLOT1"] if s0 else K["M7C_SLOT0"]
+                byt = {t: (dx, dy) for dx, dy, t in frame_rec(f0)[1]}
+                if spr and not (all(base <= t < base + 40 for i, x, y, t in spr) and slot_holds(bus, s0, f0)
+                                and len({(x - byt[t - base][0], y - byt[t - base][1]) if t - base in byt else None
+                                         for i, x, y, t in spr}) == 1):
+                    tears += 1
+            elif spr:
+                tears += 1
+            if page is not None and game_shown(bus) != page_shows(page):
+                hidden += 1
+            frames += 1
+            page = bytes(bus.wram[0x200:0x300])
+            cpu.a = 0x02
+            call(cpu, "nesio_oamdma")
+            call(cpu, "OverworldMovement")
+            uploads += bus.wram[K["h_m7upon"]]
+            slot = bus.wram[K["h_m7cslot"]]
+            drawn.append((slot, bus.wram[K["h_m7cframe"] + slot]) if castle_drawn(bus) else None)
+            flips += bus.wram[K["h_m7xfront"]] != front0
+            front0 = bus.wram[K["h_m7xfront"]]
+            for i in range(64):
+                bus.wram[0x200 + 4 * i] = 0xF0
+            bus.wram[K["sprindex"]] = 0
+            call(cpu, "DrawOWSprites")
+            if bus.wram[SPEED] == 0:
+                break
+    if tears:
+        bad.append("walking past it: %d frames shown from a slot not holding theirs" % tears)
+    if uploads < 3:
+        bad.append("walking past it: %d uploads" % uploads)
+    if flips < 2 or hidden:
+        bad.append("walking past it: in front and behind %d times, the game's sprites not its page's %d frames"
+                   % (flips, hidden))
+    #  The palette mirror; the way out.
+    on = (bytes(bus.cgram[2 * 196:2 * 200]), bytes(bus.cgram[0:8]))
+    cpu.a = 0
+    call(cpu, "hal_w2001", bank=0xC0)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    cpu.a = 0x02
+    call(cpu, "nesio_oamdma")
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    slots = bytes(bus.vram[2 * (K["VRAM_CHR"] + 0x1000 + 0x70 * 16):2 * (K["VRAM_CHR"] + 0x1000 + 0xC0 * 16)])
+    shadow = bytes(bus.wram[0x8000 + (256 + 0x70) * 32:0x8000 + (256 + 0xC0) * 32])
+    check("Coneria's castle stood up: flat the NES picture; tilted where and as big as the camera has it, "
+          "from a slot holding its frame, walking past too, its base below the screen too; in front when it "
+          "should be; its footprint black; there through a take-off and a palette cycle; out, the slots back",
+          (bad[:4], on[0] == on[1], slots == shadow, castle_sprites(bus)), ([], True, True, []))
 
     #  The sprites in OBJ palettes 4-7 on the overworld, where the haze
     #  reaches them: OAM's palettes and their colours there; back in 0-3,

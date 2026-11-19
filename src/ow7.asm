@@ -14,7 +14,10 @@
 ;                centre of the player's tile, where the party and the
 ;                airship's shadow stand -- on the plane for M7X and M7Y.
 ;                Then whatever row or column the view has just come to,
-;                drawn (m7_sync), and R stepping the angle (for now).
+;                drawn (m7_sync), R stepping the angle (for now), and
+;                Coneria's castle stood up, into OAM (m7_castle): from
+;                here, as every overworld frame sets its scroll, the frames
+;                the game draws no sprites in among them.
 ;    m7_enter    PrepOverworld's end: the plane's characters if VRAM lost
 ;                them, every row and column the view can see, and the
 ;                plane on (h_m7on).
@@ -41,10 +44,10 @@
 .include "Constants.inc"
 .include "variables.inc"
 
-.import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl
+.import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl, lut_M7CFrame
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
 .export lut_M7Row, lut_M7Col            ; for tools/test_options.py
-.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PK, lut_M7PY, lut_M7Ship, lut_M7ShipTile
+.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7Ship, lut_M7ShipTile
 
 .segment "BANK_OW7"
 
@@ -68,6 +71,8 @@ RING      = M7RING & $FFFF              ; the ring and the queue, by DBR $7E
 RINGEND   = RING + M7RING_ROWS * $100
 QUEUE     = M7QUEUE & $FFFF
 .assert ^M7RING = ^M7QUEUE, error, "the ring and the queue share a bank"
+.assert M7C_SLOT <= 64 - M7C_FIRST, error, "a castle frame's sprites past the extras' 64"
+.assert M7C_FIRST = 4, error, "the listed extras: entries 0-3, their high-table byte oam_extras' alone"
 
 
 .a8
@@ -92,7 +97,8 @@ m7_rowcol:
 ;;  the 1024-pixel plane, down by NES_TOP_CROP - 1 as flush_scroll puts
 ;;  BG1VOFS; and the pivot on the plane, M7X and M7Y, at its column and
 ;;  line on screen (the hardware's line is the screen's + 1).  With the
-;;  plane up, R and the rows and columns.  Everything kept.
+;;  plane up, R, the rows and columns, and on the game's map the castle,
+;;  placed by the same scroll the flush gives the plane.  Everything kept.
 m7_scroll:
     PHP
     PHA
@@ -142,6 +148,9 @@ m7_scroll:
     BEQ :+
     JSR m7_step
     JSR m7_sync
+    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
+    BNE :+                      ; (a prototype: the game's map alone)
+    JSR m7_castle
 :   SEP #$30
     .i8
     SEC
@@ -199,8 +208,8 @@ m7_tables:
     STA a:h_m7tabRG
     LDA f:OW7FAR + lut_M7PB, X
     STA a:h_m7tabB
-    LDA f:OW7FAR + lut_M7PK, X
-    STA a:h_m7tabK
+    LDA f:OW7FAR + lut_M7PS, X
+    STA a:h_m7slope
     LDA f:OW7FAR + lut_M7PY, X
     STA a:h_m7tabY
     SEP #$20
@@ -436,6 +445,33 @@ m7_decode:
     INX
     CPX #8
     BCC @obj
+    ;  Coneria's castle, on the game's map: its six metatiles the ground under
+    ;  it ($82-$87), the castle itself being sprites (m7_castle).
+    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
+    AND #$00FF
+    BNE @nocastle
+    LDA a:h_m7row
+    SEC
+    SBC #M7C_Y
+    AND #$00FF
+    CMP #3
+    BCS @nocastle
+    ASL A
+    ADC #M7C_GROUND             ; the row's two: $82 + 2 * its row, and + 1
+    STA a:h_m7n
+    LDA a:h_m7row
+    AND #M7RING_ROWS - 1
+    CLC
+    ADC #>RING
+    XBA
+    ORA #M7C_X
+    TAX
+    LDA a:h_m7n
+    INC A
+    XBA
+    ORA a:h_m7n
+    STA f:M7RING & $FF0000, X   ; both: $82 + 2r, then $83 + 2r
+@nocastle:
     LDA a:h_m7save
     STA z:tmp
     LDA a:h_m7save+2
@@ -686,6 +722,36 @@ m7_enter:
     .i16
     JSR m7_tables
     JSR m7_objchars
+    ;  Coneria's castle: neither slot holds a frame, nothing waits, no
+    ;  extras yet -- every OAMSHADOW entry off the bottom, the high table
+    ;  zero, the halves the NES's way round (the game's next transfer
+    ;  fills the game's range).
+    REP #$20
+    .a16
+    LDA #$FFFF
+    STA a:h_m7cframe
+    STZ a:h_m7oux
+    STZ a:h_m7ouy
+    SEP #$20
+    .a8
+    STZ a:h_m7cslot
+    STZ a:h_m7upon
+    STZ a:M7XBUF
+    STZ a:h_m7xfront
+    STZ a:h_m7ccount
+    LDX #0
+    LDA #$F0
+:   STA a:OAMSHADOW + 1, X
+    INX
+    INX
+    INX
+    INX
+    CPX #512
+    BCC :-
+:   STZ a:OAMSHADOW, X
+    INX
+    CPX #512 + 32
+    BCC :-
     ;  The docked ship's frames into OBJ table 0 -- the background's pattern
     ;  table, which the plane does not draw from; hal_w2001 has CHRSHADOW's
     ;  sent back over them on the way out.
@@ -1042,11 +1108,13 @@ m7_flatobjs:
 ;;  Map tile (h_m7ox, h_m7oy) of an object, where the plane shows its
 ;;  centre.  The centre is u pixels east and v south of the pivot's, as the
 ;;  NES draws it: v = (Y - ow_scroll_y - 7) * 16 - move_ctr_y, and u the
-;;  same across.  genm7.py's table gives the screen line v lands on (+ 16,
-;;  0 for none), and the line's inverse scale k by the same index (lines
-;;  -16 to 239): the centre is at x 120 + u * k / 256.  Out: C clear with
-;;  h_m7oline the line + 16, h_m7ocx the x (signed), h_m7cnt the k; C set
-;;  past the table's rows or the columns kept.  A8 I16.
+;;  same across.  genm7.py's table gives the screen line v lands on, signed
+;;  ($8000 for none) -- south past the screen's bottom, for an object
+;;  standing there whose top shows -- and the line's inverse scale k is
+;;  linear in it, 1 at the pivot's: k = 256 + (line - 112) * h_m7slope /
+;;  256.  The centre is at x 120 + u * k / 256.  Out: C clear with
+;;  h_m7oline the line, h_m7ocx the x (signed), h_m7cnt the k; C set past
+;;  the table's rows or the columns kept.  A8 I16.
 m7_project:
     LDA a:h_m7oy
     SEC
@@ -1068,25 +1136,38 @@ m7_project:
     AND #$00FF
     EOR #$FFFF
     SEC
-    ADC a:h_m7n                 ; v
+    ADC a:h_m7n                 ; v (the tile's centre)
+    CLC
+    ADC a:h_m7ouy               ; + the point's offset south of it
     CLC
     ADC #-M7P_VMIN              ; v - M7P_VMIN, the table's index
     CMP #M7P_VMAX - M7P_VMIN + 1
-    BCS @off
+    BCC :+
+    JMP @off
+:   ASL A                       ; (a word each)
     ADC a:h_m7tabY
     TAX
-    SEP #$20
-    .a8
-    LDA f:OW7DATAFAR, X         ; the line + 16, 0 for none
-    BEQ @off
-    STA a:h_m7oline
-    REP #$20
-    .a16
-    AND #$00FF
-    ASL A
-    ADC a:h_m7tabK
-    TAX
-    LDA f:OW7DATAFAR, X
+    LDA f:OW7DATAFAR, X         ; the line, signed; $8000 none
+    CMP #$8000
+    BNE :+
+    JMP @off
+:   STA a:h_m7oline
+    SEC
+    SBC #M7P_PIVOTLINE
+    STA a:h_m7x                 ; (its sign)
+    BPL :+
+    EOR #$FFFF
+    INC A
+:   STA a:h_m7n                 ; |line - 112|: under 512, the lines kept
+    LDA a:h_m7slope
+    STA a:h_m7cnt
+    JSR m7_scale                ; * the slope / 256
+    BIT a:h_m7x
+    BPL :+
+    EOR #$FFFF
+    INC A
+:   CLC
+    ADC #256
     STA a:h_m7cnt               ; k, 8.8
     SEP #$20
     .a8
@@ -1110,7 +1191,9 @@ m7_project:
     AND #$00FF
     EOR #$FFFF
     SEC
-    ADC a:h_m7n                 ; u
+    ADC a:h_m7n                 ; u (the tile's centre)
+    CLC
+    ADC a:h_m7oux               ; + the point's offset east of it
     STA a:h_m7x                 ; (its sign)
     BPL :+
     EOR #$FFFF
@@ -1159,18 +1242,25 @@ m7_objpos:
     PHY
     STX a:h_m7ox
     STY a:h_m7oy
+    STZ a:h_m7oux               ; the tile's centre itself
+    STZ a:h_m7oux + 1
+    STZ a:h_m7ouy
+    STZ a:h_m7ouy + 1
     CLC
     XCE
     REP #$10
     .i16
     JSR m7_project
     BCS @off
+    REP #$20
+    .a16
     LDA a:h_m7oline
-    SEC
-    SBC #17                     ; the sprite's top: the centre - 8, less the
-    BCC @off                    ;   NES's one, and the crop's 8 back
+    DEC A                       ; the sprite's top: the centre - 8, less the
+                                ;   NES's one, and the crop's 8 back
     CMP #$EC
-    BCS @off                    ; ConvertOWToSprite's bottom
+    BCS @off                    ; above the screen, or ConvertOWToSprite's bottom
+    SEP #$20
+    .a8
     STA z:spr_y
     REP #$20
     .a16
@@ -1211,9 +1301,10 @@ m7_objpos:
 ;;  C set and the game draws nothing: the ship, if it shows, is one 32x32
 ;;  sprite of genm7.py's frames, the nearest its line's size -- 16 pixels
 ;;  times k, rounded, 8 to 24 -- its centre where the plane shows its
-;;  tile's (m7_project), handed to the HAL (h_m7xspr) for OAM entry 64 at
-;;  the next transfer, as the game's sprites drawn now go then.  Palette
-;;  M7SHIP_PAL in OBJ 4-7, in front, OBJ table 0.  X and Y kept.
+;;  tile's (m7_project), handed to the HAL for OAM at the next transfer,
+;;  as the game's sprites drawn now go then.  Palette
+;;  M7SHIP_PAL in OBJ 4-7, in front, OBJ table 0, onto the listed extras
+;;  (M7XBUF).  X and Y kept.
 m7_ship:
     LDA a:h_m7on
     BEQ @game
@@ -1233,6 +1324,10 @@ m7_ship:
     STA a:h_m7ox
     LDA f:SRAMFAR7 + ship_y
     STA a:h_m7oy
+    STZ a:h_m7oux               ; the tile's centre itself
+    STZ a:h_m7oux + 1
+    STZ a:h_m7ouy
+    STZ a:h_m7ouy + 1
     CLC
     XCE
     REP #$10
@@ -1260,21 +1355,20 @@ m7_ship:
     SEP #$20
     .a8
     LDA f:OW7FAR + lut_M7ShipTile, X
-    STA a:h_m7xspr + 2
+    STA a:h_m7save + 2
     LDA #$20 | ((M7SHIP_PAL + 4) << 1)  ; in front; OBJ palettes 4-7; table 0
-    STA a:h_m7xspr + 3
+    STA a:h_m7save + 3
     REP #$20
     .a16
     LDA a:h_m7oline
-    AND #$00FF
-    SEC
-    SBC #32 - 31                ; the box's top (the line + 16 - 32), + 31:
-    CMP #224 + 31               ;   on screen from -31 to 223
+    CLC
+    ADC #31 - 16                ; the box's top (the line - 16), + 31: on
+    CMP #224 + 31               ;   screen from -31 to 223
     BCS @done
     SBC #31 - 1                 ; (carry clear: one more taken)
     SEP #$20
     .a8
-    STA a:h_m7xspr + 1          ; a top above the screen wraps, as the SNES draws it
+    STA a:h_m7save + 1          ; a top above the screen wraps, as the SNES draws it
     REP #$20
     .a16
     LDA a:h_m7ocx
@@ -1286,13 +1380,12 @@ m7_ship:
     SBC #31
     SEP #$20
     .a8
-    STA a:h_m7xspr
+    STA a:h_m7save
     XBA
     AND #$01                    ; x's ninth bit
     ORA #$02                    ; the large size: 32x32
-    STA a:h_m7xhi
-    LDA #1
-    STA a:h_m7xon
+    STA a:h_m7save + 4
+    JSR m7_xadd                 ; onto the extras (M7XBUF)
 @done:
     SEP #$30
     .a8
@@ -1303,6 +1396,407 @@ m7_ship:
     PLX
     SEC
     RTL
+
+.a8
+.i16
+;;  The sprite at h_m7save -- x, y, tile, attributes, high bits -- onto the
+;;  extras (M7XBUF), if there is room.  A8 I16.
+m7_xadd:
+    LDA a:M7XBUF
+    CMP #M7XBUF_MAX
+    BCS @full
+    REP #$20
+    .a16
+    AND #$00FF
+    STA a:h_m7pc
+    ASL A
+    ASL A
+    ADC a:h_m7pc                ; five bytes each
+    TAX
+    SEP #$20
+    .a8
+    LDA a:h_m7save
+    STA a:M7XBUF + 1, X
+    LDA a:h_m7save + 1
+    STA a:M7XBUF + 2, X
+    LDA a:h_m7save + 2
+    STA a:M7XBUF + 3, X
+    LDA a:h_m7save + 3
+    STA a:M7XBUF + 4, X
+    LDA a:h_m7save + 4
+    STA a:M7XBUF + 5, X
+    INC a:M7XBUF
+@full:
+    RTS
+
+
+.a8
+.i16
+;;  Coneria's castle stood up (user, 2026-11-18): its base -- the middle of
+;;  its two columns, M7C_BASE below its top -- placed as any object
+;;  (m7_project), and genm7.py's frame for that line's inverse scale, k in
+;;  sixteenths, drawn upwards from it as 8x8 sprites into OAMSHADOW's
+;;  extras from entry M7C_FIRST on: from m7_scroll, by the scroll the
+;;  flush gives the plane with them, every overworld frame -- the airship's
+;;  take-off and landing and a menu's palette cycle, which draw none of the
+;;  game's sprites, among them -- and with its base below the screen while
+;;  its top shows.  The frame from whichever of two slots in the sprite
+;;  table holds it; if neither does, uploaded into the other (m7_cupload)
+;;  by the flush that sends these sprites, before them, so neither slot is
+;;  written while it shows.  One upload a flush; with one waiting, the slot
+;;  in use as it is.  In front of the party when the party stands north of
+;;  the castle's base, tilted and not in the air: OAMSHADOW's halves
+;;  swapped when that changes (m7_oamswap).  Entries the last frame held
+;;  and this one does not, off the bottom (h_m7ccount).  A8 I16.
+m7_castle:
+    LDA #M7C_X
+    STA a:h_m7ox
+    LDA #M7C_Y + 2
+    STA a:h_m7oy
+    REP #$20
+    .a16
+    LDA #8                      ; between its two columns
+    STA a:h_m7oux
+    LDA #M7C_BASE - 40          ; its base, from its bottom row's centre
+    STA a:h_m7ouy
+    SEP #$20
+    .a8
+    JSR m7_project
+    REP #$20
+    .a16
+    STZ a:h_m7oux
+    STZ a:h_m7ouy
+    SEP #$20
+    .a8
+    BCC :+
+    JMP @none
+:   REP #$20
+    .a16
+    LDA a:h_m7cnt
+    CLC
+    ADC #8
+    LSR A
+    LSR A
+    LSR A
+    LSR A                       ; k in sixteenths, rounded
+    SEC
+    SBC #M7C_K0
+    BPL :+
+    LDA #0
+:   CMP #M7C_FRAMES
+    BCC :+
+    LDA #M7C_FRAMES - 1
+:   STA a:h_m7n                 ; the frame wanted
+    LDA a:h_m7cslot
+    AND #$00FF
+    TAX                         ; the slot in use
+    SEP #$20
+    .a8
+    LDA a:h_m7n
+    CMP a:h_m7cframe, X
+    BEQ @slot
+    TXA
+    EOR #1
+    TAX                         ; the other
+    LDA a:h_m7n
+    CMP a:h_m7cframe, X
+    BEQ @switch
+    LDA a:h_m7upon
+    BEQ @upload
+    TXA                         ; an upload already waits: the slot in use
+    EOR #1
+    TAX
+    BRA @slot
+@upload:
+    LDA a:h_m7n
+    STA a:h_m7cframe, X
+    JSR m7_cupload
+@switch:
+    TXA
+    STA a:h_m7cslot
+@slot:
+    LDA a:h_m7cframe, X
+    CMP #$FF
+    BNE :+
+    JMP @none                   ; nothing there yet
+:   PHX
+    REP #$20
+    .a16
+    AND #$00FF
+    STA a:h_m7pc
+    ASL A
+    ADC a:h_m7pc
+    ASL A                       ; six bytes a frame's record
+    TAX
+    LDA f:OW7OBJFAR + lut_M7CFrame + 2, X  ; its sprites
+    STA a:h_m7addr
+    LDA f:OW7OBJFAR + lut_M7CFrame + 5, X  ; how many
+    AND #$00FF
+    STA a:h_m7left
+    PLX
+    LDA #M7C_SLOT0
+    CPX #0
+    BEQ :+
+    LDA #M7C_SLOT1
+:   STA a:h_m7line              ; (borrowed: the slot's first tile)
+    LDA a:h_m7oline
+    STA a:h_m7row               ; (borrowed: the base's screen line)
+    ;  In front of the party, or behind?
+    SEP #$20
+    .a8
+    LDA a:h_m7lvl
+    CMP #2
+    BCC @behind                 ; flat, the NES's way: the party over all
+    LDA z:vehicle
+    CMP #$08
+    BEQ @behind                 ; the airship flies over it
+    LDA a:h_m7ty
+    CMP #M7C_Y + (M7C_BASE - 17) / 16 + 1
+    BCS @behind
+    LDA #1
+    BRA @front
+@behind:
+    LDA #0
+@front:
+    JSR m7_front
+    ;  Its sprites, into the extras from M7C_FIRST on: Y walks OAMSHADOW.
+    REP #$20
+    .a16
+    LDA a:h_m7save + 4
+    CLC
+    ADC #M7C_FIRST * 4
+    TAY
+@spr:
+    LDA a:h_m7left
+    BNE :+
+    JMP @rest
+:   DEC a:h_m7left
+    LDX a:h_m7addr
+    LDA f:OW7OBJFAR, X          ; dx, dy
+    STA a:h_m7cnt
+    LDA f:OW7OBJFAR + 2, X      ; the tile in the frame
+    AND #$00FF
+    CLC
+    ADC a:h_m7line
+    STA a:h_m7n
+    TXA
+    CLC
+    ADC #3
+    STA a:h_m7addr
+    LDA a:h_m7cnt
+    XBA
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080                  ; dy
+    CLC
+    ADC a:h_m7row
+    CLC
+    ADC #7                      ; on screen from -7 to 223
+    CMP #224 + 7
+    BCS @spr
+    SEC
+    SBC #7
+    STA a:h_m7save + 2          ; (a top above the screen wraps, as the SNES draws it)
+    LDA a:h_m7cnt
+    AND #$00FF
+    EOR #$0080
+    SEC
+    SBC #$0080                  ; dx
+    CLC
+    ADC a:h_m7ocx
+    CLC
+    ADC #7                      ; on screen from -7 to 255
+    CMP #256 + 7
+    BCS @spr
+    SEC
+    SBC #7
+    SEP #$20
+    .a8
+    STA a:OAMSHADOW + 0, Y
+    LDA a:h_m7save + 2
+    STA a:OAMSHADOW + 1, Y
+    LDA a:h_m7n
+    STA a:OAMSHADOW + 2, Y
+    LDA #$20 | (4 << 1) | 1     ; in front of the plane; OBJ palette 4; the sprite table
+    STA a:OAMSHADOW + 3, Y
+    XBA
+    BEQ @put                    ; x's ninth bit, into the high table
+    REP #$20
+    .a16
+    TYA
+    LSR A
+    LSR A
+    AND #$0003
+    TAX
+    SEP #$20
+    .a8
+    LDA f:OW7FAR + lut_M7XBit, X
+    STA a:h_m7save + 3
+    REP #$20
+    .a16
+    TYA
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    TAX                         ; the entry's high-table byte
+    SEP #$20
+    .a8
+    LDA a:h_m7save + 3
+    ORA a:OAMSHADOW + 512, X
+    STA a:OAMSHADOW + 512, X
+@put:
+    REP #$20
+    .a16
+    INY
+    INY
+    INY
+    INY
+    JMP @spr
+@none:
+    SEP #$20
+    .a8
+    LDA #0
+    JSR m7_front                ; none drawn: behind, as the NES has it
+    REP #$20
+    .a16
+    LDA a:h_m7save + 4
+    CLC
+    ADC #M7C_FIRST * 4
+    TAY
+@rest:
+    ;  This frame's count; the last one's entries past it off the bottom.
+    TYA
+    SEC
+    SBC a:h_m7save + 4
+    LSR A
+    LSR A
+    SEC
+    SBC #M7C_FIRST
+    STA a:h_m7pc                ; this frame's
+    SEP #$20
+    .a8
+    LDA a:h_m7ccount
+    SEC
+    SBC a:h_m7pc
+    BCC @counted
+    BEQ @counted
+    STA a:h_m7cnt
+    LDA #$F0
+:   STA a:OAMSHADOW + 1, Y
+    INY
+    INY
+    INY
+    INY
+    DEC a:h_m7cnt
+    BNE :-
+@counted:
+    LDA a:h_m7pc
+    STA a:h_m7ccount
+    LDA #1
+    STA a:h_oamdirty
+    RTS
+
+;;  The castle in front of the party (A 1) or behind it (0): if that is not
+;;  how OAMSHADOW is arranged, its two halves swapped -- the game's 64 and
+;;  the extras, and their high-table halves -- and h_m7xfront so for
+;;  hal_oamdma.  Then the extras' first byte in OAMSHADOW at h_m7save + 4,
+;;  and the castle's high-table bytes, M7C_FIRST on, zero.  A8 I16.
+m7_front:
+    CMP a:h_m7xfront
+    BEQ @arranged
+    STA a:h_m7xfront
+    REP #$20
+    .a16
+    LDX #256 - 2
+:   LDA a:OAMSHADOW, X
+    TAY
+    LDA a:OAMSHADOW + 256, X
+    STA a:OAMSHADOW, X
+    TYA
+    STA a:OAMSHADOW + 256, X
+    DEX
+    DEX
+    BPL :-
+    LDX #16 - 2
+:   LDA a:OAMSHADOW + 512, X
+    TAY
+    LDA a:OAMSHADOW + 512 + 16, X
+    STA a:OAMSHADOW + 512, X
+    TYA
+    STA a:OAMSHADOW + 512 + 16, X
+    DEX
+    DEX
+    BPL :-
+    SEP #$20
+    .a8
+@arranged:
+    REP #$20
+    .a16
+    LDA a:h_m7xfront
+    AND #$00FF
+    EOR #$0001
+    XBA
+    STA a:h_m7save + 4          ; the extras' first byte: 256, or 0 in front
+    LSR A
+    LSR A
+    LSR A
+    LSR A
+    CLC
+    ADC #M7C_FIRST / 4
+    TAX                         ; the castle's first high-table byte
+    SEP #$20
+    .a8
+    LDY #16 - M7C_FIRST / 4
+:   STZ a:OAMSHADOW + 512, X
+    INX
+    DEY
+    BNE :-
+    RTS
+
+lut_M7XBit:                     ; an entry's x-ninth bit in its high-table byte
+    .BYTE $01, $04, $10, $40
+
+;;  Frame h_m7n of the castle into slot X, at the next flush (flush_m7up):
+;;  its tiles from OW7OBJFAR to the slot's.  A8 I16; X kept.
+m7_cupload:
+    PHX
+    REP #$20
+    .a16
+    LDA a:h_m7n
+    AND #$00FF
+    STA a:h_m7pc
+    ASL A
+    ADC a:h_m7pc
+    ASL A
+    TAX
+    LDA f:OW7OBJFAR + lut_M7CFrame, X      ; its tiles
+    STA a:h_m7upsrc
+    LDA f:OW7OBJFAR + lut_M7CFrame + 4, X  ; how many
+    AND #$00FF
+    ASL A
+    ASL A
+    ASL A
+    ASL A
+    ASL A                       ; 32 bytes each
+    STA a:h_m7uplen
+    PLX
+    PHX
+    LDA #VRAM_CHR + $1000 + M7C_SLOT0 * 16
+    CPX #0
+    BEQ :+
+    LDA #VRAM_CHR + $1000 + M7C_SLOT1 * 16
+:   STA a:h_m7updst
+    SEP #$20
+    .a8
+    LDA #^OW7OBJFAR
+    STA a:h_m7upbank
+    LDA #1
+    STA a:h_m7upon
+    PLX
+    RTS
+
 
 .a16
 .i16

@@ -213,13 +213,16 @@ hal_w2001:
       stz a:h_chrlo
       stz a:h_chrlo + 1
       lda a:h_chrhi + 1
-      cmp #$20
-      bcs @chrspan
+      cmp #$38                  ; ...and the castle's two slots in the
+      bcs @chrspan              ;   sprite table, tiles $70-$BF: to $37FF
         lda #$FF
         sta a:h_chrhi
-        lda #$1F
+        lda #$37
         sta a:h_chrhi + 1
 @chrspan:
+      stz a:M7XBUF              ; no extras now: hal_oamdma hides theirs
+      stz a:h_m7xfront
+      stz a:h_m7upon
       lda #$FF
       sta a:h_chrqn
 :   lda a:h_ppumask
@@ -276,6 +279,17 @@ hal_w2001:
 @notwipe:
     lda a:h_ppumask
     jsr tm_from_mask
+    sta a:h_tmcur
+    ;  On the Mode 7 overworld the sprite layer carries scenery as well,
+    ;  Coneria's castle standing: with the background shown and the
+    ;  sprites not, it stays on, and the game's sprites go from OAM
+    ;  instead (oam_m7hide).
+    cmp #$01
+    bne @done
+    lda a:h_m7on
+    beq @done
+    jsr oam_m7hide
+    lda #$11
     sta a:h_tmcur
 
     ;  A write while the display is actually live is a raster split.  Writes
@@ -1016,12 +1030,22 @@ hal_oamdma:
       lda #$01
 :   and #$01
     sta a:h_sprtable            ; ...that is the 9th bit of the SNES tile number
+    ;  The game's 64 at OAM's start -- or after the overworld's extras when
+    ;  those stand in front of the party (h_m7xfront: ow7.asm's castle).
+    stz a:h_m7gbase
+    lda a:h_m7xfront
+    beq :+
+      lda #1
+:   sta a:h_m7gbase + 1         ; 0, or 256
+    inc a
+    sta a:h_m7gend + 1
+    stz a:h_m7gend              ; 256, or 512
     ENTER16
     lda a:h_data
     and #$00FF
     xba                         ; the DMA operand is a page number
     tax                         ; X walks the NES table
-    ldy #0                      ; Y walks the SNES table
+    ldy a:h_m7gbase             ; Y walks the SNES table
 @loop:
     sep #$20
     .a8
@@ -1066,32 +1090,15 @@ hal_oamdma:
     iny
     iny
     iny
-    cpy #256
+    cpy a:h_m7gend
     bcc @loop
     LEAVE16
-    ;  Entry 64, past the game's 64: the docked ship ow7.asm drew at its
-    ;  distance's size (m7_ship, h_m7xspr), one 32x32 sprite, drawn with
-    ;  the game's sprites as they come now -- or nothing, off the bottom.
-    lda a:h_m7xon
-    beq @noextra
-      stz a:h_m7xon
-      lda a:h_m7xspr
-      sta a:OAMSHADOW+256
-      lda a:h_m7xspr+1
-      sta a:OAMSHADOW+257
-      lda a:h_m7xspr+2
-      sta a:OAMSHADOW+258
-      lda a:h_m7xspr+3
-      sta a:OAMSHADOW+259
-      lda a:h_m7xhi
-      bra @extrahi
-@noextra:
-      lda #$F0
-      sta a:OAMSHADOW+257
-      lda #0
-@extrahi:
-    sta a:OAMSHADOW+512+16      ; entries 64-67's two bits each: only 64's set
-    lda #1
+    ;  The overworld's extras, while the plane is up and once after.
+    lda a:h_m7on
+    ora a:h_m7xprev
+    beq :+
+      jsr oam_extras
+:   lda #1
     sta a:h_oamdirty
     ply
     plx
@@ -1586,6 +1593,7 @@ hal_flush:
     jsr flush_chr
     jsr flush_nt
     jsr flush_m7q
+    jsr flush_m7up
     jsr flush_oam
     stz a:h_hdmaen              ; each of the three below asks for its own channel
     lda a:h_m7on                ; ...as does the overworld's tilt: channels 3
@@ -1771,6 +1779,31 @@ pal_prep:
     sta f:PALSTAGE + 0,x        ; CGADD, twice: mode 3's pattern
     sta f:PALSTAGE + 1,x
     inc a:h_palsendn
+    ;  On the overworld BG palette 0's four again at CGRAM 196-199, OBJ
+    ;  palette 4's spare entries: Coneria's castle stood up as sprites is
+    ;  drawn in them (ow7.asm), and takes the haze there as sprites do.
+    cpy #4
+    bcs @nocastle
+    lda a:h_m7objoff
+    beq @nocastle
+      rep #$20
+      .a16
+      lda a:h_palsendn
+      and #$00FF
+      asl a
+      asl a
+      tax
+      lda a:h_t2
+      sta f:PALSTAGE + 2,x
+      sep #$20
+      .a8
+      tya
+      clc
+      adc #196
+      sta f:PALSTAGE + 0,x
+      sta f:PALSTAGE + 1,x
+      inc a:h_palsendn
+@nocastle:
     rep #$20
     .a16
 @skip:
@@ -3719,6 +3752,210 @@ flush_m7q:
     lda #$80                    ; the HAL's step, a word after the high byte
     sta a:VMAIN
     LEAVE16
+    rts
+
+;;  From hal_oamdma, emulation mode: the overworld's extras, the 64 entries
+;;  the game's left (h_m7gbase's other half).  The game's high-table bytes
+;;  zero, its sprites being 8x8 and on screen's first 256.  With the plane
+;;  up, the listed extras (M7XBUF, built by ow7.asm while the game drew its
+;;  sprites: the docked ship) into their first M7XBUF_MAX entries, their
+;;  high-table byte with them, the rest of those off the bottom; the
+;;  castle's, M7C_FIRST on, ow7.asm writes itself each frame (m7_castle),
+;;  and they stay.  The plane gone, all 64 off the bottom and their
+;;  high-table bytes zero, once.  The list is spent: the game draws a new
+;;  one each frame, and a frame that draws none shows none.
+oam_extras:
+    ENTER16
+    lda a:h_m7gbase
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    tax                         ; the game's high-table bytes
+    ldy #8
+:   stz a:OAMSHADOW + 512, x
+    inx
+    inx
+    dey
+    bne :-
+    lda a:h_m7gbase
+    eor #$0100
+    sta a:h_t0                  ; the extras' first byte in OAM
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    sta a:h_m7cnt               ; ...and their first high-table byte
+    tax
+    sep #$20
+    .a8
+    stz a:OAMSHADOW + 512, x
+    lda a:h_m7on
+    bne @list
+    ;  The plane gone: every extra off the bottom.
+    rep #$20
+    .a16
+    ldy #8
+:   stz a:OAMSHADOW + 512, x
+    inx
+    inx
+    dey
+    bne :-
+    lda #256
+    sta a:h_t1                  ; the range's end, from its start
+    bra @hide
+@list:
+    .a8
+    stz a:h_m7pc                ; the next entry's two bits' place in the byte
+    stz a:h_m7pc + 1
+    lda a:M7XBUF
+    cmp #M7XBUF_MAX + 1
+    bcc :+
+    lda #M7XBUF_MAX
+:   sta a:h_t1                  ; how many
+    ldx #0
+    ldy a:h_t0
+@x:
+    lda a:h_t1
+    beq @rest
+    dec a:h_t1
+    lda a:M7XBUF + 1, x
+    sta a:OAMSHADOW + 0, y
+    lda a:M7XBUF + 2, x
+    sta a:OAMSHADOW + 1, y
+    lda a:M7XBUF + 3, x
+    sta a:OAMSHADOW + 2, y
+    lda a:M7XBUF + 4, x
+    sta a:OAMSHADOW + 3, y
+    lda a:M7XBUF + 5, x         ; two bits: x's ninth, the size
+    phx
+    ldx a:h_m7pc
+    beq @shifted
+:   asl a
+    dex
+    bne :-
+@shifted:
+    ldx a:h_m7cnt
+    ora a:OAMSHADOW + 512, x
+    sta a:OAMSHADOW + 512, x
+    plx
+    inc a:h_m7pc
+    inc a:h_m7pc
+    rep #$20
+    .a16
+    txa
+    clc
+    adc #5
+    tax
+    iny
+    iny
+    iny
+    iny
+    sep #$20
+    .a8
+    bra @x
+@rest:
+    rep #$20
+    .a16
+    lda #M7XBUF_MAX * 4
+    sta a:h_t1                  ; the list's entries' end, from their start
+@hide:
+    lda a:h_t0
+    clc
+    adc a:h_t1
+    sta a:h_t1
+    sep #$20
+    .a8
+    lda a:h_m7on
+    bne @off
+    ldy a:h_t0                  ; (the plane gone: from the first)
+@off:
+    cpy a:h_t1
+    bcs @spent
+    lda #$F0
+    sta a:OAMSHADOW + 1, y
+    iny
+    iny
+    iny
+    iny
+    bra @off
+@spent:
+    stz a:M7XBUF
+    lda a:h_m7on
+    sta a:h_m7xprev             ; once more after the plane goes, to hide them
+    LEAVE16
+    rts
+
+;;  From hal_w2001, emulation mode, the plane up and a write showing the
+;;  background but not the sprites (a menu's palette cycle, a battle's
+;;  flash): the sprite layer stays on for the extras' scenery -- the castle
+;;  -- and the game's 64 and the listed extras go off the bottom instead,
+;;  till the game's next transfer.  A, X changed.
+oam_m7hide:
+    phy
+    lda #$F0
+    ldx #0
+    ldy a:h_m7xfront
+    bne @front
+:   sta a:OAMSHADOW + 1, x      ; the game's, OAM's first half
+    inx
+    inx
+    inx
+    inx
+    bne :-
+:   sta a:OAMSHADOW + 256 + 1, x  ; the listed, the second's first
+    inx
+    inx
+    inx
+    inx
+    cpx #M7XBUF_MAX * 4
+    bcc :-
+    bra @hidden
+@front:
+:   sta a:OAMSHADOW + 256 + 1, x  ; the game's, behind the castle's
+    inx
+    inx
+    inx
+    inx
+    bne :-
+:   sta a:OAMSHADOW + 1, x
+    inx
+    inx
+    inx
+    inx
+    cpx #M7XBUF_MAX * 4
+    bcc :-
+@hidden:
+    lda #1
+    sta a:h_oamdirty
+    ply
+    rts
+
+;;  The upload ow7.asm asked for (h_m7upon): a frame of Coneria's castle
+;;  from ROM into a slot of the sprite table that is not showing.
+flush_m7up:
+    lda a:h_m7upon
+    bne :+
+    rts
+:   stz a:h_m7upon
+    lda #$80
+    sta a:VMAIN                 ; a word on after each high byte
+    lda #$01
+    sta a:DMAP0                 ; two registers: $2118, then $2119
+    lda #$18
+    sta a:BBAD0
+    lda a:h_m7upbank
+    sta a:A1B0
+    ENTER16
+    lda a:h_m7updst
+    sta a:VMADDL
+    lda a:h_m7upsrc
+    sta a:A1T0L
+    lda a:h_m7uplen
+    sta a:DAS0L
+    LEAVE16
+    lda #$01
+    sta a:MDMAEN
     rts
 
 ; --- scroll -------------------------------------------------------------

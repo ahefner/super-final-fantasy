@@ -43,10 +43,12 @@ For a screen line y, with t = (y - 112) / CAMERA and w = sin + t cos:
 A haze is added the farther north a line looks (COLDATA, additive colour
 maths, two HDMA tables: red and green, then blue), from FOG_NEAR pixels
 north of the pivot to full at FOG_FAR -- nothing on the flat view, which
-sees 112 north.  And for the objects ConvertOWToSprite places (the ship,
-the airship parked, the bridge, the canal), the screen line a point v
-pixels north or south of the pivot lands on, and the inverse of each
-line's scale, so ow7.asm puts them where the plane shows their tiles.
+sees 112 north.  And for the objects ow7.asm places (the ship, the airship
+parked, Coneria's castle), the screen line a point v pixels north or south
+of the pivot lands on -- south past the screen's bottom, as far as an
+object TALLEST high standing there still shows -- and per angle the step
+of a line's inverse scale, which is linear in the line, so ow7.asm puts
+them where the plane shows their tiles, at its size there.
 
 Out:
     out/ow7.bin      16KB: character n's 64 pixels at n * 64, row by row;
@@ -65,6 +67,7 @@ ROOT = os.path.dirname(HERE)
 GAME = os.path.join(ROOT, "game")
 OUTBIN = os.path.join(ROOT, "out", "ow7.bin")
 OUTINC = os.path.join(ROOT, "gen", "ow7.inc")
+OUTOBJ = os.path.join(ROOT, "gen", "ow7obj.inc")
 
 CHR_OFF = 0x0000        # bank $02 $8000: the overworld's BG pattern table
 TSA_OFF = 0x0000        # bank $00 $8000: lut_OWTileset
@@ -83,7 +86,18 @@ FOG_SUBTRACT = False                # a fade to dark instead of a haze
 # ---- the docked ship, drawn at its distance's size (user, 2026-11-18: "The
 #      ship needs scaled frames, it still looks too big in the distance") ----
 SHIP_SIZES = list(range(8, 23)) + [24]  # pixels across: 16 frames, 16 the game's
+# ---- Coneria's castle, stood up as sprites (user, 2026-11-18: castles that
+#      "don't flatten out like they're painted on the ground"; "let's try
+#      Coneria Castle") ----------------------------------------------------
+CASTLE_KS = [n / 16 for n in range(9, 24)]  # its sizes, as inverse scales: 15, 1 among them
 # -----------------------------------------------------------------------------
+CASTLE_AT = (152, 157)              # its top-left metatile on the game's map, 2 across, 3 down
+CASTLE_TILES = ((0x09, 0x0A), (0x19, 0x1A), (0x01, 0x02))
+GRASS, YARD = 0x76, 0x3D            # the grass behind its towers, the courtyard below
+CASTLE_SLOT = 40                    # tiles a frame may take: two slots, sprite table $70-$BF
+TALLEST = 64                        # pixels an object stands at k 1, at most: the
+                                    #   objects' table runs on south till one that
+                                    #   tall, its base below the screen, shows none
 SHIP_ADD = 0x20                     # DrawOWObj_Ship's tile additive (the ship's graphics)
 OBJCHR_OFF = 0x1C00                 # bank $02 $9C00: LoadOWObjectCHR's source, sprite tile $10 on
 PIVOT_X, PIVOT_LINE = 120, 112      # the player's tile's centre on screen: the
@@ -109,7 +123,8 @@ def m7_pixels(chr_, t, pal):
 
 def build(chr_, tsa):
     """-> (characters as a list of 64-byte strings, per metatile the four
-    corners' character numbers UL, UR, DL, DR)."""
+    corners' character numbers UL, UR, DL, DR, the characters' numbers by
+    their pixels)."""
     ul, ur, dl, dr, at = (tsa[0x100 + 0x80 * k:0x180 + 0x80 * k] for k in range(5))
     chars = [bytes(64)]
     index = {chars[0]: 0}
@@ -124,14 +139,30 @@ def build(chr_, tsa):
                 chars.append(pix)
             four.append(index[pix])
         corners.append(four)
-    if len(chars) > SPECIAL:
-        sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
-    #  Metatiles $80 and $81, which no map has: the bridge and the canal's
-    #  land, flattened into the plane (ow7.asm's m7_objchars draws their
-    #  characters at the way in, the sprite over the map's tile under it).
+    return chars, corners, index
+
+
+def specials(chars, corners, index, ground):
+    """Metatiles $80 and $81, which no map has: the bridge and the canal's
+    land, flattened into the plane (ow7.asm's m7_objchars draws their
+    characters at the way in, the sprite over the map's tile under it).
+    Then $82-$87, the ground under Coneria's castle (CASTLE_TILES' places,
+    row by row), their characters new where no metatile has them."""
     corners.append([SPECIAL + k for k in range(4)])
     corners.append([SPECIAL + 4 + k for k in range(4)])
-    return chars, corners
+    for ty in range(3):
+        for tx in range(2):
+            four = []
+            for q in range(4):
+                pix = bytes(ground[ty * 16 + (q >> 1) * 8 + y][tx * 16 + (q & 1) * 8 + x]
+                            for y in range(8) for x in range(8))
+                if pix not in index:
+                    index[pix] = len(chars)
+                    chars.append(pix)
+                four.append(index[pix])
+            corners.append(four)
+    if len(chars) > SPECIAL:
+        sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
 
 
 def line_view(angle, y):
@@ -213,6 +244,30 @@ def fog_of(v):
     return min(1.0, max(0.0, (-v - FOG_NEAR) / (FOG_FAR - FOG_NEAR)))
 
 
+def slope(angle):
+    """A line's inverse scale is linear in it: k = 1 + (y - 112) cot / CAMERA.
+    -> the angle's 65536 cot / CAMERA, k's 8.8 step a line, x256."""
+    return round(65536 / math.tan(math.radians(angle)) / CAMERA) if angle < 90 else 0
+
+
+def line_k(angle, y):
+    return 1 + (y - PIVOT_LINE) / math.tan(math.radians(angle)) / CAMERA
+
+
+def south_reach():
+    """The objects' table's last v: past it, at every angle, an object
+    TALLEST high, its base there, is below the screen (its k, as m7_project
+    has it, unclamped)."""
+    v = 0
+    while any((lambda y: y is not None and y - TALLEST * line_k(a, y) < LINES)(point_line(a, v))
+              for a in ANGLES):
+        v += 1
+    return v
+
+
+LINE_LO, LINE_HI = -64, 400             # the objects' lines kept: past them, none
+
+
 def tilt_tables(vmin, vmax):
     """-> (bytes from TABLES on, per angle its tables' offsets in the chunk)."""
     blob, offs = bytearray(), []
@@ -225,17 +280,14 @@ def tilt_tables(vmin, vmax):
         for f in fog:
             rg += [0x20 | round(FOG_RGB[0] * f), 0x40 | round(FOG_RGB[1] * f)]
         b = [0x80 | round(FOG_RGB[2] * f) for f in fog]
-        kk = bytearray()                # lines -16 to 239, as the objects' table has them
-        for y in range(-16, 240):
-            kk += round(256 / line_view(angle, y)[1]).to_bytes(2, "little")
-        yy = bytearray()
+        yy = bytearray()                # each v's line, signed; $8000 none
         for v in range(vmin, vmax + 1):
             y = point_line(angle, v)
             y = None if y is None else round(y)
-            yy.append(0 if y is None or not -16 <= y <= 238 else y + 16)
+            yy += (0x8000 if y is None or not LINE_LO <= y <= LINE_HI else y & 0xFFFF).to_bytes(2, "little")
         parts = {"A": hdma_words(m7a), "D": hdma_words(m7d),
                  "RG": hdma_words([rg[2 * i] | rg[2 * i + 1] << 8 for i in range(LINES)]),
-                 "B": hdma_bytes(b), "K": bytes(kk), "Y": bytes(yy)}
+                 "B": hdma_bytes(b), "Y": bytes(yy)}
         here = {}
         for k, part in parts.items():
             here[k] = TABLES + len(blob)
@@ -263,6 +315,104 @@ def ship_source():
                 sy = 7 - y if attr & 0x80 else y
                 img[qy * 8 + y][qx * 8 + x] = tile[sy][sx]
     return img, vals[1] & 3
+
+
+def blocks_of(chr_, tsa):
+    """Each metatile's 16x16 pixels as the plane has them (pal * 16 + c)."""
+    ul, ur, dl, dr, at = (tsa[0x100 + 0x80 * k:0x180 + 0x80 * k] for k in range(5))
+    out = []
+    for m in range(METATILES):
+        pal = at[m] & 3
+        b = [[0] * 16 for _ in range(16)]
+        for q, t in enumerate((ul[m], ur[m], dl[m], dr[m])):
+            pix = m7_pixels(chr_, t, pal)
+            for y in range(8):
+                for x in range(8):
+                    b[(q >> 1) * 8 + y][(q & 1) * 8 + x] = pix[y * 8 + x]
+        out.append(b)
+    return out
+
+
+def castle(blocks):
+    """Coneria's castle off the ground.  -> (the castle, 32 across and as
+    tall as it stands, None where it is not; the ground under it, its six
+    metatiles' pixels with the castle taken out; the base, in pixels from
+    its top-left metatile's top).
+
+    Its top two rows are drawn over grass (colour 1), its last over the
+    courtyard, and the courtyard's top wall runs behind its middle: the
+    castle is what is not grass above the wall, and across each row of
+    the wall and below, everything from its leftmost such pixel to its
+    rightmost, the green at its foot with it.  Under it: grass above the
+    wall; from the wall down, its footprint, black (user, 2026-11-18: "a
+    full black shape underneath the footprint of the castle") -- where the
+    castle standing and the ground tilted under it part by a pixel, as the
+    two scale and move, its shadow shows there, not the courtyard."""
+    img = [[0] * 32 for _ in range(48)]
+    for ty, row in enumerate(CASTLE_TILES):
+        for tx, m in enumerate(row):
+            for y in range(16):
+                for x in range(16):
+                    img[ty * 16 + y][tx * 16 + x] = blocks[m][y][x]
+    green = blocks[GRASS][0][0]
+    #  The wall: the rows of the middle metatile row whose left edge is not grass.
+    wall = [y for y in range(16, 32) if img[y][0] != green]
+    mask = [[False] * 32 for _ in range(48)]
+    for y in range(min(wall)):
+        mask[y] = [v != green for v in img[y]]
+    #  Its body's width, from its rows over grass just above the wall: the
+    #  wall's battlements, past it, stay on the ground.
+    body = [x for y in range(min(wall) - 8, min(wall)) for x in range(32) if mask[y][x]]
+    for y in range(min(wall), 48):
+        ground = img[y][0] if y in wall else blocks[YARD][y % 16][0]
+        xs = [x for x in range(min(body), max(body) + 1) if img[y][x] not in (ground, green)]
+        if xs:
+            mask[y] = [min(xs) <= x <= max(xs) for x in range(32)]
+    base = max(y for y in range(48) if any(mask[y])) + 1
+    ground = [row[:] for row in img]
+    for y in range(48):
+        for x in range(32):
+            if mask[y][x]:
+                ground[y][x] = green if y < min(wall) else 0
+    fig = [[img[y][x] if mask[y][x] else None for x in range(32)] for y in range(base)]
+    return fig, ground, base
+
+
+def castle_frames(fig, base):
+    """The castle at each of CASTLE_KS, anchored at its base's middle: for
+    each, the 8x8 tiles that have any of it (SNES 4bpp, colour c of its
+    palette as 4 + c, in OBJ palette 4's spare entries), and the sprites,
+    (dx, dy, tile), dx and dy the tile's corner from the anchor.  A screen
+    pixel (ox, oy) from the anchor shows the castle's pixel (16 + (ox +
+    0.5) / k, base + (oy + 0.5) / k), nearest-neighbour; at k 1 exactly the castle's
+    pixel."""
+    out = []
+    for k in CASTLE_KS:
+        tiles, sprites = [], []
+        half, tall = math.ceil(16 * k / 8) * 8, math.ceil(base * k / 8) * 8
+        for dy in range(-tall, 0, 8):
+            for dx in range(-half, half, 8):
+                pix = []
+                for y in range(8):
+                    for x in range(8):
+                        sx = math.floor(16 + (dx + x + 0.5) / k)
+                        sy = math.floor(base + (dy + y + 0.5) / k)
+                        v = fig[sy][sx] if 0 <= sx < 32 and 0 <= sy < base else None
+                        pix.append(0 if v is None else 4 + (v & 3))
+                if any(pix):
+                    t = bytearray(32)
+                    for y in range(8):
+                        for x in range(8):
+                            v = pix[y * 8 + x]
+                            for plane in range(3):
+                                if v >> plane & 1:
+                                    t[(16 if plane >= 2 else 0) + 2 * y + (plane & 1)] |= 0x80 >> x
+                    sprites.append((dx, dy, len(tiles)))
+                    tiles.append(bytes(t))
+        if len(tiles) > CASTLE_SLOT:
+            sys.exit("genm7: the castle at %.3f takes %d tiles, past a slot's %d" % (k, len(tiles), CASTLE_SLOT))
+        out.append((tiles, sprites))
+    return out
 
 
 def ship_frames(img):
@@ -297,9 +447,12 @@ def ship_frames(img):
 def main():
     chr_ = open(os.path.join(GAME, "bank_02.dat"), "rb").read()[CHR_OFF:CHR_OFF + 0x1000]
     tsa = open(os.path.join(GAME, "bank_00.dat"), "rb").read()[TSA_OFF:TSA_OFF + 0x400]
-    chars, corners = build(chr_, tsa)
+    chars, corners, index = build(chr_, tsa)
+    fig, ground, base = castle(blocks_of(chr_, tsa))
+    specials(chars, corners, index, ground)
+    frames_c = castle_frames(fig, base)
     north, south, west, east = region()
-    vmin, vmax = -(north + 1) * 16, (south + 1) * 16
+    vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tables, offs = tilt_tables(vmin, vmax)
     if TABLES + len(tables) > 0x8000:
         sys.exit("genm7: the tilt's tables end at $%04X, past the low half" % (TABLES + len(tables)))
@@ -321,8 +474,9 @@ def main():
            "M7P_VMIN = %d          ; the objects' table: pixels from the pivot, north negative" % vmin,
            "M7P_VMAX = %d" % vmax,
            "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0)]
-    for k in ("A", "D", "RG", "B", "K", "Y"):
+    for k in ("A", "D", "RG", "B", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
+    out.append("lut_M7PS: .WORD %s          ; k's step a line, x65536" % ", ".join("$%04X" % slope(a) for a in ANGLES))
     if len(SHIP_SIZES) != 16:
         sys.exit("genm7: %d ship frames; OBJ table 0 holds 16 of 32x32" % len(SHIP_SIZES))
     ship, ship_pal = ship_source()
@@ -336,6 +490,30 @@ def main():
     out.append("lut_M7Ship:              ; OBJ table 0 on the overworld: the ship's 16 frames")
     for i in range(0, len(frames), 16):
         out.append("  .BYTE " + ", ".join("$%02X" % b for b in frames[i:i + 16]))
+    out.append("M7C_X = %d               ; Coneria's castle: its top-left metatile on the game's map" % CASTLE_AT[0])
+    out.append("M7C_Y = %d" % CASTLE_AT[1])
+    out.append("M7C_BASE = %d             ; its base, pixels below that metatile's top" % base)
+    out.append("M7C_GROUND = $82          ; the ground under it, metatiles $82-$87 row by row")
+    out.append("M7C_FRAMES = %d           ; its sizes: k 9/16 on, a sixteenth apart" % len(CASTLE_KS))
+    out.append("M7C_K0 = %d" % round(CASTLE_KS[0] * 16))
+    out.append("M7C_SLOT = %d             ; tiles a frame may take" % CASTLE_SLOT)
+    obj = ["; generated by tools/genm7.py -- do not edit",
+           "; Coneria's castle stood up: per size (k 9/16 on), its tiles' address,",
+           "; its sprites' address (dx, dy, tile), how many tiles, how many sprites",
+           "lut_M7CFrame:"]
+    for i, (tiles, sprites) in enumerate(frames_c):
+        obj.append("  .WORD m7c_tiles%d, m7c_spr%d" % (i, i))
+        obj.append("  .BYTE %d, %d" % (len(tiles), len(sprites)))
+    for i, (tiles, sprites) in enumerate(frames_c):
+        obj.append("m7c_spr%d:" % i)
+        for dx, dy, t in sprites:
+            obj.append("  .BYTE $%02X, $%02X, $%02X" % (dx & 0xFF, dy & 0xFF, t))
+        obj.append("m7c_tiles%d:" % i)
+        blob = b"".join(tiles)
+        for j in range(0, len(blob), 16):
+            obj.append("  .BYTE " + ", ".join("$%02X" % b for b in blob[j:j + 16]))
+    with open(OUTOBJ, "w") as f:
+        f.write("\n".join(obj) + "\n")
     out += ["lut_M7Row:"]
     for m, (a, b, c, d) in enumerate(corners):
         out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, b, c, d, m))
