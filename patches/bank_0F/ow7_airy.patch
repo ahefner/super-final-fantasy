@@ -1,0 +1,6 @@
+--- OLD
+    JSR SetOWScroll_PPUOn     ; Set Scroll
+--- NEW
+    LDA tmp+10                ; the airship's line, for 3D Overworld's angle
+    STA h_m7airy              ;   (ow7.asm's m7_angle)
+    JSR SetOWScroll_PPUOn     ; Set Scroll

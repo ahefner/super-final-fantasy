@@ -74,6 +74,10 @@ double gold and XP. Nothing is randomized.
 "Short ToFR" = false
 "Save on game over" = "Off"
 
+# FUN%: the one row the modes set (user, 2026-11-20: "Airship for Improved
+# Vanilla and Super")
+"3D Overworld" = "Airship"
+
 # Treasures
 "Starting items" = "None"
 "Starting caster item" = "Off"

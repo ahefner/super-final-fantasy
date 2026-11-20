@@ -2245,13 +2245,13 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### FUN% (4)
+### FUN% (5)
 
 **Built 2026-11-03; the first three played: Stereo Sound and Palette swap
 "extensively", the latter through its water, tones and grey ramps (the
 user, 2026-11-04), and the Exploding Dwarf on 2026-11-04, all of it to
 the scream 3dB up ("good enough").  Graphics built 2026-11-14, played
-2026-11-15 with the pub's fixes.**  The user's Fun% flags
+2026-11-15 with the pub's fixes.  3D Overworld played 2026-11-20.**  The user's Fun% flags
 (`fun-percent.txt`: "goofy flags that don't change anything about
 gameplay"), a section of their own after VARIATIONS.  **Not part of the
 seed settings** (user, 2026-11-03): they are the player's own, as the
@@ -2260,7 +2260,8 @@ above the rate's 0-2), so no preset writes them.  `genpresets.py` leaves
 the section out (`PLAYER_SECTIONS`; a preset naming one of its rows is
 refused), `ngp_apply` never touches the byte, and the title's presets
 (`opt_loadpreset`) reset the rate as before but keep these; a block that
-fails its checks clears them.  The rate's two readers take its three bits
+fails its checks clears them.  All but **3D Overworld**, which the modes
+set (below).  The rate's two readers take its three bits
 alone (`optrespond.patch`, `opt_titleleftright`).  The heading's
 description is the user's file's wording.  Music Shuffle later (user,
 2026-11-03: "Let's do this later").
@@ -2604,6 +2605,33 @@ the pub: no crosses on the pub, and on Japan the priest tends bar):
 USA and Japan; the description a draft
 ("Japan shows the graphics the Japanese release had before the US release
 changed them.").  `fun.asm`, in Taverns' chunk.  **Played 2026-11-15.**
+
+**3D Overworld** (user, 2026-11-20: the Mode 7 perspective "controlled by
+a Fun% flag with three values: "Off" (description: "The world is
+flat."), "Airship" (description: "Bringing super realistic 3D graphics
+to your Super Nintendo."), and "Always" (description: "For the truly
+depraved.")"; "name it "3D Overworld""; "Mode 7 is "Off" for Vanilla and
+"Airship" for Improved Vanilla and Super").  **Played 2026-11-20,
+committed on the user's word.**  The overworld's angle (**The overworld in
+Mode 7**, **The tilt** and **The angle, from 3D Overworld**): Off flat,
+the NES's view; Airship flat but in the airship, tilting as it takes off
+and flattening as it lands; Always the steepest everywhere.  The
+respond rate's byte is full, so it has a byte after it, `OPT_FUN2`
+(bits 0-1, `FUN2_TILT`), the checksum moving up one and the format to
+`$0B` (a block from before is retired to the default preset, as every
+bump has).  Unlike the rest of FUN% the modes set it: the title's
+presets from the byte after a row's fields in `lut_Presets` (Vanilla
+Off, Improved and Super Airship; a fresh cart Improved's), and New
+Game's from `presets/*.toml` -- `genpresets.py`'s `MODE_ROWS` lets them
+name it, Vanilla's Off, Improved Vanilla's Airship and the rest
+inheriting that.  Readouts eight wide, "Off", "Airship", "Always"; the
+descriptions the user's, one a value.  `test_3doverworld`: the row, its
+panes, the title's and New Game's presets, the angle for each value and
+vehicle on the way in and every frame with R pressed or not, the
+take-off and landing against the airship's line, and beside Coneria's
+town every take-off frame's houses and landmarks at the size they settle
+on.  15 mutations, all caught (with `test_m7view`'s per-angle table
+checks).
 
   - **What changes.**  134 tiles, found by comparing the two ROMs tile by
     tile at the same address (they keep every graphic in the same place).
@@ -4306,7 +4334,9 @@ glitches -- the haze over the wipe's black, and the party behind a castle
 or a house it walks into -- fixed 2026-11-19, and the wipe's first frame
 with the landmarks gone and the houses and ships at the top: played
 2026-11-19, committed on the user's word.  The far houses a frame late
-after R: played 2026-11-19, committed on the user's word.  The airship's
+after R: played 2026-11-19, committed on the user's word.  3D Overworld,
+R gone, 33 angles animated through the airship's take-off and landing:
+played 2026-11-20, committed on the user's word.  The airship's
 shadow behind what it has flown past: played 2026-11-19, committed on
 the user's word.  The haze lower and slower to start, none on the flat
 view: played 2026-11-19, committed on the user's word.**  The
@@ -4314,15 +4344,16 @@ overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
 goal after it is the later Final Fantasies' tilt of the view as the airship
-takes off, to see farther ahead).  Not a setting yet: on the branch the
-overworld is always the plane, always tilted, at an angle R steps through
-(**The tilt**, below), "so we can iterate on the angle and how it aligns
-... then we can add a flag controlling if/how/when the perspective is
-applied" (user, 2026-11-17).
+takes off, to see farther ahead).  At first an angle R stepped through,
+"so we can iterate on the angle and how it aligns ... then we can add a
+flag controlling if/how/when the perspective is applied" (user,
+2026-11-17); now the FUN% row **3D Overworld** gives it (**The angle,
+from 3D Overworld**, below), and R does nothing.  The overworld is
+always the plane, flat when the row says so.
 
   - **What moved and what did not.**  The game's rules stay in the game's
     code: movement, vehicles, encounters, the transitions, the scroll, its
-    sixteen map rows at `mapdata`.  Only the drawing changed.  Six hooks
+    sixteen map rows at `mapdata`.  Only the drawing changed.  Seven hooks
     in the fixed bank take it to `src/ow7.asm`, `CHUNK_OW7 = $1E`, the
     last chunk a 2MB image has:
       - `DrawMapRowCol` (`ow7_rowcol.patch`, 7 bytes): on the overworld,
@@ -4336,7 +4367,7 @@ applied" (user, 2026-11-17).
         position the game just gave the PPU, a frame behind its counters as
         the sprites are -- and the pivot on the plane for M7X and M7Y.
         With the plane up it then draws whatever row or column the view
-        has come to (`m7_sync`), lets R step the angle, and puts the
+        has come to (`m7_sync`), sets the angle (`m7_angle`), and puts the
         landmarks into OAM (`m7_lands`): every overworld frame sets the
         scroll, those that draw none of the game's sprites among them.
       - `PrepOverworld`'s end (`ow7_enter.patch`, 4): `m7_enter` sends the
@@ -4351,6 +4382,9 @@ applied" (user, 2026-11-17).
       - `DrawOWObj_BridgeCanal` (`ow7_flatobjs.patch`, 7): nothing while
         the plane is up (`m7_flatobjs`), the bridge and the canal's land
         being in it.
+      - `AirshipTransitionFrame` (`ow7_airy.patch`, 5): the line the
+        airship is drawn on in its take-off or landing (`tmp+10`) into
+        `h_m7airy` before the scroll, for `m7_angle`.
   - **The plane.**  128x128 characters, 64x64 metatiles: map metatile
     (x, y) sits at plane metatile (x mod 64, y mod 64), and the plane
     wraps as the map does.  Its 256 characters are built at build time by
@@ -4408,11 +4442,35 @@ applied" (user, 2026-11-17).
     separately, and at the pivot's line the two did not cancel: the pivot
     a pixel north at every tilted angle.  So genm7.py picks each line's D
     as the hardware will round it (`hw_d`), and 256 at the pivot's line,
-    which cancels.  The angles are `ANGLES`, 90, 75, 65, 55, 50 and 45; R
-    steps through them on the overworld, wrapping, and power-on starts at
-    55 (`DEFAULT`): a tool for choosing, until a setting does.  At 55 the
-    top line looks 12 tiles north instead of 7, and 1.44 times as wide;
-    at 45, 17.6 tiles and 1.78.
+    which cancels.  The angles are `ANGLES`: 90 to 50 in 33 steps of
+    1.25, one a line the airship rises in its take-off, `$6F` to `$4F`.
+    R stepped through 90, 75, 65, 55, 50 and 45 until 3D Overworld; its
+    steepest is 50, "the second-to-last angle available by the current R
+    button selection" (user, 2026-11-20).  At 55 the top line looks 12
+    tiles north instead of 7, and 1.44 times as wide; at 50, 14.4 tiles
+    and 1.58.  Each angle's four HDMA tables (M7A, M7D, the haze's two)
+    share a bank, `lut_M7PBank`, which `flush_m7` points the four
+    channels at (`h_m7tabbank`); the objects' lines (`lut_M7PY`) are all
+    in one, `M7P_YFAR`.  They take the low halves of NES chunks `$0A`,
+    `$0B` and `$0C` (`TILT_CHUNKS`, `out/ow7tilt_XX.bin`; 20,540, 31,600
+    and 29,634 bytes), which mirrored their high halves before and which
+    `genmaps.py`'s logic slots stop short of now (`$01-$09`, 18 slots for
+    the 9 maps' 8).  Two tests had read bank `$0A`'s item names through
+    that mirror; they read the bank itself now.
+  - **The angle, from 3D Overworld** (`m7_angle`, every frame the plane
+    is up, and on the way in).  Off: 90.  Always: 50.  Airship: 90 but
+    with the party in the airship, 50 there; through its take-off and
+    landing, the angle for the line the airship is drawn on
+    (`h_m7airy`, read and cleared: `$6F` 90, a step an angle a line, `$4F`
+    50).  The value is the one set before the scroll, the airship's line
+    for the frame being drawn, so the angle leads the airship on screen
+    by at most a step.  A change loads the angle's tables (`m7_tables`).
+    The value 3, which no row gives (`FUN2_TILT_HELD`), leaves the angle
+    as `h_m7lvl` has it: the tests set any of the 33 that way
+    (`m7_set_angle`).  Taking off beside Coneria's town, every frame's
+    houses and landmarks are at the size they settle on (three 32x32
+    frames a flush standing, **R and the far houses**, below; a landmark
+    changes size by a sixteenth of k at most a step).
   - **The haze.**  Added colour (CGADSUB `$31` onto BG1, the sprites and
     the backdrop), COLDATA a line by HDMA -- red and green on channel 6,
     blue on 7 -- from nothing at `FOG_NEAR` (51) pixels north of the pivot
@@ -4764,7 +4822,9 @@ applied" (user, 2026-11-17).
     5,267.  `test_m7view` presses R standing at four places beside
     Coneria's town through every angle twice: the frame after each press
     every house at the frame and place it settles on (the build before
-    lagged); 9 mutations, all caught.
+    lagged); 9 mutations, all caught.  With R gone (3D Overworld) the
+    test changes the angle itself, round eight of the 33, and
+    `test_3doverworld` takes off beside the town.
   - **What it costs**, per walking frame at 45 degrees, the dearest of a
     walk (a frame that also draws the plane a new row): beside Coneria's
     castle and town 5,315 instructions moving, Crescent Lake's town 4,389,
@@ -6562,7 +6622,7 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      6869 free  the overworld in Mode 7 (ow7.asm, 9515: the
+    BANK_OW7      6461 free  the overworld in Mode 7 (ow7.asm, 9923: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
@@ -6573,12 +6633,15 @@ text region in the game references.
                              each one in front or behind separately 157;
                              a 32x32 frame one queue record, 65 less;
                              the airship's shadow in front or behind
-                             134;
+                             134; 3D Overworld's angle and 33 angles'
+                             table addresses and banks 408;
                              the new-overworld branch, 2026-11-17 to
-                             -19).  The chunk's low
-                             half: its 256 characters, 16KB, then the
-                             tilt's tables, 15,444 bytes for six angles,
-                             to $7C54.  The last chunk: with it the 2MB
+                             -20).  The chunk's low
+                             half: its 256 characters, 16KB; the tilt's
+                             tables, 15,444 bytes for six angles to
+                             $7C54 until 3D Overworld, moved to NES
+                             chunks $0A-$0C's (**The tilt**), 16KB
+                             free there now.  The last chunk: with it the 2MB
                              image is full.  The landmarks', the houses'
                              and the ship's frames are in NES chunks $0F's,
                              $0E's and $0D's low halves, which only

@@ -14,7 +14,7 @@
 ;                centre of the player's tile, where the party and the
 ;                airship's shadow stand -- on the plane for M7X and M7Y.
 ;                Then whatever row or column the view has just come to,
-;                drawn (m7_sync), R stepping the angle (for now), and
+;                drawn (m7_sync), the angle 3D Overworld gives (m7_angle), and
 ;                the landmarks stood up, into OAM (m7_lands): from here,
 ;                as every overworld frame sets its scroll, the frames the
 ;                game draws no sprites in among them.
@@ -47,8 +47,8 @@
 .import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
 .export lut_M7Row, lut_M7Col, lut_M7LFrame, lut_M7LMaps   ; for tools/test_options.py
-.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7ShipSize, lut_M7BFrame
-.export m7_shadow                                       ; for tools/test_options.py
+.export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7ShipSize, lut_M7BFrame, lut_M7PBank
+.export m7_shadow, m7_tables                            ; for tools/test_options.py
 
 .segment "BANK_OW7"
 
@@ -100,7 +100,7 @@ m7_rowcol:
 ;;  the 1024-pixel plane, down by NES_TOP_CROP - 1 as flush_scroll puts
 ;;  BG1VOFS; and the pivot on the plane, M7X and M7Y, at its column and
 ;;  line on screen (the hardware's line is the screen's + 1).  With the
-;;  plane up, R, the rows and columns, and the landmarks, placed by the
+;;  plane up, the angle, the rows and columns, and the landmarks, placed by the
 ;;  same scroll the flush gives the plane.  Everything kept.
 m7_scroll:
     PHP
@@ -149,7 +149,7 @@ m7_scroll:
     .a8
     LDA a:h_m7on
     BEQ :+
-    JSR m7_step
+    JSR m7_angle
     JSR m7_sync
     JSR m7_lands
 :   SEP #$30
@@ -165,35 +165,62 @@ m7_scroll:
 
 .a8
 .i16
-;;  R steps the angle, on its press (h_m7rprev a frame's R, so a second
-;;  call in one frame does nothing).  A tool for choosing one, until a
-;;  setting does.
-m7_step:
-    LDA a:h_joyaux
-    AND #JOYAUX_R
-    CMP a:h_m7rprev
+;;  The angle, as 3D Overworld has it (OPT_FUN2's FUN2_TILT; user,
+;;  2026-11-20): Off the flat one; Always the last; Airship the flat one
+;;  but in the airship, the last there, and through its take-off and
+;;  landing the one for the line AirshipTransitionFrame draws it on
+;;  (h_m7airy, ow7_airy.patch; 0 past those, read once): $6F, the ground,
+;;  the flat one, a step an angle a line up to $4F, the last.  A value no
+;;  row gives (FUN2_TILT_HELD, the tests') leaves h_m7lvl as it is.  The
+;;  tables follow a change.  A8 I16.
+.assert M7P_ANGLES = $6F - $4F + 1, error, "an angle a line the airship rises (AnimateAirshipTakeoff)"
+m7_angle:
+    LDY a:h_m7airy              ; (the airship's line: Y's low byte)
+    STZ a:h_m7airy
+    LDA f:CHUNK0 * $10000 + OPT_FUN2
+    AND #FUN2_TILT
+    CMP #FUN2_TILT_HELD
     BEQ @same
-    STA a:h_m7rprev
-    CMP #0
-    BEQ @same                   ; let go
-    LDA a:h_m7lvl
-    CMP #M7P_ANGLES             ; (the angle + 1: past the last, the first)
-    BCC :+
-    LDA #0
-:   INC A
+    CMP #FUN2_TILT_ALWAYS
+    BEQ @last
+    CMP #FUN2_TILT_AIRSHIP
+    BNE @flat
+    LDA z:vehicle
+    CMP #$08
+    BNE @flat
+    TYA
+    BEQ @last                   ; flying
+    EOR #$FF
+    SEC
+    ADC #$6F                    ; $6F less its line: the angle
+    BMI @flat                   ; (below the ground's line)
+    CMP #M7P_ANGLES - 1
+    BCS @last
+    INC A
+    BRA @set
+@flat:
+    LDA #1
+    BRA @set
+@last:
+    LDA #M7P_ANGLES
+@set:
+    CMP a:h_m7lvl
+    BEQ @same
     STA a:h_m7lvl
-    JSR m7_tables
+    JMP m7_tables
 @same:
     RTS
 
 
-;;  The angle's tables, into h_m7tabA and the rest; the angle the default
-;;  before the first way in has set one (h_m7lvl 0: power-on's WRAM).  A8
-;;  I16 in and out.
+;;  The angle's tables, into h_m7tabA and the rest, the HDMA tables' bank
+;;  into h_m7tabbank; the angle the default if none is set (h_m7lvl 0, or
+;;  past the last).  A8 I16 in and out.
 m7_tables:
     LDA a:h_m7lvl
-    BNE :+
-    LDA #M7P_DEFAULT + 1
+    BEQ :+
+    CMP #M7P_ANGLES + 1
+    BCC :++
+:   LDA #M7P_DEFAULT + 1
     STA a:h_m7lvl
 :   REP #$20
     .a16
@@ -213,8 +240,13 @@ m7_tables:
     STA a:h_m7slope
     LDA f:OW7FAR + lut_M7PY, X
     STA a:h_m7tabY
+    TXA
+    LSR A
+    TAX
     SEP #$20
     .a8
+    LDA f:OW7FAR + lut_M7PBank, X
+    STA a:h_m7tabbank
   .if M7P_FOGSUB
     LDA #$B1                    ; subtract the fixed colour from BG1, the sprites
   .else                         ;   in OBJ palettes 4-7 (all of them, here:
@@ -694,6 +726,8 @@ m7_enter:
     XCE
     REP #$10
     .i16
+    STZ a:h_m7airy              ; (no take-off under way)
+    JSR m7_angle
     JSR m7_tables
     JSR m7_objchars
     ;  The landmarks: no slot or block holds a frame, nothing waits, no
@@ -1113,7 +1147,7 @@ m7_project:
 :   ASL A                       ; (a word each)
     ADC a:h_m7tabY
     TAX
-    LDA f:OW7DATAFAR, X         ; the line, signed; $8000 none
+    LDA f:M7P_YFAR, X           ; the line, signed; $8000 none
     CMP #$8000
     BNE :+
     JMP m7_projout

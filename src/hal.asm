@@ -3691,7 +3691,7 @@ flush_m7:
     lda a:h_m7vofs + 1
     sta a:BG1VOFS
     ;  The tilt (ow7.asm, genm7.py): M7X and M7Y at the pivot, and a line at
-    ;  a time from the angle's tables in OW7DATAFAR's bank, M7A and M7D --
+    ;  a time from the angle's tables in h_m7tabbank's bank, M7A and M7D --
     ;  the matrix above is only what the vblank holds -- and the haze in
     ;  COLDATA, red and green on one channel, blue on another.
     lda a:h_m7cx
@@ -3714,7 +3714,7 @@ flush_m7:
     lda #<COLDATA
     sta a:BBAD6
     sta a:BBAD7
-    lda #^OW7DATAFAR
+    lda a:h_m7tabbank           ; (the angle's: lut_M7PBank)
     sta a:A1B3
     sta a:A1B5
     sta a:A1B6

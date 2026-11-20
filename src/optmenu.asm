@@ -2120,6 +2120,8 @@ lut_OptRows:
   OPTLABEL {"Exploding Dwarf"}
   .BYTE $02, 67    ; Graphics   (scalar 67: OPT_FUN bit 6)
   OPTLABEL {"Graphics"}
+  .BYTE $02, 69    ; 3D Overworld   (scalar 69: OPT_FUN2 bits 0-1)
+  OPTLABEL {"3D Overworld"}
   .BYTE $03, $00   ; (blank)
   FFPAD "", 30
 lut_OptRowTreasures:   ; the randomization screen's rows start here
@@ -2604,6 +2606,13 @@ lut_ValGameOver:
   FFPAD "  DW", 4               ; GAMEOVER_DW
 .assert * - lut_ValGameOver = 4 * GAMEOVER_MODES, error, "a readout per Save on game over mode"
 
+;  3D Overworld (user, 2026-11-20: "Off", "Airship", "Always").
+lut_ValTilt:
+  FFPAD "     Off", 8               ; FUN2_TILT_OFF
+  FFPAD " Airship", 8               ; FUN2_TILT_AIRSHIP
+  FFPAD "  Always", 8               ; FUN2_TILT_ALWAYS
+.assert * - lut_ValTilt = 8 * FUN2_TILT_MODES, error, "a readout per 3D Overworld mode"
+
 ;  The Early flags.
 lut_ValOnOff:
   FFPAD " Off", 4
@@ -2653,6 +2662,7 @@ lut_ValTabLo: .BYTE <lut_ValGoldXP, <lut_ValEncounter, <lut_ValStat, <lut_ValSta
               .BYTE <lut_ValOnOff                             ; Exploding Dwarf
               .BYTE <lut_ValGraphics                          ; Graphics
               .BYTE <lut_ValGameOver                          ; Save on game over
+              .BYTE <lut_ValTilt                              ; 3D Overworld
 lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValStat, >lut_ValElem
               .BYTE >lut_ValTraps, >lut_ValShuffle, >lut_ValShuffle, >lut_ValShuffle
               .BYTE >lut_ValBless, >lut_ValCurse, >lut_ValRarity, >lut_ValZones
@@ -2687,6 +2697,7 @@ lut_ValTabHi: .BYTE >lut_ValGoldXP, >lut_ValEncounter, >lut_ValStat, >lut_ValSta
               .BYTE >lut_ValOnOff                             ; Exploding Dwarf
               .BYTE >lut_ValGraphics                          ; Graphics
               .BYTE >lut_ValGameOver                          ; Save on game over
+              .BYTE >lut_ValTilt                              ; 3D Overworld
 lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHESTS_MODES
               .BYTE MAGIC_MODES, BLURSE_STEPS, BLURSE_STEPS, FORMS_MODES, ZONES_MODES
               .BYTE RUNS_MODES, SURPRISE_MODES
@@ -2720,6 +2731,7 @@ lut_ValCount: .BYTE 11, 14, 20, 20, ELEMDMG_STEPS, TRAPS_MODES, SHOPS_MODES, CHE
               .BYTE 2                                         ; Exploding Dwarf: Off, On
               .BYTE 2                                         ; Graphics: USA, Japan
               .BYTE GAMEOVER_MODES                            ; Save on game over
+              .BYTE FUN2_TILT_MODES                           ; 3D Overworld
 ;  log2 of each readout's width: 2 for VALFIELD, 3 for the wide ones.
 lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 3
               .BYTE 3                                         ; Key items
@@ -2741,6 +2753,7 @@ lut_ValShift: .BYTE 2, 2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 2, 
               .BYTE 2                                         ; Exploding Dwarf
               .BYTE 3                                         ; Graphics
               .BYTE 2                                         ; Save on game over
+              .BYTE 3                                         ; 3D Overworld
 ;  Where each scalar lives, as an offset into the option page.  The five
 ;  dials are consecutive in the checksummed block; the new-game rows are
 ;  higher up, beside the settings they are copied into the save with; and
@@ -2779,6 +2792,7 @@ lut_ValOff:   .BYTE <OPT_GOLDXP, <OPT_ENCOUNTER, <OPT_ENEMY, <OPT_BOSS, <OPT_ELE
               .BYTE <OPT_FUN                                  ; ...and Exploding Dwarf
               .BYTE <OPT_FUN                                  ; ...and Graphics
               .BYTE <OPTFB_GAMEOVER                           ; in the flag word
+              .BYTE <OPT_FUN2                                 ; 3D Overworld: FUN%'s second byte
 .assert <OPTBLOCK = 0, error, "lut_ValOff holds offsets into a page-aligned option block"
 ;  Which bits of its byte a scalar is: the lowest, and the mask in place.  A
 ;  whole byte for all but the key item rows, which are packed (RANDO_KEYITEMS).
@@ -2806,6 +2820,7 @@ lut_ValBit:   .RES 23, 0                                      ; to Key items
               .BYTE FUN_DWARF_SHIFT                           ; Exploding Dwarf
               .BYTE FUN_JAPAN_SHIFT                           ; Graphics
               .BYTE GAMEOVER_SHIFT                            ; Save on game over
+              .BYTE FUN2_TILT_SHIFT                           ; 3D Overworld
 lut_ValMask:  .RES 8, $FF
               .BYTE MAGIC_FIELD                               ; Magic levels
               .RES 4, $FF
@@ -2840,7 +2855,8 @@ lut_ValMask:  .RES 8, $FF
               .BYTE FUN_DWARF                                 ; Exploding Dwarf
               .BYTE FUN_JAPAN                                 ; Graphics
               .BYTE OPTFM_GAMEOVER                            ; Save on game over
-VALSCALARS = 69
+              .BYTE FUN2_TILT                                 ; 3D Overworld
+VALSCALARS = 70
 VAL_PARTY  = 61
 .assert lut_ValTabHi - lut_ValTabLo = VALSCALARS, error, "lut_ValTabLo: one per scalar"
 .assert lut_ValCount - lut_ValTabHi = VALSCALARS, error, "lut_ValTabHi: one per scalar"

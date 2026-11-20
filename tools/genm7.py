@@ -59,12 +59,15 @@ the plane as the ground under it, its frames at LAND_KS, and where each
 stands on each of Map Select's maps (genmaps.py's), found in their tiles.
 
 Out:
-    out/ow7.bin      16KB: character n's 64 pixels at n * 64, row by row;
-                     from $4000, the tilt's tables, ANGLES' each
+    out/ow7.bin      16KB: character n's 64 pixels at n * 64, row by row
+    out/ow7tilt_XX.bin
+                     the tilt's tables, in NES chunk XX's low half
+                     (TILT_CHUNKS): every angle's objects' lines in the
+                     first, its four HDMA tables in one of the others
     gen/ow7.inc      lut_M7Row: per metatile UL, UR, DL, DR (a row's two
                      lines a word each); lut_M7Col: UL, DL, UR, DR (a
                      column's two); the tilt's constants and, per angle,
-                     its tables' addresses in the low half; the docked
+                     its tables' banks and addresses; the docked
                      ship's frames, SHIP_SIZES across, and which to use
                      for a size; the landmarks' lists, a map each, and
                      their frames' records
@@ -80,15 +83,22 @@ GAME = os.path.join(ROOT, "game")
 OUTBIN = os.path.join(ROOT, "out", "ow7.bin")
 OUTINC = os.path.join(ROOT, "gen", "ow7.inc")
 OUTLAND = os.path.join(ROOT, "out", "ow7land_%02X.bin")
+OUTTILT = os.path.join(ROOT, "out", "ow7tilt_%02X.bin")
 
 CHR_OFF = 0x0000        # bank $02 $8000: the overworld's BG pattern table
 TSA_OFF = 0x0000        # bank $00 $8000: lut_OWTileset
 METATILES = 128
 
 # ---- the tilt: what there is to tune ---------------------------------------
-ANGLES = [90, 75, 65, 55, 50, 45]   # degrees; 90 the NES's view.  R steps
-                                    #   through them on the overworld (for now)
-DEFAULT = 3                         # ...from this one at power-on
+ANGLES = [90 - 40 * i / 32 for i in range(33)]  # degrees: 90, the NES's view, to
+                                    #   50 a step a line the airship rises in its
+                                    #   take-off (3D Overworld: Airship), $6F to
+                                    #   $4F; Always the last (user, 2026-11-20:
+                                    #   "from strictly overhead ... to whatever the
+                                    #   second-to-last angle available by the
+                                    #   current R button selection is", 50 of 90,
+                                    #   75, 65, 55, 50, 45)
+DEFAULT = ANGLES.index(55)          # with no angle set yet (M7P_DEFAULT): the tests'
 CAMERA = 256                        # pixels from the pivot: less, a stronger
                                     #   perspective at the same angle
 FOG_NEAR, FOG_FAR = 51, 240         # pixels north of the pivot: no haze nearer,
@@ -165,7 +175,8 @@ PIVOT_X, PIVOT_LINE = 120, 112      # the player's tile's centre on screen: the
                                     #   NES puts it at x 112-127, NES lines
                                     #   112-127, and the HAL crops 8 lines
 LINES = 224
-TABLES = 0x4000                     # where the tilt's tables start in ow7.bin
+TILT_CHUNKS = (0x0C, 0x0B, 0x0A)    # the tilt's tables: these NES chunks' low halves,
+                                    #   unused (genmaps.py's LOGIC_SLOTS stop short)
 RING = 32                           # rows ow7.asm keeps decoded (M7RING)
 SPECIAL = 248                       # characters 248-255: the bridge's, the canal's
 
@@ -322,8 +333,11 @@ LINE_LO, LINE_HI = -64, 400             # the objects' lines kept: past them, no
 
 
 def tilt_tables(vmin, vmax):
-    """-> (bytes from TABLES on, per angle its tables' offsets in the chunk)."""
-    blob, offs = bytearray(), []
+    """-> ({chunk: its low half's bytes}, per angle {table: offset}, its
+    HDMA tables' chunk).  Every angle's objects' lines (Y) in
+    TILT_CHUNKS[0], its four HDMA tables together in whichever of the
+    others has room: one bank for the four channels."""
+    blobs, offs, banks = {c: bytearray() for c in TILT_CHUNKS}, [], []
     for angle in ANGLES:
         views = [line_view(angle, y) for y in range(LINES)]
         m7a = [round(256 * s) for _, s, _ in views]
@@ -341,12 +355,18 @@ def tilt_tables(vmin, vmax):
         parts = {"A": hdma_words(m7a), "D": hdma_words(m7d),
                  "RG": hdma_words([rg[2 * i] | rg[2 * i + 1] << 8 for i in range(LINES)]),
                  "B": hdma_bytes(b), "Y": bytes(yy)}
-        here = {}
+        here = {"Y": len(blobs[TILT_CHUNKS[0]])}
+        blobs[TILT_CHUNKS[0]] += parts.pop("Y")
+        size = sum(len(p) for p in parts.values())
+        c = next((c for c in TILT_CHUNKS[1:] if len(blobs[c]) + size <= 0x8000), None)
+        if c is None or len(blobs[TILT_CHUNKS[0]]) > 0x8000:
+            sys.exit("genm7: the tilt's tables for %d angles do not fit TILT_CHUNKS' low halves" % len(ANGLES))
         for k, part in parts.items():
-            here[k] = TABLES + len(blob)
-            blob += part
+            here[k] = len(blobs[c])
+            blobs[c] += part
         offs.append(here)
-    return bytes(blob), offs
+        banks.append(c)
+    return blobs, offs, banks
 
 
 def ship_source():
@@ -774,18 +794,21 @@ def main():
         lists.append(groups_of(members))
     north, south, west, east = region()
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
-    tables, offs = tilt_tables(vmin, vmax)
-    if TABLES + len(tables) > 0x8000:
-        sys.exit("genm7: the tilt's tables end at $%04X, past the low half" % (TABLES + len(tables)))
+    tblobs, offs, banks = tilt_tables(vmin, vmax)
     os.makedirs(os.path.dirname(OUTBIN), exist_ok=True)
     with open(OUTBIN, "wb") as f:
-        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + tables)
+        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))))
+    for c, blob in tblobs.items():
+        with open(OUTTILT % c, "wb") as f:
+            f.write(bytes(blob))
     out = ["; generated by tools/genm7.py -- do not edit",
            "; %d Mode 7 characters (out/ow7.bin, the chunk's low half)" % len(chars),
            "M7_CHARS = %d" % len(chars),
            "M7_SPECIAL = %d          ; the bridge's characters, then the canal's: metatiles $80, $81" % SPECIAL,
            "M7P_ANGLES = %d" % len(ANGLES),
            "M7P_DEFAULT = %d" % DEFAULT,
+           "M7P_YFAR = $%06X          ; the objects' lines' bank (TILT_CHUNKS' first)"
+           % (0xC00000 + (1 + TILT_CHUNKS[0]) * 0x10000),
            "M7P_PIVOTX = %d" % PIVOT_X,
            "M7P_PIVOTLINE = %d" % PIVOT_LINE,
            "M7_NORTH = %d          ; rows kept north of the pivot's, south, columns west, east" % north,
@@ -797,6 +820,8 @@ def main():
            "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0)]
     for k in ("A", "D", "RG", "B", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
+    out.append("lut_M7PBank: .BYTE %s          ; the HDMA tables' bank"
+               % ", ".join("$%02X" % (0xC1 + c) for c in banks))
     out.append("lut_M7PS: .WORD %s          ; k's step a line, x65536" % ", ".join("$%04X" % slope(a) for a in ANGLES))
     if len(SHIP_SIZES) != 16:
         sys.exit("genm7: %d ship frames; a 32x32 art has 16" % len(SHIP_SIZES))

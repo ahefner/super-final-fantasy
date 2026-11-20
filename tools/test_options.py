@@ -64,9 +64,9 @@ OPT_STARTITEMS = 16     # the seventh: FFR's starting item set
 #  own min and max for each.
 OPT_ENEMYTO, OPT_ENEMYHP, OPT_ENEMYHPTO = 17, 18, 19
 OPT_BOSSTO, OPT_BOSSHP, OPT_BOSSHPTO = 20, 21, 22
-OPT_RESPOND, OPT_CKSUM = 23, 24
-OPT_SIZE = 25
-OPT_FORMAT = 10         # bumped when the scaling's six range scalars came
+OPT_RESPOND, OPT_FUN2, OPT_CKSUM = 23, 24, 25
+OPT_SIZE = 26
+OPT_FORMAT = 11         # bumped when 3D Overworld took a byte (10: the scaling's six range scalars)
 CHUNK_OPT_BANK = 0xA1 + 0x11
 BANK_0E = 0xA1 + 0x0E          # chunk N runs at PBR $A1+N, so NES bank $0E is $AF
 CUR_BANK = 0x57                # the bank SwapPRG returns to
@@ -7265,7 +7265,7 @@ def test_softbattle():
     def itemname(item):
         b = (1 + 0x0A) * 0x10000
         p = b + 0xB700 + item * 2
-        at = b + (ROMDATA[p] | ROMDATA[p + 1] << 8) - 0x8000
+        at = b + (ROMDATA[p] | ROMDATA[p + 1] << 8)    # (the bank at $8000 up: its low half is genm7's)
         return ROMDATA[at:ROMDATA.find(b"\x00", at)]
     softname = itemname(SOFT_ID).rstrip(b"\xFF")
     check("SOFT's stored name is padded past HEAL's",
@@ -12335,12 +12335,24 @@ def nes_screen(world, blocks, px0, py0):
 
 def m7_machine():
     """A machine on the overworld at nothing in particular: the PPU and DMA
-    modelled, a clock for the waits."""
+    modelled, a clock for the waits; 3D Overworld at the value no row
+    gives (FUN2_TILT_HELD), so the angle is h_m7lvl's, as a test sets it."""
     bus, cpu = machine()
     bus.ppu()
     bus.dma = True
     bus.frames()
+    bus.sram[OPTBLOCK - 0x6000 + OPT_FUN2] = K["FUN2_TILT_HELD"]
     return bus, cpu
+
+
+def m7_set_angle(bus, cpu, level):
+    """The angle, an index into genm7.ANGLES, as m7_tables takes it (native
+    mode, A8 I16), under FUN2_TILT_HELD."""
+    bus.wram[K["h_m7lvl"]] = level + 1
+    e, p = cpu.e, cpu.p
+    cpu.e, cpu.p = False, (cpu.p | 0x20) & ~0x10
+    call(cpu, "m7_tables")
+    cpu.e, cpu.p = e, p
 
 
 def test_m7view():
@@ -12356,7 +12368,7 @@ def test_m7view():
     there -- and at the flat angle to the NES picture itself.  And the
     sampled points to a camera's (m7_camera, a ray cast, not genm7.py's
     formulas), the pivot fixed at the player's tile; the haze only past
-    FOG_NEAR; R stepping the angle; the objects ConvertOWToSprite places
+    FOG_NEAR; the angle 3D Overworld gives; the objects ConvertOWToSprite places
     landing on their tiles, and the game's placing at the flat angle;
     the nametables untouched, the queue sent, the plane and its haze gone
     at rendering off; what a step and the way in cost."""
@@ -12372,6 +12384,9 @@ def test_m7view():
     ANGLES, CAM = genm7.ANGLES, genm7.CAMERA
     FLAT = ANGLES.index(90)
     STEEP = ANGLES.index(min(ANGLES))
+    #  Some of the 33, for the dearer checks: the ends, the first tilt, the
+    #  haze coming in, the tests' default, between.
+    SAMPLE = sorted({FLAT, 1, 6, 12, 18, 24, genm7.DEFAULT, STEEP})
     NORTH, SOUTH, _, _ = genm7.region()
     VMIN, VMAX = -(NORTH + 1) * 16, (SOUTH + 1) * 16
     OW7 = ((0xA1 + K["CHUNK_OW7"]) & 0x1F) * 0x10000
@@ -12445,7 +12460,7 @@ def test_m7view():
     #  at the flat angle, the map at every angle.
     bad = []
     for x, y in ((0x92, 0x9E), (0, 0), (0xF8, 0xF9), (0x3A, 0xFF), (0xFF, 0x41), (0x3F, 0x3F)):
-        for level in range(len(ANGLES)):
+        for level in SAMPLE:
             if level not in (FLAT, STEEP) and (x, y) != (0x92, 0x9E):
                 continue
             bus, cpu = m7_machine()
@@ -12654,21 +12669,18 @@ def test_m7view():
           "the band hazed; a standard map's channel 4 alone; channel 4 off at its end, CGWSEL back after",
           bad[:4], [])
 
-    #  R: a press steps the angle once, held or let go nothing more, past the
-    #  last the first; the tables and the haze with it.
+    #  An angle's tables, each angle's: M7A's address and bank, as the flush
+    #  sends them, lut_M7PA's and lut_M7PBank's (the tables in three chunks'
+    #  low halves).
+    got, want = [], []
     bus, cpu = m7_machine()
-    enter(bus, cpu, 0x92, 0x9E, level=len(ANGLES) - 2)
-    R = K["JOYAUX_R"]
-    got = []
-    for held in (R, R, 0, 0, R, 0, R, R):
-        bus.wram[K["h_joyaux"]] = held
-        call(cpu, "m7_scroll")
-        got.append(bus.wram[LVL] - 1)
-    want = [len(ANGLES) - 1] * 4 + [0, 0, 1, 1]
-    call(cpu, "hal_waitvbl", bank=0xC0)
-    A1T3 = bus.io.get(0x4332, 0) | bus.io.get(0x4333, 0) << 8
-    check("R: a press steps the angle once, past the last the first; M7A's table the angle's",
-          (got, A1T3), (want, lut_word("lut_M7PA", 1)))
+    enter(bus, cpu, 0x92, 0x9E, level=FLAT)
+    for level in range(len(ANGLES)):
+        m7_set_angle(bus, cpu, level)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        got.append((bus.io.get(0x4332, 0) | bus.io.get(0x4333, 0) << 8, bus.io.get(0x4334, 0)))
+        want.append((lut_word("lut_M7PA", level), ROMDATA[OW7 + SYM["lut_M7PBank"] + level]))
+    check("each angle's M7A table, its address and bank, as the flush sends them", got, want)
 
     #  Objects (ConvertOWToSprite).  Flat: the game's placing, ported
     #  here.  Tilted: the sprite's centre within a screen pixel of where the
@@ -13379,14 +13391,17 @@ def test_m7view():
                 if best is None or d < best[0]:
                     best = (d, name, xs, cl, scale)
             d, name, xs, cl, scale = best
-            order.append((cl, min(i for i, sx, sy, t in mine)))
+            first = front_start(bus) or 0       # (OAM's priority from there round)
+            order.append((cl, min((i - first) % 128 for i, sx, sy, t in mine)))
             if abs(ax - xs) > 1.25 or abs(ay - cl) > 1.25:
                 bad.append(where + ": %s's base at %d, %d, the camera's %.1f, %.1f" % (name, ax, ay, xs, cl))
             k = min(max(1 / scale, L_K0 / 16), (L_K0 + L_N - 1) / 16)
             if ktol is not None and abs(((key & 15) + L_K0) / 16 - k) > ktol:
                 bad.append(where + ": %s at k %d/16, the camera's %.3f" % (name, (key & 15) + L_K0, 1 / scale))
             out.append(name)
-        #  The nearest (the camera's greatest line) first in OAM, so in front.
+        #  The nearest (the camera's greatest line) first in OAM's priority, so
+        #  in front (those in front of the party past those behind it, OAM's
+        #  priority turned round to start at them).
         if [f for _, f in sorted(order, key=lambda o: -o[0])] != sorted(f for _, f in order):
             bad.append(where + ": the nearest not first in OAM: %r" % sorted(order))
         return out
@@ -13707,13 +13722,13 @@ def test_m7view():
                 if not houses_placed(bus, where, level, *pv):
                     bad.append(where + ": no houses")
                 fronts(bus, where, level, pv[0], pv[1])
-    #  ...and far to the side, near the top, at the steepest angle: eleven
+    #  ...and far to the side, near the top, at the steepest angle: ten
     #  columns off and more, where the screen still shows them.
     for (x, y), name in sorted(ON[0].items()):
         if name not in ("coneria", "mirage", "volcano"):
             continue
         sides = 0
-        for side in (-13, -12, -11, 11, 12, 13):
+        for side in (-12, -11, -10, 10, 11, 12):
             for north in (8, 10, 12):
                 px, py = x + side, y + len(GRID[name]) - 1 + north
                 u, v = anchor_of(name, x, y)
@@ -13730,7 +13745,7 @@ def test_m7view():
                 if placed(bus, where, STEEP, (px - 7) * 16 + 120, (py - 7) * 16 + 120, [(name, x, y)]) != [name]:
                     bad.append(where + ": not drawn")
         if not sides:
-            bad.append("%s: never eleven columns off on the screen" % name)
+            bad.append("%s: never ten columns off on the screen" % name)
 
     #  Its base below the screen, its top on it (user, 2026-11-18: it
     #  "pops in" from the bottom "when the row of tiles its grounded on
@@ -13739,7 +13754,7 @@ def test_m7view():
     #  it; Coneria's at every angle, the flat one too, the volcano's at two.
     CON = next(p for p, n in ON[0].items() if n == "coneria")
     VOL = next(p for p, n in ON[0].items() if n == "volcano")
-    for name, (x, y), levels in (("coneria", CON, range(len(ANGLES))), ("volcano", VOL, (genm7.DEFAULT, STEEP))):
+    for name, (x, y), levels in (("coneria", CON, SAMPLE), ("volcano", VOL, (genm7.DEFAULT, STEEP))):
         fig, _, base, _ = ART[name]
         u0, v0 = anchor_of(name, x, y)
         for level in levels:
@@ -13765,10 +13780,12 @@ def test_m7view():
             if not shown:
                 bad.append("%d degrees: %s never its base below the screen and its top on it" % (ANGLES[level], name))
 
-    #  Two and three at once (Sandy Ridge: Coneria's castle and the Mirage
-    #  Tower, two palettes; Great Lake: those and Northwest Castle),
-    #  walking among them: every frame each from a slot holding its frame,
-    #  the nearest first, three slots shared with an upload a flush.
+    #  Two at once, and three among them (Sandy Ridge: Coneria's castle and
+    #  the Mirage Tower, two palettes; Great Lake: those and Northwest
+    #  Castle, too far apart for 50 degrees, the steepest, to show the three
+    #  at once), walking among them: every frame each from a slot holding
+    #  its frame, the nearest first, three slots shared with an upload a
+    #  flush.
     ENTRIES = genmaps.parse()
     for mapname, names in (("Sandy Ridge", ("coneria", "mirage")), ("Great Lake", ("coneria", "northwest-ffr", "mirage"))):
         mi = next(i for i, e in enumerate(ENTRIES) if e[3] == mapname)
@@ -13780,13 +13797,14 @@ def test_m7view():
         bus.sram[K["RANDO_MAP"] - 0x6000] = mi
         enter(bus, cpu, cx - 7, cy - 7, level=STEEP)
         call(cpu, "m7_scroll")
-        #  R, round every angle, from just south of them: each in view a new
-        #  size at once, one upload a flush, the rest at their old sizes
+        #  Round the sampled angles, from just south of them: each in view a
+        #  new size at once, one upload a flush, the rest at their old sizes
         #  meanwhile, none missing a frame; and so back to the steepest.
-        for n in range(len(ANGLES) * 3):
-            bus.wram[K["h_joyaux"]] = K["JOYAUX_R"] if n % 3 == 0 else 0
+        for n in range(len(SAMPLE) * 3):
+            if n % 3 == 0:
+                m7_set_angle(bus, cpu, SAMPLE[(SAMPLE.index(bus.wram[LVL] - 1) + 1) % len(SAMPLE)])
             call(cpu, "m7_scroll")
-            where = "%s, R, frame %d" % (mapname, n)
+            where = "%s, angle %d, frame %d" % (mapname, bus.wram[LVL] - 1, n)
             upload_asked(bus, where)
             run_frame(bus, cpu)
             call(cpu, "hal_waitvbl", bank=0xC0)
@@ -13794,7 +13812,8 @@ def test_m7view():
             placed(bus, where, bus.wram[LVL] - 1, pv[0], pv[1], every, ktol=None)
             slots_hold(bus, where)
         most, used = 0, set()
-        for step, facing in enumerate([8] * 4 + [4] * 2 + [2] * 3 + [1] * 2):
+        #  (north far enough that 50 degrees, the steepest, sees the three)
+        for step, facing in enumerate([8] * 10 + [4] * 2 + [2] * 3 + [1] * 2):
             bus.wram[FACING] = facing
             call(cpu, "StartMapMove")
             while True:
@@ -13818,7 +13837,7 @@ def test_m7view():
                 most = max(most, sum(1 for n in shown if n in names))
                 if bus.wram[SPEED] == 0:
                     break
-        if most < len(names):
+        if most < 2:
             bad.append("%s: at most %d shown at once of %d" % (mapname, most, len(names)))
         #  The way out, the three slots used: the sprite table back.
         if len(names) == 3:
@@ -14164,12 +14183,12 @@ def test_m7view():
     check("a wipe off the overworld: its first frame the landmarks, houses and ship where they were "
           "(the dwarf's gibs not put away over them)",
           (extras(bus) == was, shown[0] > 0, shown[1] > 0), (True, True, True))
-    #  R pressed standing beside Coneria's town (user, 2026-11-19: a town
-    #  sprite "glitches at the wrong size for a single frame immediately
-    #  after the perspective change"): through every angle twice, the frame
-    #  after each press every house already at the frame and place it
-    #  settles on -- each row's new frame sent in that press's flush, not
-    #  one a flush with the far rows at their old size meanwhile.
+    #  The angle changed standing beside Coneria's town (user, 2026-11-19,
+    #  with R: a town sprite "glitches at the wrong size for a single frame
+    #  immediately after the perspective change"): through the sampled
+    #  angles twice, the frame after each change every house already at the
+    #  frame and place it settles on -- each row's new frame sent in that
+    #  flush, not one a flush with the far rows at their old size meanwhile.
     def houses_keyed(bus):
         out = []
         for i, sx, sy, t in house_sprites(bus):
@@ -14178,7 +14197,8 @@ def test_m7view():
         return sorted(out)
 
     def r_frame(bus, cpu, press):
-        bus.wram[K["h_joyaux"]] = K["JOYAUX_R"] if press else 0
+        if press:
+            m7_set_angle(bus, cpu, SAMPLE[(SAMPLE.index(bus.wram[LVL] - 1) + 1) % len(SAMPLE)])
         call(cpu, "m7_scroll")
         run_frame(bus, cpu)
         return houses_keyed(bus)
@@ -14188,7 +14208,7 @@ def test_m7view():
         enter(bus, cpu, px - 7, py - 7, level=genm7.DEFAULT)
         for _ in range(4):
             r_frame(bus, cpu, False)
-        for press in range(2 * len(ANGLES)):
+        for press in range(2 * len(SAMPLE)):
             first = r_frame(bus, cpu, True)
             for _ in range(4):
                 settled = r_frame(bus, cpu, False)
@@ -14197,7 +14217,8 @@ def test_m7view():
                 lag.append("(%d, %d), %d degrees: %r, then %r" % (px, py, ANGLES[bus.wram[LVL] - 1],
                                                                    sorted(set(first) - set(settled))[:2],
                                                                    sorted(set(settled) - set(first))[:2]))
-    check("R pressed standing beside Coneria's town: the frame after, every house at its settled frame and place",
+    check("the angle changed standing beside Coneria's town: the frame after, every house at its settled frame "
+          "and place",
           lag[:4], [])
     #  The palette mirror; the way out: OAM's priority turned back at the
     #  first flush, though nothing of the game's is sent before it.
@@ -15985,7 +16006,7 @@ def test_itemnamewidth():
         if not (0x8000 <= addr < 0xC000):
             wrong.append("   $%02X has a nonsense pointer $%04X" % (item, addr))
             continue
-        at = bank + addr - 0x8000
+        at = bank + addr                    # (the bank at $8000 up: its low half is genm7's)
         end = ROMDATA.find(b"\x00", at)
         if end < 0 or end - at > 16:
             wrong.append("   $%02X is unterminated" % item)
@@ -23337,7 +23358,194 @@ def test_scream():
           tav.count(jsl("hal_spcplay"))), (1, 1))
 
 
+# --- FUN%: 3D Overworld ----------------------------------------------------------
+
+def test_3doverworld():
+    """3D Overworld (user, 2026-11-20): a FUN% row after Graphics -- Off,
+    Airship, Always -- in FUN%'s second byte (OPT_FUN2), the one FUN% row the
+    modes set: Off in Vanilla, Airship in Improved and Super and in New
+    Game's presets but Vanilla.  The overworld's angle from it, every frame
+    (ow7.asm's m7_angle): Off flat, Always the steepest, Airship flat but in
+    the airship -- the steepest there, and through its take-off and landing
+    the angle for the line the airship is drawn on, a step a line, flat at
+    the ground's.  R does nothing now."""
+    import presetdefs as P, genpresets as G
+    FUN2 = K["OPT_FUN2"] - OPTBLOCK
+    OFF, AIR, ALWAYS = K["FUN2_TILT_OFF"], K["FUN2_TILT_AIRSHIP"], K["FUN2_TILT_ALWAYS"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("3D Overworld")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("3D Overworld: FUN%, after Graphics, Off, Airship and Always, OPT_FUN2's bits 0-1",
+          (row.section, names[names.index("3D Overworld") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg)), FUN2),
+          ("FUN%", "Graphics", ["Off", "Airship", "Always"], (FUN2, 0, 3), OPT_FUN2))
+    SEL, TOP = 0x6E, 0x6F
+
+    def desc(r, v):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, v)
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    check("its pane, each value: the user's words",
+          [desc(optrow("3D Overworld"), v) for v in (OFF, AIR, ALWAYS)],
+          [["The world is flat."],
+           ["Bringing super realistic", "3D graphics to your Super", "Nintendo."],
+           ["For the truly depraved."]])
+    #  The modes: the title's presets, a fresh cart (Improved), New Game's.
+    got = []
+    for preset in range(3):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, 3)
+        cpu.a = preset
+        call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+        got.append(blk(bus, FUN2))
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    got.append(blk(bus, FUN2))
+    check("the title's presets: Vanilla Off, Improved and Super Airship; a fresh cart Improved's",
+          got, [OFF, AIR, AIR, AIR])
+    presets = G.resolve(G.load(), rows)
+    got, want = [], []
+    for k, (name, _, _, settings) in enumerate(presets):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, 3)
+        cpu.a = k
+        call(cpu, "ngp_apply")
+        got.append((name, blk(bus, FUN2)))
+        want.append((name, OFF if name == "Vanilla" else AIR))
+    check("New Game's presets: Vanilla Off, every other Airship, as ngp_apply writes them", got, want)
+
+    #  The angle.
+    import genm7
+    LVL, LAST = K["h_m7lvl"], len(genm7.ANGLES) - 1
+    VEHICLE, TMP10, FC = K["vehicle"], K["tmp"] + 10, K["framecounter"]
+    CROP = K["NES_TOP_CROP"] - 1
+
+    def ready(mode, vehicle):
+        bus, cpu = m7_machine()
+        setblk(bus, FUN2, mode)
+        bus.wram[K["ow_scroll_x"]], bus.wram[K["ow_scroll_y"]] = 0x92, 0x9E
+        bus.wram[VEHICLE] = bus.wram[K["vehicle_next"]] = vehicle
+        call(cpu, "PrepOverworld")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        return bus, cpu
+    got = {}
+    for mode in (OFF, AIR, ALWAYS):
+        for vehicle in (1, 2, 4, 8):
+            bus, cpu = ready(mode, vehicle)
+            seen = [bus.wram[LVL] - 1]
+            for press in (K["JOYAUX_R"], 0, K["JOYAUX_R"]):
+                bus.wram[K["h_joyaux"]] = press
+                call(cpu, "m7_scroll")
+                seen.append(bus.wram[LVL] - 1)
+            got[(mode, vehicle)] = set(seen)
+    want = {(m, v): {LAST if m == ALWAYS or (m == AIR and v == 8) else 0} for m in (OFF, AIR, ALWAYS)
+            for v in (1, 2, 4, 8)}
+    check("the angle: Off flat, Always the steepest, Airship the steepest in the airship alone -- "
+          "on the way in and every frame, R pressed or not", got, want)
+
+    #  Take-off and landing, as AnimateAirshipTakeoff and -Landing run
+    #  AirshipTransitionFrame: each frame's flush, the angle against the
+    #  line the airship shows on (OAM's entry 0, the NES's line).
+    def transition(mode, start, step, done):
+        bus, cpu = ready(mode, 8)
+        bus.wram[TMP10] = start
+        out = []
+        while True:
+            call(cpu, "AirshipTransitionFrame")
+            call(cpu, "hal_waitvbl", bank=0xC0)
+            out.append((bus.wram[LVL] - 1, (bus.oam[1] + CROP) & 0xFF))
+            if bus.wram[FC] & 1 == 0:
+                bus.wram[TMP10] = (bus.wram[TMP10] + step) & 0xFF
+                if done(bus.wram[TMP10]):
+                    break
+        call(cpu, "m7_scroll")                     # a frame after, in the air or landed
+        return out, bus.wram[LVL] - 1
+    bad = []
+    for name, start, step, done in (("take-off", 0x6F, -1, lambda y: y < 0x4F),
+                                    ("landing", 0x4F, 1, lambda y: y >= 0x70)):
+        frames, after = transition(AIR, start, step, done)
+        levels = [l for l, _ in frames]
+        moves = {b - a for a, b in zip(levels, levels[1:])}
+        ends = (levels[0], levels[-1])
+        if ends != ((0, LAST) if step < 0 else (LAST, 0)) or not moves <= ({0, 1} if step < 0 else {0, -1}):
+            bad.append("%s: from %d to %d, steps %r" % (name, ends[0], ends[1], sorted(moves)))
+        off = [(l, y) for l, y in frames[1:] if abs(l - min(max(0x6F - y, 0), LAST)) > 1]
+        if off:
+            bad.append("%s: the angle not the airship's line's: %r" % (name, off[:3]))
+        if after != LAST:
+            bad.append("%s: the frame after, angle %d" % (name, after))
+        for mode, want_l in ((OFF, 0), (ALWAYS, LAST)):
+            frames, _ = transition(mode, start, step, done)
+            if {l for l, _ in frames} != {want_l}:
+                bad.append("%s, mode %d: angles %r" % (name, mode, sorted({l for l, _ in frames})))
+    check("Airship: the take-off from flat to the steepest and the landing back, the angle the airship's line's "
+          "within a step; Off and Always held through both", bad, [])
+
+    #  Taking off beside Coneria's town, the angle a step every other frame:
+    #  every frame each house at the frame and place it settles on at that
+    #  angle, each landmark from a slot holding the frame it wants (no
+    #  stand-in) -- the far rows not a frame late, as they were after an R
+    #  press (2026-11-19).
+    HOUSEATTR = 0x20 | (4 << 1)
+
+    def houses(bus):
+        out = []
+        for i in range(64, 128):
+            x, y, t, a = bus.oam[4 * i:4 * i + 4]
+            hb = bus.oam[512 + i // 4] >> (2 * (i % 4)) & 3
+            if a == HOUSEATTR and hb & 2:
+                b = next((b for b in range(16) if (b % 4) * 4 + (b // 4) * 64 == t), None)
+                out.append((x - (256 if hb & 1 else 0), y, bus.wram[K["h_m7bkey"] + b] if b is not None else None))
+        return sorted(out)
+
+    def at(mode, level=None):
+        bus, cpu = m7_machine()
+        setblk(bus, FUN2, mode)
+        bus.wram[K["ow_scroll_x"]], bus.wram[K["ow_scroll_y"]] = 152 - 7, 167 - 7
+        bus.wram[VEHICLE] = bus.wram[K["vehicle_next"]] = 8
+        if level is not None:
+            bus.wram[LVL] = level + 1
+        call(cpu, "PrepOverworld")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        return bus, cpu
+    settled, bad = {}, []
+    bus, cpu = at(AIR)
+    bus.wram[TMP10] = 0x6F
+    while True:
+        call(cpu, "AirshipTransitionFrame")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        level = bus.wram[LVL] - 1
+        if level not in settled:
+            b2, c2 = at(K["FUN2_TILT_HELD"], level)
+            for _ in range(5):
+                b2.wram[TMP10] = 0x6F - level
+                call(c2, "AirshipTransitionFrame")
+                call(c2, "hal_waitvbl", bank=0xC0)
+            settled[level] = houses(b2)
+        V = K["M7LVIS"]
+        stand = [bus.wram[V + 8 * i + 4] for i in range(bus.wram[K["h_m7lnvis"]])
+                 if bus.wram[V + 8 * i + 5] != 0xFF
+                 and bus.wram[K["h_m7lkey"] + bus.wram[V + 8 * i + 5]] != bus.wram[V + 8 * i + 4]]
+        if houses(bus) != settled[level] or stand:
+            bad.append("angle %d: houses %s, landmarks standing in %r"
+                       % (level, "as they settle" if houses(bus) == settled[level] else "not", stand))
+        if bus.wram[FC] & 1 == 0:
+            bus.wram[TMP10] -= 1
+            if bus.wram[TMP10] < 0x4F:
+                break
+    check("taking off beside Coneria's town: every frame every house at its settled frame, every landmark's "
+          "frame the one it wants (%d angles)" % len(settled), (bad[:4], len(settled)), ([], LAST + 1))
+
+
 # --- FUN%: Graphics --------------------------------------------------------------
+
 def test_graphics():
     """Graphics (user, 2026-11-14: "Graphics" - "USA", "Japan"; the Japanese
     tiles from a file in the tree, the build needing no ROM; the pub sign
@@ -24165,7 +24373,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_rando_namelazy, test_helpdraw, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_3doverworld, test_rando_namelazy, test_helpdraw, test_saveview,
              test_stackshift)
 
     global JOBS

@@ -43,3 +43,6 @@ The original game, with nothing added and nothing randomized.
 # Variations
 "Thief and Ninja hit%" = "+2"
 "TRANCE status element" = false
+
+# FUN%: the one row the modes set (user, 2026-11-20: "Off for Vanilla")
+"3D Overworld" = "Off"

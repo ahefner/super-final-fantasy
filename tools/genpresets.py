@@ -58,14 +58,17 @@ TITLE_CUSTOM = 3
 #  skip New Game's screens.
 RANDO_SECTIONS = ("TREASURES", "RANDOMIZATION", "KEY ITEMS")
 #  The player's own sections, which no preset sets (snesmap.inc's OPT_FUN):
-#  FUN% (user, 2026-11-03: "Not part of the seed settings").
+#  FUN% (user, 2026-11-03: "Not part of the seed settings") -- but for the
+#  rows in them the modes do set: 3D Overworld (user, 2026-11-20: "Off for
+#  Vanilla and Airship for Improved Vanilla and Super").
 PLAYER_SECTIONS = ("FUN%",)
+MODE_ROWS = ("3D Overworld",)
 
 
 def preset_rows(rows=None):
     """The rows a preset sets: every one but the player's own."""
     rows = rows if rows is not None else presetdefs.rows()
-    return [r for r in rows if r.section not in PLAYER_SECTIONS]
+    return [r for r in rows if r.section not in PLAYER_SECTIONS or r.label in MODE_ROWS]
 
 
 #  The Party modes that draw on the seed, by readout: rando.asm's
@@ -124,7 +127,7 @@ def resolve(files, rows=None):
     """Each preset as (name, description lines, title index, {label: value index}),
     in list order.  Raises PresetError with what is wrong and where."""
     every = rows if rows is not None else presetdefs.rows()
-    own_rows = {r.label for r in every if r.section in PLAYER_SECTIONS}
+    own_rows = {r.label for r in every if r.section in PLAYER_SECTIONS and r.label not in MODE_ROWS}
     rows = preset_rows(every)
     by_label = {r.label: r for r in rows}
     labels = [r.label for r in rows]

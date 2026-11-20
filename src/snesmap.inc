@@ -284,12 +284,15 @@ OPT_BOSSHPTO    = OPTBLOCK+$16  ; Boss HP max
 OPT_RESPOND     = OPTBLOCK+$17  ; 0-based, so the default 8 is stored as 7;
                                 ;   bits 0-2 (RESPOND_FIELD), the FUN% rows
                                 ;   above them (OPT_FUN)
-OPT_CKSUM       = OPTBLOCK+$18
-OPT_SIZE        = $19
+OPT_FUN2        = OPTBLOCK+$18  ; the FUN% rows' second byte: 3D Overworld
+OPT_CKSUM       = OPTBLOCK+$19
+OPT_SIZE        = $1A
 
 OPT_MAGIC0_VAL  = $53
 OPT_MAGIC1_VAL  = $46
-OPT_FORMAT      = $0A           ; bumped from $09: the scaling's six range
+OPT_FORMAT      = $0B           ; bumped from $0A: 3D Overworld, a new byte
+                                ; (OPT_FUN2) before the checksum.
+                                ; Bumped from $09: the scaling's six range
                                 ; scalars, so the respond rate and checksum
                                 ; moved up six.
                                 ; Bumped from $08: the Free items left the
@@ -338,6 +341,18 @@ FUN_DWARF       = $20           ; Exploding Dwarf: the Hurray dwarf bursts (fun.
 FUN_DWARF_SHIFT = 5
 FUN_JAPAN       = $40           ; Graphics: Japan: the Japanese release's tiles (fun.asm)
 FUN_JAPAN_SHIFT = 6
+;  3D Overworld (user, 2026-11-20): the overworld's tilt (ow7.asm's
+;  m7_angle), in a second byte, OPT_FUN2 -- the respond rate's is full.
+;  Unlike the rest of FUN%, the modes set it: Off in Vanilla, Airship in
+;  Improved and Super (opt_loadpreset, from the byte after a title
+;  preset's fields) and in New Game's presets (presets/*.toml).
+FUN2_TILT       = $03
+FUN2_TILT_SHIFT = 0
+FUN2_TILT_OFF   = 0             ; flat: "The world is flat."
+FUN2_TILT_AIRSHIP = 1           ; tilted in the airship, through its take-off and landing
+FUN2_TILT_ALWAYS = 2            ; tilted everywhere: "For the truly depraved."
+FUN2_TILT_HELD  = 3             ; no row's: the angle as h_m7lvl has it (the tests')
+FUN2_TILT_MODES = 3
 .assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
@@ -1367,7 +1382,7 @@ h_m7n           = M7VARS+$14    ; 2 bytes
 h_m7tx          = M7VARS+$16    ; the pivot's tile, column...
 h_m7ty          = M7VARS+$17    ; ...and row
 h_m7lvl         = M7VARS+$18    ; the angle + 1, into genm7.py's ANGLES; 0 till the first way in
-h_m7rprev       = M7VARS+$19    ; R as it read last time (the angle's step)
+h_m7airy        = M7VARS+$19    ; the airship's line in its take-off or landing (ow7_airy.patch), 0 none
 h_m7fog         = M7VARS+$1A    ; nonzero: flush_m7 turned the colour maths on
 h_m7cx          = M7VARS+$1C    ; 2 bytes: M7X, the pivot's column on the plane
 h_m7cy          = M7VARS+$1E    ; 2 bytes: M7Y, its row
@@ -1439,7 +1454,8 @@ h_m7fstart      = M7VARS+$7A    ;   2 bytes: the first in front's place in OAMSH
 h_m7anyf        = M7VARS+$7C    ;   $80: one placed in front of the party this frame
 h_m7anyb        = M7VARS+$7D    ;   $80: one placed behind it
 h_m7pair        = M7VARS+$7E    ;   $80: tilted and in the air, in front of the shadow or behind it; else 0
-M7VARS_END      = M7VARS+$7F
+h_m7tabbank     = M7VARS+$7F    ; the angle's HDMA tables' bank (lut_M7PBank)
+M7VARS_END      = M7VARS+$80
 M7C_FIRST       = 0             ; the landmarks' first entry in the extras' 64
 ;  The uploads queued, M7UPQ_MAX at most, 8 bytes each: VRAM word address
 ;  (2), source address (2), bytes (2), source bank (1), DMAP ($01 the source

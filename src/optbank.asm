@@ -175,7 +175,8 @@ lut_Presets:
     .BYTE   GOLDXP_100, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_VANILLA
     .BYTE   STARTITEMS_NONE
     .RES    6, STAT_100
-    .RES    13, $00
+    .BYTE   FUN2_TILT_OFF << FUN2_TILT_SHIFT                               ; 3D Overworld
+    .RES    12, $00
     ;  Improved is FFR's Improved Vanilla (user, 2026-10-11): the quality of
     ;  life and the bugfixes, gold and XP doubled, Thief and Ninja hit growth
     ;  at Moderate, and the elemental bonus left at the cartridge's +4 --
@@ -186,14 +187,16 @@ lut_Presets:
     .BYTE   GOLDXP_200, ENC_100, STAT_100, STAT_100, ELEM_VANILLA, THIEFHIT_MODERATE
     .BYTE   STARTITEMS_NONE
     .RES    6, STAT_100
-    .RES    13, $00
+    .BYTE   FUN2_TILT_AIRSHIP << FUN2_TILT_SHIFT                           ; 3D Overworld
+    .RES    12, $00
     .DWORD  (OPTF_ALLQOL & ~OPTF_AUTORETARGET) | OPTF_BUGFIX | OPTF_VARIATION ; Super
     .BYTE   OPTF5_BUGFIX | OPTFM_WMHARM
     .BYTE   OPTFM_TRANCE | OPTFM_LEFEINSHOPS | OPTFM_SUPERSTORE | OPTFM_RUSESTAFF
     .BYTE   GOLDXP_250, ENC_60,  STAT_100, STAT_100, ELEM_FFR_DEF, THIEFHIT_DOUBLE | (LOCKPICK_15 << LOCKPICK_SHIFT)
     .BYTE   STARTITEMS_NONE
     .RES    6, STAT_100
-    .RES    13, $00
+    .BYTE   FUN2_TILT_AIRSHIP << FUN2_TILT_SHIFT                           ; 3D Overworld
+    .RES    12, $00
 .assert * - lut_Presets = 3 * 32, error, "a title preset's row is PRESET_STRIDE bytes"
 
 ;  What a row actually carries, and how far apart the rows are.  The fields
@@ -264,6 +267,7 @@ opt_init:
   @reset:
     LDA #$00
     STA OPT_FUN                 ; the FUN% rows Off: opt_loadpreset keeps them
+                                ;   (all but 3D Overworld, which it writes)
     LDA #OPT_DEFAULT_PRESET
     JSR opt_loadpreset
   @good:
@@ -294,6 +298,8 @@ opt_loadpreset:
     INY
     CPY #PRESET_FIELDS
     BCC @copy
+    LDA lut_Presets, X          ; the byte after them: 3D Overworld, which
+    STA OPT_FUN2                ;   the modes set (user, 2026-11-20)
 
     ;  No preset randomizes anything, as none gives away a key item: the
     ;  new-game rows are off in all of them.

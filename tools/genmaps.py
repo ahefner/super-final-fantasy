@@ -138,10 +138,11 @@ FFR_RIVER = {0x44, 0x40, 0x41, 0x50, 0x51}
 PLACES = ("start", "ship", "airship", "bridge", "canal")
 #  Each other map's logic chunk image (build.sh links one a map from
 #  gen/logic_N/), sixteen KB a slot, two to a low half of the NES's chunks
-#  $01-$0C, which nothing else uses (genm7.py's landmarks' frames take $0D's,
-#  $0E's and $0F's): mkrom.py lays out/logic_N.bin where out/logic_slots.txt
+#  $01-$09, which nothing else uses (genm7.py's tilt's tables take $0A's to
+#  $0C's, its landmarks' frames $0D's to $0F's): mkrom.py lays out/logic_N.bin where out/logic_slots.txt
 #  says.  The game's map's is CHUNK_LOGIC itself.
-LOGIC_SLOTS = [(c, off) for c in range(0x01, 0x0D) for off in (0x0000, 0x4000)]
+LOGIC_SLOTS = [(c, off) for c in range(0x01, 0x0A) for off in (0x0000, 0x4000)]
+                                    # (0A-0C: genm7.py's TILT_CHUNKS)
 LOGIC_SLOT = 0x4000
 GRAPHDIR = os.path.join(ROOT, "maps", "graph")
 #  The minimap's layout (MI_MM's long address): the nametable, then the

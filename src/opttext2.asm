@@ -14,7 +14,7 @@
 .include "optmenu.inc"
 
 .export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
-.export lut_Desc_114, lut_Desc_115, lut_Desc_116
+.export lut_Desc_114, lut_Desc_115, lut_Desc_116, lut_Desc_117
 .export lut_Desc_103            ; the Goal's, moved from the first bank (2026-11-06)
 
 .segment "BANK_OPTTEXT2"
@@ -82,6 +82,25 @@ lut_Desc_115:  ; Graphics (draft, 2026-11-14)
   FFPAD {"Japan shows the graphics the"}, 28
   FFPAD {"Japanese release had before"}, 28
   FFPAD {"the US release changed them."}, 28
+
+lut_Desc_117:  ; 3D Overworld, by value (the user's words, 2026-11-20)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_117_0, lut_Desc_117_1, lut_Desc_117_2
+  .assert * - lut_Desc_117 = 1 + 2 * FUN2_TILT_MODES, error, "one 3D Overworld description per mode"
+
+lut_Desc_117_0:  ; 3D Overworld: Off
+  FFLINES 1
+  FFPAD {"The world is flat."}, 28
+
+lut_Desc_117_1:  ; 3D Overworld: Airship
+  FFLINES 3
+  FFPAD {"Bringing super realistic"}, 28
+  FFPAD {"3D graphics to your Super"}, 28
+  FFPAD {"Nintendo."}, 28
+
+lut_Desc_117_2:  ; 3D Overworld: Always
+  FFLINES 1
+  FFPAD {"For the truly depraved."}, 28
 
 lut_Desc_116:  ; Save on game over, by value (user, 2026-11-17)
   .BYTE DESC_BYVALUE
