@@ -42,8 +42,9 @@ For a screen line y, with t = (y - 112) / CAMERA and w = sin + t cos:
 
 A haze is added the farther north a line looks (COLDATA, additive colour
 maths, two HDMA tables: red and green, then blue), from FOG_NEAR pixels
-north of the pivot to full at FOG_FAR -- nothing on the flat view, which
-sees 112 north.  And for the objects ow7.asm places (the ship, the airship
+north of the pivot to full at FOG_FAR, its ramp between to FOG_CURVE's
+power -- the same at every angle, so an angle between them has it too --
+coming in over the first FOG_TILT degrees of tilt: none on the flat view.  And for the objects ow7.asm places (the ship, the airship
 parked, the landmarks), the screen line a point v pixels north or south
 of the pivot lands on -- south past the screen's bottom, as far as an
 object TALLEST high standing there still shows -- and per angle the step
@@ -90,8 +91,24 @@ ANGLES = [90, 75, 65, 55, 50, 45]   # degrees; 90 the NES's view.  R steps
 DEFAULT = 3                         # ...from this one at power-on
 CAMERA = 256                        # pixels from the pivot: less, a stronger
                                     #   perspective at the same angle
-FOG_NEAR, FOG_FAR = 120, 240        # pixels north of the pivot: no haze nearer,
+FOG_NEAR, FOG_FAR = 51, 240         # pixels north of the pivot: no haze nearer,
                                     #   full haze farther
+FOG_CURVE = 2                       # the ramp between, its fraction of the way to
+                                    #   this power: slow from the bottom (user,
+                                    #   2026-11-19: "extend it 32 pixels lower at
+                                    #   the max perspective", "more concave, so the
+                                    #   ramp starts slower from bottom to top";
+                                    #   "don't special case the angle because we
+                                    #   need to animate between them") -- at 45
+                                    #   degrees from line 80, 32 below where
+                                    #   FOG_NEAR 120 began; 1.5 tried, 2 kept
+                                    #   ("I think I liked exponent 2 better")
+FOG_TILT = 15                       # degrees of tilt it comes in over: none on
+                                    #   the flat view, the NES's (user,
+                                    #   2026-11-19: "In the flat view there can't
+                                    #   be any color step, it needs to look like
+                                    #   the original game"), all of it from 75
+                                    #   down, part of it at an angle between
 FOG_RGB = (13, 15, 21)              # added at full, 0-31 each
 FOG_SUBTRACT = False                # a fade to dark instead of a haze
 # ---- the docked ship, drawn at its distance's size (user, 2026-11-18: "The
@@ -274,9 +291,10 @@ def hdma_bytes(vals):
     return bytes(out + b"\x00")
 
 
-def fog_of(v):
-    """The haze, 0 to 1, of a line showing v (north negative)."""
-    return min(1.0, max(0.0, (-v - FOG_NEAR) / (FOG_FAR - FOG_NEAR)))
+def fog_of(v, angle):
+    """The haze, 0 to 1, of a line showing v (north negative) at this angle."""
+    ramp = min(1.0, max(0.0, (-v - FOG_NEAR) / (FOG_FAR - FOG_NEAR))) ** FOG_CURVE
+    return min(1.0, (90 - angle) / FOG_TILT) * ramp
 
 
 def slope(angle):
@@ -310,7 +328,7 @@ def tilt_tables(vmin, vmax):
         views = [line_view(angle, y) for y in range(LINES)]
         m7a = [round(256 * s) for _, s, _ in views]
         m7d = [hw_d(v, y) for y, (v, _, _) in enumerate(views)]
-        fog = [fog_of(v) for v, _, _ in views]
+        fog = [fog_of(v, angle) for v, _, _ in views]
         rg = []
         for f in fog:
             rg += [0x20 | round(FOG_RGB[0] * f), 0x40 | round(FOG_RGB[1] * f)]

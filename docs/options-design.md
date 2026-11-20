@@ -4308,7 +4308,8 @@ with the landmarks gone and the houses and ships at the top: played
 2026-11-19, committed on the user's word.  The far houses a frame late
 after R: played 2026-11-19, committed on the user's word.  The airship's
 shadow behind what it has flown past: played 2026-11-19, committed on
-the user's word.**  The
+the user's word.  The haze lower and slower to start, none on the flat
+view: played 2026-11-19, committed on the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4414,9 +4415,25 @@ applied" (user, 2026-11-17).
     at 45, 17.6 tiles and 1.78.
   - **The haze.**  Added colour (CGADSUB `$31` onto BG1, the sprites and
     the backdrop), COLDATA a line by HDMA -- red and green on channel 6,
-    blue on 7 -- from nothing at `FOG_NEAR` (120) pixels north of the pivot
-    to `FOG_RGB` (13, 15, 21) at `FOG_FAR` (240).  The flat view sees 112
-    north, so none there.  `FOG_SUBTRACT` makes it a fade to dark instead.
+    blue on 7 -- from nothing at `FOG_NEAR` (51) pixels north of the pivot
+    to `FOG_RGB` (13, 15, 21) at `FOG_FAR` (240), the ramp between its
+    fraction of the way squared (`FOG_CURVE` 2), the same at every
+    angle, coming in over the first 15 degrees of tilt (`FOG_TILT`): none
+    on the flat view, all of it from 75 degrees down, part of it at an
+    angle between, for a tilt animated through them.  It was straight
+    from 120 (user, 2026-11-19: "extend it 32 pixels lower at the max
+    perspective", "more concave, so the ramp starts slower from bottom to
+    top"; "don't special case the angle because we need to animate
+    between them"; squared, then 1.5 tried, "I think I liked exponent 2
+    better"; "In the flat view there can't
+    be any color step, it needs to look like the original game").  At 45
+    degrees it now starts at line 80, 32 below the old start at 48, too
+    faint to show below about line 66, full by line 9 as before.
+    `test_m7view` finds the start by its camera, 32 lines below where 120
+    is at 45 degrees, and holds every line at every angle to the ramp
+    within a colour step, the flat view's none at all; 4 mutations, all
+    caught.  `FOG_SUBTRACT` makes it a fade
+    to dark instead.
     `flush_scroll` turns the colour maths off on the first flush without
     the plane (`h_m7fog`); the altar beam and the APU-status debug are the
     only other users, in standard maps and debug builds.

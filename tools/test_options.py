@@ -12557,9 +12557,25 @@ def test_m7view():
     check("...the way in under 200,000", (cpu.steps - n0 < 200_000, cpu.steps - n0), (True, cpu.steps - n0))
 
     #  The haze: none on a line nearer than FOG_NEAR north of the pivot,
-    #  FOG_RGB past FOG_FAR (the camera's depth), none at the flat angle;
-    #  added to BG1 and the backdrop.
+    #  FOG_RGB past FOG_FAR (the camera's depth), between them the ramp,
+    #  each colour within a step; added to BG1 and the backdrop.  The ramp
+    #  the same at every angle, squared, from the depth that at 45
+    #  degrees is 32 lines below where the straight ramp from 120 began
+    #  (user, 2026-11-19: "extend it 32 pixels lower at the max
+    #  perspective", "more concave, so the ramp starts slower from bottom
+    #  to top", "don't special case the angle"; 1.5 tried, "I think I
+    #  liked exponent 2 better"): that depth found here by the camera.  None at all on the flat
+    #  view ("there can't be any color step, it needs to look like the
+    #  original game"), all of it from 75 degrees down, coming in over the
+    #  15 degrees between.
+    def cam_line(angle, depth):
+        lo, hi = 0.0, 112.0                 # (depth falls as the line goes down)
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            lo, hi = (mid, hi) if -m7_camera(angle, CAM, 120, mid)[1] > depth else (lo, mid)
+        return lo
     bad = []
+    near, far = -m7_camera(45, CAM, 120, cam_line(45, 120) + 32)[1], 240
     for level, angle in enumerate(ANGLES):
         bus, cpu = m7_machine()
         enter(bus, cpu, 0x92, 0x9E, level=level)
@@ -12573,15 +12589,22 @@ def test_m7view():
                         if b >> (5 + k) & 1:
                             rgb[k] = b & 31
             depth = -m7_camera(angle, CAM, 120, sy)[1]
-            if depth < genm7.FOG_NEAR - 2 and rgb != [0, 0, 0]:
+            if depth < near - 2 and rgb != [0, 0, 0]:
                 bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
-            if depth > genm7.FOG_FAR + 2 and tuple(rgb) != genm7.FOG_RGB:
+            if depth > far + 2 and angle <= 75 and tuple(rgb) != genm7.FOG_RGB:
                 bad.append("%d degrees, line %d (%d north): %r" % (angle, sy, depth, rgb))
+            t = min(1.0, max(0.0, (depth - near) / (far - near))) ** 2 * min(1.0, (90 - angle) / 15)
+            if angle == 90 and rgb != [0, 0, 0]:
+                bad.append("flat, line %d: %r" % (sy, rgb))
+            if any(abs(rgb[k] - genm7.FOG_RGB[k] * t) > 1 for k in range(3)):
+                bad.append("%d degrees, line %d (%d north): %r, the ramp %.2f" % (angle, sy, depth, rgb, t))
         if bus.io.get(0x2131) != (0xB1 if genm7.FOG_SUBTRACT else 0x31) or bus.io.get(0x2130) != 0:
             bad.append("%d degrees: CGWSEL, CGADSUB %r" % (angle, (bus.io.get(0x2130), bus.io.get(0x2131))))
         if angle == 90 and len(feeds) != 2:
             bad.append("flat: %d haze channels" % len(feeds))
-    check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, onto BG1, the sprites and the backdrop",
+    check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, the ramp between squared, "
+          "from 32 lines lower at 45 degrees than a straight one from 120, none flat, onto BG1, the sprites and the "
+          "backdrop",
           bad[:4], [])
 
     #  A transition wipe on the overworld: its dark bands black over the
