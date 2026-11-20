@@ -4301,7 +4301,11 @@ way, from PNGs the user retouches, on every map: built 2026-11-18,
 committed on the user's word.  And the towns' houses the same way,
 without shadows, the docked ship among them: built 2026-11-18; with the
 landmarks played 2026-11-19 ("I've tested it"; some minor visual glitches
-left for later), committed on the user's word.**  The
+left for later), committed on the user's word.  The first two of those
+glitches -- the haze over the wipe's black, and the party behind a castle
+or a house it walks into -- fixed 2026-11-19, and the wipe's first frame
+with the landmarks gone and the houses and ships at the top: played
+2026-11-19, committed on the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4418,12 +4422,45 @@ applied" (user, 2026-11-17).
     Colour maths reaches only sprites in OBJ palettes 4-7, so on the
     overworld the game's four sprite palettes live there: `pal_prep` adds
     `h_m7objoff` (64) to a sprite colour's CGRAM entry and `hal_oamdma`
-    ORs `h_m7oampal` (`$08`) into each sprite's palette bits, both set by
+    ORs `h_m7oampal` (`$08`) into the sprites' tile-number bit once a
+    transfer (`h_sprtable`, which every sprite's attributes take), both set by
     `m7_enter` and cleared, with the palette sent again whole, by the
     rendering-off write that takes the plane down and by
     `hal_ppureclaim`.  Each sprite takes its line's haze, as the ground
     behind it does.  OBJ palettes 4 and 5 are otherwise the Exploding
     Dwarf's (`h_xpal`), in his cave, which the overworld never shares.
+  - **The wipe's black over the haze** (user, 2026-11-19: "the haze
+    effect shows even the screen wipe effect is in progress, so the top
+    of the screen still fades to gray rather than being black.  The black
+    wipe should be on top rather than underneath of the haze").  The
+    transition wipe hides the background outside its band by TM (sprites
+    only there, as the NES's `$2001` had it), which left the backdrop and
+    the sprites to the haze's colour maths: grey, the landmarks standing
+    in it.  On the overworld `wipe_table` also builds a CGWSEL table, the
+    same three spans: outside the band `$F0` (the picture clipped to
+    black, no maths), inside it `$00` (the haze as `flush_m7` sets it),
+    on HDMA channel 4, the altars', which only a standard map's arms.
+    The party's sprites go dark outside the band with the rest, where the
+    NES's showed.  The wipe's end takes channel 4 off with TM's (unless an
+    altar has it), and the first flush off the overworld puts CGWSEL back
+    with CGADSUB.  `test_m7view` reads the lines' CGWSEL for five bands;
+    8 mutations, 6 caught, 2 that change nothing (a zero stored where the
+    value is always zero, and the first line's direct write, which HDMA's
+    first entry replaces before line 0 shows, as TM's is).
+  - **The wipe's first frame** (user, 2026-11-19: "the castle flickering
+    out, but looking more closely I see the town sprites and ship and/or
+    airship jump up there", for a frame as the wipe off the overworld
+    starts).  Every wipe begins with `fun_exit` (StartScreenWipe), whose
+    `dwarf_park` puts the Exploding Dwarf's gibs away by setting OAM's
+    entries 64-119 to line 240 -- on the overworld the extras' entries:
+    the castles' 8x8 sprites went off the bottom, and the 32x32 houses
+    and ship, large still, showed their lower halves at the top, wrapped,
+    until the next frame drew them again.  `dwarf_park` now does nothing
+    while the plane is up, where no gib is ever out.  `test_m7view` plays
+    the wipe's first frame beside Coneria (`fun_exit`, the game's sprites
+    cleared, a wait, its `$4014`) and holds the extras to what they were;
+    both mutations caught (that one, and the gibs never put away,
+    `test_dwarf`'s).
   - **The bridge and the canal's land, flat** (user, 2026-11-18: they
     "need to be flattened into the tile plane rather than rendered as
     sprites").  Metatiles `$80` and `$81`, which no map has, with
@@ -4579,17 +4616,47 @@ applied" (user, 2026-11-17).
     the palette cycle, a battle's flashes -- `hal_w2001` keeps the sprite
     layer on while the plane is up, the landmarks being scenery, and parks
     the game's 64 in OAMSHADOW instead (`oam_m7hide`), till the game's
-    next transfer.  When a landmark or a house stands in front of the
-    party -- tilted, the party north of its base's row and not in the
-    airship -- the extras are drawn over the game's sprites by OAM's
-    priority turned round: the overworld's flush, after the transfer,
-    sets the OAM address to entry 64 with `$2103`'s bit 7, or to 0, and
-    the PPU keeps it till the next write (`h_m7xfront`, which `m7_front`
-    sets); the game's stay
-    at 0-63 and the extras at 64-127 either way.  At first `m7_front`
-    swapped OAMSHADOW's halves instead, 1,300 instructions on each frame
-    the party crossed a row -- with the houses, every row through a town;
-    the way out turns the priority back at its first transfer.  Its base can be below the screen with its top on it
+    next transfer.  **In front of the party or behind, one by one**
+    (user, 2026-11-19: "When walking in/out of towns, the mapman go
+    underneath the town sprite.  Similarly when entering Coneria castle,
+    the mapman disappears underneath the castle toward the end of the
+    step, and appears behind the castle with its feet popping out from
+    the bottom when exiting"; "if you're going by map tile position on
+    the world map grid, the mapman should always be in front of the
+    object on the tile it's standing on").  A landmark, a row of houses
+    or the docked ship stands in front of the party when the party is
+    north of its top row, tilted and not in the airship -- on any tile of
+    it the party is in front -- the party's row its tile's, and mid-step
+    (`move_ctr_y` not 0) the one south of `ow_scroll_y`'s: going south
+    the tile it goes to, going north (the scroll stepped first) the one
+    it leaves, so the party is in front of whatever it walks into or out
+    of for the whole step (`h_m7prow`).  Each one's flag goes with it
+    (`M7LVIS` byte 6, `M7HBUF` byte 4's bit 7), and the extras are
+    written in two passes, those behind first and those in front after,
+    one run from entry 64; OAM's priority starts at the first in front
+    (`$2102` its entry times 2, `$2103`'s bit 7; `h_m7xfront`, which the
+    overworld's flush sends after the transfer and the PPU keeps till the
+    next write): those in front, the game's 64 at 0-63, those behind.
+    With none in front OAM keeps its plain order; a pass with nothing to
+    write is not run.  It was one flag for all, set when any stood south of
+    the party: beside Coneria's town every house south of the party put
+    the castle and the houses on the party's row in front of it too --
+    the feet below the castle walking out -- and each one's front row was
+    the row its picture's foot is in, a castle's the row below its gate.
+    The NES draws the party's sprite 2 pixels above its tile, so sorting
+    by screen lines would put it behind a house on the same row (the
+    user's point); the tile rows decide here, not the lines.  At first `m7_front` swapped OAMSHADOW's halves instead,
+    1,300 instructions on each frame the party crossed a row -- with the
+    houses, every row through a town; the way out turns the priority back
+    at its first transfer.  The tests (`test_m7view`) judge every extra the
+    screen shows, each matched to its object, in front of the game's
+    sprites just when the party is north of its top row, and walk up
+    Coneria's path between its houses into the gate and out, and onto a
+    house from the north and back in each town where one can, every frame
+    the castle never in front and a house in front only of a party north
+    of its row; and the airship north of Coneria's castle with none in
+    front.  The build before failed those walks.  17 mutations, all
+    caught (the airship's after its scene was added).  Its base can be below the screen with its top on it
     (user, 2026-11-18: Coneria's "pops in" from the bottom "when the row
     of tiles its grounded on aren't visible"): the objects' table runs
     south past the screen (above); past k 23/16 one is drawn at 23/16, a
@@ -4619,7 +4686,7 @@ applied" (user, 2026-11-17).
     shares the blocks (above).  The ship's and the houses' sprites go into
     the extras first, as placed (`M7HBUF`), then the landmarks': a town's
     houses stand in front of its castle.  A row stands in front of the
-    party when the party is north of it.
+    party when the party is north of it (above).
   - **What it costs**, per walking frame at 45 degrees, the dearest of a
     walk (a frame that also draws the plane a new row): beside Coneria's
     castle and town 5,315 instructions moving, Crescent Lake's town 4,389,
@@ -4631,7 +4698,11 @@ applied" (user, 2026-11-17).
     swapped, and the fast path past rows off the screen took them to the
     above.  The walk test's dearest step frame (from beside Coneria) is
     held under 5,500 of the game's: under the NES's way's 5,372-6,543
-    before the plane.  The castle alone, played, was 4,623.
+    before the plane.  The castle alone, played, was 4,623.  Each one in
+    front or behind separately (above) took the walk test's 5,290 to
+    5,367: the party's row once a frame, each one's flag, and the second
+    pass when there are both -- first 5,500, two passes always, until a
+    pass with nothing to write was left out.
   - **Its variables** are a separate block, `M7VARS` at `$0D80`, between
     `CHRQUEUE` and `OPTWORK`, with an assert that keeps it there.  They
     were at `HAL_VARS+$80` first, which `check_halvars.py` called free:
@@ -6413,15 +6484,17 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      7095 free  the overworld in Mode 7 (ow7.asm, 9289: the
+    BANK_OW7      6938 free  the overworld in Mode 7 (ow7.asm, 9446: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
                              table addresses, the landmarks, the houses
                              and the docked ship stood up, their code and
                              their lists and frame records; the ship's 16
-                             frames, 8192, moved out with the houses; the
-                             new-overworld branch, 2026-11-17 and -18).  The chunk's low
+                             frames, 8192, moved out with the houses;
+                             each one in front or behind separately 157;
+                             the new-overworld branch, 2026-11-17 to
+                             -19).  The chunk's low
                              half: its 256 characters, 16KB, then the
                              tilt's tables, 15,444 bytes for six angles,
                              to $7C54.  The last chunk: with it the 2MB
@@ -6457,7 +6530,9 @@ text region in the game references.
                              them, OAM's priority turned round 758,
                              2026-11-17 and -18, on the new-overworld
                              branch; hal_oamdma's attribute table, 256,
-                             its loop 103 shorter, 2026-11-19: 4933 left)
+                             its loop 103 shorter, 2026-11-19; the
+                             wipe's CGWSEL table 107, 2026-11-19: 4826
+                             left)
     SPC700 RAM               the program 1422 of the 1536 below the
                              directory (genspc.py); the game's samples
                              $2F00-$EFFF, the scream 8347 of 49408

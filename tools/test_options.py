@@ -12583,6 +12583,53 @@ def test_m7view():
     check("the haze: none nearer than FOG_NEAR, all of FOG_RGB past FOG_FAR, onto BG1, the sprites and the backdrop",
           bad[:4], [])
 
+    #  A transition wipe on the overworld: its dark bands black over the
+    #  haze and the landmarks (user, 2026-11-19: "The black wipe should be
+    #  on top rather than underneath of the haze") -- CGWSEL clipped to
+    #  black and no maths there, by channel 4, and the band hazed as
+    #  before; a wipe on a standard map leaves channel 4 alone; its end
+    #  takes channel 4 off, and the first flush off the overworld puts
+    #  CGWSEL back.
+    def wipe_lines(bus, top, bot):
+        bus.wram[K["h_wipeon"]] = 1
+        bus.wram[K["h_wipetop"]], bus.wram[K["h_wipebot"]] = top, bot
+        in_vblank(bus)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        cur, out = bus.io.get(0x2130, 0), []
+        for v in hdma_lines(bus, 4):
+            cur = v[0] if v else cur
+            out.append(cur)
+        return out
+    bad = []
+    bus, cpu = m7_machine()
+    enter(bus, cpu, 0x92, 0x9E, level=STEEP)
+    for top, bot in ((60, 150), (0, 224), (0, 100), (112, 112), (30, 224)):
+        got = wipe_lines(bus, top, bot)
+        want = [0 if top <= sy < bot else 0xF0 for sy in range(224)]
+        if got != want:
+            bad.append("band %d-%d: lines %r" % (top, bot, [sy for sy in range(224) if got[sy] != want[sy]][:6]))
+        if bus.io.get(0x4341) != 0x30 or bus.io.get(0x4340) != 0:
+            bad.append("band %d-%d: channel 4 not CGWSEL's" % (top, bot))
+    cpu.a = 0x1E
+    call(cpu, "hal_w2001", bank=0xC0)                       # the game's write: the wipe over
+    if bus.io.get(0x420C, 0) & 0x12 or bus.wram[K["h_hdmaen"]] & 0x12:
+        bad.append("the wipe's end: channels %02X left on" % bus.io.get(0x420C, 0))
+    bus.io[0x2130] = 0xF0                                   # as the dark bands' last line left it
+    cpu.a = 0
+    call(cpu, "hal_w2001", bank=0xC0)                       # rendering off: the plane goes
+    in_vblank(bus)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    if bus.io.get(0x2130):
+        bad.append("off the overworld: CGWSEL left %02X" % bus.io.get(0x2130))
+    bus, cpu = machine()
+    bus.wram[K["h_ppumask"]] = 0x1E
+    wipe_lines(bus, 60, 150)
+    if bus.io.get(0x420C, 0) & 0x10:
+        bad.append("a standard map's wipe: channel 4 on")
+    check("the overworld's wipe: black over the haze and the landmarks in its dark bands (CGWSEL by channel 4), "
+          "the band hazed; a standard map's channel 4 alone; channel 4 off at its end, CGWSEL back after",
+          bad[:4], [])
+
     #  R: a press steps the angle once, held or let go nothing more, past the
     #  last the first; the tables and the haze with it.
     bus, cpu = m7_machine()
@@ -13133,10 +13180,10 @@ def test_m7view():
                 bad.append("map %d: %s at (%d, %d) not listed" % (mi, name, x, y))
                 continue
             #  m7_project's point: its offsets from its bottom row's left
-            #  metatile's centre; in front of the party north of the row
-            #  its foot is in.
+            #  metatile's centre; in front of a party north of its top row
+            #  (user, 2026-11-19: on any tile of it the party is in front).
             if (got[2], got[3]) != (ax - x * 16 - 8, base - (rows - 1) * 16 - 8) \
-                    or got[1] != (y + (base - 17) // 16 + 1) & 255 \
+                    or got[1] != y \
                     or bool(got[0] & 0x80) != (name in HOUSE):
                 bad.append("map %d: %s at (%d, %d) listed %r" % (mi, name, x, y, got))
             ARTOF.setdefault(name, set()).add(got[0])
@@ -13392,41 +13439,70 @@ def test_m7view():
         return w, b
 
     def rotated(bus):
-        """The extras in front of the party: OAM's priority turned round to
-        start at entry 64 ($2102 $80, $2103 bit 7), as the flush left it."""
-        return bus.io.get(0x2103, 0) & 0x80 != 0 and bus.io.get(0x2102, 0) == 0x80
+        """OAM's priority turned round ($2103 bit 7), as the flush left it."""
+        return bus.io.get(0x2103, 0) & 0x80 != 0
 
-    def want_front(bus, level, px0, py0):
-        """In front of the party, as m7_lands has it, from the game's map's
-        list: in a group near (its window), a landmark near the pivot's
-        tile and kept (its base on the screen or below, within 64 of its
-        sides) or a row of houses near and kept (its line on the screen or
-        below, its boxes' top not below it), the party's row (the pivot's
-        tile's) north of its front row."""
-        prow = bus.wram[K["h_m7ty"]]
-        sx, sy = bus.wram[OWX], bus.wram[OWY]
-        for (n, yhi, ywin, xhi, xwin, size), recs in read_list(0):
-            if (yhi - sy + 15) & 255 >= ywin or (xhi - sx + 11) & 255 >= xwin:
-                continue
-            for rec in recs:
-                if rec[0] & 0x80:
-                    art, y, front, oy, cols = rec
-                    x, ox = cols[0], 0
-                else:
-                    art, x, y, front, ox, oy = rec
-                    if (x - sx - 7 + 18) & 255 >= 37:
-                        continue
-                if (y - sy - 7 + 22) & 255 >= 35:
-                    continue
-                u, v = x * 16 + 8 + sx8(ox), y * 16 + 8 + sx8(oy)
-                xs, line, scale = camera_at(ANGLES[level], u - px0, v - py0)
-                if not VMIN <= v - py0 <= K["M7P_VMAX"] or line < 0:
-                    continue
-                if rec[0] & 0x80 and line - 32 >= 224 or not rec[0] & 0x80 and not -64 <= xs < 320:
-                    continue
-                if (prow - front + 128) % 256 - 128 < 0:
-                    return True
-        return False
+    def front_start(bus):
+        """The first entry OAM's priority starts at, as the flush left it --
+        the extras from it on stand in front of the game's sprites -- or
+        None, OAM's plain order."""
+        if not rotated(bus):
+            return None
+        return ((bus.io.get(0x2102, 0) | (bus.io.get(0x2103, 0) & 1) << 8) >> 1) & 127
+
+    LANDOF = {}                                         # a landmark's art: [(name, column, top row)]
+
+    def fronts(bus, where, level, px0, py0, saw=None):
+        """Each extra the screen shows in front of the game's sprites just
+        when the party is north of its object's top row, tilted and not in
+        the air: the party's row its tile's, mid-step (move_ctr_y not 0)
+        the one south of ow_scroll_y's -- the counters as m7_lands saw them
+        (saw), or as they are.  Each house matched to the camera's nearest,
+        each landmark by the art its slot holds.  -> {(name, top row):
+        in front}."""
+        s = front_start(bus)
+        if s is not None and s < 64:
+            bad.append(where + ": OAM's priority from entry %d, among the game's" % s)
+        owy, mcy, veh = saw or (bus.wram[OWY], bus.wram[MCY], bus.wram[VEHICLE])
+        prow = (owy + 7 + (1 if mcy else 0)) & 255
+        out = {}
+
+        def judge(name, top, i):
+            front = s is not None and i >= s
+            want = level != FLAT and veh != 8 and (prow - top + 128) % 256 - 128 < 0
+            if out.setdefault((name, top), front) != front:
+                bad.append(where + ": %s (row %d) part in front, part behind" % (name, top))
+            elif front != want:
+                bad.append(where + ": %s (row %d) %s the party on row %d"
+                           % (name, top, "in front of" if front else "behind", prow))
+        near = []
+        for (x, y), name in ON[0].items():
+            if name in HOUSE:
+                u, v = anchor_of(name, x, y)
+                if VMIN <= v - py0 <= K["M7P_VMAX"]:
+                    near.append((name, y) + camera_at(ANGLES[level], u - px0, v - py0))
+        for i, sx, sy, t in house_sprites(bus):
+            name, top, xs, cl, scale = min(near, key=lambda h: abs(h[2] - sx - 16) + abs(h[3] - sy - 32))
+            judge(name, top, i)
+        px, py = (bus.wram[OWX] + 7) & 255, (owy + 7) & 255
+        for i, sx, sy, t in land_sprites(bus):
+            key = bus.wram[K["h_m7lkey"] + (t - SLOT0) // SLOTW]
+            name, x, top = min(LANDOF[key >> 4], key=lambda o: abs((o[1] - px + 128) % 256 - 128)
+                               + abs((o[2] - py + 128) % 256 - 128))      # (arts shared: the nearest)
+            judge(name, top, i)
+        return out
+
+    def saw_lands(cpu, bus):
+        """The counters each m7_scroll call (so m7_lands) starts from (the game moves them
+        after SetOWScroll): a list, the last the latest."""
+        log, step, at = [], cpu.step, ((0xA1 + K["CHUNK_OW7"]) & 0xFF, SYM["m7_scroll"])
+
+        def spy():
+            if (cpu.pbr, cpu.pc) == at:
+                log.append((bus.wram[OWY], bus.wram[MCY], bus.wram[VEHICLE]))
+            step()
+        cpu.step = spy
+        return log
 
     def wpivot(bus):
         """The pivot as m7_scroll had it (the plane's scroll, ten bits),
@@ -13485,6 +13561,12 @@ def test_m7view():
 
     ARTNUM = {name: next(iter(arts)) & 0x7F for name, arts in
               ((n, {r for r in ARTOF_ALL[n]}) for n in HOUSE)}
+    for head, recs in read_list(0):
+        for rec in recs:
+            if rec and not rec[0] & 0x80:
+                for (x, y), name in ON[0].items():
+                    if name not in HOUSE and x == rec[1] and (y + len(GRID[name]) - 1) & 255 == rec[2]:
+                        LANDOF.setdefault(rec[0], []).append((name, x, y))
     FW, FB = flat_world(MAPS[0], ON[0])
     once = set()
     for (x, y), name in sorted(ON[0].items()):
@@ -13535,9 +13617,7 @@ def test_m7view():
                 if shown != [name]:
                     bad.append(where + ": shown %r" % shown)
                     continue
-                front = rotated(bus)
-                if front != want_front(bus, level, (px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120):
-                    bad.append(where + ": in front %r" % front)
+                fronts(bus, where, level, (px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120)
     #  The houses, a town at a time, settled (a 32x32 frame uploaded a
     #  flush): each where and as big as the camera has it, every one the
     #  screen shows, in front of the party just when it should be.
@@ -13560,8 +13640,7 @@ def test_m7view():
                 pv = ((px - 7) * 16 + mcx + 120, (py - 7) * 16 + mcy + 120)
                 if not houses_placed(bus, where, level, *pv):
                     bad.append(where + ": no houses")
-                if rotated(bus) != want_front(bus, level, pv[0], pv[1]):
-                    bad.append(where + ": in front %r" % rotated(bus))
+                fronts(bus, where, level, pv[0], pv[1])
     #  ...and far to the side, near the top, at the steepest angle: eleven
     #  columns off and more, where the screen still shows them.
     for (x, y), name in sorted(ON[0].items()):
@@ -13794,7 +13873,8 @@ def test_m7view():
     last = None
     tears = frames = uploads = flips = hidden = 0
     page = None
-    front0 = bus.wram[K["h_m7xfront"]]
+    front0 = bus.wram[K["h_m7xfront"]] != 0
+    saw = saw_lands(cpu, bus)
     path = [8] * 8 + [2] * 3 + [4] * 9 + [1] * 3 + [8] * 3
     for step, facing in enumerate(path):
         bus.wram[FACING] = facing
@@ -13802,6 +13882,8 @@ def test_m7view():
         while True:
             call(cpu, "hal_waitvbl", bank=0xC0)
             slots_hold(bus, "walking past Coneria's")
+            if saw:
+                fronts(bus, "walking past Coneria's", STEEP, *wpivot(bus), saw=saw[-1])
             spr = land_sprites(bus)
             if last:
                 ok = all(slot_holds(bus, slot, key) for line, x, key, slot in last if slot != 0xFF)
@@ -13840,8 +13922,8 @@ def test_m7view():
                           *wpivot(bus), ktol=None, settled=False, oam=False)
             uploads += bus.wram[K["h_m7upon"]]
             last = drawn(bus) if land_drawn(bus) else None
-            flips += bus.wram[K["h_m7xfront"]] != front0
-            front0 = bus.wram[K["h_m7xfront"]]
+            flips += (bus.wram[K["h_m7xfront"]] != 0) != front0
+            front0 = bus.wram[K["h_m7xfront"]] != 0
             for i in range(64):
                 bus.wram[0x200 + 4 * i] = 0xF0
             bus.wram[K["sprindex"]] = 0
@@ -13855,10 +13937,112 @@ def test_m7view():
     if flips < 2 or hidden:
         bad.append("walking past it: in front and behind %d times, the game's sprites not its page's %d frames"
                    % (flips, hidden))
+    #  The walks the user saw (2026-11-19: "When walking in/out of towns,
+    #  the mapman go underneath the town sprite.  Similarly when entering
+    #  Coneria castle, the mapman disappears underneath the castle toward
+    #  the end of the step, and appears behind the castle with its feet
+    #  popping out from the bottom when exiting"): up Coneria's path
+    #  between its houses into the castle's gate and back down, and onto a
+    #  house from two tiles north and back, a town of each art where one
+    #  can; by the game's steps, every frame each one as it should be,
+    #  the castle never in front, a house in front only with the party
+    #  north of its row.
+    def walk(where, x, y, steps, level):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, x - 7, y - 7, level=level)
+        call(cpu, "m7_scroll")
+        run_frame(bus, cpu)
+        saw = saw_lands(cpu, bus)
+        seen, moved = [], 0
+        for facing in steps:
+            bus.wram[FACING] = facing
+            call(cpu, "StartMapMove")
+            moved += bus.wram[SPEED] != 0
+            while True:
+                call(cpu, "hal_waitvbl", bank=0xC0)
+                if saw:
+                    seen.append((saw[-1], fronts(bus, where, level, *wpivot(bus), saw=saw[-1])))
+                cpu.a = 0x02
+                call(cpu, "nesio_oamdma")
+                call(cpu, "OverworldMovement")
+                for i in range(64):
+                    bus.wram[0x200 + 4 * i] = 0xF0
+                bus.wram[K["sprindex"]] = 0
+                call(cpu, "DrawOWSprites")
+                if bus.wram[SPEED] == 0:
+                    break
+        return seen, moved
+    PROPS = TSA[:0x100]
+    for level in (genm7.DEFAULT, STEEP):
+        where = "%d degrees, up Coneria's path into its gate and out" % ANGLES[level]
+        seen, moved = walk(where, CX, CY + 7, [8] * 5 + [4] * 5, level)
+        shown = sum(("coneria", CY) in d for _, d in seen)
+        if moved != 10 or shown < len(seen) // 2:
+            bad.append(where + ": %d steps of 10, the castle shown %d frames of %d" % (moved, shown, len(seen)))
+        if any(d.get(("coneria", CY)) for _, d in seen):
+            bad.append(where + ": the castle in front of the party")
+        between = [k for _, d in seen for k, f in d.items() if k[0] in HOUSE and f]
+        if not between or not any(k[0] in HOUSE and not f for _, d in seen for k, f in d.items()):
+            bad.append(where + ": its houses never both in front and behind")
+    for art in sorted({n for n in HOUSE}):
+        for (hx, hy) in sorted(p for p, n in ON[0].items() if n == art):
+            north = [MAPS[0][((hy - d) & 255) * 256 + hx] for d in (1, 2)]
+            if any(PROPS[2 * m] & 1 or m in LANDTILES for m in north):
+                continue
+            for level in (genm7.DEFAULT, STEEP):
+                where = "%d degrees, onto %s's house at (%d, %d) from the north and back" % (ANGLES[level], art, hx, hy)
+                seen, moved = walk(where, hx, hy - 2, [4, 4, 8, 8], level)
+                mine = [f for _, d in seen for k, f in d.items() if k == (art, hy)]
+                if moved != 4 or not mine:
+                    bad.append(where + ": %d steps of 4, the house shown %d frames" % (moved, len(mine)))
+                if any(d.get((art, hy)) for (owy, mcy, _), d in seen if (owy + 7 + (mcy != 0)) & 255 == hy):
+                    bad.append(where + ": in front of the party on its row")
+            break
+    #  ...and none in front of the airship, which flies over them: three
+    #  rows north of Coneria's castle, where on foot it would be.
+    for veh in (8, 1):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, CX - 7, CY - 3 - 7, vehicle=veh, level=STEEP)
+        call(cpu, "m7_scroll")
+        run_frame(bus, cpu)
+        run_frame(bus, cpu)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        where = "%s three rows north of Coneria's castle" % ("the airship" if veh == 8 else "on foot")
+        got = fronts(bus, where, STEEP, (CX - 7) * 16 + 120, (CY - 3 - 7) * 16 + 120)
+        if got.get(("coneria", CY)) is not (veh != 8):
+            bad.append(where + ": the castle %r" % got.get(("coneria", CY)))
+    #  A wipe off the overworld begins (StartScreenWipe) with fun_exit, the
+    #  Exploding Dwarf's gibs put away -- OAM's entries 64-119, the
+    #  overworld's extras there -- then the game's sprites cleared, a wait
+    #  and its $4014: the wipe's first frame shows the extras where they
+    #  were, not parked at line 240 (user, 2026-11-19: "the castle
+    #  flickering out ... the town sprites and ship and/or airship jump up
+    #  there").  Beside Coneria's castle and town, settled.
+    bus, cpu = m7_machine()
+    enter(bus, cpu, CX + 1 - 7, CY + 5 - 7, level=STEEP)
+    for _ in range(5):
+        call(cpu, "m7_scroll")
+        run_frame(bus, cpu)
+    call(cpu, "hal_waitvbl", bank=0xC0)
+
+    def extras(bus):
+        return [(bytes(bus.oam[4 * i:4 * i + 4]), bus.oam[512 + i // 4] >> (2 * (i % 4)) & 3)
+                for i in range(64, 128)]
+    was = extras(bus)
+    shown = (len(house_sprites(bus)), len(land_sprites(bus)))
+    call(cpu, "fun_exit")
+    bus.wram[0x200:0x300] = b"\xF8" * 256
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    cpu.a = 0x02
+    call(cpu, "nesio_oamdma")
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    check("a wipe off the overworld: its first frame the landmarks, houses and ship where they were "
+          "(the dwarf's gibs not put away over them)",
+          (extras(bus) == was, shown[0] > 0, shown[1] > 0), (True, True, True))
     #  The palette mirror; the way out: OAM's priority turned back at the
     #  first flush, though nothing of the game's is sent before it.
     on = (bytes(bus.cgram[2 * 196:2 * 204]), bytes(bus.cgram[0:8]) + bytes(bus.cgram[32:40]))
-    bus.wram[K["h_m7xfront"]] = 1
+    bus.wram[K["h_m7xfront"]] = 0x80
     bus.wram[K["h_oamdirty"]] = 1
     call(cpu, "hal_waitvbl", bank=0xC0)
     turned = rotated(bus)

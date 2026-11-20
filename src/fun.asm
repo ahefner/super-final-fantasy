@@ -720,8 +720,16 @@ fun_spared:
     RTL
 
 ;;  The gibs off the screen.  Long stores: a caller's DBR need not decode
-;;  low WRAM.  A8 X8; A, X clobbered.
+;;  low WRAM.  Not with the overworld's plane up, where no gib is out and
+;;  OAM's entries 64-127 are its landmarks, houses and docked ship (ow7.asm):
+;;  every screen wipe starts here (fun_exit), and parking those at line
+;;  240 for the wipe's first frame put the castles out and the large ones'
+;;  lower halves at the top of the screen (user, 2026-11-19: "the castle
+;;  flickering out ... the town sprites and ship and/or airship jump up
+;;  there").  A8 X8; A, X clobbered.
 dwarf_park:
+    LDA f:h_m7on
+    BNE @out
     LDX #0
   @gib:
     LDA #GIB_HIDDEN
@@ -734,6 +742,7 @@ dwarf_park:
     BCC @gib
     LDA #1
     STA f:h_oamdirty
+  @out:
     RTS
 
 ;;  The scream (user, 2026-11-04: "Should trigger at the same time as the

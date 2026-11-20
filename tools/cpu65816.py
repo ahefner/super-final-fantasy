@@ -601,6 +601,12 @@ class CPU:
             if v & bit: self.p |= N
             if v & (bit >> 1): self.p |= V
             if not ((self.a & amask) & v): self.p |= Z
+        elif op in (0x04, 0x0C, 0x14, 0x1C):  # TSB, TRB: Z from A AND M, then M's bits set or cleared
+            ba = self.a_dp() if op in (0x04, 0x14) else self.a_abs()
+            v = self.load(ba, m8)
+            self.p &= ~Z
+            if not ((self.a & amask) & v): self.p |= Z
+            self.store(ba, (v | self.a) & amask if op in (0x04, 0x0C) else v & ~self.a & amask, m8)
         # branches
         elif op == 0xD0: self.branch(not (self.p & Z))
         elif op == 0xF0: self.branch(bool(self.p & Z))

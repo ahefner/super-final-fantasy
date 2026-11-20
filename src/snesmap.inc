@@ -1401,7 +1401,7 @@ h_m7ocx         = M7VARS+$3D    ; 2 bytes: m7_project's x, signed (h_m7oline its
 ;  frame from SetOWScroll (m7_lands), so that they stay through the frames
 ;  the game draws no sprites in: an airship's take-off and landing, a
 ;  menu's palette cycle.
-h_m7xfront      = M7VARS+$3F    ; nonzero: the extras in front, OAM's priority from entry 64
+h_m7xfront      = M7VARS+$3F    ; OAMADDL for OAM's priority: the first extra in front's entry * 2, 0 none
 ;               = M7VARS+$40    ; 4 bytes free
 h_m7xprev       = M7VARS+$44    ; extras OAM held after the last transfer, to hide when gone
 h_m7oux         = M7VARS+$45    ; 2 bytes: m7_project: pixels east of the tile's centre,
@@ -1422,7 +1422,7 @@ h_m7hn          = M7VARS+$51    ; the houses and the ship placed this frame (M7H
 h_m7oline       = M7VARS+$54    ; 2 bytes: m7_project's screen line, signed
 h_m7lused       = M7VARS+$56    ; the slots this frame's landmarks take, a bit each
 h_m7lnvis       = M7VARS+$57    ; the landmarks this frame shows (M7LVIS)
-h_m7lfront      = M7VARS+$58    ; nonzero: one of them stands south of the party
+h_m7lfront      = M7VARS+$58    ; the one being placed: $80 in front of the party, 0 behind
 h_m7lptr        = M7VARS+$59    ; 2 bytes: the map's list, as m7_lands walks it
 h_m7bkey        = M7VARS+$5B    ; 16 bytes: the frame in block 0-15
 h_m7bused       = M7VARS+$6B    ; 2 bytes: the blocks this frame's take, a bit each
@@ -1432,7 +1432,13 @@ h_m7bprev       = M7VARS+$71    ; 2 bytes: the blocks the last frame's houses to
 h_m7gtile       = M7VARS+$73    ; 2 bytes: the scroll (tiles) M7GNEAR was worked out at, $FFFF none
 h_m7gnn         = M7VARS+$75    ; the groups in M7GNEAR
 h_m7gi          = M7VARS+$76    ; m7_lands: the next of them
-M7VARS_END      = M7VARS+$77
+h_m7prow        = M7VARS+$77    ; m7_lands: the party's row for in front and behind
+h_m7pfok        = M7VARS+$78    ;   $80: tilted and not in the air, so some may stand in front; else 0
+h_m7pass        = M7VARS+$79    ;   the pass writing OAM: 0 those behind the party, $80 in front
+h_m7fstart      = M7VARS+$7A    ;   2 bytes: the first in front's place in OAMSHADOW
+h_m7anyf        = M7VARS+$7C    ;   $80: one placed in front of the party this frame
+h_m7anyb        = M7VARS+$7D    ;   $80: one placed behind it
+M7VARS_END      = M7VARS+$7E
 M7C_FIRST       = 0             ; the landmarks' first entry in the extras' 64
 ;  The uploads queued, M7UPQ_MAX at most, 8 bytes each: VRAM word address
 ;  (2), source address (2), bytes (2), source bank (1), DMAP ($01 the source

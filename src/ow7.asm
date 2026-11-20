@@ -1303,11 +1303,16 @@ m7_ship:
 ;;  (m7_lupload, m7_bupload) -- at the flush that sends these sprites,
 ;;  before them.  One landmark's frame and one 32x32 frame a flush: with
 ;;  one waiting, or none free, one holding the same art at another size
-;;  stands in, and with none it waits a frame.  They stand in front of the
-;;  party when it is north of one's base row, tilted and not in the air:
-;;  OAMSHADOW's halves swapped when that changes (m7_front).  Entries the
-;;  last frame held and this one does not, off the bottom (h_m7ccount).
-;;  A8 I16.
+;;  stands in, and with none it waits a frame.  Each stands in front of
+;;  the party when the party is north of its top row, tilted and not in
+;;  the air -- the party's row the southmost its sprite is on, mid-step
+;;  the nearer of the two (user, 2026-11-19: "the mapman should always be
+;;  in front of the object on the tile it's standing on").  Those behind
+;;  go into the extras first, those in front after them, and OAM's
+;;  priority starts at the first in front (h_m7xfront, hal_flush): those
+;;  in front, the game's 64, those behind; a pass with nothing to write
+;;  not run.  Entries the last frame held and this one does not, off the
+;;  bottom (h_m7ccount).  A8 I16.
 m7_lands:
     LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
     CMP #M7L_MAPS
@@ -1325,8 +1330,27 @@ m7_lands:
     .a8
     STZ a:h_m7lnvis
     STZ a:h_m7hn
-    STZ a:h_m7lfront
-    JSR m7_lship
+    ;  The party's row: its tile's, or mid-step (move_ctr_y not 0) the one
+    ;  south of ow_scroll_y's -- going south the tile it goes to, going
+    ;  north (the scroll stepped first) the one it leaves.  None stands in
+    ;  front flat, the NES's way, nor of the airship, which flies over.
+    LDA z:move_ctr_y
+    CMP #1                      ; carry: mid-step
+    LDA z:ow_scroll_y
+    ADC #7
+    STA a:h_m7prow
+    STZ a:h_m7anyf
+    STZ a:h_m7anyb
+    STZ a:h_m7pfok
+    LDA a:h_m7lvl
+    CMP #2
+    BCC :+
+    LDA z:vehicle
+    CMP #$08
+    BEQ :+
+    LDA #$80
+    STA a:h_m7pfok
+:   JSR m7_lship
     JSR m7_gnear                ; the groups near, worked out again if due
     STZ a:h_m7gi
 @near:
@@ -1484,39 +1508,49 @@ m7_lands:
     BRA @other
 
 @slotted:
-    ;  In front of the party, or behind?
-    LDA a:h_m7lvl
-    CMP #2
-    BCC @behind                 ; flat, the NES's way: the party over all
-    LDA z:vehicle
-    CMP #$08
-    BEQ @behind                 ; the airship flies over them
-    LDA a:h_m7lfront
-    BEQ @behind
-    LDA #1
-    BRA @front
-@behind:
-    LDA #0
-@front:
     JSR m7_front
-    ;  The ship's and the houses' sprites, as placed, into the extras from
-    ;  M7C_FIRST on: Y walks OAMSHADOW.
+    ;  Into the extras from M7C_FIRST on, Y walking OAMSHADOW, in two
+    ;  passes: those behind the party, then those in front.  Each pass the
+    ;  ship's and the houses' sprites as placed, then the landmarks'.
     REP #$20
     .a16
     LDA a:h_m7save + 4
     CLC
     ADC #M7C_FIRST * 4
     TAY
-    LDX #0
     SEP #$20
     .a8
-    LDA a:h_m7hn
-    BEQ @houses
-    STA a:h_m7gn                ; (the extras' first entry starts a high-table byte)
-    STZ a:h_m7save + 3          ; the high-table byte so far
-    STZ a:h_m7gw                ; the entry's place in it, times 4
-@hcopy:
+    STZ a:h_m7pass
+    LDA a:h_m7anyb
+    BNE @pass
+    LDA #$80                    ; none behind: those in front from the first
+    STA a:h_m7pass
     REP #$20
+    .a16
+    STY a:h_m7fstart
+    SEP #$20
+    .a8
+@pass:
+    LDX #0
+    LDA a:h_m7hn
+    BNE :+
+    JMP @houses
+:   STA a:h_m7gn
+    STZ a:h_m7save + 3          ; the high-table byte so far
+    TYA
+    AND #$0C
+    STA a:h_m7gw                ; the entry's place in it, times 4
+@hcopy:
+    LDA a:M7HBUF + 4, X         ; this pass's?
+    EOR a:h_m7pass
+    BPL :+
+    INX
+    INX
+    INX
+    INX
+    INX
+    JMP @hskip
+:   REP #$20
     .a16
     LDA a:M7HBUF + 0, X         ; x, line
     STA a:OAMSHADOW + 0, Y
@@ -1547,11 +1581,13 @@ m7_lands:
     ADC #4
     AND #$0F
     STA a:h_m7gw
-    BNE :+
+    BNE @hskip
     JSR m7_hbyte                ; four done: their byte
-:   DEC a:h_m7gn
-    BNE @hcopy
-    LDA a:h_m7gw
+@hskip:
+    DEC a:h_m7gn
+    BEQ :+
+    JMP @hcopy
+:   LDA a:h_m7save + 3
     BEQ @houses
     JSR m7_hbyte                ; the last, part filled
 @houses:
@@ -1564,6 +1600,11 @@ m7_lands:
     CPX a:h_m7pc
     BCC :+
     JMP @rest
+:   LDA a:M7LVIS + 6, X         ; this pass's?
+    EOR a:h_m7pass
+    AND #$0080
+    BEQ :+
+    JMP @nextland
 :   LDA a:M7LVIS + 5, X
     AND #$00FF
     CMP #$00FF
@@ -1796,6 +1837,35 @@ m7_lands:
     STA a:h_m7lptr
     JMP @land
 @rest:
+    ;  Those behind done: those in front from here, OAM's priority from
+    ;  the first of them if any.
+    SEP #$20
+    .a8
+    LDA a:h_m7pass
+    BNE @fronts
+    REP #$20
+    .a16
+    STY a:h_m7fstart            ; the first in front's place
+    SEP #$20
+    .a8
+    LDA a:h_m7anyf
+    BEQ @fronts                 ; none in front: no second pass
+    LDA #$80
+    STA a:h_m7pass
+    JMP @pass
+@fronts:
+    REP #$20
+    .a16
+    LDA #0
+    CPY a:h_m7fstart
+    BEQ :+                      ; none in front: 0
+    LDA a:h_m7fstart
+    LSR A                       ; its OAM word address, its entry * 2
+:   SEP #$20
+    .a8
+    STA a:h_m7xfront
+    REP #$20
+    .a16
     ;  This frame's count; the last one's entries past it off the bottom.
     TYA
     SEC
@@ -2015,12 +2085,15 @@ m7_lmember:
     JSR m7_lsize
     BCS @out
     LDX a:h_m7lptr
-    LDA a:h_m7ty
+    LDA a:h_m7prow
     SEC
-    SBC f:OW7FAR + 3, X         ; the party north of its row: in front
-    BPL :+
+    SBC f:OW7FAR + 3, X         ; the party north of its top row: in front
+    AND a:h_m7pfok
     STA a:h_m7lfront
-:   LDA f:OW7FAR, X             ; its art
+    TSB a:h_m7anyf              ; (one in front)
+    EOR #$80
+    TSB a:h_m7anyb              ; (one behind)
+    LDA f:OW7FAR, X             ; its art
     ASL A
     ASL A
     ASL A
@@ -2101,12 +2174,15 @@ m7_lrow:
     .a8
     STA a:h_m7n
     LDX a:h_m7lptr
-    LDA a:h_m7ty
+    LDA a:h_m7prow
     SEC
-    SBC f:OW7FAR + 2, X         ; the party north of its row: in front
-    BPL :+
+    SBC f:OW7FAR + 2, X         ; the party north of their row: in front
+    AND a:h_m7pfok
     STA a:h_m7lfront
-:   LDA f:OW7FAR, X             ; $80 + its art
+    TSB a:h_m7anyf              ; (one in front)
+    EOR #$80
+    TSB a:h_m7anyb              ; (one behind)
+    LDA f:OW7FAR, X             ; $80 + its art
     ASL A
     ASL A
     ASL A
@@ -2191,6 +2267,7 @@ m7_lrow:
     LDA a:h_m7x + 1
     AND #$01                    ; x's ninth bit
     ORA #$02                    ; the large size, 32x32
+    ORA a:h_m7lfront            ; in front of the party, or behind
     STA a:M7HBUF + 4, Y
     INC a:h_m7hn
 @next:
@@ -2308,12 +2385,15 @@ m7_lship:
     .a8
     LDA f:OW7FAR + lut_M7ShipSize, X
     STA a:h_m7n                 ; art 0: its frame is its name
-    LDA a:h_m7ty
+    LDA a:h_m7prow
     SEC
     SBC f:SRAMFAR7 + ship_y     ; the party north of its row: in front
-    BPL :+
+    AND a:h_m7pfok
     STA a:h_m7lfront
-:   JMP m7_hput
+    TSB a:h_m7anyf              ; (one in front)
+    EOR #$80
+    TSB a:h_m7anyb              ; (one behind)
+    JMP m7_hput
 @no16:
     SEP #$20
     .a8
@@ -2448,6 +2528,7 @@ m7_hput:
     LDA a:h_m7ftile + 1
     AND #$01                    ; x's ninth bit
     ORA #$02                    ; the large size, 32x32
+    ORA a:h_m7lfront            ; in front of the party, or behind
     STA a:M7HBUF + 4, Y
     INC a:h_m7hn
 @out:
@@ -2460,7 +2541,7 @@ m7_hput:
 
 .a8
 .i16
-;;  The candidate -- h_m7oline, h_m7ocx, frame h_m7n -- into M7LVIS, the
+;;  The candidate -- h_m7oline, h_m7ocx, frame h_m7n, h_m7lfront -- into M7LVIS, the
 ;;  nearest (the greatest line) first; past M7L_VIS, the farthest left out.
 ;;  A8 I16.
 m7_lvisadd:
@@ -2528,6 +2609,8 @@ m7_lvisadd:
     .a8
     LDA a:h_m7n
     STA a:M7LVIS + 4, Y
+    LDA a:h_m7lfront
+    STA a:M7LVIS + 6, Y         ; in front of the party, or behind
     LDA a:h_m7lnvis
     CMP #M7L_VIS
     BCS :+
@@ -2760,13 +2843,12 @@ m7_zero:
     .BYTE 0
 
 
-;;  The extras in front of the party (A 1) or behind it (0): h_m7xfront so,
-;;  for the flush, which turns OAM's priority round to start at the extras,
-;;  entry 64, when they are in front (flush_oam); they stay at 64-127 and
-;;  the game's at 0-63 either way.  Then the extras' first byte in
+;;  None of the extras in front of the party yet (h_m7xfront 0: m7_lands
+;;  sets it to the first in front's entry * 2 when the passes are done, for
+;;  hal_flush to start OAM's priority there); the extras' first byte in
 ;;  OAMSHADOW at h_m7save + 4, and their high-table bytes zero.  A8 I16.
 m7_front:
-    STA a:h_m7xfront
+    STZ a:h_m7xfront
     REP #$20
     .a16
     LDA #256

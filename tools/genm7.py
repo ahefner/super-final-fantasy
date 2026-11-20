@@ -747,8 +747,10 @@ def main():
         members = []
         for k, x, y in find_landmarks(bytes(genmaps.tiles_of(entry)[0]), entry[3]):
             art, base, rows, width = kinds[k]
+            #  In front of the party when it is north of the top row: on
+            #  any tile of it, the party is in front (user, 2026-11-19).
             top = (y - rows + 1) & 255
-            rec = (art, x, y, (top + (base - 17) // 16 + 1) & 255,
+            rec = (art, x, y, top,
                    (width // 2 - 8) & 0xFF, (base - (rows - 1) * 16 - 8) & 0xFF)
             members.append((rec, x, y, everything[k][0]))
         lists.append(groups_of(members))
@@ -790,11 +792,11 @@ def main():
     out.append("M7L_SLOT = %d            ; tiles a frame may take" % LAND_SLOT)
     out.append("M7L_SPRITES = %d         ; sprites a frame may take" % LAND_SPRITES)
     out.append("M7L_MAPS = %d             ; Map Select's maps, a list each" % len(lists))
-    out.append("M7L_REC = 6              ; a landmark's record: art, column, bottom row, the")
-    out.append("                         ;   party's row from which it stands in front, x and y")
+    out.append("M7L_REC = 6              ; a landmark's record: art, column, bottom row, top")
+    out.append("                         ;   row (in front of a party north of it), x and y")
     out.append("                         ;   offsets")
     out.append("M7L_ROW = 5              ; a row of houses' record: $80 + their 32x32 art, the")
-    out.append("                         ;   row, the party's row from which they stand in front,")
+    out.append("                         ;   row, the row again (in front of a party north of it),")
     out.append("                         ;   the y offset, how many; then each one's column, west")
     out.append("                         ;   to east")
     out.append("M7L_GROUP = 6            ; a group's header: records (0 past the last), its")

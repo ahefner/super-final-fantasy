@@ -267,9 +267,12 @@ hal_w2001:
     ;  and HDMAEN would all keep whatever the wipe's last frame left them
     ;  holding, which means its final band, a few rows of map, sitting on screen
     ;  for the whole load instead of the black the game asked for.
-    lda a:h_hdmaen              ; the wipe's channel goes now, not at the flush
-    and #$FD
-    sta a:h_hdmaen
+    lda a:h_hdmaen              ; the wipe's channels go now, not at the flush:
+    and #$FD                    ;   TM's, and the overworld's CGWSEL one
+    ldx a:h_altaron             ;   (channel 4, unless an altar has it)
+    bne :+
+      and #$EF
+:   sta a:h_hdmaen
     sta a:HDMAEN
     lda a:h_ppumask
     and #$18                    ; is the game asking for any rendering at all?
@@ -1583,15 +1586,16 @@ hal_flush:
     jsr flush_m7q
     jsr flush_m7up
     jsr flush_oam
-    ;  The extras, OAM's entries 64-127, in front of the party: OAM's
-    ;  priority turned round to start at entry 64 (its word address, 128,
-    ;  with $2103's bit 7), which the PPU keeps till the next write;
-    ;  otherwise from entry 0.
+    ;  The extras, OAM's entries 64-127, those behind the party first and
+    ;  those in front after them (ow7.asm): OAM's priority turned round to
+    ;  start at the first in front (its word address, its entry * 2, with
+    ;  $2103's bit 7), which the PPU keeps till the next write -- those in
+    ;  front, the game's 64, those behind; with none in front, from entry 0.
     lda a:h_m7xfront
+    sta a:OAMADDL
     beq :+
       lda #$80
-:   sta a:OAMADDL
-    sta a:OAMADDH
+:   sta a:OAMADDH
     lda #$E8                    ; the tilt's channels, 3 and 5 (M7A, M7D),
     sta a:h_hdmaen              ;   and the haze's, 6 and 7, set up by flush_m7
 @splits:
@@ -2566,6 +2570,54 @@ wipe_table:
     lda a:h_hdmaen
     ora #$02                    ; channel 1
     sta a:h_hdmaen
+    ;  On the overworld the haze is colour maths onto BG1, the sprites and
+    ;  the backdrop, and the dark bands show the backdrop and the sprites:
+    ;  grey, the landmarks standing in it.  There the picture is clipped
+    ;  to black and the maths kept off, by a second table on CGWSEL, so
+    ;  the wipe's black stands over all of it (user, 2026-11-19: "The black
+    ;  wipe should be on top rather than underneath of the haze").  The
+    ;  party's sprites go dark there with the rest, where the NES's stayed.
+    ;  Channel 4 is the altars', which only a standard map's arms.
+    lda a:h_m7on
+    beq @flat
+    ldy #16                     ; its table after TM's, in HDMATAB
+    lda #$F0                    ; CGWSEL: clipped to black, no maths
+    sta a:h_t0
+    lda a:h_wipetop
+    beq :+
+      jsr emit_span
+:   stz a:h_t0                  ; as flush_m7 has it: the haze everywhere
+    lda a:h_wipebot
+    sec
+    sbc a:h_wipetop
+    beq :+
+      jsr emit_span
+:   lda #$F0
+    sta a:h_t0
+    lda #224
+    sec
+    sbc a:h_wipebot
+    beq :+
+      jsr emit_span
+:   lda #$00
+    sta a:HDMATAB,y             ; a zero line count ends the table
+    lda a:h_wipetop             ; what stands above the first span
+    beq :+
+      lda #$F0
+:   sta a:CGWSEL
+    stz a:DMAP4                 ; one byte to one register
+    lda #<CGWSEL
+    sta a:BBAD4
+    ldx #<(HDMATAB + 16)
+    stx a:A1T4L
+    ldx #>(HDMATAB + 16)
+    stx a:A1T4L+1
+    lda #WRAMBANK
+    sta a:A1B4
+    lda a:h_hdmaen
+    ora #$10                    ; channel 4
+    sta a:h_hdmaen
+@flat:
     stz a:h_rastercount
     rts
 
@@ -3854,7 +3906,8 @@ flush_scroll:
     sta a:OBSEL                 ; 8x8 and 16x16 sprites, as init_ppu has them
     lda a:h_m7fog
     beq :+
-      stz a:CGADSUB             ; the plane's haze, off with it
+      stz a:CGADSUB             ; the plane's haze, off with it, and the
+      stz a:CGWSEL              ;   wipe's black where it left it
       stz a:h_m7fog
 :
     ENTER16
