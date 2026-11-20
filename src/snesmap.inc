@@ -1401,9 +1401,8 @@ h_m7ocx         = M7VARS+$3D    ; 2 bytes: m7_project's x, signed (h_m7oline its
 ;  frame from SetOWScroll (m7_lands), so that they stay through the frames
 ;  the game draws no sprites in: an airship's take-off and landing, a
 ;  menu's palette cycle.
-h_m7xfront      = M7VARS+$3F    ; nonzero: the extras in front, OAMSHADOW arranged so
-h_m7gbase       = M7VARS+$40    ; 2 bytes: hal_oamdma's: the game's sprites' first byte in OAM,
-h_m7gend        = M7VARS+$42    ; 2 bytes:   and past their last
+h_m7xfront      = M7VARS+$3F    ; nonzero: the extras in front, OAM's priority from entry 64
+;               = M7VARS+$40    ; 4 bytes free
 h_m7xprev       = M7VARS+$44    ; extras OAM held after the last transfer, to hide when gone
 h_m7oux         = M7VARS+$45    ; 2 bytes: m7_project: pixels east of the tile's centre,
 h_m7ouy         = M7VARS+$47    ; 2 bytes:   and south, the point placed
@@ -1541,6 +1540,10 @@ WIPE_LEAD       = 11 + NES_TOP_CROP
 ; The game's own soft copy of $2000, at zero page $FF (variables.inc calls it
 ; soft2000).  The NES build's NMI handler pushed this to the PPU every frame.
 NES_soft2000    = $00FF
+
+; The game's sprite table, the page every $4014 write names (variables.inc's
+; oam): hal_oamdma reads it there.
+NES_oam         = $0200
 
 ; Raster splits: record mid-frame $2001 writes, replay them as an HDMA table.
 ;

@@ -9298,6 +9298,66 @@ def test_menumusic():
     bus.wram[K["h_frame"]], bus.wram[K["h_frame"] + 1] = 0xFF, 0x00
     cpu.run(0xC0, WAIT, limit=2_000_000)
     check("hal_waitvbl's frame counter carries", bus.wram[K["h_frame"]] | bus.wram[K["h_frame"] + 1] << 8, 0x100)
+    #  The dialogue box's frame after its vblank begins: the wait's flush,
+    #  the game's $4014 (hal_oamdma) and its $2000 (hal_w2000), then the
+    #  box's scanline-9 wait (dlgbox.patch), which it must reach in line 9
+    #  or spin a whole frame -- the box, its music and its sounds at half
+    #  speed while it is open.  The last build before the overworld's Mode
+    #  7 took 2,541 instructions there and made it with almost nothing to
+    #  spare; the Mode 7 work put 57 more there, some 400 cycles, and the
+    #  boxes ran at half speed again (user, 2026-11-19; the first time was
+    #  2026-10-24).  hal_oamdma by one index and a table took it to 1,295:
+    #  this keeps that margin.  A standard map, a table of sprites waiting
+    #  to go; the second frame counted, the first having sent what a fresh
+    #  machine owes.
+    def box_frame():
+        bus, cpu = machine()
+        bus.wram[K["mapflags"]] |= 1
+        bus.wram[K["h_ppumask"]] = 0x1E
+        rnd = random.Random(7)
+        on = {"on": False, "n": 0}
+        step = cpu.step
+        def spy():
+            if cpu.pbr == 0xC0 and cpu.pc == SYM["hal_flush"]:
+                on["on"] = True
+            on["n"] += on["on"]
+            step()
+        for _ in range(2):
+            on["on"], on["n"] = False, 0
+            bus.wram[0x200:0x300] = bytes(rnd.randrange(256) for _ in range(256))
+            cpu.a = 2
+            cpu.run(0xC0, SYM["hal_oamdma"], limit=100_000)
+            in_vblank(bus)
+            cpu.step = spy
+            cpu.run(0xC0, WAIT, limit=2_000_000)
+            cpu.a = 2
+            cpu.run(0xC0, SYM["hal_oamdma"], limit=100_000)
+            cpu.a = 1
+            cpu.run(0xC0, SYM["hal_w2000"], limit=100_000)
+            cpu.step = step
+        return on["n"]
+    took = box_frame()
+    check("the dialogue box's frame from the flush to its scanline-9 wait: under 1,350 instructions",
+          (took < 1350, took > 1000), (True, True))
+    #  ...and hal_oamdma's sprites as the NES's: every attribute byte, both
+    #  pattern tables, on the overworld's palettes and off.
+    bus, cpu = machine()
+    bad = []
+    for sel, pal in ((0, 0), (8, 0), (0, 8), (8, 8)):
+        bus.wram[K["h_ppuctrl"]], bus.wram[K["h_m7oampal"]] = sel, pal
+        for t in range(4):
+            bus.wram[0x200:0x300] = bytes(x for i in range(64)
+                                          for x in ((i * 3 + t) & 0xFF, i ^ t, t * 64 + i, 255 - i))
+            cpu.a = 2
+            cpu.run(0xC0, SYM["hal_oamdma"], limit=100_000)
+            img = bus.wram[K["OAMSHADOW"]:K["OAMSHADOW"] + 256]
+            for i in range(64):
+                a = t * 64 + i
+                want = (255 - i, (i * 3 + t - (K["NES_TOP_CROP"] - 1)) & 0xFF, i ^ t,
+                        (a & 0xC0) | (a & 3) << 1 | (0 if a & 0x20 else 0x20) | (sel >> 3) | pal)
+                if tuple(img[i * 4:i * 4 + 4]) != want:
+                    bad.append((sel, pal, a))
+    check("hal_oamdma: every attribute byte, both pattern tables, the overworld's palettes and not", bad[:4], [])
     #  ...and a game's wait marks the frame it serves too, before it spins,
     #  so the menus' ticks coming on in that frame -- the title's press,
     #  which first doubled a frame -- find it played: counted however long
@@ -13817,6 +13877,11 @@ def test_m7view():
           "their base below the screen too; in front of the party when they should be; there through a "
           "take-off and a palette cycle; their palettes mirrored; out, the slots back",
           (bad[:4], on[0] == on[1], slots == shadow, land_sprites(bus)), ([], True, True, []))
+    #  ...and every extra parked off the bottom, small: a 32x32 house left
+    #  large at line 240 would show its lower half at the screen's top.
+    check("...out, the extras parked at line 240, their size and ninth x bits clear",
+          [i for i in range(64, 128) if bus.oam[4 * i + 1] != 0xF0 or
+           bus.oam[512 + i // 4] >> (2 * (i % 4)) & 3], [])
 
     #  The sprites in OBJ palettes 4-7 on the overworld, where the haze
     #  reaches them: OAM's palettes and their colours there; back in 0-3,

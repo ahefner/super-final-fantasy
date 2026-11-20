@@ -4566,7 +4566,9 @@ applied" (user, 2026-11-17).
     entries (CGRAM 196-203): colour c of palette p is 4 + 4p + c there,
     black 4 (the Mirage Tower and the volcano are palette 1's), and the
     haze reaches them.  `hal_oamdma` leaves the extras alone while the
-    plane is up, and once it is gone parks all 64.  Drawn from the scroll,
+    plane is up, and once it is gone parks all 64 at line 240, small (a
+    32x32 house left large there would show its lower half at the
+    screen's top).  Drawn from the scroll,
     they show on every overworld
     frame, whether the game draws its sprites or not (user, 2026-11-18:
     Coneria's "disappears when the airship takes off/lands, and when
@@ -4580,9 +4582,10 @@ applied" (user, 2026-11-17).
     next transfer.  When a landmark or a house stands in front of the
     party -- tilted, the party north of its base's row and not in the
     airship -- the extras are drawn over the game's sprites by OAM's
-    priority turned round: `flush_oam`, after the transfer, sets the OAM
-    address to entry 64 with `$2103`'s bit 7, and the PPU keeps it till
-    the next write (`h_m7xfront`, which `m7_front` sets); the game's stay
+    priority turned round: the overworld's flush, after the transfer,
+    sets the OAM address to entry 64 with `$2103`'s bit 7, or to 0, and
+    the PPU keeps it till the next write (`h_m7xfront`, which `m7_front`
+    sets); the game's stay
     at 0-63 and the extras at 64-127 either way.  At first `m7_front`
     swapped OAMSHADOW's halves instead, 1,300 instructions on each frame
     the party crossed a row -- with the houses, every row through a town;
@@ -5303,7 +5306,27 @@ covered part of it.  Nothing built is waiting on a playtest.
     black orb, it plays the treasure sound at a very slow speed").  Now the
     game pays 8 cycles there for the menus' test, and 13 less for the frame
     counter (eight bits and a carry, not a trip to sixteen): its dialogue
-    reaches line 9 as it always did, 188 frames of 189, none spun.  It needs
+    reaches line 9 as it always did, 188 frames of 189, none spun.
+    **And again with the overworld's Mode 7** (user, 2026-11-19: opening
+    a box in a standard map "slows way down, including the music, to half
+    speed or so"; the fix played the same day, "That fixes the
+    slowdown"): the box's frame runs the wait's flush, the game's
+    `$4014` (`hal_oamdma`) and its `$2000` after the vblank begins, and
+    the Mode 7 work had put its overworld steps inside those shared
+    routines -- each sprite's attributes ORed with the overworld's palette
+    offset, zero elsewhere, and its loop ended on a variable, 64 times a
+    frame, and the flush's tests -- 57 instructions, some 400 cycles, two
+    lines.  Now the flush tests for the plane once and runs the
+    overworld's steps on a path of its own, and `hal_oamdma` walks both
+    tables with one eight-bit index in emulation mode, the attributes
+    through a 256-byte table (`lut_oamattr`, the palette offset folded
+    into the tile-number bit once a call): from the flush to the box's
+    wait 1,295 instructions where the last build before Mode 7 took 2,541
+    (some 4,000 cycles less, over ten lines to spare).  It reads the table at `$0200` and not the
+    page the write names: every write in the game and the native screens
+    names that one.  `test_menumusic` bounds the path at 1,350
+    instructions, so one more per sprite fails it, and checks every
+    attribute byte against the NES's meaning.  It needs
     a look at least once a frame -- one more than a frame after the last
     cannot see the vblank between -- so the long work looks every half
     frame or so:
@@ -6433,7 +6456,8 @@ text region in the game references.
                              landmarks' uploads, the sprites off without
                              them, OAM's priority turned round 758,
                              2026-11-17 and -18, on the new-overworld
-                             branch: 5086 left)
+                             branch; hal_oamdma's attribute table, 256,
+                             its loop 103 shorter, 2026-11-19: 4933 left)
     SPC700 RAM               the program 1422 of the 1536 below the
                              directory (genspc.py); the game's samples
                              $2F00-$EFFF, the scream 8347 of 49408

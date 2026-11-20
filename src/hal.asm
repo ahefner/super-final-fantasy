@@ -218,8 +218,8 @@ hal_w2001:
       lda #$3F
       sta a:h_chrhi + 1
       stz a:h_m7xfront          ; no extras now: hal_oamdma hides them,
-      lda #1                    ;   and the next transfer turns OAM's
-      sta a:h_oamdirty          ;   priority back (flush_oam)
+      lda #1                    ;   and the next transfer starts OAM's
+      sta a:h_oamdirty          ;   priority at entry 0 again (flush_oam)
       stz a:h_m7upon
       stz a:h_m7bupon
       stz a:h_m7upn             ; and no uploads
@@ -1020,77 +1020,45 @@ r2007_core:
 .i8
 hal_oamdma:
     php
-    sta a:h_data
     pha
     phx
     phy
     lda a:h_ppuctrl             ; which pattern table are sprites using?
     and #$08
     beq :+
-      lda #$01
-:   and #$01
-    sta a:h_sprtable            ; ...that is the 9th bit of the SNES tile number
+      lda #$01                  ; ...the 9th bit of the SNES tile number
+:   ora a:h_m7oampal            ; + 4 palettes on the overworld, where
+    sta a:h_sprtable            ;   pal_prep has them
+    ;  Every caller hands over the page `oam` is on, $02 (the game's 32
+    ;  writes and the native screens' alike), so the operand is not read:
+    ;  one index walks both tables in emulation mode's eight bits, and the
+    ;  attributes go through a table.  It runs between the frame wait's
+    ;  vblank and the dialogue box's scanline-9 wait, which it reached
+    ;  with almost nothing to spare; this way is half the time the
+    ;  sixteen-bit loop took (user, 2026-11-19: boxes at half speed again).
     ;  The game's 64 at OAM's start; the overworld's extras after them
     ;  (ow7.asm's landmarks), drawn in front of them by OAM's priority
-    ;  turned round when they stand in front of the party (flush_oam).
-    stz a:h_m7gbase
-    stz a:h_m7gbase + 1
-    stz a:h_m7gend
-    lda #1
-    sta a:h_m7gend + 1          ; 256
-    ENTER16
-    lda a:h_data
-    and #$00FF
-    xba                         ; the DMA operand is a page number
-    tax                         ; X walks the NES table
-    ldy a:h_m7gbase             ; Y walks the SNES table
+    ;  turned round when they stand in front of the party (hal_flush).
+    ldy #0
 @loop:
-    sep #$20
-    .a8
-    lda a:$0001,x               ; tile number
-    sta a:OAMSHADOW+2,y
-    lda a:$0003,x               ; X position (0-255, so the 9th bit stays clear)
-    sta a:OAMSHADOW+0,y
-    lda a:$0000,x               ; The NES draws a sprite one line below the
+    lda a:NES_oam + 1,y         ; tile number
+    sta a:OAMSHADOW + 2,y
+    lda a:NES_oam + 3,y         ; X position (0-255, so the 9th bit stays clear)
+    sta a:OAMSHADOW + 0,y
+    lda a:NES_oam + 0,y         ; The NES draws a sprite one line below the
     sec                         ; value in OAM; the SNES does not.  Take off the
     sbc #(NES_TOP_CROP - 1)     ; cropped lines too, so sprites stay with the
-    sta a:OAMSHADOW+1,y         ; background.  Anything that goes negative wraps
+    sta a:OAMSHADOW + 1,y       ; background.  Anything that goes negative wraps
                                 ; below the screen, which is where it belonged.
-    lda a:$0002,x               ; attributes
-    sta a:h_t0
-    and #$C0                    ; the flip bits are in the same places
-    sta a:h_t1
-    lda a:h_t0
-    and #$03                    ; palette: NES bits 1-0 -> SNES bits 3-1
-    asl a
-    ora a:h_t1
+    ldx a:NES_oam + 2,y         ; attributes (lut_oamattr)
+    lda f:lut_oamattr + HALFAR,x
     ora a:h_sprtable
-    ora a:h_m7oampal            ; + 4 on the overworld, where pal_prep has them
-    sta a:h_t1
-    lda a:h_t0
-    and #$20                    ; "behind background"
-    beq @front
-      lda a:h_t1                ; OBJ priority 0: under BG1, over the backdrop,
-      bra @stattr               ;   in Mode 7 as in mode 1, where nothing but
-                                ;   BG1 is ever on the main screen
-@front:
-      lda a:h_t1
-      ora #$20                  ; OBJ priority 2: over BG1
-@stattr:
-    sta a:OAMSHADOW+3,y
-    rep #$20
-    .a16
-    inx
-    inx
-    inx
-    inx
+    sta a:OAMSHADOW + 3,y
     iny
     iny
     iny
     iny
-    cpy a:h_m7gend
-    bcc @loop
-    LEAVE16
+    bne @loop
     ;  The overworld's extras, while the plane is up and once after.
     lda a:h_m7on
     ora a:h_m7xprev
@@ -1103,6 +1071,17 @@ hal_oamdma:
     pla
     plp
     rtl
+
+;;  An NES sprite attribute byte as the SNES's, less the tile number's
+;;  ninth bit and the overworld's palette offset (h_sprtable): the flip bits
+;;  where they were; the palette, NES bits 1-0, to bits 2-1; "behind
+;;  background" (bit 5) OBJ priority 0, under BG1 and over the backdrop --
+;;  in Mode 7 as in mode 1, where nothing but BG1 is ever on the main
+;;  screen -- and otherwise priority 2, over BG1.
+lut_oamattr:
+  .repeat 256, i
+    .byte (i & $C0) | ((i & $03) << 1) | ((i & $20) ^ $20)
+  .endrepeat
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Controller
@@ -1581,24 +1560,41 @@ hal_flush:
     ;  set it before the transfers, and then it always lands in vblank however
     ;  long they take.  flush_ntsplit still runs last, since its HDMA table
     ;  deliberately overrides BG1HOFS for the dialogue window.
-    ;  On the overworld the picture is the Mode 7 plane instead (flush_m7).
+    ;  On the overworld the picture is the Mode 7 plane instead (flush_m7),
+    ;  on a path of its own: the standard maps' flush runs between the
+    ;  frame wait's vblank and the dialogue box's scanline-9 wait
+    ;  (hal_waitvbl), and pays for one look at the plane and the plane's
+    ;  queue, which goes out with the plane down too (flush_m7q).
     lda a:h_m7on
-    beq :+
-      jsr flush_m7
-      bra :++
-:   jsr flush_scroll
-:   jsr flush_pal
+    bne @m7
+    jsr flush_scroll
+    jsr flush_pal
+    jsr flush_chr
+    jsr flush_nt
+    jsr flush_m7q
+    jsr flush_oam
+    stz a:h_hdmaen              ; each of the three below asks for its own channel
+    bra @splits
+@m7:
+    jsr flush_m7
+    jsr flush_pal
     jsr flush_chr
     jsr flush_nt
     jsr flush_m7q
     jsr flush_m7up
     jsr flush_oam
-    stz a:h_hdmaen              ; each of the three below asks for its own channel
-    lda a:h_m7on                ; ...as does the overworld's tilt: channels 3
-    beq :+                      ;   and 5 (M7A, M7D), 6 and 7 (the haze), set
-      lda #$E8                  ;   up by flush_m7
-      sta a:h_hdmaen
-:
+    ;  The extras, OAM's entries 64-127, in front of the party: OAM's
+    ;  priority turned round to start at entry 64 (its word address, 128,
+    ;  with $2103's bit 7), which the PPU keeps till the next write;
+    ;  otherwise from entry 0.
+    lda a:h_m7xfront
+    beq :+
+      lda #$80
+:   sta a:OAMADDL
+    sta a:OAMADDH
+    lda #$E8                    ; the tilt's channels, 3 and 5 (M7A, M7D),
+    sta a:h_hdmaen              ;   and the haze's, 6 and 7, set up by flush_m7
+@splits:
     jsr flush_raster
     jsr flush_ntsplit
     jsr flush_altar
@@ -2452,17 +2448,7 @@ flush_oam:
     LEAVE16
     lda #$01
     sta a:MDMAEN
-    ;  The overworld's extras, entries 64-127, in front of the party: OAM's
-    ;  priority turned round to start at entry 64 (its word address, 128,
-    ;  with $2103's bit 7), which the PPU keeps till the next write.
-    lda a:h_m7on
-    beq :+
-    lda a:h_m7xfront
-    beq :+
-    lda #$80
-    sta a:OAMADDL
-    sta a:OAMADDH
-:   rts
+    rts
 
 
 ; --- raster splits ------------------------------------------------------
@@ -3762,59 +3748,40 @@ flush_m7q:
     LEAVE16
     rts
 
-;;  From hal_oamdma, emulation mode: the overworld's extras, the 64 entries
-;;  the game's left (h_m7gbase's other half).  The game's high-table bytes
-;;  zero, its sprites being 8x8 and on screen's first 256.  With the plane
-;;  up the extras are ow7.asm's, the landmarks, the houses and the docked
-;;  ship, written each frame from SetOWScroll (m7_lands), and they stay.
-;;  The plane gone, all 64 off the bottom and their high-table bytes zero,
-;;  once.
+;;  From hal_oamdma, emulation mode: the overworld's extras, OAM's
+;;  entries 64-127, after the game's 64.  The game's high-table bytes zero,
+;;  its sprites being 8x8 and on screen's first 256.  With the plane up the
+;;  extras are ow7.asm's, the landmarks, the houses and the docked ship,
+;;  written each frame from SetOWScroll (m7_lands), and they stay.  The
+;;  plane gone, all 64 off the bottom and their high-table bytes zero, once.
 oam_extras:
     ENTER16
-    lda a:h_m7gbase
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    tax                         ; the game's high-table bytes
-    ldy #8
-:   stz a:OAMSHADOW + 512, x
-    inx
-    inx
-    dey
-    bne :-
+    ldx #14
+:   stz a:OAMSHADOW + 512,x     ; the game's high-table bytes
+    dex
+    dex
+    bpl :-
     sep #$20
     .a8
     lda a:h_m7on
     bne @kept
     rep #$20
     .a16
-    lda a:h_m7gbase
-    eor #$0100
-    tay                         ; the extras' first byte in OAM
-    lsr a
-    lsr a
-    lsr a
-    lsr a
-    tax                         ; ...and their first high-table byte
-    lda #8
-    sta a:h_t1
-:   stz a:OAMSHADOW + 512, x
-    inx
-    inx
-    dec a:h_t1
-    bne :-
+    ldx #14
+:   stz a:OAMSHADOW + 528,x     ; the extras' high-table bytes
+    dex
+    dex
+    bpl :-
     sep #$20
     .a8
     lda #$F0
-    ldx #64
-:   sta a:OAMSHADOW + 1, y
-    iny
-    iny
-    iny
-    iny
+    ldx #252
+:   sta a:OAMSHADOW + 256 + 1,x ; the extras off the bottom
     dex
-    bne :-
+    dex
+    dex
+    dex
+    bpl :-
 @kept:
     lda a:h_m7on
     sta a:h_m7xprev             ; once more after the plane goes, to hide them
