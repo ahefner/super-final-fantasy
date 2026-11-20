@@ -4306,7 +4306,9 @@ glitches -- the haze over the wipe's black, and the party behind a castle
 or a house it walks into -- fixed 2026-11-19, and the wipe's first frame
 with the landmarks gone and the houses and ships at the top: played
 2026-11-19, committed on the user's word.  The far houses a frame late
-after R: played 2026-11-19, committed on the user's word.**  The
+after R: played 2026-11-19, committed on the user's word.  The airship's
+shadow behind what it has flown past: played 2026-11-19, committed on
+the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4657,7 +4659,42 @@ applied" (user, 2026-11-17).
     the castle never in front and a house in front only of a party north
     of its row; and the airship north of Coneria's castle with none in
     front.  The build before failed those walks.  17 mutations, all
-    caught (the airship's after its scene was added).  Its base can be below the screen with its top on it
+    caught (the airship's after its scene was added).  **The airship's
+    shadow behind what it has flown past** (user, 2026-11-19: flying
+    north toward Coneria's castle, "I'll have one tile where the shadow
+    is on the bottom tile of the castle, which is arguably fine, but if I
+    fly another tile north, the shadow is now in the middle of the castle
+    sprite when clearly I've passed the castle and the sprite should be
+    behind it").  In the airship, tilted, the airship stays over
+    everything, and a landmark, a row of houses or the docked ship stands
+    in front of its shadow when the shadow is north of the object's
+    bottom row: on that row the shadow falls on the object, as before;
+    past it, behind.  The shadow's row is its tile's, and mid-step
+    `ow_scroll_y`'s, the northern of the two, going either way
+    (`h_m7prow`, with `h_m7pair` $80).  A landmark's record has its
+    bottom row in byte 2 and its top in byte 3; a row of houses has its
+    row in both.  The game draws the shadow every other frame as entries
+    4-7, after the airship's 0-3 (`DrawAirshipShadow`, tile $10 first).
+    `m7_lands` writes the extras in front of the shadow first, then moves
+    the shadow's four entries there from the game's (`m7_shadow`, which
+    parks the old ones), then those behind it, and OAM's priority starts
+    at entry 0: the airship, the rest of the game's, those in front of the
+    shadow, the shadow, those behind.  With no room left in the extras
+    for its four, the shadow stays where the game put it, over them all.
+    Flying over Coneria at 45 degrees the dearest frame of the game's
+    went from 5,564 instructions to 5,612 (the copy unrolled); a walking
+    frame costs 12 more, for each landmark's choice of row.
+    `test_m7view` flies north over Coneria's town and castle and back at
+    45 degrees and the steepest, the shadow every other frame as the
+    game draws it: every frame the shadow's four entries together among
+    the extras, OAM's priority from entry 0, each object before the
+    shadow just when the shadow is north of its bottom row, the castle
+    and a house each both in front and behind along the way, the dearest
+    frame under 5,700; three rows north of the castle, the castle in
+    front of the shadow; and `m7_shadow` itself with room among the
+    extras for its four and without, nothing past them touched.  The
+    build before failed them.  11 mutations, all
+    caught (the room check once `m7_shadow` was tested directly).  Its base can be below the screen with its top on it
     (user, 2026-11-18: Coneria's "pops in" from the bottom "when the row
     of tiles its grounded on aren't visible"): the objects' table runs
     south past the screen (above); past k 23/16 one is drawn at 23/16, a
@@ -6508,7 +6545,7 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      7003 free  the overworld in Mode 7 (ow7.asm, 9381: the
+    BANK_OW7      6869 free  the overworld in Mode 7 (ow7.asm, 9515: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
@@ -6518,6 +6555,8 @@ text region in the game references.
                              frames, 8192, moved out with the houses;
                              each one in front or behind separately 157;
                              a 32x32 frame one queue record, 65 less;
+                             the airship's shadow in front or behind
+                             134;
                              the new-overworld branch, 2026-11-17 to
                              -19).  The chunk's low
                              half: its 256 characters, 16KB, then the

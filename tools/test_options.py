@@ -12366,6 +12366,7 @@ def test_m7view():
     world, blocks = m7_reference()
     OWX, OWY, MCX, MCY = K["ow_scroll_x"], K["ow_scroll_y"], K["move_ctr_x"], K["move_ctr_y"]
     VEHICLE, FACING, SPEED = K["vehicle"], K["facing"], K["move_speed"]
+    FCOUNT = K["framecounter"]
     M7ON, M7CHR, QLEN, LVL = K["h_m7on"], K["h_m7chr"], K["h_m7qlen"], K["h_m7lvl"]
     NTSH = 0x1000
     ANGLES, CAM = genm7.ANGLES, genm7.CAMERA
@@ -13466,29 +13467,57 @@ def test_m7view():
 
     LANDOF = {}                                         # a landmark's art: [(name, column, top row)]
 
+    ROWS = {name: len(grid) for name, grid, _ in genm7.LANDMARKS}
+
+    def shadow_entries(bus):
+        """The airship's shadow's sprites OAM shows (DrawAirshipShadow's
+        tiles $10-$13, 8x8, not a landmark's)."""
+        return [i for i in range(128) if bus.oam[4 * i + 2] in (0x10, 0x11, 0x12, 0x13)
+                and bus.oam[4 * i + 1] < 0xE0 and not bus.oam[512 + i // 4] >> (2 * (i % 4)) & 2
+                and not is_land(bus.oam[4 * i + 2], bus.oam[4 * i + 3])]
+
     def fronts(bus, where, level, px0, py0, saw=None):
         """Each extra the screen shows in front of the game's sprites just
         when the party is north of its object's top row, tilted and not in
         the air: the party's row its tile's, mid-step (move_ctr_y not 0)
         the one south of ow_scroll_y's -- the counters as m7_lands saw them
-        (saw), or as they are.  Each house matched to the camera's nearest,
-        each landmark by the art its slot holds.  -> {(name, top row):
-        in front}."""
+        (saw), or as they are.  In the air, tilted, the airship over them
+        all (OAM's priority from entry 0) and the shadow, when the game
+        drew it, four entries together among the extras, each extra before
+        it (in front of it) just when the shadow's row -- ow_scroll_y's,
+        mid-step the northern of the two -- is north of its object's
+        bottom row; with no shadow, none judged.  Each house matched to
+        the camera's nearest, each landmark by the art its slot holds.
+        -> {(name, top row): in front}."""
         s = front_start(bus)
         if s is not None and s < 64:
             bad.append(where + ": OAM's priority from entry %d, among the game's" % s)
         owy, mcy, veh = saw or (bus.wram[OWY], bus.wram[MCY], bus.wram[VEHICLE])
         prow = (owy + 7 + (1 if mcy else 0)) & 255
+        air = level != FLAT and veh == 8
+        if air:
+            sh = shadow_entries(bus)
+            if s is not None:
+                bad.append(where + ": in the air, OAM's priority from entry %d, the airship not over all" % s)
+            if sh and (sh[0] < 64 or sh != list(range(sh[0], sh[0] + 4))):
+                bad.append(where + ": the shadow's sprites at entries %r, not four together among the extras" % sh)
+            prow = (owy + 7) & 255
         out = {}
 
-        def judge(name, top, i):
-            front = s is not None and i >= s
-            want = level != FLAT and veh != 8 and (prow - top + 128) % 256 - 128 < 0
+        def judge(name, top, i, bottom=None):
+            if air:
+                if not sh:
+                    return
+                front = i < sh[0]
+                want = (prow - (top if bottom is None else bottom) + 128) % 256 - 128 < 0
+            else:
+                front = s is not None and i >= s
+                want = level != FLAT and veh != 8 and (prow - top + 128) % 256 - 128 < 0
             if out.setdefault((name, top), front) != front:
                 bad.append(where + ": %s (row %d) part in front, part behind" % (name, top))
             elif front != want:
-                bad.append(where + ": %s (row %d) %s the party on row %d"
-                           % (name, top, "in front of" if front else "behind", prow))
+                bad.append(where + ": %s (row %d) %s the %s on row %d"
+                           % (name, top, "in front of" if front else "behind", "shadow" if air else "party", prow))
         near = []
         for (x, y), name in ON[0].items():
             if name in HOUSE:
@@ -13503,7 +13532,7 @@ def test_m7view():
             key = bus.wram[K["h_m7lkey"] + (t - SLOT0) // SLOTW]
             name, x, top = min(LANDOF[key >> 4], key=lambda o: abs((o[1] - px + 128) % 256 - 128)
                                + abs((o[2] - py + 128) % 256 - 128))      # (arts shared: the nearest)
-            judge(name, top, i)
+            judge(name, top, i, (top + ROWS[name] - 1) & 255)
         return out
 
     def saw_lands(cpu, bus):
@@ -13961,9 +13990,11 @@ def test_m7view():
     #  can; by the game's steps, every frame each one as it should be,
     #  the castle never in front, a house in front only with the party
     #  north of its row.
-    def walk(where, x, y, steps, level):
+    WALKCOST = {}                                       # a walk's dearest frame of the game's
+
+    def walk(where, x, y, steps, level, vehicle=1):
         bus, cpu = m7_machine()
-        enter(bus, cpu, x - 7, y - 7, level=level)
+        enter(bus, cpu, x - 7, y - 7, vehicle=vehicle, level=level)
         call(cpu, "m7_scroll")
         run_frame(bus, cpu)
         saw = saw_lands(cpu, bus)
@@ -13978,10 +14009,13 @@ def test_m7view():
                     seen.append((saw[-1], fronts(bus, where, level, *wpivot(bus), saw=saw[-1])))
                 cpu.a = 0x02
                 call(cpu, "nesio_oamdma")
+                n0 = cpu.steps
                 call(cpu, "OverworldMovement")
+                WALKCOST[where] = max(WALKCOST.get(where, 0), cpu.steps - n0)
                 for i in range(64):
                     bus.wram[0x200 + 4 * i] = 0xF0
                 bus.wram[K["sprindex"]] = 0
+                bus.wram[FCOUNT] = (bus.wram[FCOUNT] + 1) & 255   # (the shadow every other frame)
                 call(cpu, "DrawOWSprites")
                 if bus.wram[SPEED] == 0:
                     break
@@ -14012,19 +14046,73 @@ def test_m7view():
                 if any(d.get((art, hy)) for (owy, mcy, _), d in seen if (owy + 7 + (mcy != 0)) & 255 == hy):
                     bad.append(where + ": in front of the party on its row")
             break
-    #  ...and none in front of the airship, which flies over them: three
-    #  rows north of Coneria's castle, where on foot it would be.
+    #  ...and none in front of the airship, which flies over them, but in
+    #  front of its shadow: three rows north of Coneria's castle, the
+    #  castle in front of the party on foot, of the shadow in the air, the
+    #  shadow's frame (DrawAirshipShadow draws it on odd ones).
     for veh in (8, 1):
         bus, cpu = m7_machine()
         enter(bus, cpu, CX - 7, CY - 3 - 7, vehicle=veh, level=STEEP)
         call(cpu, "m7_scroll")
         run_frame(bus, cpu)
+        bus.wram[FCOUNT] = 1
         run_frame(bus, cpu)
+        call(cpu, "m7_scroll")
         call(cpu, "hal_waitvbl", bank=0xC0)
         where = "%s three rows north of Coneria's castle" % ("the airship" if veh == 8 else "on foot")
         got = fronts(bus, where, STEEP, (CX - 7) * 16 + 120, (CY - 3 - 7) * 16 + 120)
-        if got.get(("coneria", CY)) is not (veh != 8):
-            bad.append(where + ": the castle %r" % got.get(("coneria", CY)))
+        if got.get(("coneria", CY)) is not True or bool(shadow_entries(bus)) != (veh == 8):
+            bad.append(where + ": the castle in front %r, the shadow shown %r"
+                       % (got.get(("coneria", CY)), shadow_entries(bus)))
+    #  The shadow moved (m7_shadow) with room among the extras for its
+    #  four -- 60 there already -- and its old entries parked; with 61
+    #  there, left where the game put it, nothing past the extras (OAM's
+    #  high table) touched; and nothing done for an entry 4 that is not
+    #  the shadow.  Native mode, A8 I16, as m7_lands calls it.
+    bus, cpu = m7_machine()
+    OS = K["OAMSHADOW"]
+    for case, y, tile in (("room for four", 256 + 60 * 4, 0x10), ("no room", 256 + 61 * 4, 0x10),
+                          ("not the shadow", 256, 0x11)):
+        for i in range(544):
+            bus.wram[OS + i] = (i * 7 + 3) & 255
+        for e in range(4):
+            bus.wram[OS + 16 + 4 * e:OS + 20 + 4 * e] = bytes((0x70 + 8 * (e >> 1), 0x6E + 8 * (e & 1), tile + e, 0x27))
+        before = bytearray(bus.wram[OS:OS + 544])
+        want, wy = bytearray(before), y
+        if case == "room for four":
+            want[y:y + 16] = before[16:32]
+            for e in range(4, 8):
+                want[4 * e + 1] = 0xF0
+            wy = y + 16
+        cpu.e, cpu.p = False, (cpu.p | 0x20) & ~0x10
+        cpu.x, cpu.y, cpu.dbr = 0x1234, y, 0
+        call(cpu, "m7_shadow")
+        if bytes(bus.wram[OS:OS + 544]) != bytes(want) or (cpu.x, cpu.y) != (0x1234, wy):
+            bad.append("the shadow moved, %s: OAMSHADOW %s, X $%04X, Y %d"
+                       % (case, "as it should be" if bytes(bus.wram[OS:OS + 544]) == bytes(want) else "not",
+                          cpu.x, cpu.y))
+    #  Flying north over Coneria's town and castle and back (user,
+    #  2026-11-19: flying north, a tile past the castle's bottom row "the
+    #  shadow is now in the middle of the castle sprite when clearly I've
+    #  passed the castle and the sprite should be behind it"): by the
+    #  game's steps, at the default angle and the steepest, the shadow
+    #  every other frame as the game draws it, every frame each one as it
+    #  should be (fronts); the castle and a house each both in front of
+    #  the shadow and behind it along the way.  The dearest frame of the
+    #  game's under 5700 instructions: 5564 before the shadow was among
+    #  the extras, 5612 after (2026-11-19), the NES's way's 5372-6543.
+    for level in (genm7.DEFAULT, STEEP):
+        where = "%d degrees, the airship north over Coneria's town and castle and back" % ANGLES[level]
+        seen, moved = walk(where, CX, CY + 7, [8] * 10 + [4] * 10, level, vehicle=8)
+        judged = [d for _, d in seen if d]
+        castle = {d[("coneria", CY)] for d in judged if ("coneria", CY) in d}
+        houses = {k: {d[k] for d in judged if k in d} for d in judged for k in d if k[0] in HOUSE}
+        if moved != 20 or not len(seen) // 2 - 2 <= len(judged) <= len(seen) // 2 + 2:
+            bad.append(where + ": %d steps of 20, the shadow judged %d frames of %d" % (moved, len(judged), len(seen)))
+        if castle != {True, False} or not any(v == {True, False} for v in houses.values()):
+            bad.append(where + ": the castle in front of the shadow %r, the houses %r" % (castle, houses))
+        if WALKCOST[where] >= 5700:
+            bad.append(where + ": the dearest frame %d instructions of the game's" % WALKCOST[where])
     #  A wipe off the overworld begins (StartScreenWipe) with fun_exit, the
     #  Exploding Dwarf's gibs put away -- OAM's entries 64-119, the
     #  overworld's extras there -- then the game's sprites cleared, a wait

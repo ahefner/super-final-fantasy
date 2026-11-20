@@ -48,6 +48,7 @@
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
 .export lut_M7Row, lut_M7Col, lut_M7LFrame, lut_M7LMaps   ; for tools/test_options.py
 .export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7ShipSize, lut_M7BFrame
+.export m7_shadow                                       ; for tools/test_options.py
 
 .segment "BANK_OW7"
 
@@ -1312,8 +1313,16 @@ m7_ship:
 ;;  go into the extras first, those in front after them, and OAM's
 ;;  priority starts at the first in front (h_m7xfront, hal_flush): those
 ;;  in front, the game's 64, those behind; a pass with nothing to write
-;;  not run.  Entries the last frame held and this one does not, off the
-;;  bottom (h_m7ccount).  A8 I16.
+;;  not run.  In the air, tilted, the airship stays over them all and
+;;  each stands in front of its shadow instead, when the shadow is north
+;;  of its bottom row -- the shadow's row its tile's, mid-step the
+;;  northern of the two: on an object's bottom row the shadow falls on
+;;  it, past that behind it (user, 2026-11-19: "the shadow is now in the
+;;  middle of the castle sprite when clearly I've passed the castle").
+;;  Those in front of it go into the extras first, then the shadow, moved
+;;  there from the game's entries (m7_shadow), then those behind it, and
+;;  OAM's priority from entry 0.  Entries the last frame held and this
+;;  one does not, off the bottom (h_m7ccount).  A8 I16.
 m7_lands:
     LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
     CMP #M7L_MAPS
@@ -1334,7 +1343,8 @@ m7_lands:
     ;  The party's row: its tile's, or mid-step (move_ctr_y not 0) the one
     ;  south of ow_scroll_y's -- going south the tile it goes to, going
     ;  north (the scroll stepped first) the one it leaves.  None stands in
-    ;  front flat, the NES's way, nor of the airship, which flies over.
+    ;  front flat, the NES's way.  In the air, the shadow's row: its
+    ;  tile's, or mid-step ow_scroll_y's, the northern of the two.
     LDA z:move_ctr_y
     CMP #1                      ; carry: mid-step
     LDA z:ow_scroll_y
@@ -1343,14 +1353,21 @@ m7_lands:
     STZ a:h_m7anyf
     STZ a:h_m7anyb
     STZ a:h_m7pfok
+    STZ a:h_m7pair
     LDA a:h_m7lvl
     CMP #2
     BCC :+
-    LDA z:vehicle
-    CMP #$08
-    BEQ :+
     LDA #$80
     STA a:h_m7pfok
+    LDA z:vehicle
+    CMP #$08
+    BNE :+
+    LDA #$80
+    STA a:h_m7pair
+    LDA z:ow_scroll_y
+    CLC
+    ADC #7
+    STA a:h_m7prow
 :   JSR m7_lship
     JSR m7_gnear                ; the groups near, worked out again if due
     STZ a:h_m7gi
@@ -1511,8 +1528,10 @@ m7_lands:
 @slotted:
     JSR m7_front
     ;  Into the extras from M7C_FIRST on, Y walking OAMSHADOW, in two
-    ;  passes: those behind the party, then those in front.  Each pass the
-    ;  ship's and the houses' sprites as placed, then the landmarks'.
+    ;  passes: those behind the party, then those in front; in the air
+    ;  those in front of the shadow, the shadow, then those behind it.
+    ;  Each pass the ship's and the houses' sprites as placed, then the
+    ;  landmarks'.
     REP #$20
     .a16
     LDA a:h_m7save + 4
@@ -1521,16 +1540,14 @@ m7_lands:
     TAY
     SEP #$20
     .a8
-    STZ a:h_m7pass
+    LDA a:h_m7pair
+    STA a:h_m7pass              ; the first pass: 0, or $80 in the air
+    BNE :+
     LDA a:h_m7anyb
-    BNE @pass
-    LDA #$80                    ; none behind: those in front from the first
-    STA a:h_m7pass
-    REP #$20
-    .a16
-    STY a:h_m7fstart
-    SEP #$20
-    .a8
+    BRA :++
+:   LDA a:h_m7anyf
+:   BNE @pass
+    JMP @rest                   ; nothing for it: the second
 @pass:
     LDX #0
     LDA a:h_m7hn
@@ -1838,23 +1855,31 @@ m7_lands:
     STA a:h_m7lptr
     JMP @land
 @rest:
-    ;  Those behind done: those in front from here, OAM's priority from
-    ;  the first of them if any.
+    ;  The first pass done: on the ground those in front from here, OAM's
+    ;  priority from the first of them if any; in the air the shadow, then
+    ;  those behind it.
     SEP #$20
     .a8
     LDA a:h_m7pass
-    BNE @fronts
+    CMP a:h_m7pair
+    BNE @passed                 ; (the second done)
     REP #$20
     .a16
     STY a:h_m7fstart            ; the first in front's place
     SEP #$20
     .a8
-    LDA a:h_m7anyf
-    BEQ @fronts                 ; none in front: no second pass
-    LDA #$80
+    EOR #$80
     STA a:h_m7pass
+    BMI :+
+    JSR m7_shadow
+    LDA a:h_m7anyb
+    BRA :++
+:   LDA a:h_m7anyf
+:   BEQ @passed                 ; none for it: no second pass
     JMP @pass
-@fronts:
+@passed:
+    LDA a:h_m7pair
+    BNE @counts                 ; in the air OAM's order from entry 0: the airship over all
     REP #$20
     .a16
     LDA #0
@@ -1865,6 +1890,7 @@ m7_lands:
 :   SEP #$20
     .a8
     STA a:h_m7xfront
+@counts:
     REP #$20
     .a16
     ;  This frame's count; the last one's entries past it off the bottom.
@@ -1897,6 +1923,45 @@ m7_lands:
     STA a:h_m7ccount
     LDA #1
     STA a:h_oamdirty
+    RTS
+
+
+.a8
+.i16
+;;  In the air, tilted, between those in front of the shadow and those
+;;  behind it: the airship's shadow, if the game drew it -- every other
+;;  frame, its entries 4-7 after the airship's 0-3, tile $10 the first
+;;  (DrawAirshipShadow) -- moved from the game's entries into the extras
+;;  at Y, and those entries off the bottom.  With no room for it, where it
+;;  was, over them all.  A8 I16; Y past it, X kept.
+m7_shadow:
+    LDA a:OAMSHADOW + 4 * 4 + 2 ; entry 4's tile
+    CMP #$10
+    BNE @out
+    REP #$20
+    .a16
+    CPY #256 + (64 - 4) * 4 + 1
+    BCS @out16                  ; no room
+    .REPEAT 8, w
+    LDA a:OAMSHADOW + 4 * 4 + w * 2
+    STA a:OAMSHADOW + w * 2, Y
+    .ENDREP
+    TYA
+    CLC
+    ADC #4 * 4
+    TAY
+    SEP #$20
+    .a8
+    LDA #$F0
+    STA a:OAMSHADOW + 4 * 4 + 1
+    STA a:OAMSHADOW + 5 * 4 + 1
+    STA a:OAMSHADOW + 6 * 4 + 1
+    STA a:OAMSHADOW + 7 * 4 + 1
+@out:
+    RTS
+@out16:
+    SEP #$20
+    .a8
     RTS
 
 
@@ -2088,8 +2153,12 @@ m7_lmember:
     LDX a:h_m7lptr
     LDA a:h_m7prow
     SEC
+    BIT a:h_m7pair
+    BMI :+
     SBC f:OW7FAR + 3, X         ; the party north of its top row: in front
-    AND a:h_m7pfok
+    BRA :++
+:   SBC f:OW7FAR + 2, X         ; the shadow north of its bottom row: in front of it
+:   AND a:h_m7pfok
     STA a:h_m7lfront
     TSB a:h_m7anyf              ; (one in front)
     EOR #$80

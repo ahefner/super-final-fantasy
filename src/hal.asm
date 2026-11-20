@@ -1590,7 +1590,8 @@ hal_flush:
     ;  those in front after them (ow7.asm): OAM's priority turned round to
     ;  start at the first in front (its word address, its entry * 2, with
     ;  $2103's bit 7), which the PPU keeps till the next write -- those in
-    ;  front, the game's 64, those behind; with none in front, from entry 0.
+    ;  front, the game's 64, those behind; with none in front, or in the
+    ;  air (the airship over all, its shadow among the extras), from entry 0.
     lda a:h_m7xfront
     sta a:OAMADDL
     beq :+

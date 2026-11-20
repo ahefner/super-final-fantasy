@@ -1432,13 +1432,14 @@ h_m7bprev       = M7VARS+$71    ; 2 bytes: the blocks the last frame's houses to
 h_m7gtile       = M7VARS+$73    ; 2 bytes: the scroll (tiles) M7GNEAR was worked out at, $FFFF none
 h_m7gnn         = M7VARS+$75    ; the groups in M7GNEAR
 h_m7gi          = M7VARS+$76    ; m7_lands: the next of them
-h_m7prow        = M7VARS+$77    ; m7_lands: the party's row for in front and behind
-h_m7pfok        = M7VARS+$78    ;   $80: tilted and not in the air, so some may stand in front; else 0
+h_m7prow        = M7VARS+$77    ; m7_lands: the party's row for in front and behind (the shadow's in the air)
+h_m7pfok        = M7VARS+$78    ;   $80: tilted, so some may stand in front; else 0
 h_m7pass        = M7VARS+$79    ;   the pass writing OAM: 0 those behind the party, $80 in front
 h_m7fstart      = M7VARS+$7A    ;   2 bytes: the first in front's place in OAMSHADOW
 h_m7anyf        = M7VARS+$7C    ;   $80: one placed in front of the party this frame
 h_m7anyb        = M7VARS+$7D    ;   $80: one placed behind it
-M7VARS_END      = M7VARS+$7E
+h_m7pair        = M7VARS+$7E    ;   $80: tilted and in the air, in front of the shadow or behind it; else 0
+M7VARS_END      = M7VARS+$7F
 M7C_FIRST       = 0             ; the landmarks' first entry in the extras' 64
 ;  The uploads queued, M7UPQ_MAX at most, 8 bytes each: VRAM word address
 ;  (2), source address (2), bytes (2), source bank (1), DMAP ($01 the source
