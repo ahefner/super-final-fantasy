@@ -73,7 +73,7 @@ QUEUE     = M7QUEUE & $FFFF
 .assert ^M7RING = ^M7QUEUE, error, "the ring and the queue share a bank"
 M7LSPRFAR = $C00000 + (1 + M7L_SPRCHUNK) * $10000 ; the landmarks' sprite lists, long
 .assert M7L_SPRITES <= 64 - M7C_FIRST, error, "a landmark frame's sprites past the extras' 64"
-.assert M7UPQ_MAX >= 5, error, "the queue: a landmark's frame and a 32x32 frame's four rows a flush"
+.assert M7UPQ_MAX >= 1 + M7B_CAP, error, "the queue: a landmark's frame and M7B_CAP 32x32 frames a flush"
 .assert M7L_SLOT <= M7L_SLOTW && M7L_SLOT0 + 3 * M7L_SLOTW <= $100, error, "the landmarks' three slots past the sprite table"
 
 
@@ -1301,9 +1301,10 @@ m7_ship:
 ;;  M7BREV); if none does, it is uploaded -- into a slot no other landmark
 ;;  takes this frame, or a block no house took this frame or the last
 ;;  (m7_lupload, m7_bupload) -- at the flush that sends these sprites,
-;;  before them.  One landmark's frame and one 32x32 frame a flush: with
-;;  one waiting, or none free, one holding the same art at another size
-;;  stands in, and with none it waits a frame.  Each stands in front of
+;;  before them.  One landmark's frame a flush, and one 32x32 frame while
+;;  the party moves, M7B_CAP standing: past those, or with none free, one
+;;  holding the same art at another size stands in, and with none it waits
+;;  a frame.  Each stands in front of
 ;;  the party when the party is north of its top row, tilted and not in
 ;;  the air -- the party's row the southmost its sprite is on, mid-step
 ;;  the nearer of the two (user, 2026-11-19: "the mapman should always be
@@ -2426,8 +2427,22 @@ m7_hblock:
     .a8
     BRA @have
 @new:
-    LDA a:h_m7bupon
-    BNE @borrow
+    ;  M7B_CAP frames a flush with the party standing, the plane sending
+    ;  no rows; one while it moves, its flush the dearest.  An R press
+    ;  changes every row's size at once, and with one a flush the far rows
+    ;  stood in at their old size for a frame or two (user, 2026-11-19: a
+    ;  town sprite "glitches at the wrong size for a single frame
+    ;  immediately after the perspective change").
+    LDA z:move_speed
+    ORA a:h_m7qlen
+    ORA a:h_m7qlen + 1
+    BEQ :+
+    LDA #1
+    BRA :++
+:   LDA #M7B_CAP
+:   CMP a:h_m7bupon
+    BEQ @borrow                 ; as many queued as the flush takes
+    BCC @borrow
     REP #$20
     .a16
     LDA a:h_m7bused
@@ -2728,30 +2743,21 @@ m7_lupload:
 
 .a8
 .i16
-;;  32x32 frame h_m7n into block X, at the next flush: its four
-;;  rows of four tiles queued (M7UPQ), each 16 tiles below the last, a row
-;;  the frame has nothing in written from one zero byte.  A8 I16; X and Y
-;;  kept.
+;;  32x32 frame h_m7n into block X, at the next flush: one record
+;;  (M7UPQ, M7UP_FRAME), which the flush sends as its four rows of four
+;;  tiles, each 16 tiles below the last, a row the frame has nothing in
+;;  written from one zero byte (flush_m7up).  A8 I16; X and Y kept.
 m7_bupload:
     PHX
     PHY
-    LDA a:h_m7n
     REP #$20
     .a16
+    LDA a:h_m7upn
     AND #$00FF
     ASL A
     ASL A
-    TAX                         ; its record, four bytes
-    LDA f:OW7FAR + lut_M7BFrame, X      ; its rows
-    STA a:h_m7addr
-    SEP #$20
-    .a8
-    LDA f:OW7FAR + lut_M7BFrame + 2, X  ; their bank
-    STA a:h_m7save + 2
-    LDA f:OW7FAR + lut_M7BFrame + 3, X  ; which rows it has
-    STA a:h_m7save + 3
-    REP #$20
-    .a16
+    ASL A
+    TAY                         ; the queue's next
     LDA 3, S                    ; the block
     TAX
     LDA f:OW7FAR + lut_M7BTile, X
@@ -2762,60 +2768,26 @@ m7_bupload:
     ASL A
     CLC
     ADC #VRAM_CHR               ; its first tile's word address
-    STA a:h_m7save
-    LDA a:h_m7upn
+    STA a:M7UPQ + 0, Y
+    LDA a:h_m7n
     AND #$00FF
     ASL A
     ASL A
-    ASL A
-    TAY                         ; the queue's next
-    LDX #4
-@row:
+    TAX                         ; the frame's record, four bytes
+    LDA f:OW7FAR + lut_M7BFrame, X      ; its rows
+    STA a:M7UPQ + 2, Y
+    LDA f:OW7FAR + lut_M7BFrame + 2, X  ; their bank, and which rows it has
+    XBA
+    STA a:M7UPQ + 5, Y          ; (+5 0, +6 the bank)
     SEP #$20
     .a8
-    LSR a:h_m7save + 3          ; this row's bit
-    BCC @zero
-    LDA a:h_m7save + 2
-    STA a:M7UPQ + 6, Y
-    LDA #$01                    ; read along
+    STA a:M7UPQ + 4, Y          ; its rows
+    LDA #0
+    STA a:M7UPQ + 5, Y
+    LDA #M7UP_FRAME
     STA a:M7UPQ + 7, Y
-    REP #$20
-    .a16
-    LDA a:h_m7addr
-    STA a:M7UPQ + 2, Y
-    CLC
-    ADC #128
-    STA a:h_m7addr
-    BRA @dst
-@zero:
-    .a8
-    LDA #^OW7FAR
-    STA a:M7UPQ + 6, Y
-    LDA #$09                    ; one byte read over and over
-    STA a:M7UPQ + 7, Y
-    REP #$20
-    .a16
-    LDA #.loword(m7_zero)
-    STA a:M7UPQ + 2, Y
-@dst:
-    LDA a:h_m7save
-    STA a:M7UPQ + 0, Y
-    CLC
-    ADC #16 * 16                ; the next row of tiles
-    STA a:h_m7save
-    LDA #4 * 32
-    STA a:M7UPQ + 4, Y
-    TYA
-    CLC
-    ADC #8
-    TAY
-    SEP #$20
-    .a8
     INC a:h_m7upn
-    DEX
-    BNE @row
-    LDA #1
-    STA a:h_m7bupon
+    INC a:h_m7bupon             ; 32x32 frames this flush
     PLY
     PLX
     RTS

@@ -13371,17 +13371,30 @@ def test_m7view():
         """After m7_scroll: the uploads queued (M7UPQ) are frames' tiles,
         all of them, from where the cartridge has them: a landmark's into
         the slot h_m7lkey names it in, a 32x32 frame's four rows into the
-        block h_m7bkey names it in, a row it has nothing in from a zero;
-        one of each at most."""
+        block h_m7bkey names it in (one record, M7UP_FRAME, which the flush
+        sends as the rows: those it has from its data, the others zero);
+        one landmark's at most, and one 32x32 frame, or M7B_CAP with the
+        party standing and the plane sending no rows."""
         Q, n = K["M7UPQ"], bus.wram[K["h_m7upn"]]
-        rec = [bus.wram[Q + 8 * i:Q + 8 * i + 8] for i in range(n)]
+        rec = []                                        # (dst, data, mode), as the flush sends them
+        for r in (bus.wram[Q + 8 * i:Q + 8 * i + 8] for i in range(n)):
+            dst, src, bank, mode = r[0] | r[1] << 8, r[2] | r[3] << 8, r[6], r[7]
+            if mode == K["M7UP_FRAME"]:
+                for row in range(4):
+                    if r[4] >> row & 1:
+                        rec.append((dst + row * 256, ROMDATA[(bank - 0xC0) * 0x10000 + src:
+                                                             (bank - 0xC0) * 0x10000 + src + 128], 0x01))
+                        src += 128
+                    else:
+                        rec.append((dst + row * 256, bytes(128), 0x09))
+                continue
+            ln = r[4] | r[5] << 8
+            rec.append((dst, bytes([ROMDATA[(bank & 0x1F) * 0x10000 + src]]) * ln if mode == 0x09 else
+                        ROMDATA[(bank - 0xC0) * 0x10000 + src:(bank - 0xC0) * 0x10000 + src + ln], mode))
         lands = blocks = 0
         rows = {}
-        for r in rec:
-            dst, src, ln = r[0] | r[1] << 8, r[2] | r[3] << 8, r[4] | r[5] << 8
-            bank, mode = r[6], r[7]
-            data = bytes([ROMDATA[(bank & 0x1F) * 0x10000 + src]]) * ln if mode == 0x09 else \
-                ROMDATA[(bank - 0xC0) * 0x10000 + src:(bank - 0xC0) * 0x10000 + src + ln]
+        for dst, data, mode in rec:
+            ln = len(data)
             s, rr = divmod(dst - (K["VRAM_CHR"] + 0x1000 + SLOT0 * 16), SLOTW * 16)
             if 0 <= s < 3 and not rr and mode == 0x01:
                 key = bus.wram[K["h_m7lkey"] + s]
@@ -13400,7 +13413,8 @@ def test_m7view():
             blocks += 1
             if sorted(rw) != [0, 1, 2, 3] or key == 0xFF or b"".join(rw[i] for i in range(4)) != bframe(key):
                 bad.append(where + ": block %d's upload not frame $%02X's rows" % (b, key))
-        if lands > 1 or blocks > 1:
+        cap = K["M7B_CAP"] if not (bus.wram[SPEED] | bus.wram[QLEN] | bus.wram[QLEN + 1]) else 1
+        if lands > 1 or blocks > cap:
             bad.append(where + ": %d landmarks' and %d 32x32 frames queued" % (lands, blocks))
 
     def slots_hold(bus, where):
@@ -14039,6 +14053,41 @@ def test_m7view():
     check("a wipe off the overworld: its first frame the landmarks, houses and ship where they were "
           "(the dwarf's gibs not put away over them)",
           (extras(bus) == was, shown[0] > 0, shown[1] > 0), (True, True, True))
+    #  R pressed standing beside Coneria's town (user, 2026-11-19: a town
+    #  sprite "glitches at the wrong size for a single frame immediately
+    #  after the perspective change"): through every angle twice, the frame
+    #  after each press every house already at the frame and place it
+    #  settles on -- each row's new frame sent in that press's flush, not
+    #  one a flush with the far rows at their old size meanwhile.
+    def houses_keyed(bus):
+        out = []
+        for i, sx, sy, t in house_sprites(bus):
+            b = next((b for b in range(16) if (b % 4) * 4 + (b // 4) * 64 == t), None)
+            out.append((sx, sy, bus.wram[K["h_m7bkey"] + b] if b is not None else None))
+        return sorted(out)
+
+    def r_frame(bus, cpu, press):
+        bus.wram[K["h_joyaux"]] = K["JOYAUX_R"] if press else 0
+        call(cpu, "m7_scroll")
+        run_frame(bus, cpu)
+        return houses_keyed(bus)
+    lag = []
+    for px, py in ((152, 167), (155, 175), (152, 177), (146, 169)):
+        bus, cpu = m7_machine()
+        enter(bus, cpu, px - 7, py - 7, level=genm7.DEFAULT)
+        for _ in range(4):
+            r_frame(bus, cpu, False)
+        for press in range(2 * len(ANGLES)):
+            first = r_frame(bus, cpu, True)
+            for _ in range(4):
+                settled = r_frame(bus, cpu, False)
+            slots_hold(bus, "R at (%d, %d)" % (px, py))
+            if first != settled:
+                lag.append("(%d, %d), %d degrees: %r, then %r" % (px, py, ANGLES[bus.wram[LVL] - 1],
+                                                                   sorted(set(first) - set(settled))[:2],
+                                                                   sorted(set(settled) - set(first))[:2]))
+    check("R pressed standing beside Coneria's town: the frame after, every house at its settled frame and place",
+          lag[:4], [])
     #  The palette mirror; the way out: OAM's priority turned back at the
     #  first flush, though nothing of the game's is sent before it.
     on = (bytes(bus.cgram[2 * 196:2 * 204]), bytes(bus.cgram[0:8]) + bytes(bus.cgram[32:40]))

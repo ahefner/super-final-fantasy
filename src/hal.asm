@@ -3862,8 +3862,9 @@ oam_m7hide:
 
 ;;  The uploads ow7.asm queued (M7UPQ, h_m7upn): a landmark's frame into a
 ;;  slot of the sprite table, a 32x32 frame's rows into a block of the
-;;  other, a row with nothing in it written from one zero byte; at the
-;;  flush that sends the sprites that use them, before them.
+;;  other (its record M7UP_FRAME's), a row with nothing in it written from
+;;  one zero byte; at the flush that sends the sprites that use them,
+;;  before them.
 flush_m7up:
     lda a:h_m7upn
     bne :+
@@ -3874,6 +3875,9 @@ flush_m7up:
     sta a:BBAD0                 ; $2118, then $2119
     ldx #0
 @one:
+    lda a:M7UPQ + 7, x
+    cmp #M7UP_FRAME
+    beq @frame
     ENTER16
     lda a:M7UPQ + 0, x
     sta a:VMADDL
@@ -3888,6 +3892,7 @@ flush_m7up:
     sta a:DMAP0
     lda #$01
     sta a:MDMAEN
+@next:
     txa
     clc
     adc #8
@@ -3897,6 +3902,56 @@ flush_m7up:
     stz a:h_m7upon
     stz a:h_m7bupon
     rts
+;  A 32x32 frame's four rows of four tiles, each 16 tiles below the last:
+;  those it has read along from its data, the others from one zero byte.
+@frame:
+    ENTER16                     ; (X the record's place)
+    lda a:M7UPQ + 0, x
+    sta a:h_t0                  ; the row's VRAM word address
+    lda a:M7UPQ + 2, x
+    sta a:h_t1                  ; the next row's data
+    lda a:M7UPQ + 4, x
+    sta a:h_t2                  ; its rows, bit 0 the top
+    ldy #4
+@row:
+    lda a:h_t0
+    sta a:VMADDL
+    clc
+    adc #16 * 16
+    sta a:h_t0
+    lda #4 * 32
+    sta a:DAS0L
+    lsr a:h_t2
+    bcc @zero
+    lda a:h_t1
+    sta a:A1T0L
+    adc #4 * 32 - 1             ; (carry set)
+    sta a:h_t1
+    sep #$20
+    .a8
+    lda a:M7UPQ + 6, x
+    sta a:A1B0
+    lda #$01                    ; read along
+    bra @go
+@zero:
+    .a16
+    lda #.loword(zerobyte)
+    sta a:A1T0L
+    sep #$20
+    .a8
+    lda #HALBANK
+    sta a:A1B0
+    lda #$09                    ; one byte read over and over
+@go:
+    sta a:DMAP0
+    lda #$01
+    sta a:MDMAEN
+    rep #$20
+    .a16
+    dey
+    bne @row
+    LEAVE16
+    jmp @next
 
 ; --- scroll -------------------------------------------------------------
 flush_scroll:

@@ -1442,9 +1442,14 @@ M7VARS_END      = M7VARS+$7E
 M7C_FIRST       = 0             ; the landmarks' first entry in the extras' 64
 ;  The uploads queued, M7UPQ_MAX at most, 8 bytes each: VRAM word address
 ;  (2), source address (2), bytes (2), source bank (1), DMAP ($01 the source
-;  read along, $09 one zero byte read over and over).
+;  read along); or a 32x32 frame's (DMAP byte M7UP_FRAME): its block's
+;  first tile's word address (2), its rows' data (2), which rows it has (1,
+;  bit 0 the top), 0, their bank (1).  M7B_CAP of those a flush with the
+;  party standing (no rows sent), one while it moves.
 M7UPQ           = $0F00
 M7UPQ_MAX       = 6
+M7UP_FRAME      = $FF
+M7B_CAP         = 3
 .assert M7UPQ >= OPTWORK + $100 && M7UPQ + 8 * M7UPQ_MAX <= M7LVIS, error, "M7UPQ overlaps its neighbours"
 ;  The landmarks a frame shows, nearest first, M7L_VIS at most, 8 bytes
 ;  each: the base's screen line (2 bytes, signed), its x (2 bytes, signed),

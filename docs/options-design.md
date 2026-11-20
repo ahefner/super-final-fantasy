@@ -4305,7 +4305,8 @@ left for later), committed on the user's word.  The first two of those
 glitches -- the haze over the wipe's black, and the party behind a castle
 or a house it walks into -- fixed 2026-11-19, and the wipe's first frame
 with the landmarks gone and the houses and ships at the top: played
-2026-11-19, committed on the user's word.**  The
+2026-11-19, committed on the user's word.  The far houses a frame late
+after R: played 2026-11-19, committed on the user's word.**  The
 overworld's picture is a Mode 7 plane
 instead of the NES nametables (user, 2026-11-17: port the overworld "to use
 the graphics mode 7", "visually and gameplay identical" to begin with; the
@@ -4681,12 +4682,35 @@ applied" (user, 2026-11-17).
     byte), comes from whichever of OBJ table 0's sixteen blocks holds it
     (`h_m7bkey`, and `M7BREV` the other way round, to find it at once);
     if none does, it is uploaded into one no house took this frame or the
-    last, before the sprites, one 32x32 frame a flush, a block holding the
-    same picture at another size standing in meanwhile.  The docked ship
+    last, before the sprites -- one 32x32 frame a flush while the party
+    moves, three standing (below, **R and the far houses**) -- a block
+    holding the same picture at another size standing in meanwhile.  A
+    32x32 frame goes into the upload queue as one record (`M7UP_FRAME`
+    in its DMA-mode byte: the block's first tile, the frame's rows' data,
+    which rows it has, their bank), which `flush_m7up` sends as the four
+    rows, the ones it does not have from the HAL's zero byte.  The docked ship
     shares the blocks (above).  The ship's and the houses' sprites go into
     the extras first, as placed (`M7HBUF`), then the landmarks': a town's
     houses stand in front of its castle.  A row stands in front of the
     party when the party is north of it (above).
+  - **R and the far houses** (user, 2026-11-19: standing near the
+    airship and tapping R to the steepest angle, "sometimes the
+    uppermost-left town sprite in front of coneria castle glitches at the
+    wrong size for a single frame immediately after the perspective
+    change", only after wandering a while).  An R press changes every
+    row's size at once, each row a new frame; with one 32x32 frame a
+    flush the nearest row's went and the far rows stood in at their old
+    size for a frame or two -- after wandering, because before that the
+    blocks still held those sizes from the way in.  Standing (`move_speed`
+    0, the plane sending no rows) a flush now takes three (`M7B_CAP`);
+    moving, one, as the walking frames' flush is the dearest.  The R
+    flush beside Coneria: some 425 instructions and 2KB of DMA, about 12
+    lines of the vblank's 37 for the DMA.  Each frame one queue record
+    instead of four took the walk test's dearest frame from 5,367 to
+    5,267.  `test_m7view` presses R standing at four places beside
+    Coneria's town through every angle twice: the frame after each press
+    every house at the frame and place it settles on (the build before
+    lagged); 9 mutations, all caught.
   - **What it costs**, per walking frame at 45 degrees, the dearest of a
     walk (a frame that also draws the plane a new row): beside Coneria's
     castle and town 5,315 instructions moving, Crescent Lake's town 4,389,
@@ -6484,7 +6508,7 @@ text region in the game references.
                              Japanese tiles 2144, their table 282, the
                              code 349, the tavern's test 8 (2026-11-14;
                              ld65's map read 5790 used before it)
-    BANK_OW7      6938 free  the overworld in Mode 7 (ow7.asm, 9446: the
+    BANK_OW7      7003 free  the overworld in Mode 7 (ow7.asm, 9381: the
                              rows and columns, the scroll, the way in, the
                              objects, the bridge's and canal's characters
                              561, the metatiles' corners 1032, the angles'
@@ -6493,6 +6517,7 @@ text region in the game references.
                              their lists and frame records; the ship's 16
                              frames, 8192, moved out with the houses;
                              each one in front or behind separately 157;
+                             a 32x32 frame one queue record, 65 less;
                              the new-overworld branch, 2026-11-17 to
                              -19).  The chunk's low
                              half: its 256 characters, 16KB, then the
@@ -6531,8 +6556,9 @@ text region in the game references.
                              2026-11-17 and -18, on the new-overworld
                              branch; hal_oamdma's attribute table, 256,
                              its loop 103 shorter, 2026-11-19; the
-                             wipe's CGWSEL table 107, 2026-11-19: 4826
-                             left)
+                             wipe's CGWSEL table 107, a 32x32 frame's
+                             record sent as its rows 115, 2026-11-19:
+                             4711 left)
     SPC700 RAM               the program 1422 of the 1536 below the
                              directory (genspc.py); the game's samples
                              $2F00-$EFFF, the scream 8347 of 49408
