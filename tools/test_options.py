@@ -12401,7 +12401,8 @@ def test_m7view():
     #  the map with that ground; the landmarks' checks, below, hold the
     #  plane and the sprites together to the art (art/landmarks/*.png).
     CHARS = (1 + K["CHUNK_OW7"]) * 0x10000
-    LANDTILES = {m for _, grid, _ in genm7.LANDMARKS for row in grid for m in row} | {m for _, m, _ in genm7.HOUSES}
+    LANDTILES = {m for _, grid, _ in genm7.LANDMARKS for row in grid for m in row if m is not None} | \
+        {m for _, m, _ in genm7.HOUSES}
 
     def plane_block(m):
         """Metatile m as the plane draws it: lut_M7Row's characters."""
@@ -13100,7 +13101,7 @@ def test_m7view():
         every overworld BG palette's three (the landmark's palette's first)
         and the shades -- the grass and the swamp's blue a NES step darker
         (user, 2026-11-21)."""
-        pal = TSA[0x300 + grid[0][0]] & 3
+        pal = TSA[0x300 + next(m for row in grid for m in row if m is not None)] & 3
         owpal = TSA[0x380:0x3B0]
         cols = [(255, 0, 255), genpal.NESPAL[owpal[0] & 0x3F]] + \
             [genpal.NESPAL[owpal[pal * 4 + c] & 0x3F] for c in (1, 2, 3)]
@@ -13184,12 +13185,13 @@ def test_m7view():
         out = {}
         for name, grid in GRID.items():
             rows, cols = len(grid), len(grid[0])
+            r0, c0 = next((r, c) for r in range(rows) for c in range(cols) if grid[r][c] is not None)
             for p in range(65536):
-                if tiles[p] != grid[0][0]:
+                if tiles[p] != grid[r0][c0]:
                     continue
-                x, y = p & 255, p >> 8
+                x, y = ((p & 255) - c0) & 255, ((p >> 8) - r0) & 255
                 if all(tiles[((y + r) & 255) * 256 + ((x + c) & 255)] == grid[r][c]
-                       for r in range(rows) for c in range(cols)):
+                       for r in range(rows) for c in range(cols) if grid[r][c] is not None):
                     out[(x, y)] = name
         return out
 
@@ -13276,7 +13278,7 @@ def test_m7view():
                 continue
             under = ARTF[art_at(mi, name, x, y)][1]
             for r, row in enumerate(GRID[name]):
-                for c in range(len(row)):
+                for c in [c for c in range(len(row)) if row[c] is not None]:
                     at = ((x + c) & 255, (y + r) & 255)
                     want.add(at)
                     m = table.get(at)
@@ -13287,6 +13289,12 @@ def test_m7view():
                                    % (mi, name, c, r, "$%02X" % m if m is not None else "its map tile"))
         if set(table) != want:
             bad.append("map %d: ground put on %d tiles no landmark has" % (mi, len(set(table) - want)))
+        #  The Temple's slab ends, $56 and $59, its PNG's too, never the
+        #  NES's tiles (user, 2026-11-21: "there's like one 8 pixel tile on
+        #  the left and right sides that aren't in the png").
+        ends = [(p & 255, p >> 8) for p in range(65536) if MAPS[mi][p] in (0x56, 0x59)]
+        if not ends or any(e not in table for e in ends):
+            bad.append("map %d: the Temple's slab ends at %r not drawn from its PNG" % (mi, ends))
     #  One PNG's tile one metatile wherever it is drawn, two PNGs' two --
     #  Ordeals' in a swamp apart from Elfland's, whatever their pictures.
     if any(len(ms) != 1 for ms in BYART.values()) or \
@@ -13360,7 +13368,7 @@ def test_m7view():
         if set(listed) != set(want):
             bad.append("map %d: listed %d, %d on the map" % (mi, len(listed), len(want)))
         n = sum(1 for p in range(65536) if tiles[p] in LANDTILES)
-        whole = sum(len(GRID[name]) * len(GRID[name][0]) for name in ON[mi].values())
+        whole = sum(sum(1 for row in GRID[name] for m in row if m is not None) for name in ON[mi].values())
         if n != whole:
             bad.append("map %d: %d landmark tiles, %d in whole landmarks" % (mi, n, whole))
     for name, arts in ARTOF.items():                    # (by PNG, a house's its name)
@@ -13617,8 +13625,14 @@ def test_m7view():
             fig, under, base, _ = ART[name]
             for r in range(len(GRID[name])):
                 for c in range(len(GRID[name][0])):
+                    #  (a corner not its: the art over the map's tile there)
+                    gr = under if GRID[name][r][c] is not None else \
+                        [[None] * (16 * c) + row_ + [None] * 64 for row_ in
+                         [[None] * 0] * 0] if False else None
+                    old = b[w[(y + r) & 255][(x + c) & 255]]
                     blk = [[fig[r * 16 + yy][c * 16 + xx] if r * 16 + yy < base and fig[r * 16 + yy][c * 16 + xx] is not None
-                            else under[r * 16 + yy][c * 16 + xx] for xx in range(16)] for yy in range(16)]
+                            else (under[r * 16 + yy][c * 16 + xx] if GRID[name][r][c] is not None else old[yy][xx])
+                            for xx in range(16)] for yy in range(16)]
                     w[(y + r) & 255][(x + c) & 255] = len(b)
                     b.append(blk)
         #  A picture wider than its metatiles (the Mirage Tower's shadow,

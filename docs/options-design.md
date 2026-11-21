@@ -4634,6 +4634,21 @@ always the plane, flat when the row says so.
     scaled to each size and cut into 8x8 sprites then, so its width need
     not be a multiple of 8.  Flat, the extra columns draw over the tile to
     the right, as the test's flat picture has them.
+    The Temple's slab is four tiles across on the map: its ends, $56 and
+    $59, are beside its bottom row on every map and nowhere else.  So the
+    Temple is four across, `(None, $47, $48, None), ($56, $57, $58, $59)`,
+    and its PNG 64 columns a half, the picture in the middle as before
+    (user, 2026-11-21: black pixels moving with the ground after every
+    black one was out of the PNG -- the small pillar's, in $59; "Why
+    doesn't it draw the ground as it's shown in the .png file?"; the
+    slab "extends further on both sides").  A `None` cell is not the
+    landmark's: the map's tile is drawn there, and the PNG's ground there
+    is ignored -- magenta with black diagonal stripes in the Temple's,
+    "to make it clear that the ground corners are being ignored".  A
+    landmark is found by its first cell that is its.  The file was
+    widened from the user's, their picture and ground unchanged, the
+    ends cut from the NES's tiles, then retouched by the user; committed
+    on the user's word, 2026-11-21.
     The Temple's small pillar stands whole and its shadow stays on the
     slab (user, 2026-11-18: "you chopped off the bottom half of the small
     pillar in front of the temple"); the Temple stands on the pillar's

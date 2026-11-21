@@ -148,8 +148,16 @@ LANDMARKS = [
     #  two possibilities - castle on grass, and castle on swamp, with the
     #  same castle image and two different backgrounds"; landmark_art)
     ("ordeals",   ((0x0B, 0x0C), (0x38, 0x39)), dict(ground=(1,), foot=15, art="elfland", swamp="ordeals")),
-    ("temple",    ((0x47, 0x48), (0x57, 0x58)), dict(ground=(1, 2), foot=9, below=30,
-                                                     pillar=(26, 17, 22), fill=1)),
+    #  The Temple of Fiends, with its slab's two ends, which are only ever
+    #  beside it (user, 2026-11-21: black pixels on the ground left after
+    #  every one was taken out of its PNG -- the small pillar's, in $59):
+    #  four across, its top row's corners not its (None: whatever the map
+    #  has there, drawn as the map's; in its PNG's ground, magenta with
+    #  black stripes, read as nothing -- user: "make it clear that the
+    #  ground corners are being ignored by coloring them magenta with some
+    #  diagonal caution stripes through it").
+    ("temple",    ((None, 0x47, 0x48, None), (0x56, 0x57, 0x58, 0x59)),
+                  dict(ground=(1, 2), foot=9, below=30, pillar=(26, 17, 22), fill=1)),
     ("mirage",    ((0x0D,), (0x1D,)),           dict(ground=(2, 3), foot=22, right=11, fillmt=0x45)),
     ("volcano",   ((0x64, 0x65), (0x74, 0x75)), dict(ground=(1,), foot=22)),
 ]
@@ -432,7 +440,7 @@ def land_palette(tsa, name, tiles):
     are drawn in OBJ palette 4's spare entries, where the HAL copies those
     two: colour c of palette p as 4 + 4p + c)."""
     at = tsa[0x300:0x380]
-    pals = {at[m] & 3 for row in tiles for m in row}
+    pals = {at[m] & 3 for row in tiles for m in row if m is not None}
     if len(pals) != 1 or not pals <= {0, 1}:
         sys.exit("genm7: %s's metatiles take palettes %s, not one of 0 and 1" % (name, sorted(pals)))
     return pals.pop()
@@ -590,6 +598,9 @@ def extract(blocks, tsa):
     for name, tiles, how in LANDMARKS + [(n, ((m,),), how) for n, m, how in HOUSES]:
         if not house_or_art(name):
             continue                        # (another's art)
+        if any(m is None for row in tiles for m in row):
+            print("genm7: %s's art is not cut here (its corners are not its); draw it by hand" % name)
+            continue
         path = os.path.join(ART, name + ".png")
         if os.path.exists(path):
             print("genm7: %s is there; left as it is" % os.path.relpath(path, ROOT))
@@ -646,10 +657,11 @@ def read_art(tsa, name, tiles, wide=True):
         if sum((px[k] - KEY[k]) ** 2 for k in range(3)) < sum((px[k] - rgb[k]) ** 2 for k in range(3)):
             return None
         return v
-    under = [[gval(rows[y][fw + ART_GAP + x]) for x in range(w)] for y in range(h)]
+    under = [[gval(rows[y][fw + ART_GAP + x]) if tiles[y // 16][x // 16] is not None else None
+              for x in range(w)] for y in range(h)]
     for y in range(h):
         for x in range(w):
-            if under[y][x] is None:
+            if under[y][x] is None and tiles[y // 16][x // 16] is not None:
                 sys.exit("genm7: %s: the ground at (%d, %d) is the key colour" % (rel, x, y))
     shown = [y for y in range(h) if any(v is not None for v in stand[y])]
     if not shown:
@@ -794,15 +806,18 @@ def find_landmarks(t, what):
     found, covered = [], set()
     for i, (name, tiles, _) in enumerate(LANDMARKS + [(n, ((m,),), how) for n, m, how in HOUSES]):
         rows, cols = len(tiles), len(tiles[0])
-        at = t.find(bytes([tiles[0][0]]))
+        r0, c0 = next((r, c) for r in range(rows) for c in range(cols) if tiles[r][c] is not None)
+        at = t.find(bytes([tiles[r0][c0]]))
         while at >= 0:
-            x, y = at & 255, at >> 8
-            cells = [((y + r) & 255) * 256 + ((x + c) & 255) for r in range(rows) for c in range(cols)]
-            if [t[p] for p in cells] == [m for row in tiles for m in row]:
+            x, y = ((at & 255) - c0) & 255, ((at >> 8) - r0) & 255
+            cells = [(((y + r) & 255) * 256 + ((x + c) & 255), tiles[r][c])
+                     for r in range(rows) for c in range(cols) if tiles[r][c] is not None]
+            if all(t[p] == m for p, m in cells):
                 found.append((i, x, (y + rows - 1) & 255))
-                covered.update(cells)
-            at = t.find(bytes([tiles[0][0]]), at + 1)
-    alls = {m for _, tiles, _ in LANDMARKS for row in tiles for m in row} | {m for _, m, _ in HOUSES}
+                covered.update(p for p, _ in cells)
+            at = t.find(bytes([tiles[r0][c0]]), at + 1)
+    alls = {m for _, tiles, _ in LANDMARKS for row in tiles for m in row if m is not None} | \
+        {m for _, m, _ in HOUSES}
     stray = [(p & 255, p >> 8, t[p]) for p in range(65536) if t[p] in alls and p not in covered]
     if stray:
         sys.exit("genm7: %s has landmark tiles not in a whole landmark: %s"
@@ -837,6 +852,8 @@ def main():
         fig, under, base, pal = under_of[art]
         for r, row in enumerate(tiles):
             for c, m in enumerate(row):
+                if m is None:
+                    continue                    # (not its: the map's tile)
                 block = [under[r * 16 + y][c * 16:c * 16 + 16] for y in range(16)]
                 if house and m in ground and ground[m] != block:
                     sys.exit("genm7: metatile $%02X's ground differs in art/landmarks/%s.png and %s.png"
@@ -931,7 +948,7 @@ def main():
                 file = landmark_art(name, mt, x, y)
                 art, base, rows, width = artinfo[file]
                 for r, row in enumerate(tiles):
-                    for c in range(len(row)):
+                    for c in [c for c in range(len(row)) if row[c] is not None]:
                         here.setdefault((y - rows + 1 + r) & 255, []).append(((x + c) & 255, vid[(file, r, c)]))
             #  In front of the party when it is north of the top row: on
             #  any tile of it, the party is in front (user, 2026-11-19).
