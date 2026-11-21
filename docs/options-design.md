@@ -4334,7 +4334,10 @@ glitches -- the haze over the wipe's black, and the party behind a castle
 or a house it walks into -- fixed 2026-11-19, and the wipe's first frame
 with the landmarks gone and the houses and ships at the top: played
 2026-11-19, committed on the user's word.  The far houses a frame late
-after R: played 2026-11-19, committed on the user's word.  3D Overworld,
+after R: played 2026-11-19, committed on the user's word.  Each castle
+an art and ground apart, Northwest drawn as Elfland, Ordeals' swamp, the
+ground's colours and three shades: built 2026-11-21, committed on the
+user's word (their art played as they drew it).  3D Overworld,
 R gone, 33 angles animated through the airship's take-off and landing:
 played 2026-11-20, committed on the user's word.  The airship's
 shadow behind what it has flown past: played 2026-11-19, committed on
@@ -4614,8 +4617,7 @@ always the plane, flat when the row says so.
     standing, magenta (or a clear pixel) where it is not; four columns;
     on the right, the ground under it, its footprint and shadows.  The
     build reads every pixel as the nearest of magenta, black and the
-    landmark's palette's three, and refuses magenta on the ground, or two
-    PNGs giving one metatile different ground.  A landmark's base is the
+    landmark's palette's three, and refuses magenta on the ground.  A landmark's base is the
     row below its lowest standing pixel, its anchor that row's middle.
     `genm7.py --extract` cut the starting points from the tiles, writing
     one only where there is none: Coneria's as it was cut before (it reads
@@ -4625,13 +4627,93 @@ always the plane, flat when the row says so.
     The Temple's small pillar stands whole and its shadow stays on the
     slab (user, 2026-11-18: "you chopped off the bottom half of the small
     pillar in front of the temple"); the Temple stands on the pillar's
-    foot, four pixels south of where its walls meet the slab.  Elfland's, Ordeals' and FFR's
-    Northwest Castle have one picture, so they share frames: six in all.
+    foot, four pixels south of where its walls meet the slab.  Arts the
+    same picture share their frames.
 
-    The plane draws a landmark's metatiles, wherever they are, as its
-    ground: `genm7.py` makes their characters from the PNGs, not the
-    tiles, so the ring needs no writes, and the plane has 201 characters
-    now, the landmarks' pictures no longer among them.  Where they stand
+    **Each castle an art and ground apart** (user, 2026-11-21: "1) Coneria
+    Castle should be editable independent of the other castles. 2)
+    Elfland Castle and Northwest share one png such that Northwest has
+    the same appearance as Elfland Castle (the FFR style). 3) Ordeals get
+    a separate PNG where we can add the swa[m]p texture back into the
+    ground plane, and 4) all of these editable independently"; and
+    Coneria's: "the shadow it casts is much different").  Both Northwest
+    Castles -- the game's map's, under Coneria's towers ($09, $0A), and
+    FFR's drawn maps', under Elfland's ($0B, $0C) -- are drawn from
+    `elfland.png` (`LANDMARKS`' `art`); `northwest.png` and
+    `northwest-ffr.png` are gone.  The Castle of Ordeals is drawn from
+    `ordeals.png` in a swamp -- half or more of the eight tiles beside its
+    two by two, corners apart, the marsh's $55 (`landmark_art`) -- for the
+    swamp drawn back under it, which the NES's 16x16 attributes could not
+    (user: "Ordeals sits in a swamp, but ... it's flat green rather than
+    swamp"), and from `elfland.png` elsewhere ("castle on grass, and
+    castle on swamp, with the same castle image and two different
+    backgrounds"): the swamp on the game's map, Mirror World, Sandy Ridge
+    (all eight), Pravoka Bay (seven) and Twin Peaks (five); Elfland's on
+    Pangea, Great Lake (forest and river), The Lonesome and Long March
+    (desert).  No other landmark stands in a swamp on any map; Coneria's
+    castle touches one at two of its ten sides on Pangea and Pravoka Bay,
+    FFR's Northwest at one of eight on Sandy Ridge.  Every other landmark
+    has its PNG.  A
+    PNG's ground no longer has to agree with another's where they share
+    a metatile: each art's ground is a separate metatile a tile
+    (`VGROUND0`, $82 on, 24 of them), and each map has a ground table
+    after the characters in the chunk's low half (`M7G_TABLES`: a word a
+    row, the row's record or 0; a record how many, then each one's column
+    and metatile), from which `m7_decode` puts each landmark's tiles in
+    its row of the ring as its art's ground, after the bridge and the
+    canal.  A row with no landmark costs a table look; the tables are
+    5,246 bytes of the low half's 16KB left.  The plane has 195
+    characters now (Coneria's new shadow among them).  The test held the
+    ground black under every landmark's foot (2026-11-18); with the art
+    the user's to edit -- the Temple's was retouched 2026-11-21 -- no
+    longer.  `test_m7view`: on every map each landmark's tiles, and
+    nothing else, in its table as metatiles whose characters are its
+    art's ground; entered beside the game's map's Northwest Castle and the
+    Castle of Ordeals, Great Lake's Northwest, and on Great Lake where the
+    game's map has Coneria's castle, the plane the map with those grounds;
+    Northwest's frames Elfland's picture, the test naming the file itself.
+    The test reads the swamp rule itself, and holds one PNG's tile to one
+    metatile wherever it is drawn and two PNGs' to two, so Ordeals' swamp
+    is told from Elfland's while the two PNGs are still the same picture.
+    10 mutations, all caught.
+
+    **The ground's colours, and three shades** (user, 2026-11-21: "I'd like
+    to use a darker green rather than black for shadows cast on grass";
+    "two new colors, one darker color for grass in shadow, and probably a
+    darker version of the swamp color in shadow"; "another shade of dark
+    gray to soften the shadows cast over stone").  A PNG's ground may
+    take black, any of the four overworld BG palettes' colours -- the
+    swamp's blues among them, which Ordeals' needs -- and three shades; its
+    landmark, the sprite, still black and its palette's three, OBJ palette
+    4 having four entries spare.  A colour two palettes share is read as
+    the art's palette's (`ground_colours`).  The shades are NES colours a
+    step darker than three of the palette's: the grass, entry 1 ($1A), as
+    $0A (0, 81, 0); the swamp's blue, entry 11 ($21), as $11 (0, 115,
+    239); and the stone's grey, entry 2 ($10), as $00 (117, 117, 117) --
+    at CGRAM 36, 37 and 38 (`M7SHADEn_NES`, `M7SHADEn`: BG row 2's spare
+    entries, past BG3's 0-31).  `pal_prep` stages them with the entry they
+    darken, on the overworld only, as it does the castles' mirror: the
+    same tint and grey, a step darker (less $10, black from the darkest
+    row), so fades, Palette swap's tints and greyscale reach them, and the
+    haze, being colour maths, adds to them as to every colour.  PALSTAGE
+    holds the overworld's worst, 32 + 8 + 3 records.  Paint them as
+    (0, 81, 0), (0, 115, 239) and (117, 117, 117); the build takes the
+    nearest colour.  `tools/landmark_palette.py` (not run by the build)
+    writes `art/landmark-palette.png`, every colour as a swatch to pick
+    from, a row each: magenta and black; palette 0's three (Coneria,
+    Elfland, Ordeals, the Temple, the houses); palette 1's (the volcano,
+    the Mirage Tower); the ground's others (the swamp's blues, two
+    greens); the shades (user, 2026-11-21: "a palette PNG so I can pick
+    these colors without remembering the RGB values").
+    `test_m7view`: the ground of a PNG made by the test, every colour read
+    as its entry; the shades in CGRAM on the way in, after the two entries
+    move (black from the darkest row) and under greyscale; `test_palflush`
+    that off the overworld nothing else moves.  8 mutations, all caught;
+    with the grey, 3 more.
+
+    The plane draws a landmark's metatiles as its ground: `genm7.py`
+    makes their characters from the PNGs, not the tiles, and the
+    landmarks' pictures are not among the plane's characters.  Where they stand
     is worked out from each map's tiles at the build: a list a map
     (`lut_M7LMaps`, by `RANDO_MAP`, every map Map Select offers), in
     groups culled whole -- those within six tiles of one another, a town
@@ -4906,7 +4988,7 @@ always the plane, flat when the row says so.
     plane its PNG's ground, its frame at k 1 its PNG's picture (the PNGs
     read by the test itself, not by `genm7.py`), every map's list its
     landmarks, found in its tiles here, and no landmark tile out of a
-    whole one, black under each one's foot; as the game runs a frame (its
+    whole one; as the game runs a frame (its
     sprites drawn, the flush, the transfer, the flush): flat, the plane
     and the sprites together the art, pixel for pixel, all seven of the
     game's map seen from three places each, behind the party; tilted at

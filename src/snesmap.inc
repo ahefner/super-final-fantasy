@@ -1307,7 +1307,22 @@ VRAM_CHR        = $6000         ; $6000-$7FFF  512 tiles, 4bpp (16KB)
 ;    BG palette p, colour c  ->  entry p*16 + c        (p = 0..3, c = 0..3)
 ;    OBJ palette p, colour c ->  entry 128 + p*16 + c
 ;    Entry 0 doubles as the backdrop, which is what NES $3F00 means.
+;  On the overworld, its shades: NES palette entry M7SHADEn_NES one NES
+;  step darker (its colour less $10, black under $10), at entry M7SHADEn --
+;  BG row 2's spare entries, past BG3's 0-31 -- kept by pal_prep as the
+;  palette moves, so fades, Palette swap's tints and greyscale reach them;
+;  the landmarks' grounds may use them (genm7.py; user, 2026-11-21: "one
+;  darker color for grass in shadow, and probably a darker version of the
+;  swamp color in shadow"; "another shade of dark gray to soften the shadows
+;  cast over stone").
 ; ------------------------------------------------------------------------
+M7SHADE0_NES    = 1             ; BG palette 0, colour 1: the grass ($1A, dark $0A)
+M7SHADE0        = 36
+M7SHADE1_NES    = 11            ; BG palette 2, colour 3: the swamp's blue ($21, dark $11)
+M7SHADE1        = 37
+M7SHADE2_NES    = 2             ; BG palette 0, colour 2: the stone's grey ($10, dark $00)
+M7SHADE2        = 38
+M7SHADES        = 3
 
 ; ------------------------------------------------------------------------
 ;  HAL scalars
@@ -1647,11 +1662,13 @@ h_vdst0         = HAL_VARS+$4B  ; 2 bytes: ...for the copy at row r
 h_vdst1         = HAL_VARS+$4D  ; 2 bytes: ...and the copy at row r+30
 h_ntsrc2        = HAL_VARS+$4F  ; 2 bytes: source address of the span in flight
 NESPALPREV      = $7E4820       ; 32 bytes: palette as CGRAM last saw it
-PALSTAGE        = $7E4840       ; 160 bytes: the next flush's CGRAM writes,
+PALSTAGE        = $7E4840       ; 192 bytes: the next flush's CGRAM writes,
                                 ;   four bytes each for DMA mode 3 -- the
                                 ;   address twice, then the colour (pal_prep):
-                                ;   the NES palette's 32 and h_xpal's 8
-.assert PALSTAGE + (32 + 8 + 4) * 4 <= CGSHADOW, error, "PALSTAGE runs into CGSHADOW"
+                                ;   the NES palette's 32 and h_xpal's 8; on the
+                                ;   overworld, the 32, the castles' 8 and the
+                                ;   shades' M7SHADES
+.assert PALSTAGE + (32 + 8 + M7SHADES) * 4 <= CGSHADOW, error, "PALSTAGE runs into CGSHADOW"
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
 h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
 h_chrqn         = HAL_VARS+$CF  ; words in CHRQUEUE; above CHRQ_CAP, too many: the span

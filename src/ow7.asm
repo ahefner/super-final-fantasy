@@ -410,7 +410,9 @@ m7_newrow:
 
 ;;  Map row h_m7row into its page of the ring (ow_rowring, by JSL in
 ;;  emulation mode), the game's tmp..tmp+5 kept across it: SetOWScroll's
-;;  callers may have something there.  A8 I16 in and out.
+;;  callers may have something there.  Then the bridge's and the canal's
+;;  metatiles where they show, and each landmark's tiles in the row as its
+;;  art's ground (genm7.py's, M7G_FIRST on).  A8 I16 in and out.
 m7_decode:
     REP #$20
     .a16
@@ -478,6 +480,57 @@ m7_decode:
     INX
     CPX #8
     BCC @obj
+    ;  The landmarks' grounds: the map's table in the chunk's low half
+    ;  (M7G_TABLES, genm7.py), a word a row -- the row's record, or 0 --
+    ;  and a record how many, then each one's column and metatile (user,
+    ;  2026-11-21: each castle's ground "editable independently").
+    LDA f:RANDO_SAVEFAR + (RANDO_MAP - RANDO_SAVE)
+    AND #$00FF
+    CMP #M7L_MAPS
+    BCC :+
+    LDA #0                      ; a map past the list: the game's, as m7_lands has it
+:   XBA
+    ASL A                       ; its 512 bytes
+    STA a:h_m7n
+    LDA a:h_m7row
+    AND #$00FF
+    ASL A
+    ADC a:h_m7n
+    TAX
+    LDA f:OW7DATAFAR + M7G_TABLES, X
+    BEQ @grounds
+    TAX                         ; the row's record
+    PHY
+    LDA f:OW7DATAFAR, X
+    AND #$00FF
+    TAY                         ; how many
+    LDA a:h_m7row
+    AND #M7RING_ROWS - 1
+    CLC
+    ADC #>RING
+    XBA
+    STA a:h_m7n                 ; the row's page
+@ground:
+    INX
+    LDA f:OW7DATAFAR, X         ; its column, its metatile
+    INX
+    PHX
+    PHA
+    AND #$00FF
+    ORA a:h_m7n
+    TAX
+    PLA
+    XBA
+    SEP #$20
+    .a8
+    STA f:M7RING & $FF0000, X
+    REP #$20
+    .a16
+    PLX
+    DEY
+    BNE @ground
+    PLY
+@grounds:
     LDA a:h_m7save
     STA z:tmp
     LDA a:h_m7save+2

@@ -12414,8 +12414,26 @@ def test_m7view():
                     blk[(q >> 1) * 8 + y][(q & 1) * 8 + x] = pix[y * 8 + x]
         return blk
 
+    def ground_table(mi):
+        """Map mi's ground table (M7G_TABLES, the chunk's low half): {(column,
+        row): metatile} for each landmark tile m7_decode puts its art's
+        ground in place of."""
+        out = {}
+        for row in range(256):
+            at = CHARS + K["M7G_TABLES"] + mi * 512 + 2 * row
+            rec = ROMDATA[at] | ROMDATA[at + 1] << 8
+            if rec:
+                for i in range(ROMDATA[CHARS + rec]):
+                    out[(ROMDATA[CHARS + rec + 1 + 2 * i], row)] = ROMDATA[CHARS + rec + 2 + 2 * i]
+        return out
+
+    #  The game's map as the plane draws it: each landmark's tiles its art's
+    #  ground's metatiles (m7_decode), every metatile lut_M7Row's characters.
     world0, blocks0 = world, blocks
+    G0 = ground_table(0)
+    world = [bytes(G0.get((x, y), m) for x, m in enumerate(row)) for y, row in enumerate(world0)]
     blocks = [plane_block(m) if m in LANDTILES else b for m, b in enumerate(blocks0)]
+    blocks += [blocks0[0]] * 2 + [plane_block(m) for m in range(K["M7G_FIRST"], max(G0.values()) + 1)]
     WEST, EAST = genm7.region()[2:]
 
     def region_misses(bus, world=world):
@@ -13072,15 +13090,24 @@ def test_m7view():
     TSA = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()[:0x400]
     import pngio, genpal
 
+    SHADES = [(K["M7SHADE%d_NES" % n], K["M7SHADE%d" % n]) for n in range(3)]
+
     def own_art(name, grid):
         """art/landmarks/NAME.png read here, not by genm7.read_art: (the
         landmark standing, its rows to its lowest; the ground; its base, the
-        row past that; its palette).  Each pixel the nearest of the key,
-        black and the palette's three."""
+        row past that; its palette).  The landmark's pixels the nearest of
+        the key, black and the palette's three; the ground's, of black,
+        every overworld BG palette's three (the landmark's palette's first)
+        and the shades -- the grass and the swamp's blue a NES step darker
+        (user, 2026-11-21)."""
         pal = TSA[0x300 + grid[0][0]] & 3
         owpal = TSA[0x380:0x3B0]
         cols = [(255, 0, 255), genpal.NESPAL[owpal[0] & 0x3F]] + \
             [genpal.NESPAL[owpal[pal * 4 + c] & 0x3F] for c in (1, 2, 3)]
+        gcols = [(genpal.NESPAL[owpal[0] & 0x3F], 0)] + \
+            [(genpal.NESPAL[owpal[p_ * 4 + c] & 0x3F], p_ * 16 + c) for p_ in [pal] + [q for q in range(4) if q != pal]
+             for c in (1, 2, 3)] + \
+            [(genpal.NESPAL[(owpal[i] & 0x3F) - 0x10 if owpal[i] & 0x3F >= 0x10 else 0x0F], at) for i, at in SHADES]
         w, h = 16 * len(grid[0]), 16 * len(grid)
         _, _, rows, _ = pngio.png_read(os.path.join(ROOT, "art", "landmarks", name + ".png"))
 
@@ -13090,14 +13117,36 @@ def test_m7view():
             i = min(range(5), key=lambda i: sum((px[k] - cols[i][k]) ** 2 for k in range(3)))
             return None if i == 0 else 0 if i == 1 else pal * 16 + i - 1
         stand = [[val(rows[y][x]) for x in range(w)] for y in range(h)]
-        under = [[val(rows[y][w + genm7.ART_GAP + x]) for x in range(w)] for y in range(h)]
+        under = [[min(gcols, key=lambda cv: sum((rows[y][w + genm7.ART_GAP + x][k] - cv[0][k]) ** 2
+                                                for k in range(3)))[1] for x in range(w)] for y in range(h)]
         base = 1 + max(y for y in range(h) if any(v is not None for v in stand[y]))
         return stand[:base], under, base, pal
 
     LANDS = [(name, grid) for name, grid, _ in genm7.LANDMARKS]
     HOUSE = {name: m for name, m, _ in genm7.HOUSES}
     GRID = dict(LANDS + [(name, ((m,),)) for name, m in HOUSE.items()])
-    ART = {name: own_art(name, grid) for name, grid in GRID.items()}
+    #  Each one's art: its PNG, or the one it shares -- Northwest Castle
+    #  Elfland's on every map (user, 2026-11-21: "Elfland Castle and
+    #  Northwest share one png") -- read with that one's palette.
+    SHARED = {"northwest": "elfland", "northwest-ffr": "elfland"}
+    FILES = {SHARED.get(n, n) for n in GRID} | {"elfland", "ordeals"}
+    ARTF = {f: own_art(f, GRID[f]) for f in FILES}                  # by PNG
+    ART = {name: ARTF[SHARED.get(name, name)] for name in GRID}     # (Ordeals': its swamp's)
+
+    def art_at(mi, name, x, y):
+        """The PNG landmark name at column x, top row y of map mi is drawn
+        from: Ordeals' in a swamp -- half or more of the tiles beside it,
+        corners apart, the marsh's $55 -- and Elfland's elsewhere (user,
+        2026-11-21: "castle on grass, and castle on swamp, with the same
+        castle image and two different backgrounds"); Northwest's,
+        Elfland's."""
+        if name == "ordeals":
+            g, t = GRID[name], MAPS[mi]
+            at = lambda cx, cy: t[(cy & 255) * 256 + (cx & 255)]
+            near = [at(x + c, y - 1) for c in range(len(g[0]))] + [at(x + c, y + len(g)) for c in range(len(g[0]))] + \
+                   [at(x - 1, y + r) for r in range(len(g))] + [at(x + len(g[0]), y + r) for r in range(len(g))]
+            return "ordeals" if 2 * near.count(0x55) >= len(near) else "elfland"
+        return SHARED.get(name, name)
     L_K0, L_N, L_SLOT = K["M7L_K0"], K["M7L_FRAMES"], K["M7L_SLOT"]
     SLOT0, SLOTW = K["M7L_SLOT0"], K["M7L_SLOTW"]
     ONE = 16 - L_K0                                     # the size index of k 1
@@ -13143,10 +13192,10 @@ def test_m7view():
                     out[(x, y)] = name
         return out
 
-    def anchor_of(name, x, y):
+    def anchor_of(name, x, y, file=None):
         """A landmark's or house's base point on the 4096-pixel map: its
-        middle, its lowest standing row's foot."""
-        fig, _, base, _ = ART[name]
+        middle, its lowest standing row's foot (its art's PNG's, as given)."""
+        fig, _, base, _ = ARTF[file] if file else ART[name]
         return x * 16 + len(fig[0]) // 2, y * 16 + base
 
     def read_list(mi):
@@ -13173,16 +13222,99 @@ def test_m7view():
             p = q
         return out
 
-    #  The art in the cartridge.
-    bad = []
-    for name, grid in GRID.items():
-        fig, under, base, pal = ART[name]
-        for r, row in enumerate(grid):
-            for c, m in enumerate(row):
-                if plane_block(m) != [under[r * 16 + y][c * 16:c * 16 + 16] for y in range(16)]:
-                    bad.append("%s: metatile $%02X in the plane not its ground" % (name, m))
+    #  The ground's colours as genm7.py reads them, from a PNG made here:
+    #  black, every overworld BG palette's three -- one two palettes share
+    #  read as the art's palette's, else the first's -- and the shades at
+    #  CGRAM 36 and 37 (user, 2026-11-21: the swamp's colours under Ordeals,
+    #  and "one darker color for grass in shadow, and probably a darker
+    #  version of the swamp color in shadow").
+    import tempfile
+    owpal = TSA[0x380:0x3B0]
+    gpal = 0                                            # Elfland's
+    want = [(genpal.NESPAL[owpal[0] & 0x3F], 0)]
+    for p_ in range(4):
+        for c in (1, 2, 3):
+            nesc = owpal[p_ * 4 + c] & 0x3F
+            first = next(q * 16 + d for q in [gpal] + [q for q in range(4) if q != gpal] for d in (1, 2, 3)
+                         if owpal[q * 4 + d] & 0x3F == nesc)
+            want.append((genpal.NESPAL[nesc], first))
+    want += [(genpal.NESPAL[0x0A], K["M7SHADE0"]), (genpal.NESPAL[0x11], K["M7SHADE1"]),
+             (genpal.NESPAL[0x00], K["M7SHADE2"])]
+    with tempfile.TemporaryDirectory() as d:
+        cols = [(255, 0, 255)] + [rgb for rgb, _ in want]
+        idx = [[0] * 68 for _ in range(32)]
+        idx[31][3] = 1                                  # (something standing)
+        for y in range(32):
+            for x in range(32):
+                idx[y][36 + x] = 1 + (x if y == 0 and x < len(want) else 2)
+        pngio.png_write_indexed(os.path.join(d, "elfland.png"), idx, cols)
+        art0, genm7.ART = genm7.ART, d
+        try:
+            under = genm7.read_art(TSA, "elfland", GRID["elfland"])[1]
+        finally:
+            genm7.ART = art0
+    colbad = [] if under[0][:len(want)] == [v for _, v in want] else \
+        ["the ground's colours read as %r, not %r" % (under[0][:len(want)], [v for _, v in want])]
+    #  The art in the cartridge: a house's metatile in the plane its ground;
+    #  on every map each landmark's tiles, and nothing else, put in the
+    #  plane as metatiles whose characters are its art's ground there
+    #  (user, 2026-11-21: each castle's ground "editable independently" --
+    #  Coneria's and Northwest's share map tiles, Northwest's, Elfland's and
+    #  Ordeals' others).
+    bad = colbad
+    for name, m in HOUSE.items():
+        if plane_block(m) != ART[name][1]:
+            bad.append("%s: metatile $%02X in the plane not its ground" % (name, m))
     MAPS = [bytes(genmaps.tiles_of(e)[0]) for e in genmaps.parse()]
     ON = [lands_on(t) for t in MAPS]
+    BYART = {}                                          # (PNG, tile): the metatiles it is put as
+    for mi in range(len(MAPS)):
+        table, want = ground_table(mi), set()
+        for (x, y), name in ON[mi].items():
+            if name in HOUSE:
+                continue
+            under = ARTF[art_at(mi, name, x, y)][1]
+            for r, row in enumerate(GRID[name]):
+                for c in range(len(row)):
+                    at = ((x + c) & 255, (y + r) & 255)
+                    want.add(at)
+                    m = table.get(at)
+                    BYART.setdefault((art_at(mi, name, x, y), r, c), set()).add(m)
+                    if m is None or m < K["M7G_FIRST"] or \
+                            plane_block(m) != [under[r * 16 + yy][c * 16:c * 16 + 16] for yy in range(16)]:
+                        bad.append("map %d: %s's tile (%d, %d) in the plane %s, not its art's ground"
+                                   % (mi, name, c, r, "$%02X" % m if m is not None else "its map tile"))
+        if set(table) != want:
+            bad.append("map %d: ground put on %d tiles no landmark has" % (mi, len(set(table) - want)))
+    #  One PNG's tile one metatile wherever it is drawn, two PNGs' two --
+    #  Ordeals' in a swamp apart from Elfland's, whatever their pictures.
+    if any(len(ms) != 1 for ms in BYART.values()) or \
+            len({next(iter(ms)) for ms in BYART.values()}) != len(BYART):
+        bad.append("the grounds' metatiles by PNG: %r" % sorted((k, sorted(v)) for k, v in BYART.items())[:4])
+    if {k[0] for k in BYART} != FILES - set(HOUSE):
+        bad.append("PNGs drawn as ground: %r" % sorted({k[0] for k in BYART}))
+    #  ...and the plane puts them there: entered beside Northwest Castle and
+    #  the Castle of Ordeals on the game's map, every metatile the plane
+    #  keeps its row's as m7_decode leaves it -- Northwest's top tiles are
+    #  Coneria's ($09, $0A), drawn there as Elfland's ground.
+    #  And on one of Map Select's maps, by its table: Great Lake's
+    #  Northwest Castle, under Elfland's towers; and where the game's map
+    #  has Coneria's castle and Great Lake has none, nothing put in.
+    GL = next(i for i, e in enumerate(genmaps.parse()) if e[3] == "Great Lake")
+    CON0 = next(p_ for p_, n in ON[0].items() if n == "coneria")
+    if CON0 in ON[GL]:
+        bad.append("Great Lake has Coneria's castle where the game's map does: pick another map")
+    for mi, name in ((0, "northwest"), (0, "ordeals"), (GL, "northwest-ffr"), (GL, None)):
+        (x, y), = [p_ for p_, n in ON[mi].items() if n == name] if name else [CON0]
+        G = ground_table(mi)
+        mworld = [bytes(G.get((cx, cy), MAPS[mi][cy * 256 + cx]) for cx in range(256)) for cy in range(256)]
+        bus, cpu = m7_machine()
+        bus.sram[K["RANDO_MAP"] - 0x6000] = mi
+        enter(bus, cpu, x - 7, (y + 2 - 7) & 255, level=genm7.DEFAULT)
+        miss = region_misses(bus, world=mworld)
+        if miss:
+            bad.append("map %d, beside %s: the plane not the map with the grounds at %r"
+                       % (mi, name or "the game's map's Coneria", miss[:3]))
     ARTOF = {}
     for mi, tiles in enumerate(MAPS):
         listed = {}
@@ -13206,9 +13338,10 @@ def test_m7view():
                         bad.append("map %d: (%d, %d) past its group's window %r" % (mi, x, y, head))
         want = {}
         for (x, y), name in ON[mi].items():
-            fig, _, base, _ = ART[name]
+            file = name if name in HOUSE else art_at(mi, name, x, y)
+            fig, _, base, _ = ARTF[file] if file in ARTF else ART[name]
             rows = len(GRID[name])
-            ax, ay = anchor_of(name, x, y)
+            ax, ay = anchor_of(name, x, y, file if file in ARTF else None)
             yb = (y + rows - 1) & 255
             got = listed.get((x, yb))
             want[(x, yb)] = name
@@ -13222,15 +13355,15 @@ def test_m7view():
                     or got[1] != y \
                     or bool(got[0] & 0x80) != (name in HOUSE):
                 bad.append("map %d: %s at (%d, %d) listed %r" % (mi, name, x, y, got))
-            ARTOF.setdefault(name, set()).add(got[0])
+            ARTOF.setdefault(file, set()).add(got[0])
         if set(listed) != set(want):
             bad.append("map %d: listed %d, %d on the map" % (mi, len(listed), len(want)))
         n = sum(1 for p in range(65536) if tiles[p] in LANDTILES)
         whole = sum(len(GRID[name]) * len(GRID[name][0]) for name in ON[mi].values())
         if n != whole:
             bad.append("map %d: %d landmark tiles, %d in whole landmarks" % (mi, n, whole))
-    for name, arts in ARTOF.items():
-        fig, under, base, pal = ART[name]
+    for name, arts in ARTOF.items():                    # (by PNG, a house's its name)
+        fig, under, base, pal = ARTF[name] if name in ARTF else ART[name]
         if len(arts) != 1:
             bad.append("%s: arts %r" % (name, arts))
             continue
@@ -13253,15 +13386,13 @@ def test_m7view():
                         v = tile_pixel(tdata, t, r, c)
                         if v:
                             got[(len(fig[0]) // 2 + dx + c, base + dy + r)] = as_plane(v)
-            #  Under its lowest standing row, the ground black (user,
-            #  2026-11-18: "a full black shape underneath the footprint of
-            #  the castle"); a house has none ("They don't need shadows").
-            if any(under[base - 1][x] != 0 for x, v in enumerate(fig[base - 1]) if v is not None):
-                bad.append("%s: not black under its foot" % name)
+            #  (Under its lowest standing row the ground was held black
+            #  here, as the user first drew Coneria's shadow, 2026-11-18;
+            #  the art is the user's to edit now, the Temple's included.)
         if got != want:
             bad.append("%s: its frame at k 1 not its art (%d of %d)" % (name, len(set(got.items()) ^ set(want.items())), len(want)))
-    if set(ARTOF) != set(GRID):
-        bad.append("landmarks on no map: %r" % sorted(set(GRID) - set(ARTOF)))
+    if set(ARTOF) != FILES | set(HOUSE):
+        bad.append("arts on no map: %r" % sorted((FILES | set(HOUSE)) - set(ARTOF)))
     ARTOF_ALL = {}
     for mi in range(len(MAPS)):
         for head, recs in read_list(mi):
@@ -14220,6 +14351,29 @@ def test_m7view():
     check("the angle changed standing beside Coneria's town: the frame after, every house at its settled frame "
           "and place",
           lag[:4], [])
+    #  The shades (user, 2026-11-21: "one darker color for grass in shadow,
+    #  and probably a darker version of the swamp color in shadow";
+    #  "another shade of dark gray to soften the shadows cast over stone"):
+    #  CGRAM 36, 37 and 38 the grass ($1A), the swamp's blue ($21) and the
+    #  stone's grey ($10) a NES step darker -- $0A, $11 and $00 -- and as
+    #  those move (a fade, a tint), the moved colours a step darker, black
+    #  from the darkest row; under greyscale, the grey column's.
+    snes = lambda c: bytes(ROMDATA[SYM["nespal_snes"] + 2 * (c & 0x3F):][:2])
+    shade = lambda: tuple(bytes(bus.cgram[2 * e:2 * e + 2]) for e in (36, 37, 38))
+    got = [shade()]
+    for g1, g11, g2, grey in ((0x2A, 0x0C, 0x20, 0), (0x1A, 0x21, 0x10, 1)):
+        bus.wram[0x4800 + 1], bus.wram[0x4800 + 11], bus.wram[0x4800 + 2] = g1, g11, g2
+        bus.wram[K["h_greyscale"]] = grey
+        bus.wram[K["h_paldirty"]] = 1
+        bus.wram[K["h_palforce"]] = grey
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        got.append(shade())
+    bus.wram[K["h_greyscale"]] = 0
+    bus.wram[K["h_paldirty"]] = bus.wram[K["h_palforce"]] = 1
+    call(cpu, "hal_waitvbl", bank=0xC0)
+    check("the overworld's shades at CGRAM 36-38: the grass, the swamp's blue and the stone's grey a step darker, "
+          "as they move", got, [(snes(0x0A), snes(0x11), snes(0x00)), (snes(0x1A), snes(0x0F), snes(0x10)),
+                                (snes(0x00), snes(0x10), snes(0x00))])
     #  The palette mirror; the way out: OAM's priority turned back at the
     #  first flush, though nothing of the game's is sent before it.
     on = (bytes(bus.cgram[2 * 196:2 * 204]), bytes(bus.cgram[0:8]) + bytes(bus.cgram[32:40]))

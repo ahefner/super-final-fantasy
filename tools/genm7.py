@@ -134,11 +134,20 @@ LAND_KS = [n / 16 for n in range(9, 24)]  # their sizes, as inverse scales: 15, 
 #  it -- and how --extract cuts a starting point from the map's tiles.
 LANDMARKS = [
     ("coneria",   ((0x09, 0x0A), (0x19, 0x1A), (0x01, 0x02)), None),
-    ("northwest", ((0x09, 0x0A), (0x29, 0x2A)), dict(ground=(1,), foot=16)),
-    #  ...as FFR's drawn maps have it, under Elfland's towers
-    ("northwest-ffr", ((0x0B, 0x0C), (0x29, 0x2A)), dict(ground=(1,), foot=15)),
+    #  Northwest Castle, drawn as Elfland Castle on every map (user,
+    #  2026-11-21: "Elfland Castle and Northwest share one png such that
+    #  Northwest has the same appearance as Elfland Castle (the FFR
+    #  style)"): the game's map's, under Coneria's towers...
+    ("northwest", ((0x09, 0x0A), (0x29, 0x2A)), dict(ground=(1,), foot=16, art="elfland")),
+    #  ...and FFR's drawn maps', under Elfland's
+    ("northwest-ffr", ((0x0B, 0x0C), (0x29, 0x2A)), dict(ground=(1,), foot=15, art="elfland")),
     ("elfland",   ((0x0B, 0x0C), (0x1B, 0x1C)), dict(ground=(1,), foot=15)),
-    ("ordeals",   ((0x0B, 0x0C), (0x38, 0x39)), dict(ground=(1,), foot=15)),
+    #  The Castle of Ordeals: in a swamp, its PNG -- the swamp drawn back
+    #  under it, which the NES's attributes could not -- and on grass,
+    #  sand or by the sea, as Elfland Castle (user, 2026-11-21: "it's just
+    #  two possibilities - castle on grass, and castle on swamp, with the
+    #  same castle image and two different backgrounds"; landmark_art)
+    ("ordeals",   ((0x0B, 0x0C), (0x38, 0x39)), dict(ground=(1,), foot=15, art="elfland", swamp="ordeals")),
     ("temple",    ((0x47, 0x48), (0x57, 0x58)), dict(ground=(1, 2), foot=9, below=30,
                                                      pillar=(26, 17, 22), fill=1)),
     ("mirage",    ((0x0D,), (0x1D,)),           dict(ground=(2, 3), foot=22, right=11, fillmt=0x45)),
@@ -159,6 +168,12 @@ HOUSES = [
     ("house-lefein",   0x6D, dict(ground=(2, 1), foot=16, fill=2)),
 ]
 ART = os.path.join(ROOT, "art", "landmarks")
+SWAMP = 0x55                        # the marsh's metatile (landmark_art)
+VGROUND0 = 0x82                     # each landmark art's ground, a metatile a tile, from
+                                    #   here (past the bridge's and canal's $80, $81): every
+                                    #   landmark's tiles on every map drawn as its art's
+                                    #   ground, wherever two share a metatile (user,
+                                    #   2026-11-21: "all of these editable independently")
 ART_GAP = 4                         # key-coloured columns between the art and the ground
 KEY = (255, 0, 255)                 # the art's "nothing here"
 LAND_SLOT = 48                      # tiles a frame may take: three slots, sprite table $70-$FF
@@ -423,6 +438,40 @@ def land_palette(tsa, name, tiles):
     return pals.pop()
 
 
+def shades():
+    """The overworld's shades: [(NES palette entry, CGRAM entry)], from
+    snesmap.inc's M7SHADEn_NES and M7SHADEn, each the entry's colour one NES
+    step darker (pal_prep's)."""
+    text = open(os.path.join(ROOT, "src", "snesmap.inc")).read()
+    out = []
+    for n in range(8):
+        a = re.search(r"^M7SHADE%d_NES\s*=\s*(\d+)" % n, text, re.M)
+        b = re.search(r"^M7SHADE%d\s*=\s*(\d+)" % n, text, re.M)
+        if not a or not b:
+            break
+        out.append((int(a.group(1)), int(b.group(1))))
+    return out
+
+
+def darker(nes):
+    """An NES colour one step darker, as pal_prep makes a shade."""
+    return nes - 0x10 if nes >= 0x10 else 0x0F
+
+
+def ground_colours(tsa, pal):
+    """The colours a landmark's ground may take (user, 2026-11-21): black;
+    every overworld BG palette's three, the art's palette's first (so
+    a colour two palettes have is the art's); then the shades.  ->
+    [(rgb, the plane's value: its CGRAM entry)]."""
+    import genpal
+    owpal = tsa[0x380:0x3B0]
+    out = [(genpal.NESPAL[owpal[0] & 0x3F], 0)]
+    for p in [pal] + [q for q in range(4) if q != pal]:
+        out += [(genpal.NESPAL[owpal[p * 4 + c] & 0x3F], p * 16 + c) for c in (1, 2, 3)]
+    out += [(genpal.NESPAL[darker(owpal[i] & 0x3F)], at) for i, at in shades()]
+    return out
+
+
 def land_colours(tsa, pal):
     """The art's four colours as the game's map palette has them: black (the
     backdrop), then palette pal's three."""
@@ -493,6 +542,45 @@ def cut(img, blocks, pal, ground, foot, below=None, right=None, pillar=None, fil
     return mask, under
 
 
+def art_of(name):
+    """The PNG a landmark is drawn from, without its .png: its name, or the
+    art it shares (LANDMARKS' art)."""
+    for n, _, how in LANDMARKS:
+        if n == name:
+            return (how or {}).get("art", n)
+    return name
+
+
+def art_names():
+    """Every landmark art's PNG's name: each art_of's, each swamp art."""
+    return {art_of(n) for n, _, _ in LANDMARKS} | {how["swamp"] for _, _, how in LANDMARKS if how and "swamp" in how}
+
+
+def landmark_art(name, t, x, y):
+    """The art landmark NAME is drawn from at column x, bottom row y of map
+    tiles t: its swamp art (LANDMARKS' swamp) where at least half the
+    tiles beside it -- above, below, left and right, not the corners --
+    are marsh, else art_of(name)."""
+    tiles, how = next((tl, h or {}) for n, tl, h in LANDMARKS if n == name)
+    if "swamp" in how:
+        rows, cols, top = len(tiles), len(tiles[0]), y - len(tiles) + 1
+        at = lambda cx, cy: t[(cy & 255) * 256 + (cx & 255)]
+        edge = [at(x + c, top - 1) for c in range(cols)] + [at(x + c, y + 1) for c in range(cols)] + \
+               [at(x - 1, top + r) for r in range(rows)] + [at(x + cols, top + r) for r in range(rows)]
+        if 2 * sum(1 for m in edge if m == SWAMP) >= len(edge):
+            return how["swamp"]
+    return art_of(name)
+
+
+def art_tiles(art):
+    """The metatiles of the landmark an art is named for: its palette's."""
+    return next(t for n, t, _ in LANDMARKS if n == art)
+
+
+def house_or_art(name):
+    return name in art_names() or name in [n for n, _, _ in HOUSES]
+
+
 def extract(blocks, tsa):
     """--extract: each landmark's art, cut from its metatiles, into
     art/landmarks/NAME.png, where there is none: a starting point, to be
@@ -500,6 +588,8 @@ def extract(blocks, tsa):
     corresponding shadows to a PNG file for manual editing")."""
     import pngio
     for name, tiles, how in LANDMARKS + [(n, ((m,),), how) for n, m, how in HOUSES]:
+        if not house_or_art(name):
+            continue                        # (another's art)
         path = os.path.join(ART, name + ".png")
         if os.path.exists(path):
             print("genm7: %s is there; left as it is" % os.path.relpath(path, ROOT))
@@ -520,8 +610,9 @@ def read_art(tsa, name, tiles):
     None where it is not; the ground under it, its metatiles' pixels; its
     base, the row past its lowest; its palette).  Left, the landmark, the
     key colour (or a clear pixel) where it is not; ART_GAP columns; right,
-    the ground, every pixel one of the four.  Each pixel the nearest of
-    black, the palette's three and the key."""
+    the ground.  The landmark's pixels the nearest of black, the palette's
+    three and the key; the ground's, of black, every overworld BG
+    palette's colours and the shades (ground_colours), never the key."""
     import pngio
     pal = land_palette(tsa, name, tiles)
     cols = land_colours(tsa, pal)
@@ -541,7 +632,16 @@ def read_art(tsa, name, tiles):
         i = min(range(5), key=lambda i: sum((px[k] - choice[i][k]) ** 2 for k in range(3)))
         return None if i == 0 else 0 if i == 1 else pal * 16 + i - 1
     stand = [[val(rows[y][x]) for x in range(w)] for y in range(h)]
-    under = [[val(rows[y][w + ART_GAP + x]) for x in range(w)] for y in range(h)]
+    gcols = ground_colours(tsa, pal)
+
+    def gval(px):
+        if px[3] < 128:
+            return None
+        rgb, v = min(gcols, key=lambda cv: sum((px[k] - cv[0][k]) ** 2 for k in range(3)))
+        if sum((px[k] - KEY[k]) ** 2 for k in range(3)) < sum((px[k] - rgb[k]) ** 2 for k in range(3)):
+            return None
+        return v
+    under = [[gval(rows[y][w + ART_GAP + x]) for x in range(w)] for y in range(h)]
     for y in range(h):
         for x in range(w):
             if under[y][x] is None:
@@ -712,29 +812,63 @@ def main():
     if sys.argv[1:] == ["--extract"]:
         extract(blocks, tsa)
         return
-    #  The landmarks' and the houses' art; each metatile of one drawn in the
-    #  plane as the ground under it, the same wherever two share it.  A
-    #  landmark's picture is an 8x8-sprite art, a house's a 32x32 one: arts
-    #  the same picture share their frames.
-    arts, barts, kinds, ground, owner = [], [], [], {}, {}
-    everything = [(n, t, False) for n, t, _ in LANDMARKS] + [(n, ((m,),), True) for n, m, _ in HOUSES]
-    for name, tiles, house in everything:
-        fig, under, base, pal = read_art(tsa, name, tiles)
+    #  The landmarks' and the houses' art.  A house's metatile is drawn in
+    #  the plane as the ground under it.  A landmark's tiles are drawn as
+    #  its art's ground, each tile a separate metatile from VGROUND0 on
+    #  (vground), which ow7.asm puts in their place as it decodes a row
+    #  (the ground tables below): two landmarks sharing a metatile need not
+    #  share a ground.  The metatile itself takes the first ground found
+    #  (none is drawn so).  A landmark's picture is an 8x8-sprite art, a
+    #  house's a 32x32 one: arts the same picture share their frames.
+    arts, barts, kinds, ground, owner, vground, vid, artinfo, under_of = [], [], [], {}, {}, [], {}, {}, {}
+
+    def take(name, tiles, art, house):
+        """art's PNG, read once, for a landmark or house of these metatiles:
+        -> (its frames' art, base, rows, width)."""
+        if not house and [len(r) for r in art_tiles(art)] != [len(r) for r in tiles]:
+            sys.exit("genm7: %s shares %s.png, a different shape" % (name, art))
+        if art not in under_of:
+            under_of[art] = read_art(tsa, art, tiles if house else art_tiles(art))
+        fig, under, base, pal = under_of[art]
         for r, row in enumerate(tiles):
             for c, m in enumerate(row):
                 block = [under[r * 16 + y][c * 16:c * 16 + 16] for y in range(16)]
-                if m in ground and ground[m] != block:
+                if house and m in ground and ground[m] != block:
                     sys.exit("genm7: metatile $%02X's ground differs in art/landmarks/%s.png and %s.png"
                              % (m, owner[m], name))
-                ground[m], owner[m] = block, name
+                if m not in ground:
+                    ground[m], owner[m] = block, art
+                if not house and (art, r, c) not in vid:
+                    vid[(art, r, c)] = VGROUND0 + len(vground)
+                    vground.append(block)
+        if art in artinfo:
+            return artinfo[art]
         pool = barts if house else arts
         key = (tuple(map(tuple, fig)), base)
         if key not in [a[0] for a in pool]:
             pool.append((key, fig, base))
-        art = [a[0] for a in pool].index(key) + (1 if house else 0)   # (the ship is 32x32 art 0)
-        kinds.append(((0x80 | art) if house else art, base, len(tiles), 16 * len(tiles[0])))
+        a = [a[0] for a in pool].index(key) + (1 if house else 0)   # (the ship is 32x32 art 0)
+        artinfo[art] = ((0x80 | a) if house else a, base, len(tiles), 16 * len(tiles[0]))
+        return artinfo[art]
+    everything = [(n, t, False) for n, t, _ in LANDMARKS] + [(n, ((m,),), True) for n, m, _ in HOUSES]
+    for name, tiles, house in everything:
+        kinds.append(take(name, tiles, name if house else art_of(name), house))
+        how = {} if house else next(h for n, _, h in LANDMARKS if n == name) or {}
+        if "swamp" in how:
+            take(name, tiles, how["swamp"], False)
     chars, corners, index = build(chr_, tsa, ground)
     specials(chars, corners)
+    for block in vground:
+        four = []
+        for q in range(4):
+            pix = bytes(block[(q >> 1) * 8 + y][(q & 1) * 8 + x] for y in range(8) for x in range(8))
+            if pix not in index:
+                index[pix] = len(chars)
+                chars.append(pix)
+            four.append(index[pix])
+        corners.append(four)
+    if len(chars) > SPECIAL or len(corners) > 256:
+        sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
     if len(arts) > 15 or len(barts) + 1 > 15:
         sys.exit("genm7: %d and %d arts; a frame is named art * 16 + size, $FF none" % (len(arts), len(barts) + 1))
     #  The landmarks' frames: every sprite list in LAND_CHUNKS[0]'s low half
@@ -780,11 +914,19 @@ def main():
     #  Where they stand on each of Map Select's maps (genmaps.py's list), in
     #  groups culled whole.
     import genmaps
-    lists = []
+    lists, grounds = [], []
     for entry in genmaps.parse():
-        members = []
-        for k, x, y in find_landmarks(bytes(genmaps.tiles_of(entry)[0]), entry[3]):
+        members, here = [], {}
+        mt = bytes(genmaps.tiles_of(entry)[0])
+        for k, x, y in find_landmarks(mt, entry[3]):
             art, base, rows, width = kinds[k]
+            if k < len(LANDMARKS):
+                name, tiles, _ = LANDMARKS[k]
+                file = landmark_art(name, mt, x, y)
+                art, base, rows, width = artinfo[file]
+                for r, row in enumerate(tiles):
+                    for c in range(len(row)):
+                        here.setdefault((y - rows + 1 + r) & 255, []).append(((x + c) & 255, vid[(file, r, c)]))
             #  In front of the party when it is north of the top row: on
             #  any tile of it, the party is in front (user, 2026-11-19).
             top = (y - rows + 1) & 255
@@ -792,12 +934,24 @@ def main():
                    (width // 2 - 8) & 0xFF, (base - (rows - 1) * 16 - 8) & 0xFF)
             members.append((rec, x, y, everything[k][0]))
         lists.append(groups_of(members))
+        grounds.append(here)
+    #  The ground tables, after the characters (M7G_TABLES): per map 256
+    #  words, a row's record's address or 0; then the records: how many,
+    #  then each one's column and metatile.
+    gtab = bytearray(512 * len(grounds))
+    for mi, here in enumerate(grounds):
+        for row, cells in sorted(here.items()):
+            at = 0x4000 + len(gtab)
+            gtab[mi * 512 + 2 * row:mi * 512 + 2 * row + 2] = at.to_bytes(2, "little")
+            gtab += bytes([len(cells)]) + bytes(b for col, m in sorted(cells) for b in (col, m))
+    if 0x4000 + len(gtab) > 0x8000:
+        sys.exit("genm7: the ground tables end at $%04X, past the low half" % (0x4000 + len(gtab)))
     north, south, west, east = region()
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tblobs, offs, banks = tilt_tables(vmin, vmax)
     os.makedirs(os.path.dirname(OUTBIN), exist_ok=True)
     with open(OUTBIN, "wb") as f:
-        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))))
+        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + bytes(gtab))
     for c, blob in tblobs.items():
         with open(OUTTILT % c, "wb") as f:
             f.write(bytes(blob))
@@ -817,7 +971,9 @@ def main():
            "M7_EAST = %d" % east,
            "M7P_VMIN = %d          ; the objects' table: pixels from the pivot, north negative" % vmin,
            "M7P_VMAX = %d" % vmax,
-           "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0)]
+           "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0),
+           "M7G_TABLES = $4000          ; the ground tables: per map 256 words, then the records",
+           "M7G_FIRST = $%02X           ; the landmarks' grounds' metatiles, %d of them" % (VGROUND0, len(vground))]
     for k in ("A", "D", "RG", "B", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
     out.append("lut_M7PBank: .BYTE %s          ; the HDMA tables' bank"

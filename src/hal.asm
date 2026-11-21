@@ -1803,6 +1803,50 @@ pal_prep:
       sta f:PALSTAGE + 1,x
       inc a:h_palsendn
 @nocastle:
+    ;  On the overworld its shades, entry M7SHADEn_NES's colour one NES
+    ;  step darker at CGRAM M7SHADEn (snesmap.inc), with this entry's tint
+    ;  and grey.
+    lda a:h_m7objoff
+    beq @noshade
+    lda #M7SHADE0
+    cpy #M7SHADE0_NES
+    beq :+
+    lda #M7SHADE1
+    cpy #M7SHADE1_NES
+    beq :+
+    lda #M7SHADE2
+    cpy #M7SHADE2_NES
+    bne @noshade
+.assert M7SHADES = 3, error, "pal_prep tells each shade's entry"
+:   sta a:h_t1                  ; (its CGRAM entry, now this one is staged)
+    lda a:h_t4
+    sec
+    sbc #$10                    ; a step darker...
+    bcs :+
+    lda #$0F                    ; ...or black from the darkest row
+:   rep #$20
+    .a16
+    and #$003F
+    asl a
+    clc
+    adc a:h_tintbase
+    tax
+    lda f:nespal_snes + HALFAR,x
+    sta a:h_t2
+    lda a:h_palsendn
+    and #$00FF
+    asl a
+    asl a
+    tax
+    lda a:h_t2
+    sta f:PALSTAGE + 2,x
+    sep #$20
+    .a8
+    lda a:h_t1
+    sta f:PALSTAGE + 0,x
+    sta f:PALSTAGE + 1,x
+    inc a:h_palsendn
+@noshade:
     rep #$20
     .a16
 @skip:
