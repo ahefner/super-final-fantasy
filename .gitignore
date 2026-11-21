@@ -22,3 +22,6 @@ __pycache__/
 
 # Editor backups
 *~
+
+# macOS Finder metadata
+.DS_Store
