@@ -13109,15 +13109,16 @@ def test_m7view():
              for c in (1, 2, 3)] + \
             [(genpal.NESPAL[(owpal[i] & 0x3F) - 0x10 if owpal[i] & 0x3F >= 0x10 else 0x0F], at) for i, at in SHADES]
         w, h = 16 * len(grid[0]), 16 * len(grid)
-        _, _, rows, _ = pngio.png_read(os.path.join(ROOT, "art", "landmarks", name + ".png"))
+        pw, _, rows, _ = pngio.png_read(os.path.join(ROOT, "art", "landmarks", name + ".png"))
+        fw = pw - genm7.ART_GAP - w                     # (the landmark may be wider, to the right)
 
         def val(px):
             if px[3] < 128:
                 return None
             i = min(range(5), key=lambda i: sum((px[k] - cols[i][k]) ** 2 for k in range(3)))
             return None if i == 0 else 0 if i == 1 else pal * 16 + i - 1
-        stand = [[val(rows[y][x]) for x in range(w)] for y in range(h)]
-        under = [[min(gcols, key=lambda cv: sum((rows[y][w + genm7.ART_GAP + x][k] - cv[0][k]) ** 2
+        stand = [[val(rows[y][x]) for x in range(fw)] for y in range(h)]
+        under = [[min(gcols, key=lambda cv: sum((rows[y][fw + genm7.ART_GAP + x][k] - cv[0][k]) ** 2
                                                 for k in range(3)))[1] for x in range(w)] for y in range(h)]
         base = 1 + max(y for y in range(h) if any(v is not None for v in stand[y]))
         return stand[:base], under, base, pal
@@ -13196,7 +13197,7 @@ def test_m7view():
         """A landmark's or house's base point on the 4096-pixel map: its
         middle, its lowest standing row's foot (its art's PNG's, as given)."""
         fig, _, base, _ = ARTF[file] if file else ART[name]
-        return x * 16 + len(fig[0]) // 2, y * 16 + base
+        return x * 16 + 8 * len(GRID[name][0]), y * 16 + base      # (the middle of its metatiles)
 
     def read_list(mi):
         """Map mi's list from ROM: [(group header, [records])], a landmark's
@@ -13385,7 +13386,7 @@ def test_m7view():
                     for c in range(8):
                         v = tile_pixel(tdata, t, r, c)
                         if v:
-                            got[(len(fig[0]) // 2 + dx + c, base + dy + r)] = as_plane(v)
+                            got[(8 * len(GRID[name][0]) + dx + c, base + dy + r)] = as_plane(v)
             #  (Under its lowest standing row the ground was held black
             #  here, as the user first drew Coneria's shadow, 2026-11-18;
             #  the art is the user's to edit now, the Temple's included.)
@@ -13618,6 +13619,19 @@ def test_m7view():
                 for c in range(len(GRID[name][0])):
                     blk = [[fig[r * 16 + yy][c * 16 + xx] if r * 16 + yy < base and fig[r * 16 + yy][c * 16 + xx] is not None
                             else under[r * 16 + yy][c * 16 + xx] for xx in range(16)] for yy in range(16)]
+                    w[(y + r) & 255][(x + c) & 255] = len(b)
+                    b.append(blk)
+        #  A picture wider than its metatiles (the Mirage Tower's shadow,
+        #  user, 2026-11-21) over the tiles to their right.
+        for (x, y), name in on.items():
+            fig, under, base, _ = ART[name]
+            cols, fw = len(GRID[name][0]), len(fig[0])
+            for r in range(len(GRID[name])):
+                for c in range(cols, (fw + 15) // 16):
+                    old = b[w[(y + r) & 255][(x + c) & 255]]
+                    blk = [[fig[r * 16 + yy][c * 16 + xx] if r * 16 + yy < base and c * 16 + xx < fw
+                            and fig[r * 16 + yy][c * 16 + xx] is not None else old[yy][xx] for xx in range(16)]
+                           for yy in range(16)]
                     w[(y + r) & 255][(x + c) & 255] = len(b)
                     b.append(blk)
         return w, b

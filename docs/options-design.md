@@ -4624,6 +4624,16 @@ always the plane, flat when the row says so.
     back the same, pixel for pixel); the others, what their ground colours
     do not reach from the picture's edge, the foot's rows filled out, the
     ground under them black from the foot's top and grass or sand above.
+    A landmark's picture may be wider than its metatiles, the extra
+    columns to the right, its anchor still the middle of its metatiles
+    (user, 2026-11-21: the Mirage Tower's shadow moved from the ground to
+    the sprite, "the two rightmost pixels of the shadow" past its tile):
+    the file is the picture, however wide, four magenta columns, then the
+    ground, as wide as its metatiles -- the build takes the ground as the
+    last columns and the gap as the four before them.  The picture is
+    scaled to each size and cut into 8x8 sprites then, so its width need
+    not be a multiple of 8.  Flat, the extra columns draw over the tile to
+    the right, as the test's flat picture has them.
     The Temple's small pillar stands whole and its shadow stays on the
     slab (user, 2026-11-18: "you chopped off the bottom half of the small
     pillar in front of the temple"); the Temple stands on the pillar's

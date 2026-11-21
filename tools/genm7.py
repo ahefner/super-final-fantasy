@@ -605,12 +605,15 @@ def extract(blocks, tsa):
         print("genm7: wrote %s" % os.path.relpath(path, ROOT))
 
 
-def read_art(tsa, name, tiles):
+def read_art(tsa, name, tiles, wide=True):
     """art/landmarks/NAME.png -> (the landmark standing, as tall as it is,
     None where it is not; the ground under it, its metatiles' pixels; its
     base, the row past its lowest; its palette).  Left, the landmark, the
-    key colour (or a clear pixel) where it is not; ART_GAP columns; right,
-    the ground.  The landmark's pixels the nearest of black, the palette's
+    key colour (or a clear pixel) where it is not -- as wide as its
+    metatiles, or wider to the right if wide (user, 2026-11-21: the Mirage
+    Tower's shadow, moved from the ground to the sprite, two pixels past
+    its tile), its anchor the middle of its metatiles' width either way;
+    ART_GAP columns; right, the ground, as wide as its metatiles.  The landmark's pixels the nearest of black, the palette's
     three and the key; the ground's, of black, every overworld BG
     palette's colours and the shades (ground_colours), never the key."""
     import pngio
@@ -622,16 +625,18 @@ def read_art(tsa, name, tiles):
         sys.exit("genm7: no %s (tools/genm7.py --extract writes a starting point)" % rel)
     w, h = 16 * len(tiles[0]), 16 * len(tiles)
     pw, ph, rows, _ = pngio.png_read(path)
-    if (pw, ph) != (2 * w + ART_GAP, h):
-        sys.exit("genm7: %s is %dx%d, not %dx%d: the landmark, %d columns, the ground"
-                 % (rel, pw, ph, 2 * w + ART_GAP, h, ART_GAP))
+    fw = pw - ART_GAP - w                   # the landmark's columns
+    if ph != h or fw < w or (fw != w and not wide):
+        sys.exit("genm7: %s is %dx%d, not %s x %d: the landmark, %d columns%s; %d; the ground, %d"
+                 % (rel, pw, ph, ("%d or more" % (2 * w + ART_GAP)) if wide else 2 * w + ART_GAP, h, w,
+                    " or more" if wide else "", ART_GAP, w))
     choice = [KEY] + cols
     def val(px):
         if px[3] < 128:
             return None
         i = min(range(5), key=lambda i: sum((px[k] - choice[i][k]) ** 2 for k in range(3)))
         return None if i == 0 else 0 if i == 1 else pal * 16 + i - 1
-    stand = [[val(rows[y][x]) for x in range(w)] for y in range(h)]
+    stand = [[val(rows[y][x]) for x in range(fw)] for y in range(h)]
     gcols = ground_colours(tsa, pal)
 
     def gval(px):
@@ -641,7 +646,7 @@ def read_art(tsa, name, tiles):
         if sum((px[k] - KEY[k]) ** 2 for k in range(3)) < sum((px[k] - rgb[k]) ** 2 for k in range(3)):
             return None
         return v
-    under = [[gval(rows[y][w + ART_GAP + x]) for x in range(w)] for y in range(h)]
+    under = [[gval(rows[y][fw + ART_GAP + x]) for x in range(w)] for y in range(h)]
     for y in range(h):
         for x in range(w):
             if under[y][x] is None:
@@ -828,7 +833,7 @@ def main():
         if not house and [len(r) for r in art_tiles(art)] != [len(r) for r in tiles]:
             sys.exit("genm7: %s shares %s.png, a different shape" % (name, art))
         if art not in under_of:
-            under_of[art] = read_art(tsa, art, tiles if house else art_tiles(art))
+            under_of[art] = read_art(tsa, art, tiles if house else art_tiles(art), wide=not house)
         fig, under, base, pal = under_of[art]
         for r, row in enumerate(tiles):
             for c, m in enumerate(row):
@@ -844,9 +849,10 @@ def main():
         if art in artinfo:
             return artinfo[art]
         pool = barts if house else arts
-        key = (tuple(map(tuple, fig)), base)
+        ax = 8 * len(tiles[0])                  # its anchor: its metatiles' middle
+        key = (tuple(map(tuple, fig)), base, ax)
         if key not in [a[0] for a in pool]:
-            pool.append((key, fig, base))
+            pool.append((key, fig, base, ax))
         a = [a[0] for a in pool].index(key) + (1 if house else 0)   # (the ship is 32x32 art 0)
         artinfo[art] = ((0x80 | a) if house else a, base, len(tiles), 16 * len(tiles[0]))
         return artinfo[art]
@@ -876,7 +882,7 @@ def main():
     #  anchor, the last sprite's (signed), and each sprite's from that corner
     #  with its tile.  Their tiles, and the houses' and the ship's rows, in
     #  whichever of LAND_CHUNKS has room.
-    allframes = [land_frames(fig, base, len(fig[0]) // 2) for _, fig, base in arts]
+    allframes = [land_frames(fig, base, ax) for _, fig, base, ax in arts]
     blobs = {c: bytearray() for c in LAND_CHUNKS}
     sprat = []
     for frames in allframes:
@@ -902,7 +908,7 @@ def main():
             blobs[c] += b"".join(tiles)
     #  The 32x32 frames: the docked ship's (art 0, SHIP_SIZES), the houses'.
     ship, ship_pal = ship_source()
-    bframes = [ship_frames(ship)] + [house_frames(fig, base, len(fig[0]) // 2) for _, fig, base in barts]
+    bframes = [ship_frames(ship)] + [house_frames(fig, base, ax) for _, fig, base, ax in barts]
     brecords = []
     for frames in bframes:
         c = place(sum(len(d) for d, _ in frames))
