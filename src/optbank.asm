@@ -267,7 +267,7 @@ opt_init:
   @reset:
     LDA #$00
     STA OPT_FUN                 ; the FUN% rows Off: opt_loadpreset keeps them
-                                ;   (all but 3D Overworld, which it writes)
+    STA OPT_FUN2                ;   (all but 3D Overworld, which it writes)
     LDA #OPT_DEFAULT_PRESET
     JSR opt_loadpreset
   @good:
@@ -298,8 +298,10 @@ opt_loadpreset:
     INY
     CPY #PRESET_FIELDS
     BCC @copy
-    LDA lut_Presets, X          ; the byte after them: 3D Overworld, which
-    STA OPT_FUN2                ;   the modes set (user, 2026-11-20)
+    LDA OPT_FUN2                ; the byte after them: 3D Overworld, which
+    AND #<~FUN2_TILT            ;   the modes set (user, 2026-11-20); the
+    ORA lut_Presets, X          ;   rest of the byte, Mountains, kept
+    STA OPT_FUN2
 
     ;  No preset randomizes anything, as none gives away a key item: the
     ;  new-game rows are off in all of them.

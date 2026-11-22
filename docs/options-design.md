@@ -2245,7 +2245,7 @@ the check that only a party member can be a White Mage is insurance: FFR's
 lookup by the attacker's low seven bits would read past its four-entry table
 for an enemy (user asked, 2026-10-11).
 
-### FUN% (5)
+### FUN% (6)
 
 **Built 2026-11-03; the first three played: Stereo Sound and Palette swap
 "extensively", the latter through its water, tones and grey ramps (the
@@ -2632,6 +2632,39 @@ take-off and landing against the airship's line, and beside Coneria's
 town every take-off frame's houses and landmarks at the size they settle
 on.  15 mutations, all caught (with `test_m7view`'s per-angle table
 checks).
+
+**Mountains** (user, 2026-11-21, on the ugly-mountains branch:
+art/mountains-uglier.png, 64x48 in 16x16 tiles, "The top-left 3x3 tiles
+are the border tiles for mountains.  The bottom-right tile is the cave
+entrance tile.  Can these be mapped over top the existing mountain
+graphics tiles and wired up as a FUN% graphics option without modifying
+the maps?"; "Call it "Mountains" - "Ugly" (vanilla), "Uglier" (new
+graphic)"; "Quantize to NES colors for now").  **Built 2026-11-21,
+committed on the user's word; not yet played.**  OPT_FUN2's bit 2 (`FUN2_MOUNT`), the
+player's: no preset sets it, `opt_loadpreset` writes only 3D
+Overworld's bits of the byte now, and a block retired to the default
+clears it.  With Uglier the plane draws the mountains' 3x3 --
+$10 $11 $12 / $20 $21 $22 / $30 $31 $33, found by what borders $21 on
+the game's map -- and the cave entrance, drawn the same in all seven
+caves ($0E $2B $2F $32 $34 $35 $3A), from the PNG's tiles; the maps and
+the game's tiles are unchanged, so every rule stays the game's.  Each
+pixel is the nearest of the plane's colours (`uglier_blocks`), the
+art's three browns NES $18, $08 and $28 -- derived colours (below) --
+the rest the palette's colours and the shades.  `genm7.py` gives the
+mountains' and the caves' characters numbers last (`build`'s `later`),
+so with Uglier its 35 take their place from `M7U_FIRST` (186) without
+moving any other; they follow the ground tables in the chunk's low half
+(`M7U_CHARS`).  The way in sends the 16KB and, with Uglier, those over
+them, and sends again when VRAM holds the other set (`h_m7chr` 1 or 2);
+`lut_M7Row` and `lut_M7Col` have a second half, Uglier's, which the
+drawers reach by `M7TABMT` (0 or `M7U_TABLE`, in high WRAM by the ring
+-- the Mode 7 variables were full), an `ADC` a metatile.  The two
+descriptions are drafts.  `test_mountains`: the row, its panes, the
+presets keeping it, and the plane beside the Marsh Cave entered, flown
+west (the columns) and switched from Ugly without VRAM lost: every
+mountain and cave tile the PNG's, read with the test's colours, every
+other as Ugly has it, Ugly none of them.  10 mutations, all caught (one
+a build that stops: the art past the characters there are).
 
   - **What changes.**  134 tiles, found by comparing the two ROMs tile by
     tile at the same address (they keep every graphic in the same place).
@@ -4702,7 +4735,7 @@ always the plane, flat when the row says so.
     is told from Elfland's while the two PNGs are still the same picture.
     10 mutations, all caught.
 
-    **The ground's colours, and three shades** (user, 2026-11-21: "I'd like
+    **The ground's colours, the shades and the browns** (user, 2026-11-21: "I'd like
     to use a darker green rather than black for shadows cast on grass";
     "two new colors, one darker color for grass in shadow, and probably a
     darker version of the swamp color in shadow"; "another shade of dark
@@ -4715,7 +4748,7 @@ always the plane, flat when the row says so.
     step darker than three of the palette's: the grass, entry 1 ($1A), as
     $0A (0, 81, 0); the swamp's blue, entry 11 ($21), as $11 (0, 115,
     239); and the stone's grey, entry 2 ($10), as $00 (117, 117, 117) --
-    at CGRAM 36, 37 and 38 (`M7SHADEn_NES`, `M7SHADEn`: BG row 2's spare
+    at CGRAM 36, 37 and 38 (`M7DERIVEn_NES`, `M7DERIVEn`: BG row 2's spare
     entries, past BG3's 0-31).  `pal_prep` stages them with the entry they
     darken, on the overworld only, as it does the castles' mirror: the
     same tint and grey, a step darker (less $10, black from the darkest
@@ -4734,7 +4767,16 @@ always the plane, flat when the row says so.
     as its entry; the shades in CGRAM on the way in, after the two entries
     move (black from the darkest row) and under greyscale; `test_palflush`
     that off the overworld nothing else moves.  8 mutations, all caught;
-    with the grey, 3 more.
+    with the grey, 3 more.  Since Mountains: Uglier they are one kind,
+    derived colours (`M7DERIVEn`: an entry's colour moved so many rows
+    and hues, black if it is a black or goes past row 3 or hue $C;
+    `lut_m7derive`, a record each, which `pal_prep` walks): the shades a
+    row darker, and the Mountains' browns, $18, $08 and $28, from the
+    stone's grey -- hue 0, the last the menus' cycle takes to black, as
+    it steps every colour's hue by one till black -- at CGRAM 39-41.
+    Under greyscale a derived colour is greyed after it is moved.  The
+    test follows them through a row up, the menus' cycle ($13; $15,
+    black) and greyscale; 3 mutations, all caught.
 
     The plane draws a landmark's metatiles as its ground: `genm7.py`
     makes their characters from the PNGs, not the tiles, and the

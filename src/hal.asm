@@ -1086,6 +1086,15 @@ lut_oamattr:
     .byte (i & $C0) | ((i & $03) << 1) | ((i & $20) ^ $20)
   .endrepeat
 
+;;  The overworld's derived colours (snesmap.inc's M7DERIVEn, pal_prep): a
+;;  record each, the NES palette entry it comes from, its CGRAM entry, its
+;;  rows x16 (signed) and its hues.
+lut_m7derive:
+  .repeat M7DERIVES, i
+    .byte .ident(.sprintf("M7DERIVE%d_NES", i)), .ident(.sprintf("M7DERIVE%d", i))
+    .byte (.ident(.sprintf("M7DERIVE%d_ROW", i)) * 16) & $FF, .ident(.sprintf("M7DERIVE%d_HUE", i))
+  .endrepeat
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Controller
 ;;
@@ -1803,27 +1812,57 @@ pal_prep:
       sta f:PALSTAGE + 1,x
       inc a:h_palsendn
 @nocastle:
-    ;  On the overworld its shades, entry M7SHADEn_NES's colour one NES
-    ;  step darker at CGRAM M7SHADEn (snesmap.inc), with this entry's tint
-    ;  and grey.
+    ;  On the overworld its derived colours (snesmap.inc's M7DERIVEn): each
+    ;  whose source is this entry, its colour moved so many rows and hues --
+    ;  black if a black, or past them -- then greyed and tinted as this one.
     lda a:h_m7objoff
-    beq @noshade
-    lda #M7SHADE0
-    cpy #M7SHADE0_NES
+    bne :+
+    jmp @noderive
+:   ldx #0
+@derive:
+    tya
+    cmp f:lut_m7derive + HALFAR,x
     beq :+
-    lda #M7SHADE1
-    cpy #M7SHADE1_NES
+    jmp @nextderive
+:   phx
+    lda f:lut_m7derive + HALFAR + 1,x
+    sta a:h_t1                  ; its CGRAM entry
+    lda f:lut_m7derive + HALFAR + 2,x
+    sta a:h_t3                  ; rows, x16, signed
+    lda f:lut_m7derive + HALFAR + 3,x
+    sta a:h_t5                  ; hues
+    tyx
+    lda f:NESPAL,x
+    and #$3F
+    pha
+    and #$0F
+    cmp #$0D
+    bcs @dblack                 ; a black
+    clc
+    adc a:h_t5
+    cmp #$0D
+    bcs @dblack                 ; past the hues
+    sta a:h_t5
+    pla
+    and #$30
+    clc
+    adc a:h_t3
+    cmp #$40
+    bcs @dblack2                ; past the rows
+    ora a:h_t5
+    bra @dgot
+@dblack:
+    pla
+@dblack2:
+    lda #$0F
+@dgot:
+    pha
+    lda a:h_greyscale
     beq :+
-    lda #M7SHADE2
-    cpy #M7SHADE2_NES
-    bne @noshade
-.assert M7SHADES = 3, error, "pal_prep tells each shade's entry"
-:   sta a:h_t1                  ; (its CGRAM entry, now this one is staged)
-    lda a:h_t4
-    sec
-    sbc #$10                    ; a step darker...
-    bcs :+
-    lda #$0F                    ; ...or black from the darkest row
+    pla
+    and #$30                    ; greyscale: the grey column's
+    bra :++
+:   pla
 :   rep #$20
     .a16
     and #$003F
@@ -1846,7 +1885,16 @@ pal_prep:
     sta f:PALSTAGE + 0,x
     sta f:PALSTAGE + 1,x
     inc a:h_palsendn
-@noshade:
+    plx
+@nextderive:
+    inx
+    inx
+    inx
+    inx
+    cpx #M7DERIVES * 4
+    bcs @noderive
+    jmp @derive
+@noderive:
     rep #$20
     .a16
 @skip:

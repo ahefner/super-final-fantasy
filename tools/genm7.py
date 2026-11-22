@@ -216,15 +216,17 @@ def m7_pixels(chr_, t, pal):
     return bytes((pal * 16 + c) if c else 0 for row in nes_tile(chr_, t) for c in row)
 
 
-def build(chr_, tsa, ground):
+def build(chr_, tsa, ground, later=()):
     """-> (characters as a list of 64-byte strings, per metatile the four
     corners' character numbers UL, UR, DL, DR, the characters' numbers by
-    their pixels).  A metatile in ground (its 16x16 pixels) is drawn so --
-    the landmarks' -- and the characters of its tiles are not made."""
+    their pixels; and the metatiles in later, their four characters'
+    pixels, not yet given numbers: their corners None).  A metatile in
+    ground (its 16x16 pixels) is drawn so -- the landmarks' -- and the
+    characters of its tiles are not made."""
     ul, ur, dl, dr, at = (tsa[0x100 + 0x80 * k:0x180 + 0x80 * k] for k in range(5))
     chars = [bytes(64)]
     index = {chars[0]: 0}
-    corners = []
+    corners, pending = [], {}
     for m in range(METATILES):
         pal = at[m] & 3
         four = []
@@ -233,12 +235,34 @@ def build(chr_, tsa, ground):
                 pix = bytes(ground[m][(q >> 1) * 8 + y][(q & 1) * 8 + x] for y in range(8) for x in range(8))
             else:
                 pix = m7_pixels(chr_, t, pal)
+            four.append(pix)
+        if m in later:
+            pending[m] = four
+            corners.append(None)
+            continue
+        for q, pix in enumerate(four):
             if pix not in index:
                 index[pix] = len(chars)
                 chars.append(pix)
-            four.append(index[pix])
+            four[q] = index[pix]
         corners.append(four)
-    return chars, corners, index
+    return chars, corners, index, pending
+
+
+def place_chars(chars, index, four):
+    """Four characters' pixels -> their numbers, any not yet there added."""
+    out = []
+    for pix in four:
+        if pix not in index:
+            index[pix] = len(chars)
+            chars.append(pix)
+        out.append(index[pix])
+    return out
+
+
+def quarters(block):
+    """A 16x16 block's four 8x8 characters' pixels, UL, UR, DL, DR."""
+    return [bytes(block[(q >> 1) * 8 + y][(q & 1) * 8 + x] for y in range(8) for x in range(8)) for q in range(4)]
 
 
 def specials(chars, corners):
@@ -446,37 +470,71 @@ def land_palette(tsa, name, tiles):
     return pals.pop()
 
 
-def shades():
-    """The overworld's shades: [(NES palette entry, CGRAM entry)], from
-    snesmap.inc's M7SHADEn_NES and M7SHADEn, each the entry's colour one NES
-    step darker (pal_prep's)."""
+def derived():
+    """The overworld's derived colours: [(NES palette entry, CGRAM entry,
+    rows, hues)], from snesmap.inc's M7DERIVEn_NES, M7DERIVEn, _ROW and
+    _HUE: the entry's colour moved so (pal_prep's; derive)."""
     text = open(os.path.join(ROOT, "src", "snesmap.inc")).read()
     out = []
-    for n in range(8):
-        a = re.search(r"^M7SHADE%d_NES\s*=\s*(\d+)" % n, text, re.M)
-        b = re.search(r"^M7SHADE%d\s*=\s*(\d+)" % n, text, re.M)
-        if not a or not b:
+    for n in range(16):
+        f = [re.search(r"^M7DERIVE%d%s\s*=\s*(-?\d+)" % (n, k), text, re.M) for k in ("_NES", "", "_ROW", "_HUE")]
+        if not all(f):
             break
-        out.append((int(a.group(1)), int(b.group(1))))
+        out.append(tuple(int(m.group(1)) for m in f))
     return out
 
 
-def darker(nes):
-    """An NES colour one step darker, as pal_prep makes a shade."""
-    return nes - 0x10 if nes >= 0x10 else 0x0F
+def derive(nes, rows, hues):
+    """An NES colour moved rows and hues, as pal_prep derives one: black if
+    it is a black ($xD-$xF), or past row 3 or hue $C."""
+    if nes & 0x0F >= 0x0D:
+        return 0x0F
+    row, hue = (nes >> 4) + rows, (nes & 0x0F) + hues
+    return row * 16 + hue if 0 <= row <= 3 and hue < 0x0D else 0x0F
 
 
 def ground_colours(tsa, pal):
     """The colours a landmark's ground may take (user, 2026-11-21): black;
     every overworld BG palette's three, the art's palette's first (so
-    a colour two palettes have is the art's); then the shades.  ->
-    [(rgb, the plane's value: its CGRAM entry)]."""
+    a colour two palettes have is the art's); then the derived colours
+    (the shades, the Mountains' browns).  -> [(rgb, the plane's value: its
+    CGRAM entry)]."""
     import genpal
     owpal = tsa[0x380:0x3B0]
     out = [(genpal.NESPAL[owpal[0] & 0x3F], 0)]
     for p in [pal] + [q for q in range(4) if q != pal]:
         out += [(genpal.NESPAL[owpal[p * 4 + c] & 0x3F], p * 16 + c) for c in (1, 2, 3)]
-    out += [(genpal.NESPAL[darker(owpal[i] & 0x3F)], at) for i, at in shades()]
+    out += [(genpal.NESPAL[derive(owpal[i] & 0x3F, rows, hues)], at) for i, at, rows, hues in derived()]
+    return out
+
+
+#  Mountains: Uglier (user, 2026-11-21: art/mountains-uglier.png, "16x16
+#  tiles.  The top-left 3x3 tiles are the border tiles for mountains.  The
+#  bottom-right tile is the cave entrance tile"): each tile and the
+#  metatiles it draws -- the mountains' 3x3, and the cave entrance, drawn
+#  the same in all seven.
+UGLIER = os.path.join(ROOT, "art", "mountains-uglier.png")
+UGLIER_TILES = {(0, 0): (0x10,), (1, 0): (0x11,), (2, 0): (0x12,),
+                (0, 1): (0x20,), (1, 1): (0x21,), (2, 1): (0x22,),
+                (0, 2): (0x30,), (1, 2): (0x31,), (2, 2): (0x33,),
+                (3, 2): (0x0E, 0x2B, 0x2F, 0x32, 0x34, 0x35, 0x3A)}
+
+
+def uglier_blocks(tsa):
+    """{metatile: its 16x16 pixels as the plane has them} from UGLIER, each
+    pixel the nearest of the plane's colours (ground_colours), a colour two
+    palettes have the metatile's palette's."""
+    import pngio
+    pw, ph, rows, _ = pngio.png_read(UGLIER)
+    if pw < 64 or ph < 48:
+        sys.exit("genm7: %s is %dx%d, not 64x48" % (os.path.relpath(UGLIER, ROOT), pw, ph))
+    out = {}
+    for (tx, ty), ms in UGLIER_TILES.items():
+        cols = ground_colours(tsa, tsa[0x300 + ms[0]] & 3)
+        blk = [[min(cols, key=lambda cv: sum((rows[ty * 16 + y][tx * 16 + x][k] - cv[0][k]) ** 2
+                                             for k in range(3)))[1] for x in range(16)] for y in range(16)]
+        for m in ms:
+            out[m] = blk
     return out
 
 
@@ -879,19 +937,31 @@ def main():
         how = {} if house else next(h for n, _, h in LANDMARKS if n == name) or {}
         if "swamp" in how:
             take(name, tiles, how["swamp"], False)
-    chars, corners, index = build(chr_, tsa, ground)
+    #  The characters: every metatile's but the mountains' and the caves',
+    #  the landmarks' grounds', then theirs last, from M7U_FIRST -- so with
+    #  Mountains: Uglier, which draws none of them, the art's characters
+    #  take their place from there (uglier, the way in's second upload).
+    #  The metatiles' corners: lut_M7Row's and lut_M7Col's first half
+    #  Mountains: Ugly's, its second Uglier's.
+    ugly = {m for ms in UGLIER_TILES.values() for m in ms}
+    chars, corners, index, pending = build(chr_, tsa, ground, later=ugly)
     specials(chars, corners)
     for block in vground:
-        four = []
-        for q in range(4):
-            pix = bytes(block[(q >> 1) * 8 + y][(q & 1) * 8 + x] for y in range(8) for x in range(8))
-            if pix not in index:
-                index[pix] = len(chars)
-                chars.append(pix)
-            four.append(index[pix])
-        corners.append(four)
+        corners.append(place_chars(chars, index, quarters(block)))
+    ustart = len(chars)
+    base_index = dict(index)
+    for m, four in pending.items():
+        corners[m] = place_chars(chars, index, four)
     if len(chars) > SPECIAL or len(corners) > 256:
         sys.exit("genm7: %d characters, past the %d before the bridge's and the canal's" % (len(chars), SPECIAL))
+    uchars, uindex = chars[:ustart], dict(base_index)
+    ucorners = [list(c) for c in corners]
+    for m, blk in uglier_blocks(tsa).items():
+        ucorners[m] = place_chars(uchars, uindex, quarters(blk))
+    if len(uchars) > SPECIAL:
+        sys.exit("genm7: Mountains: Uglier takes %d characters, past the %d before the bridge's and the canal's"
+                 % (len(uchars), SPECIAL))
+    uglier = b"".join(uchars[ustart:])
     if len(arts) > 15 or len(barts) + 1 > 15:
         sys.exit("genm7: %d and %d arts; a frame is named art * 16 + size, $FF none" % (len(arts), len(barts) + 1))
     #  The landmarks' frames: every sprite list in LAND_CHUNKS[0]'s low half
@@ -973,8 +1043,10 @@ def main():
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tblobs, offs, banks = tilt_tables(vmin, vmax)
     os.makedirs(os.path.dirname(OUTBIN), exist_ok=True)
+    if 0x4000 + len(gtab) + len(uglier) > 0x8000:
+        sys.exit("genm7: Mountains: Uglier's characters end past the low half")
     with open(OUTBIN, "wb") as f:
-        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + bytes(gtab))
+        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + bytes(gtab) + uglier)
     for c, blob in tblobs.items():
         with open(OUTTILT % c, "wb") as f:
             f.write(bytes(blob))
@@ -996,7 +1068,11 @@ def main():
            "M7P_VMAX = %d" % vmax,
            "M7P_FOGSUB = %d" % (1 if FOG_SUBTRACT else 0),
            "M7G_TABLES = $4000          ; the ground tables: per map 256 words, then the records",
-           "M7G_FIRST = $%02X           ; the landmarks' grounds' metatiles, %d of them" % (VGROUND0, len(vground))]
+           "M7G_FIRST = $%02X           ; the landmarks' grounds' metatiles, %d of them" % (VGROUND0, len(vground)),
+           "M7U_FIRST = %d          ; Mountains: Uglier's characters, from this one..." % ustart,
+           "M7U_COUNT = %d          ; ...this many..." % (len(uchars) - ustart),
+           "M7U_CHARS = $%04X          ; ...from here in the chunk's low half" % (0x4000 + len(gtab)),
+           "M7U_TABLE = %d          ; lut_M7Row's and lut_M7Col's Uglier half, this far on" % (4 * len(corners))]
     for k in ("A", "D", "RG", "B", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
     out.append("lut_M7PBank: .BYTE %s          ; the HDMA tables' bank"
@@ -1080,11 +1156,13 @@ def main():
         with open(OUTLAND % c, "wb") as f:
             f.write(bytes(blobs[c]))
     out += ["lut_M7Row:"]
-    for m, (a, b, c, d) in enumerate(corners):
-        out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, b, c, d, m))
+    for half in (corners, ucorners):
+        for m, (a, b, c, d) in enumerate(half):
+            out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, b, c, d, m))
     out.append("lut_M7Col:")
-    for m, (a, b, c, d) in enumerate(corners):
-        out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, c, b, d, m))
+    for half in (corners, ucorners):
+        for m, (a, b, c, d) in enumerate(half):
+            out.append("  .BYTE $%02X, $%02X, $%02X, $%02X   ; metatile $%02X" % (a, c, b, d, m))
     with open(OUTINC, "w") as f:
         f.write("\n".join(out) + "\n")
 

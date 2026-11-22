@@ -14,7 +14,7 @@
 .include "optmenu.inc"
 
 .export lut_Desc_109, lut_Desc_110, lut_Desc_111, lut_Desc_112, lut_Desc_113
-.export lut_Desc_114, lut_Desc_115, lut_Desc_116, lut_Desc_117
+.export lut_Desc_114, lut_Desc_115, lut_Desc_116, lut_Desc_117, lut_Desc_118
 .export lut_Desc_103            ; the Goal's, moved from the first bank (2026-11-06)
 
 .segment "BANK_OPTTEXT2"
@@ -82,6 +82,21 @@ lut_Desc_115:  ; Graphics (draft, 2026-11-14)
   FFPAD {"Japan shows the graphics the"}, 28
   FFPAD {"Japanese release had before"}, 28
   FFPAD {"the US release changed them."}, 28
+
+lut_Desc_118:  ; Mountains, by value (drafts, 2026-11-21)
+  .BYTE DESC_BYVALUE
+  .WORD lut_Desc_118_0, lut_Desc_118_1
+  .assert * - lut_Desc_118 = 1 + 2 * FUN2_MOUNT_MODES, error, "one Mountains description per mode"
+
+lut_Desc_118_0:  ; Mountains: Ugly
+  FFLINES 2
+  FFPAD {"The mountains as the"}, 28
+  FFPAD {"original game drew them."}, 28
+
+lut_Desc_118_1:  ; Mountains: Uglier
+  FFLINES 2
+  FFPAD {"Brown mountains with snow on"}, 28
+  FFPAD {"their peaks."}, 28
 
 lut_Desc_117:  ; 3D Overworld, by value (the user's words, 2026-11-20)
   .BYTE DESC_BYVALUE

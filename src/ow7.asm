@@ -612,6 +612,7 @@ m7_drawrow:
     ASL A
     ASL A
     ORA a:h_m7line
+    ADC a:M7TABMT & $FFFF       ; (carry clear) Mountains' half
     PHX
     TAX
     LDA f:OW7FAR + lut_M7Row, X ; its two characters on this line
@@ -707,6 +708,7 @@ m7_drawcol:
     ASL A
     ASL A
     ORA a:h_m7line
+    ADC a:M7TABMT & $FFFF       ; (carry clear) Mountains' half
     PHX
     TAX
     LDA f:OW7FAR + lut_M7Col, X
@@ -756,8 +758,19 @@ m7_enter:
     PHY
     LDA #$80
     STA a:INIDISP               ; forced blank, as the game has it already
-    LDA a:h_m7chr
+    ;  The plane's characters, if VRAM lost them or holds the other
+    ;  Mountains' (h_m7chr 1 Ugly's, 2 Uglier's): the 16KB, and with Uglier
+    ;  its characters over the mountains' and the caves', from M7U_FIRST
+    ;  (genm7.py: theirs last, so the rest stay where they are).
+    LDA f:CHUNK0 * $10000 + OPT_FUN2
+    AND #FUN2_MOUNT
+    BEQ :+
+    LDA #1
+:   INC A
+    CMP a:h_m7chr
     BNE :+
+    JMP @have
+:   STA a:h_m7chr
     LDA #$80
     STA a:VMAIN                 ; a word on after each high byte
     STZ a:VMADDL
@@ -774,11 +787,38 @@ m7_enter:
     STA a:DAS0H                 ; 16KB: 256 characters of 64 pixels
     LDA #$01
     STA a:MDMAEN
-    STA a:h_m7chr
-:   CLC
+    LDA a:h_m7chr
+    CMP #2
+    BNE @have
+    LDA #<(M7U_FIRST * 64)
+    STA a:VMADDL
+    LDA #>(M7U_FIRST * 64)
+    STA a:VMADDH
+    LDA #<M7U_CHARS
+    STA a:A1T0L
+    LDA #>M7U_CHARS
+    STA a:A1T0H
+    LDA #<(M7U_COUNT * 64)
+    STA a:DAS0L
+    LDA #>(M7U_COUNT * 64)
+    STA a:DAS0H
+    LDA #$01
+    STA a:MDMAEN
+@have:
+    CLC
     XCE
     REP #$10
     .i16
+    LDA a:h_m7chr
+    CMP #2                      ; carry: Uglier
+    REP #$20
+    .a16
+    LDA #0
+    BCC :+
+    LDA #M7U_TABLE
+:   STA f:M7TABMT               ; the drawers' half of lut_M7Row and lut_M7Col
+    SEP #$20
+    .a8
     STZ a:h_m7airy              ; (no take-off under way)
     JSR m7_angle
     JSR m7_tables

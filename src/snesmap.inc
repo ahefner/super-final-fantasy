@@ -353,6 +353,12 @@ FUN2_TILT_AIRSHIP = 1           ; tilted in the airship, through its take-off an
 FUN2_TILT_ALWAYS = 2            ; tilted everywhere: "For the truly depraved."
 FUN2_TILT_HELD  = 3             ; no row's: the angle as h_m7lvl has it (the tests')
 FUN2_TILT_MODES = 3
+;  Mountains (user, 2026-11-21: "Ugly" the game's, "Uglier" art/mountains-
+;  uglier.png's; genm7.py, ow7.asm's way in): bit 2 of the same byte, the
+;  player's (no preset sets it; opt_loadpreset keeps it).
+FUN2_MOUNT      = $04
+FUN2_MOUNT_SHIFT = 2
+FUN2_MOUNT_MODES = 2
 .assert (RESPOND_FIELD & FUN_FIELD) = 0 && (FUN_STEREO & FUN_FIELD) = FUN_STEREO, error, "the FUN% bits overlap the respond rate"
 
 ;  The option flags, one bit each.  Here rather than in optbank.asm because a
@@ -1307,22 +1313,46 @@ VRAM_CHR        = $6000         ; $6000-$7FFF  512 tiles, 4bpp (16KB)
 ;    BG palette p, colour c  ->  entry p*16 + c        (p = 0..3, c = 0..3)
 ;    OBJ palette p, colour c ->  entry 128 + p*16 + c
 ;    Entry 0 doubles as the backdrop, which is what NES $3F00 means.
-;  On the overworld, its shades: NES palette entry M7SHADEn_NES one NES
-;  step darker (its colour less $10, black under $10), at entry M7SHADEn --
-;  BG row 2's spare entries, past BG3's 0-31 -- kept by pal_prep as the
-;  palette moves, so fades, Palette swap's tints and greyscale reach them;
-;  the landmarks' grounds may use them (genm7.py; user, 2026-11-21: "one
-;  darker color for grass in shadow, and probably a darker version of the
-;  swamp color in shadow"; "another shade of dark gray to soften the shadows
-;  cast over stone").
+;  On the overworld, its derived colours: NES palette entry M7DERIVEn_NES's
+;  colour moved M7DERIVEn_ROW rows and M7DERIVEn_HUE hues -- black if it is
+;  a black ($xD-$xF), or past row 3 or hue $C -- at entry M7DERIVEn, BG row
+;  2's spare entries past BG3's 0-31, kept by pal_prep as the palette
+;  moves: so the menus' cycle, which steps every colour's hue till black,
+;  fades, Palette swap's tints and greyscale reach them as they reach the
+;  entry.  The landmarks' grounds and Mountains: Uglier may use them
+;  (genm7.py).  The shades, a row darker (user, 2026-11-21: "one darker
+;  color for grass in shadow, and probably a darker version of the swamp
+;  color in shadow"; "another shade of dark gray to soften the shadows cast
+;  over stone"):
 ; ------------------------------------------------------------------------
-M7SHADE0_NES    = 1             ; BG palette 0, colour 1: the grass ($1A, dark $0A)
-M7SHADE0        = 36
-M7SHADE1_NES    = 11            ; BG palette 2, colour 3: the swamp's blue ($21, dark $11)
-M7SHADE1        = 37
-M7SHADE2_NES    = 2             ; BG palette 0, colour 2: the stone's grey ($10, dark $00)
-M7SHADE2        = 38
-M7SHADES        = 3
+M7DERIVE0_NES   = 1             ; BG palette 0, colour 1: the grass ($1A, dark $0A)
+M7DERIVE0       = 36
+M7DERIVE0_ROW   = -1
+M7DERIVE0_HUE   = 0
+M7DERIVE1_NES   = 11            ; BG palette 2, colour 3: the swamp's blue ($21, dark $11)
+M7DERIVE1       = 37
+M7DERIVE1_ROW   = -1
+M7DERIVE1_HUE   = 0
+M7DERIVE2_NES   = 2             ; BG palette 0, colour 2: the stone's grey ($10, dark $00)
+M7DERIVE2       = 38
+M7DERIVE2_ROW   = -1
+M7DERIVE2_HUE   = 0
+;  Mountains: Uglier's browns, from the grey -- hue 0, the last of the
+;  palette the menus' cycle takes to black -- $18, $08 and $28 (user,
+;  2026-11-21: "Quantize to NES colors for now"):
+M7DERIVE3_NES   = 2
+M7DERIVE3       = 39
+M7DERIVE3_ROW   = 0
+M7DERIVE3_HUE   = 8
+M7DERIVE4_NES   = 2
+M7DERIVE4       = 40
+M7DERIVE4_ROW   = -1
+M7DERIVE4_HUE   = 8
+M7DERIVE5_NES   = 2
+M7DERIVE5       = 41
+M7DERIVE5_ROW   = 1
+M7DERIVE5_HUE   = 8
+M7DERIVES       = 6
 
 ; ------------------------------------------------------------------------
 ;  HAL scalars
@@ -1518,6 +1548,10 @@ M7OBJBUF        = M7OBJROW + $100
 ;  none (h_m7bkey's other way round), for m7_lands to look up at once.
 M7BREV          = M7OBJBUF + $200
 .assert M7BREV + $100 <= CHRSHADOW, error, "M7BREV overlaps CHRSHADOW"
+;  2 bytes: 0, or M7U_TABLE with Mountains: Uglier -- lut_M7Row's and
+;  lut_M7Col's half the drawers read (the way in sets it); by DBR $7E there.
+M7TABMT         = M7BREV + $100
+.assert M7TABMT + 2 <= CHRSHADOW, error, "M7TABMT overlaps CHRSHADOW"
 .assert M7RING >= CGSHADOW + $200 && M7RING + M7RING_ROWS * $100 <= CHRSHADOW, error, "the Mode 7 ring overlaps the HAL's WRAM"
 ;  The plane's rows and columns, queued for the flush: records of a VRAM
 ;  word address (2), a VMAIN (1: $00 a row, a byte a word along; $02 a
@@ -1667,8 +1701,8 @@ PALSTAGE        = $7E4840       ; 192 bytes: the next flush's CGRAM writes,
                                 ;   address twice, then the colour (pal_prep):
                                 ;   the NES palette's 32 and h_xpal's 8; on the
                                 ;   overworld, the 32, the castles' 8 and the
-                                ;   shades' M7SHADES
-.assert PALSTAGE + (32 + 8 + M7SHADES) * 4 <= CGSHADOW, error, "PALSTAGE runs into CGSHADOW"
+                                ;   derived colours' M7DERIVES
+.assert PALSTAGE + (32 + 8 + M7DERIVES) * 4 <= CGSHADOW, error, "PALSTAGE runs into CGSHADOW"
 h_palforce      = HAL_VARS+$51  ; rewrite every CGRAM entry, not just changes
 h_palsendn      = HAL_VARS+$CE  ; records waiting in PALSTAGE for the flush
 h_chrqn         = HAL_VARS+$CF  ; words in CHRQUEUE; above CHRQ_CAP, too many: the span

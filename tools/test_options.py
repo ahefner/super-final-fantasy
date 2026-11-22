@@ -13091,7 +13091,15 @@ def test_m7view():
     TSA = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()[:0x400]
     import pngio, genpal
 
-    SHADES = [(K["M7SHADE%d_NES" % n], K["M7SHADE%d" % n]) for n in range(3)]
+    SHADES = [(K["M7DERIVE%d_NES" % n], K["M7DERIVE%d" % n], K["M7DERIVE%d_ROW" % n], K["M7DERIVE%d_HUE" % n])
+              for n in range(K["M7DERIVES"])]
+
+    def derive(nes, rows, hues):
+        """An NES colour moved so (snesmap.inc's M7DERIVEn): black if a black,
+        or past row 3 or hue $C."""
+        if nes & 15 >= 13 or not 0 <= (nes >> 4) + rows <= 3 or (nes & 15) + hues >= 13:
+            return 0x0F
+        return nes + 16 * rows + hues
 
     def own_art(name, grid):
         """art/landmarks/NAME.png read here, not by genm7.read_art: (the
@@ -13108,7 +13116,7 @@ def test_m7view():
         gcols = [(genpal.NESPAL[owpal[0] & 0x3F], 0)] + \
             [(genpal.NESPAL[owpal[p_ * 4 + c] & 0x3F], p_ * 16 + c) for p_ in [pal] + [q for q in range(4) if q != pal]
              for c in (1, 2, 3)] + \
-            [(genpal.NESPAL[(owpal[i] & 0x3F) - 0x10 if owpal[i] & 0x3F >= 0x10 else 0x0F], at) for i, at in SHADES]
+            [(genpal.NESPAL[derive(owpal[i] & 0x3F, rw, hu)], at) for i, at, rw, hu in SHADES]
         w, h = 16 * len(grid[0]), 16 * len(grid)
         pw, _, rows, _ = pngio.png_read(os.path.join(ROOT, "art", "landmarks", name + ".png"))
         fw = pw - genm7.ART_GAP - w                     # (the landmark may be wider, to the right)
@@ -13241,8 +13249,8 @@ def test_m7view():
             first = next(q * 16 + d for q in [gpal] + [q for q in range(4) if q != gpal] for d in (1, 2, 3)
                          if owpal[q * 4 + d] & 0x3F == nesc)
             want.append((genpal.NESPAL[nesc], first))
-    want += [(genpal.NESPAL[0x0A], K["M7SHADE0"]), (genpal.NESPAL[0x11], K["M7SHADE1"]),
-             (genpal.NESPAL[0x00], K["M7SHADE2"])]
+    want += [(genpal.NESPAL[0x0A], 36), (genpal.NESPAL[0x11], 37), (genpal.NESPAL[0x00], 38),
+             (genpal.NESPAL[0x18], 39), (genpal.NESPAL[0x08], 40), (genpal.NESPAL[0x28], 41)]
     with tempfile.TemporaryDirectory() as d:
         cols = [(255, 0, 255)] + [rgb for rgb, _ in want]
         idx = [[0] * 68 for _ in range(32)]
@@ -14385,23 +14393,32 @@ def test_m7view():
     #  CGRAM 36, 37 and 38 the grass ($1A), the swamp's blue ($21) and the
     #  stone's grey ($10) a NES step darker -- $0A, $11 and $00 -- and as
     #  those move (a fade, a tint), the moved colours a step darker, black
-    #  from the darkest row; under greyscale, the grey column's.
+    #  from the darkest row; under greyscale, the grey column's.  And
+    #  Mountains: Uglier's browns at 39, 40 and 41, the grey's colour moved
+    #  to $18, $08 and $28: with it, a row up; through the menus' cycle,
+    #  which steps every hue till black ($13: $1B, $0B, $2B; $15, past $C:
+    #  black); greyed (user, 2026-11-21: "Quantize to NES colors").
     snes = lambda c: bytes(ROMDATA[SYM["nespal_snes"] + 2 * (c & 0x3F):][:2])
-    shade = lambda: tuple(bytes(bus.cgram[2 * e:2 * e + 2]) for e in (36, 37, 38))
+    shade = lambda: tuple(bytes(bus.cgram[2 * e:2 * e + 2]) for e in range(36, 42))
     got = [shade()]
-    for g1, g11, g2, grey in ((0x2A, 0x0C, 0x20, 0), (0x1A, 0x21, 0x10, 1)):
+    for g1, g11, g2, grey in ((0x2A, 0x0C, 0x20, 0), (0x1A, 0x21, 0x10, 1), (0x1A, 0x21, 0x13, 0),
+                              (0x1A, 0x21, 0x15, 0)):
         bus.wram[0x4800 + 1], bus.wram[0x4800 + 11], bus.wram[0x4800 + 2] = g1, g11, g2
         bus.wram[K["h_greyscale"]] = grey
         bus.wram[K["h_paldirty"]] = 1
-        bus.wram[K["h_palforce"]] = grey
+        bus.wram[K["h_palforce"]] = 1               # (as greyscale's change forces, on or off)
         call(cpu, "hal_waitvbl", bank=0xC0)
         got.append(shade())
     bus.wram[K["h_greyscale"]] = 0
     bus.wram[K["h_paldirty"]] = bus.wram[K["h_palforce"]] = 1
     call(cpu, "hal_waitvbl", bank=0xC0)
-    check("the overworld's shades at CGRAM 36-38: the grass, the swamp's blue and the stone's grey a step darker, "
-          "as they move", got, [(snes(0x0A), snes(0x11), snes(0x00)), (snes(0x1A), snes(0x0F), snes(0x10)),
-                                (snes(0x00), snes(0x10), snes(0x00))])
+    check("the overworld's derived colours at CGRAM 36-41: the grass, the swamp's blue and the stone's grey a step "
+          "darker, the Mountains' browns from the grey, as they move",
+          got, [tuple(snes(c) for c in (0x0A, 0x11, 0x00, 0x18, 0x08, 0x28)),
+                tuple(snes(c) for c in (0x1A, 0x0F, 0x10, 0x28, 0x18, 0x38)),
+                tuple(snes(c) for c in (0x00, 0x10, 0x00, 0x10, 0x00, 0x20)),
+                tuple(snes(c) for c in (0x0A, 0x11, 0x03, 0x1B, 0x0B, 0x2B)),
+                tuple(snes(c) for c in (0x0A, 0x11, 0x05, 0x0F, 0x0F, 0x0F))])
     #  The palette mirror; the way out: OAM's priority turned back at the
     #  first flush, though nothing of the game's is sent before it.
     on = (bytes(bus.cgram[2 * 196:2 * 204]), bytes(bus.cgram[0:8]) + bytes(bus.cgram[32:40]))
@@ -23726,6 +23743,154 @@ def test_3doverworld():
           "frame the one it wants (%d angles)" % len(settled), (bad[:4], len(settled)), ([], LAST + 1))
 
 
+
+# --- FUN%: Mountains -------------------------------------------------------------
+
+def test_mountains():
+    """Mountains (user, 2026-11-21: a FUN% row, "Ugly" (vanilla), "Uglier"
+    (new graphic): art/mountains-uglier.png, 16x16 tiles, "The top-left 3x3
+    tiles are the border tiles for mountains.  The bottom-right tile is the
+    cave entrance tile", "without modifying the maps"; "Quantize to NES
+    colors").  The row: FUN%, after 3D Overworld, OPT_FUN2's bit 2, the
+    player's -- a fresh cart Ugly, the title's and New Game's presets
+    keeping it.  With Uglier, the plane draws the mountains' nine metatiles
+    and the seven caves' entrances as the PNG's tiles, each pixel the
+    nearest of the plane's colours (read here: black, the four BG
+    palettes', the metatile's first, and the derived ones); with Ugly as
+    the game's (test_m7view)."""
+    import presetdefs as P, genpresets as G, genm7, genmaps, genpal, pngio
+    FUN2, MOUNT = K["OPT_FUN2"] - OPTBLOCK, K["FUN2_MOUNT"]
+    rows = P.rows()
+    names = [r.label for r in rows]
+    row = rows[names.index("Mountains")]
+    tbl = lambda name, i: ROMDATA[rom_at(name) + i]
+    check("Mountains: FUN%, after 3D Overworld, Ugly and Uglier, OPT_FUN2's bit 2",
+          (row.section, names[names.index("Mountains") - 1], row.values,
+           (tbl("lut_ValOff", row.arg), tbl("lut_ValBit", row.arg), tbl("lut_ValMask", row.arg))),
+          ("FUN%", "3D Overworld", ["Ugly", "Uglier"], (FUN2, 2, MOUNT)))
+    SEL, TOP = 0x6E, 0x6F
+
+    def desc(r, v):
+        bus, cpu = machine()
+        in_vblank(bus)
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, v)
+        bus.wram[SEL], bus.wram[TOP] = r, r - 10
+        call(cpu, "opt_menu_desc", dbr=OPTMENU_BANK)
+        return pane(bus)
+    check("its pane, each value", [desc(optrow("Mountains"), v) for v in (0, MOUNT)],
+          [["The mountains as the", "original game drew them."], ["Brown mountains with snow on", "their peaks."]])
+    got = []
+    for preset in range(3):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, MOUNT)
+        cpu.a = preset
+        call(cpu, "opt_loadpreset", dbr=CHUNK_OPT_BANK)
+        got.append(blk(bus, FUN2) & MOUNT)
+    presets = G.resolve(G.load(), rows)
+    for k in range(len(presets)):
+        bus, cpu = machine()
+        call(cpu, "opt_init")
+        setblk(bus, FUN2, MOUNT)
+        cpu.a = k
+        call(cpu, "ngp_apply")
+        got.append(blk(bus, FUN2) & MOUNT)
+    bus, cpu = machine()
+    call(cpu, "opt_init")
+    check("the player's: the title's presets and New Game's keep it, a fresh cart Ugly",
+          (got, blk(bus, FUN2) & MOUNT), ([MOUNT] * (3 + len(presets)), 0))
+
+    #  The plane, entered beside the mountains and a cave on the game's map
+    #  (the Marsh Cave's, $0E), Uglier, the angle flat.
+    TILES = {(0, 0): (0x10,), (1, 0): (0x11,), (2, 0): (0x12,), (0, 1): (0x20,), (1, 1): (0x21,),
+             (2, 1): (0x22,), (0, 2): (0x30,), (1, 2): (0x31,), (2, 2): (0x33,),
+             (3, 2): (0x0E, 0x2B, 0x2F, 0x32, 0x34, 0x35, 0x3A)}
+    tsa = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()[:0x400]
+    owpal = tsa[0x380:0x3B0]
+
+    def derive(nes, rws, hus):
+        if nes & 15 >= 13 or not 0 <= (nes >> 4) + rws <= 3 or (nes & 15) + hus >= 13:
+            return 0x0F
+        return nes + 16 * rws + hus
+    extra = [(genpal.NESPAL[derive(owpal[K["M7DERIVE%d_NES" % n]] & 0x3F, K["M7DERIVE%d_ROW" % n],
+                                   K["M7DERIVE%d_HUE" % n])], K["M7DERIVE%d" % n]) for n in range(K["M7DERIVES"])]
+    _, _, png, _ = pngio.png_read(os.path.join(ROOT, "art", "mountains-uglier.png"))
+    want = {}
+    for (tx, ty), ms in TILES.items():
+        pal = tsa[0x300 + ms[0]] & 3
+        cols = [(genpal.NESPAL[owpal[0] & 0x3F], 0)] + \
+            [(genpal.NESPAL[owpal[p * 4 + c] & 0x3F], p * 16 + c) for p in [pal] + [q for q in range(4) if q != pal]
+             for c in (1, 2, 3)] + extra
+        blk_ = [[min(cols, key=lambda cv: sum((png[ty * 16 + y][tx * 16 + x][k] - cv[0][k]) ** 2
+                                              for k in range(3)))[1] for x in range(16)] for y in range(16)]
+        for m in ms:
+            want[m] = blk_
+    world = bytes(genmaps.tiles_of(genmaps.parse()[0])[0])
+    north, south, west, east = genm7.region()
+
+    def region(bus):
+        """{(column, row): the 16x16 pixels the plane holds there} over the
+        region the plane keeps around the pivot's tile."""
+        tx, ty = (bus.wram[K["ow_scroll_x"]] + 7) & 255, (bus.wram[K["ow_scroll_y"]] + 7) & 255
+        out = {}
+        for my in range(ty - north, ty + south + 1):
+            for mx in range(tx - west, tx + east + 1):
+                r, c = (my & 63) * 2, (mx & 63) * 2
+                got = [[0] * 16 for _ in range(16)]
+                for q in range(4):
+                    ch = bus.vram[2 * ((r + (q >> 1)) * 128 + c + (q & 1))]
+                    for i in range(64):
+                        got[(q >> 1) * 8 + i // 8][(q & 1) * 8 + i % 8] = bus.vram[2 * (ch * 64 + i) + 1]
+                out[(mx & 255, my & 255)] = got
+        return out
+
+    def flown(fun2, x, y, west_steps=0, again=None):
+        """The plane's region entered at (x, y) with OPT_FUN2 fun2, the
+        airship flown west_steps west (the columns drawn as it goes, ten of
+        their tiles mountains' here); again, entered first that way without
+        VRAM lost between."""
+        bus, cpu = m7_machine()
+        bus.wram[K["vehicle"]] = bus.wram[K["vehicle_next"]] = 8
+        bus.wram[K["h_m7lvl"]] = 1
+        for f2 in ([again] if again is not None else []) + [fun2]:
+            bus.sram[OPTBLOCK - 0x6000 + OPT_FUN2] = f2
+            bus.wram[K["ow_scroll_x"]], bus.wram[K["ow_scroll_y"]] = x - 7, y - 7
+            call(cpu, "PrepOverworld")
+            call(cpu, "hal_waitvbl", bank=0xC0)
+        for _ in range(west_steps):
+            bus.wram[K["facing"]] = 2
+            call(cpu, "StartMapMove")
+            while True:
+                call(cpu, "hal_waitvbl", bank=0xC0)
+                cpu.a = 0x02
+                call(cpu, "nesio_oamdma")
+                call(cpu, "OverworldMovement")
+                if bus.wram[K["move_speed"]] == 0:
+                    break
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        return region(bus)
+    bad, seen = [], set()
+    cx, cy = 65, 189
+    for name, ugly, uglier in (("entered", flown(3, cx, cy), flown(3 | MOUNT, cx, cy)),
+                               ("flown 6 west", flown(3, cx, cy, 6), flown(3 | MOUNT, cx, cy, 6)),
+                               ("entered Ugly, then Uglier", flown(3, cx, cy), flown(3 | MOUNT, cx, cy, 0, 3))):
+        for (mx, my), got in uglier.items():
+            m = world[my * 256 + mx]
+            if m in want:
+                seen.add(m)
+                if got != want[m]:
+                    bad.append("%s, Uglier, $%02X at (%d, %d): not the PNG's tile" % (name, m, mx, my))
+                if ugly[(mx, my)] == want[m]:
+                    bad.append("%s, Ugly, $%02X at (%d, %d): the PNG's tile" % (name, m, mx, my))
+            elif got != ugly[(mx, my)]:
+                bad.append("%s: $%02X at (%d, %d), not a mountain's, other with Uglier" % (name, m, mx, my))
+    check("Uglier: every mountain metatile and the cave's entrance beside the Marsh Cave the PNG's tiles as the "
+          "plane's colours, entered, flown west (the columns) and switched from Ugly; every other tile as Ugly "
+          "has it; Ugly: none of them", (bad[:4], sorted(seen)), ([], sorted(want[m] and m for m in (
+              0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x30, 0x31, 0x33, 0x0E))))
+
+
 # --- FUN%: Graphics --------------------------------------------------------------
 
 def test_graphics():
@@ -24555,7 +24720,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_3doverworld, test_rando_namelazy, test_helpdraw, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_3doverworld, test_mountains, test_rando_namelazy, test_helpdraw, test_saveview,
              test_stackshift)
 
     global JOBS

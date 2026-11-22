@@ -17,8 +17,9 @@ these, then the background):
   4  the ground's half may use rows 1-3 (not magenta) and these, the other
      palettes' colours: the swamp's light blue and blue, light green, dark
      green
-  5  the ground's half, the shades (snesmap.inc's M7SHADEn): dark grass,
-     dark swamp blue, dark grey
+  5  the ground's half, the derived colours (snesmap.inc's M7DERIVEn): the
+     shades -- dark grass, dark swamp blue, dark grey -- and the Mountains'
+     browns
 
 The colours are genm7.py's, as it reads the PNGs: each pixel snaps to the
 nearest allowed one.
@@ -47,7 +48,7 @@ def main():
         for c in (1, 2, 3):
             if nes(p * 4 + c) not in seen and nes(p * 4 + c) not in others:
                 others.append(nes(p * 4 + c))
-    shades = [genpal.NESPAL[genm7.darker(owpal[i] & 0x3F)] for i, _ in genm7.shades()]
+    shades = [genpal.NESPAL[genm7.derive(owpal[i] & 0x3F, rows, hues)] for i, _, rows, hues in genm7.derived()]
     rows = [[genm7.KEY, nes(0)], pal0, pal1, others, shades]
     colours = []
     for row in rows:
