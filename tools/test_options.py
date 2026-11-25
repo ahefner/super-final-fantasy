@@ -12793,7 +12793,8 @@ def test_m7view():
     #  each, the sprite's colour c of palette p at CGRAM 192 + 16p + c.
     #  Their characters, the screen and the whole kept region, at the way
     #  in and walking by them, at the flat angle and the steepest; and no
-    #  sprite of either while the plane is up.
+    #  sprite of either while the plane is up.  Tilted, the bridge's are the
+    #  picture for where it stands (test_bridge3d), as VRAM has them.
     src = open(os.path.join(ROOT, "game", "bank_0F.asm")).read()
     rows = re.findall(r"\.BYTE\s+([^;\n]+)", src[src.index("lut_OWObjectSprTbl:"):])[1:3]
     SPR = [[int(v.strip().replace("$", "0x"), 16) for v in r.split(",")] for r in rows]   # bridge, canal
@@ -12839,11 +12840,17 @@ def test_m7view():
             enter(bus, cpu, x, y, vehicle=vehicle, level=level)
             w2, b2 = with_objects(bus)
             chars = [[bus.vram[2 * (n * 64 + i) + 1] for i in range(64)] for n in range(248, 256)]
+
+            def tilted_bridge():
+                if level != FLAT:
+                    b2[128] = [[bus.vram[2 * ((248 + (r >> 3) * 2 + (c >> 3)) * 64 + (r & 7) * 8 + (c & 7)) + 1]
+                                for c in range(16)] for r in range(16)]
             want = []
             for k in (0, 1):
                 for qx, qy in ((0, 0), (1, 0), (0, 1), (1, 1)):                  # UL, UR, DL, DR
                     want.append([b2[128 + k][qy * 8 + r][qx * 8 + c] for r in range(8) for c in range(8)])
-            if chars != want:
+            tilted_bridge()
+            if chars[level != FLAT and 4:] != want[level != FLAT and 4:]:
                 bad.append("%d degrees at (%d, %d): characters 248-255" % (ANGLES[level], x, y))
             if m7_world_misses(bus, w2, b2, *pivot(bus)) or region_misses(bus, w2):
                 bad.append("%d degrees at (%d, %d): not the map with them" % (ANGLES[level], x, y))
@@ -12855,6 +12862,7 @@ def test_m7view():
                     py0 = bus.wram[OWY] * 16 + bus.wram[MCY]
                     call(cpu, "OverworldMovement")
                     call(cpu, "hal_waitvbl", bank=0xC0)
+                    tilted_bridge()
                     if m7_world_misses(bus, w2, b2, px0 + 120, py0 + 120):
                         bad.append("%d degrees, step %d at (%d, %d): not the map with them"
                                    % (ANGLES[level], step, px0, py0))
@@ -23891,6 +23899,234 @@ def test_mountains():
               0x10, 0x11, 0x12, 0x20, 0x21, 0x22, 0x30, 0x31, 0x33, 0x0E))))
 
 
+def test_bridge3d():
+    """The vertical bridge, tilted (user, 2026-11-24: "three tiles, one that
+    bows toward the left, used on the left 1/3 of the screen, one that is
+    straight up and down in the middle 1/3 of the screen, and the existing
+    one that bows to the right", drawn in a PNG): art/bridge-vertical.png's
+    three pictures, left to right, each pixel the nearest of the bridge
+    sprite's colours and the plane's (read here), magenta the map's tile
+    under the bridge.  Tilted, the plane's bridge characters hold the
+    picture for the third of the screen's width -- about the pivot's
+    column, where the plane's lines meet -- that the centre of the bridge's
+    tile shows in as the hardware draws the frame (m7_seen): from the way
+    in, and through a flight east past it and back, at three angles and
+    three rows.  Flat, and with 3D Overworld Off, the game's sprite over
+    that tile wherever it stands, and the change between flat and tilted
+    either way at the next frame.  A horizontal bridge (Map Select) as the
+    game draws it wherever it stands.  The way in pays for the pictures
+    only with 3D Overworld on."""
+    import genm7, genpal, pngio
+    OWX, OWY, MCX, MCY = K["ow_scroll_x"], K["ow_scroll_y"], K["move_ctr_x"], K["move_ctr_y"]
+    ANGLES = genm7.ANGLES
+    FLAT, STEEP = ANGLES.index(90), ANGLES.index(min(ANGLES))
+    PX, BAND = 120, 256 / 6                 # the pivot's column; half a third
+    S = lambda name: K[name] - 0x6000
+    W = lambda name: K[name] - 0x7E0000
+    FUN2 = OPTBLOCK - 0x6000 + OPT_FUN2
+    world, blocks = m7_reference()
+    b0 = (1 + 0x00) * 0x10000
+    page = ROMDATA[b0 + 0xB000:b0 + 0xB100]                  # lut_InitUnsramFirstPage
+    BX, BY = page[9], page[10]
+    CANAL = (page[0x0D], page[0x0E])        # built too: its tile, not the bridge's, under the canal
+    under = blocks[world[BY][BX]]
+    tsa = open(os.path.join(ROOT, "game", "bank_00.dat"), "rb").read()[:0x400]
+    owpal = tsa[0x380:0x3B0]
+    chr_ = open(os.path.join(ROOT, "game", "bank_02.dat"), "rb").read()
+
+    def derive(nes, rws, hus):
+        if nes & 15 >= 13 or not 0 <= (nes >> 4) + rws <= 3 or (nes & 15) + hus >= 13:
+            return 0x0F
+        return nes + 16 * rws + hus
+    nes = lambda i: genpal.NESPAL[owpal[i] & 0x3F]
+    cols = [((255, 0, 255), None)] + [(nes(0x1C + c), 240 + c) for c in (1, 2, 3)] + [(nes(0), 0)] + \
+        [(nes(p * 4 + c), p * 16 + c) for p in range(4) for c in (1, 2, 3)] + \
+        [(genpal.NESPAL[derive(owpal[K["M7DERIVE%d_NES" % n]] & 0x3F, K["M7DERIVE%d_ROW" % n],
+                               K["M7DERIVE%d_HUE" % n])], K["M7DERIVE%d" % n]) for n in range(K["M7DERIVES"])]
+    _, _, png, _ = pngio.png_read(os.path.join(ROOT, "art", "bridge-vertical.png"))
+
+    def picture(k):
+        out = [row[:] for row in under]
+        for y in range(16):
+            for x in range(16):
+                v = min(cols, key=lambda cv: sum((png[y][16 * k + x][j] - cv[0][j]) ** 2 for j in range(3)))[1]
+                if v is not None:
+                    out[y][x] = v
+        return out
+    #  The game's: sprite tiles $14 UL, $15 UR, $16 DL, $17 DR (LoadOWObjectCHR's,
+    #  bank $02 from $9C00, sprite tile $10 on), palette 3, at CGRAM 240 + c.
+    GAME = [row[:] for row in under]
+    for q, t in enumerate((0x14, 0x15, 0x16, 0x17)):
+        b = chr_[0x1C00 + 16 * (t - 0x10):][:16]
+        for r in range(8):
+            for c in range(8):
+                v = (b[r] >> (7 - c) & 1) | (b[r + 8] >> (7 - c) & 1) << 1
+                if v:
+                    GAME[(q >> 1) * 8 + r][(q & 1) * 8 + c] = 240 + v
+    ALL = [picture(k) for k in range(3)] + [GAME]
+    NAMES = {0: "bowed left", 1: "straight", 2: "bowed right", 3: "the game's", None: "none of them"}
+    check("the PNG's three differ", len({str(p) for p in ALL[:3]}), 3)
+    VRAMHAS = W("M7BRVRAM")
+
+    def shown(bus):
+        """The plane's bridge characters, 248-251, as the 16x16 picture."""
+        out = [[0] * 16 for _ in range(16)]
+        for q in range(4):
+            for i in range(64):
+                out[(q >> 1) * 8 + i // 8][(q & 1) * 8 + i % 8] = bus.vram[2 * ((248 + q) * 64 + i) + 1]
+        return out
+
+    def which(pic):
+        """A picture's name, for the messages (the PNG's bowed right may be
+        the game's)."""
+        return next((k for k, p in enumerate(ALL) if p == pic), None)
+
+    def wrong(bus, pic, t):
+        """Unless the picture the way in left and the plane's now are picture
+        t's, and M7BRVRAM names t (the PNG's bowed right may be the
+        game's): what they are."""
+        if pic == ALL[t] and shown(bus) == ALL[t] and bus.wram[VRAMHAS] == t:
+            return None
+        return "%s, %s (%d), not %s" % (NAMES[which(pic)], NAMES[which(shown(bus))], bus.wram[VRAMHAS], NAMES[t])
+
+    def third(bus, bx, by):
+        """The third of the screen the centre of tile (bx, by) shows in, as
+        the hardware draws the frame: 0 west of the middle, 1 in it, 2 east;
+        None off the screen or within two pixels of a third's edge."""
+        wx0, wy0 = bus.wram[OWX] * 16 + bus.wram[MCX] + 120, bus.wram[OWY] * 16 + bus.wram[MCY] + 120
+        cx, cy = bx * 16 + 8, by * 16 + 8
+        xs = [x for line in m7_seen(bus, wx0, wy0) for x, (wx, wy) in enumerate(line)
+              if abs(wx - cx) <= 1 and abs(wy - cy) <= 1]
+        if not xs:
+            return None
+        d = sum(xs) / len(xs) - PX
+        if abs(abs(d) - BAND) < 2:
+            return None
+        return 0 if d < -BAND else 2 if d > BAND else 1
+
+    def enter(fun2, level, x, y, mapi=0, bridge=(BX, BY), vehicle=8, vis=1):
+        """The overworld entered with the pivot's tile (x, y), the bridge
+        built at `bridge` (not, vis 0), in the airship or `vehicle`; -> the
+        machine, and the bridge's picture as the way in left it (before the
+        next flush)."""
+        bus, cpu = m7_machine()
+        bus.sram[FUN2] = fun2
+        bus.sram[S("RANDO_MAP")] = mapi
+        bus.sram[S("bridge_vis")], bus.sram[S("bridge_x")], bus.sram[S("bridge_y")] = vis, bridge[0], bridge[1]
+        bus.sram[S("canal_vis")], bus.sram[S("canal_x")], bus.sram[S("canal_y")] = 1, CANAL[0], CANAL[1]
+        bus.wram[K["vehicle"]] = bus.wram[K["vehicle_next"]] = vehicle
+        bus.wram[K["h_m7lvl"]] = level + 1
+        bus.wram[OWX], bus.wram[OWY] = x - 7, y - 7
+        n0 = cpu.steps
+        call(cpu, "PrepOverworld")
+        cpu.way_in = cpu.steps - n0
+        pic = shown(bus)
+        call(cpu, "hal_waitvbl", bank=0xC0)
+        return bus, cpu, pic
+
+    def frame(bus, cpu):
+        call(cpu, "m7_scroll")
+        call(cpu, "hal_waitvbl", bank=0xC0)
+
+    #  Tilted: the way in, then flying east past the bridge and back, a
+    #  half tile a frame.
+    bad, seen = [], set()
+    HELD = K["FUN2_TILT_HELD"]
+    for level in (1, genm7.DEFAULT, STEEP):
+        for dv in (-6, 0, 2):
+            for du in (-7, 0, 7):
+                bus, cpu, pic = enter(HELD, level, BX - du, BY - dv)
+                t = third(bus, BX, BY)
+                if t is not None and wrong(bus, pic, t):
+                    bad.append("%d degrees, in %d east %d south of it: %s" % (
+                        ANGLES[level], du, dv, wrong(bus, pic, t)))
+            bus, cpu, _ = enter(HELD, level, BX - 10, BY - dv)
+            for half in list(range(41)) + list(range(39, -1, -1)):
+                bus.wram[OWX], bus.wram[MCX] = BX - 10 - 7 + half // 2, 8 * (half & 1)
+                frame(bus, cpu)
+                t = third(bus, BX, BY)
+                if t is not None:
+                    seen.add(t)
+                    if wrong(bus, shown(bus), t):
+                        bad.append("%d degrees, flying, %d half tiles east of it, %d south: %s" % (
+                            ANGLES[level], 20 - half, dv, wrong(bus, shown(bus), t)))
+    check("tilted: the picture for the third the bridge shows in, from the way in and flying past it, every "
+          "third met", (bad[:4], sorted(seen)), ([], [0, 1, 2]))
+
+    #  A way in far from the bridge, past the rows and columns the plane
+    #  keeps (user, 2026-11-25: a save in the airship far away, then flying
+    #  to it, showed it black): the game's picture until it comes near,
+    #  then the third's.
+    bad = []
+    for fx, fy in ((BX, BY + 40), (BX + 60, BY), (BX - 60, BY - 40)):
+        bus, cpu, pic = enter(HELD, STEEP, fx, fy)
+        if (pic, shown(bus), bus.wram[W("M7BRWANT")], bus.wram[VRAMHAS]) != (GAME, GAME, 3, 3):
+            bad.append("in at %d, %d: %s, %s, wants %d, has %d" % (
+                fx - BX, fy - BY, NAMES[which(pic)], NAMES[which(shown(bus))],
+                bus.wram[W("M7BRWANT")], bus.wram[VRAMHAS]))
+        for du in (-7, 0, 7):
+            bus.wram[OWX], bus.wram[OWY], bus.wram[MCX] = BX - du - 7, BY + 2 - 7, 0
+            frame(bus, cpu)
+            t = third(bus, BX, BY)
+            if t is not None and wrong(bus, shown(bus), t):
+                bad.append("in at %d, %d, then %d east of it: %s" % (
+                    fx - BX, fy - BY, du, wrong(bus, shown(bus), t)))
+    check("tilted, a way in far from the bridge: the game's, then near it the third's", bad[:4], [])
+
+    #  Flat, and 3D Overworld Off: the game's.  Flat to tilted and back.
+    bad = []
+    for fun2, level, veh in ((HELD, FLAT, 8), (K["FUN2_TILT_OFF"], STEEP, 8), (K["FUN2_TILT_AIRSHIP"], STEEP, 1)):
+        for du in (-7, 0, 7):
+            bus, cpu, pic = enter(fun2, level, BX - du, BY, vehicle=veh)
+            if (pic, shown(bus)) != (GAME, GAME):
+                bad.append("%d, %d east: %s, %s" % (fun2, du, NAMES[which(pic)], NAMES[which(shown(bus))]))
+    check("flat, and 3D Overworld Off (the airship parked, Airship walking), the game's wherever it stands",
+          bad, [])
+    bad = []
+    for du in (-7, 0, 7):
+        bus, cpu, _ = enter(HELD, FLAT, BX - du, BY)
+        m7_set_angle(bus, cpu, STEEP)
+        frame(bus, cpu)
+        t = third(bus, BX, BY)
+        if wrong(bus, shown(bus), t):
+            bad.append("to tilted, %d east: %s" % (du, wrong(bus, shown(bus), t)))
+        m7_set_angle(bus, cpu, FLAT)
+        frame(bus, cpu)
+        if wrong(bus, shown(bus), 3):
+            bad.append("back to flat, %d east: %s" % (du, wrong(bus, shown(bus), 3)))
+    check("flat to tilted, the third's at the next frame; back, the game's", bad, [])
+
+    #  A horizontal bridge: as the game draws it, wherever it stands.
+    N, INFO, SZ = K["MAPS_N"], K["MAPINFOFAR"] - 0xC00000, K["MI_SIZE"]
+    rec = lambda m, f, n=2: tuple(ROMDATA[INFO + m * SZ + K["MI_" + f]:][:n])
+    hm = next(m for m in range(1, N) if rec(m, "FLAGS", 1)[0] & 1)
+    hb = rec(hm, "BRIDGE")
+    flat = enter(HELD, FLAT, hb[0], hb[1], hm, hb)[2]
+    got = [enter(HELD, STEEP, hb[0] - du, hb[1], hm, hb) for du in (-7, 0, 7)]
+    check("a horizontal bridge (map %d): its characters the flat view's wherever it stands tilted" % hm,
+          [g[2] == flat and shown(g[0]) == flat for g in got], [True] * 3)
+
+    #  What the way in pays: the pictures only with 3D Overworld on (Airship,
+    #  walking, flat as Off is), about 1,050 instructions of its 159,000 --
+    #  most of it the holes, about 15 each -- and with it Off none built; a
+    #  tilted frame, choosing one, about 150 (m7_project).
+    holes = sum(png[y][x][:3] == (255, 0, 255) for y in range(16) for x in range(48))
+    bus, cpu, _ = enter(K["FUN2_TILT_OFF"], FLAT, BX, BY + 3, vehicle=1)
+    off, offhas = cpu.way_in, (bus.wram[W("M7BRWANT")], bus.wram[VRAMHAS])
+    on = enter(K["FUN2_TILT_AIRSHIP"], FLAT, BX, BY + 3, vehicle=1)[1].way_in
+    costs = []
+    for vis in (1, 0):
+        bus, cpu, _ = enter(HELD, STEEP, BX + 3, BY + 3, vis=vis)
+        bus.wram[MCX] = 4
+        n0 = cpu.steps
+        call(cpu, "m7_scroll")
+        costs.append(cpu.steps - n0)
+    check("the way in: the pictures cost under 300 instructions and 16 a hole with 3D Overworld on (%d, %d "
+          "holes), none built with it Off; a tilted frame under 250 more for the picture (%d)"
+          % (on - off, holes, costs[0] - costs[1]),
+          (on - off < 300 + 16 * holes, offhas, 0 < costs[0] - costs[1] < 250), (True, (0xFF, 0xFF), True))
+
+
 # --- FUN%: Graphics --------------------------------------------------------------
 
 def test_graphics():
@@ -24720,7 +24956,7 @@ def main():
              test_rando_runs, test_rando_formdata, test_rando_touch,
              test_pirates, test_rando_touchload, test_rando_ai, test_rando_enemyai, test_bestiary,
              test_rando_aisynth, test_rando_rng, test_rando_rngload,
-             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_3doverworld, test_mountains, test_rando_namelazy, test_helpdraw, test_saveview,
+             test_rando_begin, test_nones, test_forcedparty, test_taverns, test_princess, test_shards, test_elfastos, test_stereo, test_palswap, test_dwarf, test_scream, test_graphics, test_3doverworld, test_mountains, test_bridge3d, test_rando_namelazy, test_helpdraw, test_saveview,
              test_stackshift)
 
     global JOBS

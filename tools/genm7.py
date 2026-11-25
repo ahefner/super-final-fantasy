@@ -538,6 +538,43 @@ def uglier_blocks(tsa):
     return out
 
 
+#  The vertical bridge's pictures (user, 2026-11-24: "three tiles, one that
+#  bows toward the left, used on the left 1/3 of the screen, one that is
+#  straight up and down in the middle 1/3 of the screen, and the existing
+#  one that bows to the right"): art/bridge-vertical.png, 48x16, the three
+#  16x16 pictures left to right in that order.  Magenta is nothing (the
+#  map's tile under the bridge shows there); else the bridge sprite's three
+#  colours or any a landmark's ground may take (ground_colours).  ow7.asm
+#  draws them over the map's tile at the way in (m7_brpics) and shows one
+#  by where the bridge stands on screen while the view is tilted; flat, the
+#  game's sprite as ever.
+BRIDGE = os.path.join(ROOT, "art", "bridge-vertical.png")
+BRIDGE_PAL = 3                      # the bridge's sprite palette (lut_OWObjectSprTbl's
+                                    #   attributes, $03), CGRAM 192 + 16 * 3 on the
+                                    #   overworld (m7_objchar's)
+
+
+def bridge_pictures(tsa):
+    """The three pictures, each its four characters' pixels UL, UR, DL, DR as
+    the plane has them, 0 where nothing: 768 bytes; and the places of their
+    nothings among those as little-endian words, then $FFFF (ow7.asm fills
+    each from the map's tile under the bridge)."""
+    import genpal, pngio
+    pw, ph, rows, _ = pngio.png_read(BRIDGE)
+    if (pw, ph) != (48, 16):
+        sys.exit("genm7: %s is %dx%d, not 48x16" % (os.path.relpath(BRIDGE, ROOT), pw, ph))
+    owpal = tsa[0x380:0x3B0]
+    cols = [(KEY, 0)] + [(genpal.NESPAL[owpal[0x10 + BRIDGE_PAL * 4 + c] & 0x3F], 192 + 16 * BRIDGE_PAL + c)
+                         for c in (1, 2, 3)] + ground_colours(tsa, 0)
+    out = b""
+    for k in range(3):
+        blk = [[min(cols, key=lambda cv: sum((rows[y][k * 16 + x][j] - cv[0][j]) ** 2 for j in range(3)))[1]
+                for x in range(16)] for y in range(16)]
+        out += b"".join(quarters(blk))
+    holes = b"".join(i.to_bytes(2, "little") for i, v in enumerate(out) if v == 0) + b"\xff\xff"
+    return out, holes
+
+
 def land_colours(tsa, pal):
     """The art's four colours as the game's map palette has them: black (the
     backdrop), then palette pal's three."""
@@ -1043,10 +1080,11 @@ def main():
     vmin, vmax = -(north + 1) * 16, max((south + 1) * 16, south_reach())
     tblobs, offs, banks = tilt_tables(vmin, vmax)
     os.makedirs(os.path.dirname(OUTBIN), exist_ok=True)
-    if 0x4000 + len(gtab) + len(uglier) > 0x8000:
-        sys.exit("genm7: Mountains: Uglier's characters end past the low half")
+    bridge, holes = bridge_pictures(tsa)
+    if 0x4000 + len(gtab) + len(uglier) + len(bridge) + len(holes) > 0x8000:
+        sys.exit("genm7: Mountains: Uglier's characters and the bridge's pictures end past the low half")
     with open(OUTBIN, "wb") as f:
-        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + bytes(gtab) + uglier)
+        f.write(b"".join(chars) + bytes(64 * (256 - len(chars))) + bytes(gtab) + uglier + bridge + holes)
     for c, blob in tblobs.items():
         with open(OUTTILT % c, "wb") as f:
             f.write(bytes(blob))
@@ -1072,7 +1110,11 @@ def main():
            "M7U_FIRST = %d          ; Mountains: Uglier's characters, from this one..." % ustart,
            "M7U_COUNT = %d          ; ...this many..." % (len(uchars) - ustart),
            "M7U_CHARS = $%04X          ; ...from here in the chunk's low half" % (0x4000 + len(gtab)),
-           "M7U_TABLE = %d          ; lut_M7Row's and lut_M7Col's Uglier half, this far on" % (4 * len(corners))]
+           "M7U_TABLE = %d          ; lut_M7Row's and lut_M7Col's Uglier half, this far on" % (4 * len(corners)),
+           "M7BRV_DATA = $%04X          ; the vertical bridge's three pictures in the chunk's low half..."
+           % (0x4000 + len(gtab) + len(uglier)),
+           "M7BRV_HOLES = $%04X          ; ...then where they have nothing, $FFFF the end (%d)"
+           % (0x4000 + len(gtab) + len(uglier) + len(bridge), len(holes) // 2 - 1)]
     for k in ("A", "D", "RG", "B", "Y"):
         out.append("lut_M7P%s: .WORD %s" % (k, ", ".join("$%04X" % o[k] for o in offs)))
     out.append("lut_M7PBank: .BYTE %s          ; the HDMA tables' bank"

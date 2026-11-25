@@ -4594,6 +4594,64 @@ always the plane, flat when the row says so.
     second picture of the same plane whose top bit is a priority, would
     put it under again, at the cost of 7-bit colours and the HAL's TM
     tables learning BG2.
+  - **The vertical bridge's three pictures** (user, 2026-11-24: "Right
+    now it always bows toward the right ... have three tiles, one that
+    bows toward the left, used on the left 1/3 of the screen, one that is
+    straight up and down in the middle 1/3 of the screen, and the existing
+    one that bows to the right"; "pull them from a png").  Built
+    2026-11-24, not yet played.  `art/bridge-vertical.png`, 48x16: bowed
+    left, straight, bowed right, left to right.  Magenta is nothing, where
+    the map's tile under the bridge shows; every other pixel snaps to the
+    nearest of the bridge sprite's three colours (sprite palette 3, CGRAM
+    241-243 on the overworld: black, white, green) or any colour a
+    landmark's ground may take.  The starter art is mine: bowed right the
+    game's sprite, bowed left its mirror, straight the game's with its
+    middle ten rows moved a pixel left to line up with its ends.
+    genm7.py writes the three after Mountains: Uglier's characters in the
+    chunk's low half (`M7BRV_DATA`, their four characters each as VRAM
+    takes them), then the places of their nothings (`M7BRV_HOLES`, words,
+    `$FFFF` the end; 63 in the starter art).  At the way in, with the
+    bridge showing, vertical (`map_flags`' `MIF_HBRIDGE` clear, read in
+    emulation mode at `m7_enter`'s start) and 3D Overworld not Off,
+    `m7_brpics` copies the three into `M7BRVBUF` and the four characters
+    of the metatile under the bridge into `M7BRUNDER`, both by DMA
+    through the WRAM port, then fills each hole from `M7BRUNDER`.  The
+    game's picture, built as before, is the fourth: `M7OBJBUF` follows
+    `M7BRVBUF`, its first 256 bytes the bridge's, so no copy (the buffers
+    after the ring were reordered for it).  Which one shows: flat, the
+    game's, always, so the flat view stays the original game's; tilted,
+    `m7_bridge` (every frame from `m7_scroll`, and at the way in) places
+    the centre of the bridge's tile with `m7_project` and takes its third
+    of the screen's width about the pivot's column (x 120, where the
+    plane's lines meet -- a raised bridge leans away from it), the middle
+    one x 77-163 (`M7BR_BAND` 43 either side): bowed left west of it,
+    straight in it, bowed right east of it.  Past the rows and columns
+    kept, it stays as it was -- so the way in, building the pictures,
+    marks the game's as both wanted and held: wanting none there sent
+    page `$FF` (the map's rows) and stopped the choosing, the bridge
+    black after a way in far from it (user, 2026-11-25).  `flush_m7br` (the HAL's flush, after the
+    plane's queue) sends the wanted picture's 256 bytes to characters
+    248-251 only when it differs from what VRAM holds (`M7BRWANT`,
+    `M7BRVRAM`); the way in sends it at once after the eight.  The
+    switch between flat and tilted is a step in the take-off and landing,
+    at the first angle off flat: three pictures cannot follow the angle
+    smoothly.  A horizontal bridge is the game's (FFR's overlay) at every
+    angle.  Costs, in the harness: the way in about 1,050 instructions
+    more with 3D Overworld on (of 159,000; none with it Off), a tilted
+    frame about 150 (one `m7_project`), a flat one about 10; a change of
+    picture about two lines of vblank.  The harness's DMA learned the
+    WRAM port (`cpu65816.py`; a DMA from WRAM into it raises, the
+    hardware dropping it).  `test_bridge3d`: the PNG's pictures read
+    independently (the nearest colour, magenta the map's tile), the
+    third read from the frame the hardware draws (`m7_seen`, the tile's
+    centre within two pixels of an edge skipped), from the way in and
+    flying east past the bridge and back a half tile a frame at three
+    angles and three rows, every third met; a way in far from it (past
+    the rows and columns kept) the game's, then near it the third's;
+    flat, 3D Overworld Off and
+    Airship on foot the game's; flat to tilted and back at the next
+    frame; a horizontal bridge (Map Select) unchanged by where it stands;
+    both costs bounded.
   - **Objects.**  `m7_objpos` takes the tile's centre as the NES draws it,
     u pixels east and v south of the pivot, and places the 16x16 sprite's
     centre where the plane shows it: the screen line for v from a table

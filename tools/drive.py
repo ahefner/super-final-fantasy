@@ -182,8 +182,17 @@ def main():
     #  Silent (ARES_MUTE, which the instrumented build honours without saving
     #  it into the settings): at the profiler's half speed the sound comes out
     #  garbled, and loud when the user has not muted the machine (2026-10-24).
+    #  The stock ares ignores ARES_MUTE, so it also gets a copy of the user's
+    #  settings with Audio/Mute set: ares writes its settings back on exit,
+    #  and the copy takes that write, not the user's file (2026-11-25).
+    user = os.path.expanduser("~/Library/Application Support/ares/settings.bml")
+    mine = os.path.join(SHOTS, "drive-settings.bml")
+    text = open(user).read() if os.path.exists(user) else ""
+    with open(mine, "w") as f:
+        f.write(text.replace("  Mute: false", "  Mute: true"))
     subprocess.Popen([ARES,
                       "--system", "Super Famicom", "--no-file-prompt",
+                      "--settings-file", mine, "--setting", "Audio/Mute=true",
                       ROM]
                      + (["--save-state", os.environ["STATE"]]
                         if os.environ.get("STATE") else []),

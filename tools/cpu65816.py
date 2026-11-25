@@ -21,6 +21,7 @@ class Bus:
         self.wram = bytearray(0x20000)      # $7E:0000-$7F:FFFF
         self.sram = bytearray(0x2000)       # $6000-$7FFF, aliased in every bank
         self.io = {}                        # $2000-$5FFF, recorded not emulated
+        self.waddr = 0                      # the WRAM port's address ($2181-$2183)
         self.mul_a = 0
         self.mul_b = 0
         self.clock = None                   # see frames()
@@ -137,6 +138,15 @@ class Bus:
             return
         if self.vram is not None and 0x2102 <= addr <= 0x2122:
             self._ppu_write(addr, val)
+        if 0x2180 <= addr <= 0x2183:
+            #  The WRAM port: a byte to $2180 lands at the 17-bit address
+            #  $2181-$2183 set, which steps on.
+            if addr == 0x2180:
+                self.wram[self.waddr] = val
+                self.waddr = (self.waddr + 1) & 0x1FFFF
+            else:
+                k = (addr - 0x2181) * 8
+                self.waddr = (self.waddr & ~(0xFF << k)) | ((val & (1 if k == 16 else 0xFF)) << k)
         if addr < 0x6000:
             self.io[addr] = val
             if addr == 0x420B and self.dma:
@@ -167,6 +177,8 @@ class Bus:
                 raise NotImplementedError("DMA from the B bus")
             a, bank = r(2) | r(3) << 8, r(4)
             n = (r(5) | r(6) << 8) or 0x10000
+            if bbad == 0x80 and (bank & 0xFF in (0x7E, 0x7F) or (not bank & 0x40 and a < 0x2000)):
+                raise NotImplementedError("DMA from WRAM to the WRAM port, which the hardware drops")
             step = 0 if mode & 0x08 else (-1 if mode & 0x10 else 1)
             pat = patterns[mode & 7]
             for i in range(n):

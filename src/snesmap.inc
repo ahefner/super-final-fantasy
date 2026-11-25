@@ -1106,6 +1106,10 @@ APUIO0          = $2140         ; the four SPC700 I/O ports
 APUIO1          = $2141
 APUIO2          = $2142
 APUIO3          = $2143
+WMDATA          = $2180         ; the WRAM port: data, and its address
+WMADDL          = $2181         ;   (low, middle, then bit 0 the bank)
+WMADDM          = $2182
+WMADDH          = $2183
 
 
 RDNMI           = $4210         ; bit 7 latches "a vblank has begun", set
@@ -1539,19 +1543,40 @@ M7L_SLOTW       = $30
 ;  game keeps at mapdata.  Free WRAM between CGSHADOW and CHRSHADOW.
 M7RING          = $7E5000
 M7RING_ROWS     = 32
-;  The bridge's and the canal's characters, built at the way in: the row
-;  under each, decoded (a page), and the eight characters (512 bytes).
-M7OBJROW        = M7RING + M7RING_ROWS * $100
-M7OBJBUF        = M7OBJROW + $100
-.assert M7OBJBUF + $200 <= CHRSHADOW, error, "the Mode 7 objects' buffers overlap CHRSHADOW"
+;  The vertical bridge's pictures (ow7.asm's m7_brpics, the way in): bowed
+;  left, straight, bowed right (genm7.py's, from art/bridge-vertical.png),
+;  256 bytes each as its four characters go to VRAM, and M7OBJBUF's first
+;  256 after them, the game's, the fourth (M7BRV_GAME).
+M7BRVBUF        = M7RING + M7RING_ROWS * $100
+;  The bridge's and the canal's characters, built at the way in: the eight
+;  (512 bytes), and the row under each, decoded (a page).
+M7OBJBUF        = M7BRVBUF + 3 * $100
+M7OBJROW        = M7OBJBUF + $200
+.assert <M7OBJROW = 0 && M7OBJROW + $100 <= CHRSHADOW, error, "M7OBJROW: a page, short of CHRSHADOW"
 ;  Which block holds each 32x32 frame: frame k's entry its block + 1, 0
 ;  none (h_m7bkey's other way round), for m7_lands to look up at once.
-M7BREV          = M7OBJBUF + $200
+M7BREV          = M7OBJROW + $100
 .assert M7BREV + $100 <= CHRSHADOW, error, "M7BREV overlaps CHRSHADOW"
 ;  2 bytes: 0, or M7U_TABLE with Mountains: Uglier -- lut_M7Row's and
 ;  lut_M7Col's half the drawers read (the way in sets it); by DBR $7E there.
 M7TABMT         = M7BREV + $100
 .assert M7TABMT + 2 <= CHRSHADOW, error, "M7TABMT overlaps CHRSHADOW"
+;  Which of the bridge's pictures m7_bridge wants (0-3) and which one VRAM
+;  holds (flush_m7br), both $FF with no vertical bridge in the plane (or
+;  3D Overworld Off); whether the map's bridge is horizontal (map_flags'
+;  MIF_HBRIDGE, read at the way in); and m7_brpics' scratch: the corners of
+;  the metatile under the bridge in lut_M7Row (2 bytes), and its four
+;  characters' pixels as the pictures have theirs (256 bytes).
+M7BRWANT        = M7TABMT + 2
+M7BRVRAM        = M7TABMT + 3
+M7BRHORIZ       = M7TABMT + 4
+M7BRCORN        = M7TABMT + 5
+M7BRUNDER       = M7TABMT + 7
+.assert M7BRUNDER + $100 <= CHRSHADOW, error, "M7BRUNDER overlaps CHRSHADOW"
+M7BRV_GAME      = 3             ; the game's picture, the fourth
+M7BRV_VRAM      = 248 * 64      ; the bridge's characters' VRAM word address (ow7.asm: M7_SPECIAL's)
+.assert <M7BRVBUF = 0 && >.loword(M7BRVBUF) + M7BRV_GAME < $100, error, "flush_m7br: a picture a page, in one bank"
+.assert M7BRVBUF + M7BRV_GAME * $100 = M7OBJBUF, error, "the game's picture is M7OBJBUF's bridge"
 .assert M7RING >= CGSHADOW + $200 && M7RING + M7RING_ROWS * $100 <= CHRSHADOW, error, "the Mode 7 ring overlaps the HAL's WRAM"
 ;  The plane's rows and columns, queued for the flush: records of a VRAM
 ;  word address (2), a VMAIN (1: $00 a row, a byte a word along; $02 a

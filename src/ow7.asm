@@ -45,6 +45,7 @@
 .include "variables.inc"
 
 .import ow_rowring, hal_m7sendq, lut_OWObjectSprTbl
+.import map_flags               ; Map Select's map (altmaps.inc): its bridge horizontal?
 .export m7_rowcol, m7_scroll, m7_enter, m7_objpos, m7_flatobjs, m7_ship
 .export lut_M7Row, lut_M7Col, lut_M7LFrame, lut_M7LMaps   ; for tools/test_options.py
 .export lut_M7PA, lut_M7PD, lut_M7PRG, lut_M7PB, lut_M7PS, lut_M7PY, lut_M7ShipSize, lut_M7BFrame, lut_M7PBank
@@ -53,6 +54,9 @@
 .segment "BANK_OW7"
 
 .include "ow7.inc"
+.include "mapdata.inc"          ; MIF_HBRIDGE
+.assert M7BRV_VRAM = M7_SPECIAL * 64, error, "flush_m7br sends the bridge's pictures to M7_SPECIAL's characters"
+.assert ^M7BRVBUF = ^M7OBJBUF, error, "m7_objchars sends the bridge's picture from M7OBJBUF's bank"
 
 M7_ROWS   = M7_NORTH + M7_SOUTH + 1     ; the rows the plane keeps drawn...
 M7_COLS   = M7_WEST + M7_EAST + 1       ; ...and the columns
@@ -152,6 +156,7 @@ m7_scroll:
     JSR m7_angle
     JSR m7_sync
     JSR m7_lands
+    JSR m7_bridge
 :   SEP #$30
     .i8
     SEC
@@ -758,6 +763,9 @@ m7_enter:
     PHY
     LDA #$80
     STA a:INIDISP               ; forced blank, as the game has it already
+    JSL map_flags + WORLDFAR    ; the map's bridge horizontal? (X, Y kept)
+    AND #MIF_HBRIDGE
+    STA f:M7BRHORIZ
     ;  The plane's characters, if VRAM lost them or holds the other
     ;  Mountains' (h_m7chr 1 Ugly's, 2 Uglier's): the 16KB, and with Uglier
     ;  its characters over the mountains' and the caves', from M7U_FIRST
@@ -958,8 +966,10 @@ m7_enter:
 ;;  bridge's overlay included) over the map's metatile under it, a pixel
 ;;  of the sprite where it has colour, of the map's character where not.
 ;;  The sprite's colour c of palette p is CGRAM 192 + p * 16 + c, where
-;;  the overworld keeps the sprite palettes.  Then all eight to VRAM, the
-;;  screen being dark.  A8 I16 in and out.
+;;  the overworld keeps the sprite palettes.  A vertical bridge's other
+;;  pictures with them (m7_brpics).  Then all eight to VRAM, the screen
+;;  being dark, and over the game's bridge the picture for where it stands
+;;  (m7_bridge).  A8 I16 in and out.
 m7_objchars:
     PHB
     LDA #^M7OBJBUF
@@ -967,9 +977,16 @@ m7_objchars:
     PLB
     LDX #0
     JSR m7_objchar
+    REP #$20
+    .a16
+    LDA a:h_m7row
+    STA a:.loword(M7BRCORN)     ; the bridge's metatile's corners, for m7_brpics
+    SEP #$20
+    .a8
     LDX #4
     JSR m7_objchar
     PLB
+    JSR m7_brpics
     LDA #$80
     STA a:VMAIN                 ; a word on after each high byte
     REP #$20
@@ -989,6 +1006,185 @@ m7_objchars:
     STA a:A1B0
     LDA #$01
     STA a:MDMAEN
+    JSR m7_bridge
+    LDA f:M7BRWANT
+    CMP f:M7BRVRAM
+    BEQ @rts
+    STA f:M7BRVRAM
+    REP #$20
+    .a16
+    AND #$00FF
+    XBA                         ; (a page a picture)
+    CLC
+    ADC #.loword(M7BRVBUF)
+    STA a:A1T0L
+    LDA #M7_SPECIAL * 64
+    STA a:VMADDL
+    LDA #$0100
+    STA a:DAS0L
+    SEP #$20
+    .a8
+    LDA #$01
+    STA a:MDMAEN                ; (VMAIN, DMAP0, BBAD0 and A1B0 as above)
+@rts:
+    RTS
+
+.a8
+.i16
+;;  The vertical bridge's pictures (user, 2026-11-24): with the bridge in
+;;  the plane and vertical (not MIF_HBRIDGE), and 3D Overworld not Off,
+;;  genm7.py's three (M7BRV_DATA: bowed left, straight, bowed right) into
+;;  M7BRVBUF, and where they have nothing (M7BRV_HOLES) the map's pixel
+;;  under the bridge, from its metatile's characters (M7BRCORN) gathered
+;;  into M7BRUNDER -- those two through the WRAM port by DMA.  M7BRVRAM
+;;  the game's, as VRAM is about to have it, and M7BRWANT too: with the
+;;  bridge past the rows and columns kept, m7_bridge leaves M7BRWANT as it
+;;  was, and $FF there sent page $FF and stopped the choosing (user,
+;;  2026-11-25: in the airship far away, then flying to it, the bridge
+;;  black).  Otherwise M7BRWANT and M7BRVRAM $FF: the game's picture
+;;  stays.  A8 I16.
+.assert ^M7BRVBUF = $7E && ^M7BRUNDER = $7E, error, "m7_brpics writes bank $7E through the WRAM port"
+m7_brpics:
+    LDA #$FF
+    STA f:M7BRWANT
+    STA f:M7BRVRAM
+    LDA f:SRAMFAR7 + bridge_vis
+    BEQ @none
+    LDA f:M7BRHORIZ
+    BNE @none
+    LDA f:CHUNK0 * $10000 + OPT_FUN2
+    AND #FUN2_TILT
+    BNE :+                      ; Off: "The world is flat."
+@none:
+    RTS
+:   STZ a:DMAP0                 ; one register, A bus to B...
+    LDA #<WMDATA
+    STA a:BBAD0                 ; ...the WRAM port
+    LDA #^OW7DATAFAR
+    STA a:A1B0
+    STZ a:WMADDH                ; (bank $7E)
+    REP #$20
+    .a16
+    LDA #.loword(M7BRVBUF)
+    STA a:WMADDL
+    LDA #M7BRV_DATA
+    STA a:A1T0L
+    LDA #3 * $100
+    STA a:DAS0L
+    SEP #$20
+    .a8
+    LDA #$01
+    STA a:MDMAEN                ; the three
+    REP #$20
+    .a16
+    LDA #.loword(M7BRUNDER)
+    STA a:WMADDL
+    STZ a:h_m7line              ; the quarter, UL, UR, DL, DR
+@quarter:
+    LDA f:M7BRCORN
+    ORA a:h_m7line
+    TAX
+    LDA f:OW7FAR + lut_M7Row, X
+    AND #$00FF
+    XBA
+    LSR A
+    LSR A
+    STA a:A1T0L                 ; its character's 64 pixels in the chunk's low half
+    LDA #64
+    STA a:DAS0L
+    SEP #$20
+    .a8
+    LDA #$01
+    STA a:MDMAEN                ; (the port runs on from the last)
+    REP #$20
+    .a16
+    INC a:h_m7line
+    LDA a:h_m7line
+    CMP #4
+    BCC @quarter
+    ;  The holes.
+    LDX #0
+@hole:
+    LDA f:OW7DATAFAR + M7BRV_HOLES, X
+    BMI @done
+    TAY                         ; its place in the three...
+    AND #$00FF                  ; ...and in one, as M7BRUNDER has it
+    PHX
+    TAX
+    SEP #$20
+    .a8
+    LDA f:M7BRUNDER, X
+    TYX
+    STA f:M7BRVBUF, X
+    REP #$20
+    .a16
+    PLX
+    INX
+    INX
+    BRA @hole
+@done:
+    SEP #$20
+    .a8
+    LDA #M7BRV_GAME
+    STA f:M7BRVRAM
+    STA f:M7BRWANT              ; (m7_bridge keeps it with the bridge too far to place)
+    RTS
+
+.a8
+.i16
+;;  Which of the vertical bridge's pictures the plane wants (user,
+;;  2026-11-24), into M7BRWANT for flush_m7br: flat, the game's; tilted,
+;;  by where the centre of the bridge's tile stands across the screen
+;;  (m7_project), in thirds of the screen's width about the pivot's
+;;  column, where the plane's lines meet -- bowed left west of the middle
+;;  third, straight in it, bowed right east of it.  Past the rows and
+;;  columns kept, as it was.  Nothing with no vertical bridge in the plane
+;;  (M7BRVRAM $FF).  From m7_scroll every overworld frame, and the way in.
+;;  A8 I16.
+M7BRV_LEFT      = 0             ; genm7.py's order, art/bridge-vertical.png's
+M7BRV_STRAIGHT  = 1
+M7BRV_RIGHT     = 2
+M7BR_BAND       = 43            ; the middle third's half: 256 / 6
+m7_bridge:
+    LDA f:M7BRVRAM
+    CMP #$FF
+    BEQ @rts
+    LDA a:h_m7lvl
+    CMP #2                      ; (the angle + 1: 1 the flat)
+    LDA #M7BRV_GAME
+    BCC @want
+    LDA f:SRAMFAR7 + bridge_x
+    STA a:h_m7ox
+    LDA f:SRAMFAR7 + bridge_y
+    STA a:h_m7oy
+    REP #$20
+    .a16
+    STZ a:h_m7oux               ; the tile's centre itself
+    STZ a:h_m7ouy
+    SEP #$20
+    .a8
+    JSR m7_project
+    BCS @rts
+    REP #$20
+    .a16
+    LDA a:h_m7ocx
+    SEC
+    SBC #M7P_PIVOTX - M7BR_BAND ; x from the middle third's west edge
+    BMI @west
+    CMP #2 * M7BR_BAND + 1      ; C: east of it
+    SEP #$20
+    .a8
+    LDA #M7BRV_STRAIGHT
+    BCC @want
+    LDA #M7BRV_RIGHT
+    BRA @want
+@west:
+    SEP #$20
+    .a8
+    LDA #M7BRV_LEFT
+@want:
+    STA f:M7BRWANT
+@rts:
     RTS
 
 ;;  Object X (0 the bridge, 4 the canal: their records' offsets), if it

@@ -1593,6 +1593,7 @@ hal_flush:
     jsr flush_chr
     jsr flush_nt
     jsr flush_m7q
+    jsr flush_m7br
     jsr flush_m7up
     jsr flush_oam
     ;  The extras, OAM's entries 64-127, those behind the party first and
@@ -3951,6 +3952,38 @@ oam_m7hide:
     lda #1
     sta a:h_oamdirty
     ply
+    rts
+
+;;  The vertical bridge's picture ow7.asm's m7_bridge wants, when VRAM holds
+;;  another: its four characters, 256 bytes from M7BRVBUF, to the plane's
+;;  bridge characters (VRAM's high bytes, from M7BRV_VRAM).
+flush_m7br:
+    lda f:M7BRWANT
+    cmp f:M7BRVRAM
+    bne :+
+    rts
+:   sta f:M7BRVRAM
+    clc
+    adc #>.loword(M7BRVBUF)     ; (its page: 256 bytes a picture)
+    sta a:A1T0H
+    lda #<.loword(M7BRVBUF)
+    sta a:A1T0L
+    lda #^M7BRVBUF
+    sta a:A1B0
+    stz a:DAS0L
+    lda #1
+    sta a:DAS0H                 ; 256 bytes
+    lda #<M7BRV_VRAM
+    sta a:VMADDL
+    lda #>M7BRV_VRAM
+    sta a:VMADDH
+    lda #$80
+    sta a:VMAIN                 ; a word on after each high byte
+    stz a:DMAP0                 ; one register...
+    lda #<VMDATAH
+    sta a:BBAD0                 ; ...$2119: the characters are the high bytes
+    lda #$01
+    sta a:MDMAEN
     rts
 
 ;;  The uploads ow7.asm queued (M7UPQ, h_m7upn): a landmark's frame into a
