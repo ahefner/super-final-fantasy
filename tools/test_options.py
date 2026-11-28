@@ -7364,6 +7364,166 @@ def test_runfix():
     check("Battle_PlayerTryRun calls opt_runlevel, once", img.count(jsl), 1)
 
 
+
+# --- Increase dark penalty ------------------------------------------------------
+#  FFR's IncreaseDarkPenalty: where DoPhysicalAttack takes 40 off the hit chance
+#  of an attacker in the dark, FFR sets the hit chance and the crit chance to 0
+#  (its nine bytes at $326A7: LDA #0 / STA math_hitchance / STA math_critchance
+#  / INC A).  The model is the disassembly's arithmetic from the base 168 to
+#  the crit cap, written from it, not from the hook.
+def test_darkpenalty():
+    F_DARK, F_REGEN = K["OPTFM_DARKPEN"], K["OPTFM_REGEN"]
+    FB = K["OPTFB_DARKPEN"] - OPTBLOCK
+    check("the flag is bit 29, its byte the fourth", (FB - OPT_FLAGS, F_DARK), (3, 0x20))
+    DARK, STUN, SLEEP = 0x08, 0x10, 0x20
+
+    def model(pen, aail, dail, weak, hitrate, evade, crit):
+        H, C = 168, crit
+        if aail & DARK:
+            if pen:
+                H, C = 0, 0
+            else:
+                H -= 40
+        if dail & DARK:
+            H += 40
+        if weak:
+            H = min(255, H + 40)
+        if not dail & (STUN | SLEEP):
+            H = max(0, min(255, H + hitrate) - evade)
+        H = H or 1
+        return H, min(C, H)
+
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000:]
+    dpa = SYM["DoPhysicalAttack"]
+    cmb = SYM["ClearMathBufHighBytes"]
+    start = img.find(bytes([0x20, cmb & 0xFF, cmb >> 8]), dpa)
+    nh = K["btl_attacker_numhits"]
+    stop = img.find(bytes([0xAD, nh & 0xFF, nh >> 8]), start)     # LDA btl_attacker_numhits
+    tgt = SYM["opt_darkhit"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    hook = img.find(jsl, 0x8000)
+    check("the hook is in DoPhysicalAttack, between the base and the crit cap",
+          (dpa < start < hook < stop < start + 0x100, img[0x8000:0xC000].count(jsl)), (True, 1))
+
+    rnd = random.Random(29)
+    def real(pen, aail, dail, weak, hitrate, evade, crit, decoys):
+        bus, cpu = machine()
+        #  The flag's byte: the other bits whatever, Increase enemy regen
+        #  among them, so only bit 29 can be what is read.
+        setblk(bus, FB, (decoys & ~F_DARK) | (F_DARK if pen else 0))
+        sr = lambda a, v: bus.sram.__setitem__(a - 0x6000, v)
+        for a in range(0x6856, 0x6868):         # the math buffers: junk, high bytes too
+            sr(a, rnd.randrange(256))
+        sr(K["btl_attacker_ailments"], aail)
+        sr(K["btl_defender_ailments"], dail)
+        sr(K["btl_attacker_category"], 0x10 if weak == "cat" else 0x01)
+        sr(K["btl_defender_category"], 0x10 if weak == "cat" else 0x02)
+        sr(K["btl_attacker_element"], 0x40 if weak == "elem" else 0x04)
+        sr(K["btl_defender_elemweakness"], 0x40 if weak == "elem" else 0x08)
+        sr(K["btl_attacker_hitrate"], hitrate)
+        sr(K["btl_defender_evade"], evade)
+        sr(K["btl_attacker_critrate"], crit)
+        sr(K["btl_attacker_strength"], 50)
+        c = CPU(bus); c.dbr = BANK_0C
+        halted = c.run(BANK_0C, start, stop=stop)
+        H = bus.sram[0x6856 - 0x6000] | bus.sram[0x6857 - 0x6000] << 8
+        C = bus.sram[0x6862 - 0x6000] | bus.sram[0x6863 - 0x6000] << 8
+        return (H, C) if halted else None
+
+    wrong, n = [], 0
+    for pen in (False, True):
+        for aail in (0, DARK, DARK | 0x04, 0x04):
+            for dail in (0, DARK, SLEEP, STUN | DARK):
+                for weak in (None, "cat", "elem"):
+                    for hitrate, evade, crit in ((0, 0, 0), (10, 48, 5), (99, 20, 30), (200, 255, 200),
+                                                 (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))):
+                        decoys = rnd.randrange(256) | F_REGEN
+                        got = real(pen, aail, dail, weak, hitrate, evade, crit, decoys)
+                        want = model(pen, aail, dail, weak, hitrate, evade, crit)
+                        n += 1
+                        if got != want:
+                            wrong.append((pen, aail, dail, weak, hitrate, evade, crit, got, want))
+    check("hit and crit chances, %d attacks: the model's" % n, wrong[:3], [])
+    #  The penalty's point, in numbers: a blind fighter of hit rate 50 against
+    #  evade 48 hits 130 in 200 without it and 2 with it, and never crits.
+    check("blind, hit rate 50 against evade 48: 130 without, 2 with",
+          (real(False, DARK, 0, None, 50, 48, 20, 0), real(True, DARK, 0, None, 50, 48, 20, 0)),
+          ((130, 20), (2, 0)))
+    check("not blind: the flag changes nothing",
+          real(True, 0, 0, None, 50, 48, 20, 0), real(False, 0, 0, None, 50, 48, 20, 0))
+
+
+# --- Increase enemy regen -------------------------------------------------------
+#  FFR's IncreaseRegeneration: PutInBank($0C, $A26A, $39), the operand of
+#  ApplyRegenToAllEnemies' LDX #$03 -- Regenerative enemies heal 57 HP a round,
+#  not 3.  The real routine, over a battle's worth of enemies: Regenerative
+#  ones and not (decoys), at, near and over their max HP.
+def test_regen():
+    F_DARK, F_REGEN = K["OPTFM_DARKPEN"], K["OPTFM_REGEN"]
+    FB = K["OPTFB_REGEN"] - OPTBLOCK
+    check("the flag is bit 30, its byte the fourth", (FB - OPT_FLAGS, F_REGEN), (3, 0x40))
+    ES, RECS = K["btl_enemystats"], 0x7400       # the RAM stats; records of our own
+    tgt = SYM["opt_regen"]
+    jsl = bytes([0x22, tgt & 0xFF, tgt >> 8, CHUNK_OPT_BANK])
+    img = ROMDATA[(BANK_0C & 0x1F) * 0x10000:]
+    hook = img.find(jsl, 0x8000)
+    ar = SYM["ApplyRegenToAllEnemies"]
+    check("the hook is in ApplyRegenToAllEnemies, once",
+          (ar < hook < ar + 0x50, img[0x8000:0xC000].count(jsl)), (True, 1))
+
+    rnd = random.Random(30)
+    def battle(on, enemies, decoys):
+        """enemies: (category, hp, maxhp) each.  Out: the HPs after."""
+        bus, cpu = machine()
+        setblk(bus, FB, (decoys & ~F_REGEN) | (F_REGEN if on else 0))
+        sr = lambda a, v: bus.sram.__setitem__(a - 0x6000, v)
+        sr(K["btl_enemycount"], len(enemies))
+        for i, (cat, hp, maxhp) in enumerate(enemies):
+            ram, rec = ES + i * 0x14, RECS + i * 0x14
+            for a in range(0x14):
+                sr(rec + a, rnd.randrange(256))
+            sr(ram + K["en_romptr"], rec & 0xFF)
+            sr(ram + K["en_romptr"] + 1, rec >> 8)
+            sr(ram + K["en_hp"], hp & 0xFF)
+            sr(ram + K["en_hp"] + 1, hp >> 8)
+            sr(rec + K["ENROMSTAT_CATEGORY"], cat)
+            sr(rec + K["ENROMSTAT_HPMAX"], maxhp & 0xFF)
+            sr(rec + K["ENROMSTAT_HPMAX"] + 1, maxhp >> 8)
+        c = CPU(bus); c.dbr = BANK_0C
+        c.run(BANK_0C, ar)
+        return [bus.sram[ES + i * 0x14 + 2 - 0x6000] | bus.sram[ES + i * 0x14 + 3 - 0x6000] << 8
+                for i in range(len(enemies))]
+
+    def model(on, enemies):
+        out = []
+        for cat, hp, maxhp in enemies:
+            if cat & 0x80:
+                hp = min(0xFFFF, hp + (57 if on else 3))
+                hp = maxhp if hp >= maxhp else hp
+            out.append(hp)
+        return out
+
+    wrong = []
+    for trial in range(60):
+        enemies = []
+        for _ in range(rnd.randrange(1, 10)):
+            maxhp = rnd.choice((1, 30, 100, 600, 2000, 0xFFF0, rnd.randrange(1, 0x10000)))
+            hp = rnd.choice((0, 1, maxhp, max(0, maxhp - 3), max(0, maxhp - 40), max(0, maxhp - 57),
+                             max(0, maxhp - 58), maxhp + 9 if maxhp < 0xFFF0 else maxhp, rnd.randrange(0x10000)))
+            cat = rnd.choice((0x80, 0xFF, 0x00, 0x7F, 0x81, 0x08))
+            enemies.append((cat, hp, maxhp))
+        for on in (False, True):
+            got, want = battle(on, enemies, rnd.randrange(256) | F_DARK), model(on, enemies)
+            if got != want:
+                wrong.append((on, enemies, got, want))
+    check("a round's regeneration, 60 battles each way: the model's", wrong[:2], [])
+    check("a Regenerative enemy down 100 of 600: 3 back, or 57",
+          (battle(False, [(0x80, 500, 600)], 0), battle(True, [(0x80, 500, 600)], 0)), ([503], [557]))
+    check("...and one not Regenerative: none either way",
+          (battle(False, [(0x7F, 500, 600)], 0), battle(True, [(0x7F, 500, 600)], 0)), ([500], [500]))
+    check("57 stops at the max", battle(True, [(0x80, 580, 600)], 0), [600])
+
+
 # --- Turn order fix -------------------------------------------------------------
 #  FFR's ImproveTurnOrderRandomization.  DoBattleRound starts the turn order
 #  enemies first, party last, and shuffles it by swapping two random picks
@@ -10473,6 +10633,7 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
     rec = tac_rec_of(bus)
     elemdmg = bus.wram[K["OPTD_ELEMDMG"]]
     wmharm = bool(blk(bus, K["OPTFB_WMHARM"] - OPTBLOCK) & K["OPTFM_WMHARM"])
+    darkpen = bool(blk(bus, K["OPTFB_DARKPEN"] - OPTBLOCK) & K["OPTFM_DARKPEN"])
     borrowed = bytes(bus.sram[0x686C - 0x6000:0x6874 - 0x6000]) + bytes(bus.wram[0x84:0x86])
     en = K["btl_enemystats"] + TAC_ENEMYSLOT * 0x14 - 0x6000
     deck = (bus.sram[en + K["en_aimagpos"]], bus.sram[en + K["en_aiatkpos"]])
@@ -10483,7 +10644,7 @@ def tac_compare(bus, party, enemy, script, mode, state, where):
         bad = []
     boss = tac_boss_of(bus, enemy)
     flat = list(script[0:2]) + list(script[2:10]) + list(script[11:15])
-    M = TR.Mind(party, boss, flat, rec, elemdmg, wmharm, deck)
+    M = TR.Mind(party, boss, flat, rec, elemdmg, wmharm, deck, darkpen)
     words = lambda name, n=4: [tac_w(bus, name, 2 * i) for i in range(n)]
     for name, want in (("TC_PHYS", M.phys), ("TC_PDARK", M.pdark), ("TC_PSLOW", M.pslow), ("TC_MAG", M.mag),
                        ("TC_HEAL", M.heal), ("TC_D", M.d), ("TC_KG", M.KG), ("TC_DG", M.DG)):
@@ -10792,6 +10953,8 @@ def test_bosstactics():
                         flags5=rnd.choice((0, 0x01)), elemdmg=rnd.choice((4, 30)), deck=deck)
         if rnd.random() < 0.3:
             setblk(bus, K["OPTFB_WMHARM"] - OPTBLOCK, blk(bus, K["OPTFB_WMHARM"] - OPTBLOCK) | K["OPTFM_WMHARM"])
+        if rnd.random() < 0.4:                   # Increase dark penalty: the swings in the dark
+            setblk(bus, K["OPTFB_DARKPEN"] - OPTBLOCK, blk(bus, K["OPTFB_DARKPEN"] - OPTBLOCK) | K["OPTFM_DARKPEN"])
         if rnd.random() < 0.5:                   # spells as the buffs and fixes write them
             setblk(bus, OPT_FLAGS + 2, rnd.choice((0x40, 0x80, 0x02, 0xC2)))
         b, _ = tac_compare(bus, party, enemy, script, mode, state, "#%d" % n)
@@ -24936,7 +25099,7 @@ def main():
               test_weaponstats, test_spellinfo,
               test_menuinfo, test_chestinfo,
               test_treasures, test_menusfx, test_housemp,
-              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_m7view, test_m7rows, test_minimap, test_chrflush, test_shoulders, test_rangerows, test_strayobjects, test_runfix, test_turnfix, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
+              test_elembonus, test_thiefninja, test_thiefhit, test_softbattle, test_wmharm, test_kraken, test_bosstactics, test_staffspells, test_casteritem, test_lockpick, test_itemmagic, test_palflush, test_ntblit, test_ntflush, test_m7view, test_m7rows, test_minimap, test_chrflush, test_shoulders, test_rangerows, test_strayobjects, test_runfix, test_turnfix, test_darkpenalty, test_regen, test_trance, test_critcount, test_mapedits, test_shorttofr, test_ngpresets, test_ngscreen, test_ngflow, test_seedscreen, test_sumscreen, test_ngparty, test_dpadnew, test_chirps, test_menumusic, test_menuscratch, test_rando_ordeals,
               test_spellflags, test_tmprsabr, test_cur4,
               test_padreset, test_magicgfx, test_castlife,
               test_playervalid, test_lifemessages,

@@ -2092,6 +2092,10 @@ lut_OptRows:
   .BYTE $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF
   .BYTE $01, $28   ; TRANCE status element   (bit 40)
   FFPAD "TRANCE status element", 30
+  .BYTE $01, $1D   ; Increase dark penalty   (bit 29)
+  OPTLABEL {"Increase dark penalty"}
+  .BYTE $01, $1E   ; Increase enemy regen   (bit 30)
+  OPTLABEL {"Increase enemy regen"}
   .BYTE $01, $2B   ; Asshat Octopus   (bit 43)
   FFPAD "Asshat Octopus", 30
   .BYTE $02, 49    ; Boss tactics   (scalar 49: bits 45-46)

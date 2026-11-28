@@ -270,6 +270,20 @@ lut_Desc_67:  ; TRANCE status element
   FFPAD {"the status element, so a"}, 28
   FFPAD {"Ribbon resists it."}, 28
 
+lut_Desc_119:  ; Increase dark penalty
+  FFLINES 5
+  FFPAD {"A blind character or enemy"}, 28
+  FFPAD {"loses all its base chance to"}, 28
+  FFPAD {"hit, leaving only its hit"}, 28
+  FFPAD {"rate against the target's"}, 28
+  FFPAD {"evade, and cannot crit."}, 28
+
+lut_Desc_120:  ; Increase enemy regen
+  FFLINES 3
+  FFPAD {"Enemies that regenerate heal"}, 28
+  FFPAD {"57 HP at the end of each"}, 28
+  FFPAD {"round instead of 3."}, 28
+
 lut_Desc_97:  ; NUKE Stick
   FFLINES 4
   FFPAD {"The Wizard Staff becomes the"}, 28
@@ -1174,7 +1188,7 @@ lut_DescLo:
   .BYTE <lut_DescBlank, <lut_Desc_18, <lut_Desc_19, <lut_Desc_20, <lut_Desc_21, <lut_Desc_65
   .BYTE <lut_Desc_66, <lut_DescBlank, <lut_Desc_2, <lut_DescBlank, <lut_Desc_26, <lut_Desc_46, <lut_Desc_99
   .BYTE <lut_Desc_27, <lut_Desc_29, <lut_Desc_30, <lut_Desc_31, <lut_Desc_63, <lut_Desc_64
-  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_Desc_116, <lut_DescBlank, <lut_Desc_111, <lut_DescBlank, <lut_Desc_112, <lut_Desc_113, <lut_Desc_114, <lut_Desc_115, <lut_Desc_117, <lut_Desc_118, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
+  .BYTE <lut_Desc_32, <lut_Desc_67, <lut_Desc_119, <lut_Desc_120, <lut_Desc_92, <lut_Desc_96, <lut_Desc_95, <lut_Desc_97, <lut_Desc_102, <lut_Desc_116, <lut_DescBlank, <lut_Desc_111, <lut_DescBlank, <lut_Desc_112, <lut_Desc_113, <lut_Desc_114, <lut_Desc_115, <lut_Desc_117, <lut_Desc_118, <lut_DescBlank, <lut_Desc_33, <lut_DescBlank, <lut_Desc_62, <lut_Desc_98
   .BYTE <lut_DescBlank, <lut_Desc_47, <lut_DescBlank, <lut_Desc_48, <lut_Desc_49, <lut_Desc_50
   .BYTE <lut_Desc_51, <lut_Desc_100, <lut_Desc_52, <lut_Desc_53, <lut_Desc_54, <lut_Desc_55, <lut_Desc_56
   .BYTE <lut_Desc_57, <lut_Desc_58, <lut_Desc_59, <lut_Desc_60, <lut_Desc_104, <lut_Desc_61, <lut_Desc_71, <lut_Desc_108, <lut_Desc_109, <lut_Desc_110
@@ -1198,7 +1212,7 @@ lut_DescHi:
   .BYTE >lut_DescBlank, >lut_Desc_18, >lut_Desc_19, >lut_Desc_20, >lut_Desc_21, >lut_Desc_65
   .BYTE >lut_Desc_66, >lut_DescBlank, >lut_Desc_2, >lut_DescBlank, >lut_Desc_26, >lut_Desc_46, >lut_Desc_99
   .BYTE >lut_Desc_27, >lut_Desc_29, >lut_Desc_30, >lut_Desc_31, >lut_Desc_63, >lut_Desc_64
-  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_Desc_116 | DESC_SECOND, >lut_DescBlank, >lut_Desc_111 | DESC_SECOND, >lut_DescBlank, >lut_Desc_112 | DESC_SECOND, >lut_Desc_113 | DESC_SECOND, >lut_Desc_114 | DESC_SECOND, >lut_Desc_115 | DESC_SECOND, >lut_Desc_117 | DESC_SECOND, >lut_Desc_118 | DESC_SECOND, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
+  .BYTE >lut_Desc_32, >lut_Desc_67, >lut_Desc_119, >lut_Desc_120, >lut_Desc_92, >lut_Desc_96, >lut_Desc_95, >lut_Desc_97, >lut_Desc_102, >lut_Desc_116 | DESC_SECOND, >lut_DescBlank, >lut_Desc_111 | DESC_SECOND, >lut_DescBlank, >lut_Desc_112 | DESC_SECOND, >lut_Desc_113 | DESC_SECOND, >lut_Desc_114 | DESC_SECOND, >lut_Desc_115 | DESC_SECOND, >lut_Desc_117 | DESC_SECOND, >lut_Desc_118 | DESC_SECOND, >lut_DescBlank, >lut_Desc_33, >lut_DescBlank, >lut_Desc_62, >lut_Desc_98
   .BYTE >lut_DescBlank, >lut_Desc_47, >lut_DescBlank, >lut_Desc_48, >lut_Desc_49, >lut_Desc_50
   .BYTE >lut_Desc_51, >lut_Desc_100, >lut_Desc_52, >lut_Desc_53, >lut_Desc_54, >lut_Desc_55, >lut_Desc_56
   .BYTE >lut_Desc_57, >lut_Desc_58, >lut_Desc_59, >lut_Desc_60, >lut_Desc_104, >lut_Desc_61, >lut_Desc_71, >lut_Desc_108, >lut_Desc_109 | DESC_SECOND, >lut_Desc_110 | DESC_SECOND

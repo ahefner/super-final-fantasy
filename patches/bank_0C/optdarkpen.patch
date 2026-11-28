@@ -1,0 +1,13 @@
+--- OLD
+      LDA math_hitchance
+      SEC
+      SBC #40
+      STA math_hitchance
+--- NEW
+.import opt_darkhit
+.export DoPhysicalAttack, ClearMathBufHighBytes   ; for the harness
+
+      ;  40 off the hit chance, or with Increase dark penalty the hit and
+      ;  crit chances both 0.  Nine bytes become four and five NOPs.
+      JSL opt_darkhit + OPTFAR
+      .res 5, $EA

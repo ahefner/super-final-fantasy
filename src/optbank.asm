@@ -71,6 +71,7 @@
 .export opt_drinkinit, opt_drinkany, opt_drinkpick, opt_drinkdec, opt_drinkundo
 .export opt_drinkeffect, opt_drinkname, opt_drinkcursor, opt_drinkbox, opt_drinkrow
 .export opt_harmundead, opt_kraken, opt_runlevel, opt_turncount, opt_turnhi, opt_turnsecond
+.export opt_darkhit, opt_regen
 .export opt_critbox, opt_mapedits
 .export opt_dpadnew, opt_orbgoal
 .export opt_orbearth, opt_orbfire, opt_orbwater, opt_orbair   ; orbshards.patch
@@ -3466,6 +3467,52 @@ opt_runlevel:
   @add:
     CLC
     ADC #15
+    RTL
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Increase dark penalty
+;;
+;;  Replaces DoPhysicalAttack's LDA math_hitchance / SEC / SBC #40 / STA
+;;  math_hitchance, nine bytes for four and five NOPs, reached only when the
+;;  attacker is in the dark.  Without the flag: 40 off the hit chance, as
+;;  ever.  With it, FFR's IncreaseDarkPenalty: the hit chance and the crit
+;;  chance both 0, so the attacker has only its hit rate against the
+;;  defender's evade, and no crits.  FFR's leaves A at 1 (its INC A); the
+;;  next instruction loads A, so neither is kept.  The high bytes are
+;;  ClearMathBufHighBytes' zeros.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_darkhit:
+    LDA OPTFB_DARKPEN
+    AND #OPTFM_DARKPEN
+    BNE @none
+    LDA math_hitchance
+    SEC
+    SBC #40
+    STA math_hitchance
+    RTL
+  @none:
+    LDA #0
+    STA math_hitchance
+    STA math_critchance
+    RTL
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Increase enemy regen
+;;
+;;  Replaces ApplyRegenToAllEnemies' LDA #$00 / LDX #$03 before its
+;;  MathBuf_Add, four bytes for four.  Out: A = 0, the first math buffer, and
+;;  X = what a Regenerative enemy heals this round -- 3, or FFR's 57 with the
+;;  flag.  The cap at the enemy's max HP follows in the game's code.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+opt_regen:
+    LDX #REGEN_HP
+    LDA OPTFB_REGEN
+    AND #OPTFM_REGEN
+    BEQ :+
+    LDX #REGEN_HP_MORE
+:   LDA #0
     RTL
 
 

@@ -1792,12 +1792,13 @@ on for a dial elsewhere to mean anything is the sort of interaction this menu
 avoids.  One dial: +0 to +50 in twos, where +4 is what the cartridge does and
 +0 is an off position no checkbox could reach.
 
-### Variations (17)
+### Variations (19)
 
 Better Thief + Ninja, Thief and Ninja Hit%, Thief lockpicking, Double Weapon Crit Rate, Improved
 CURE/HEAL, Improved FIRE/LIT/ICE, Cast Life in Battle, SOFT in Battle, White
-Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Asshat Octopus, Boss
-tactics, RUSE Staff, NUKE Stick, Short ToFR, Save on game over.
+Mage HARM, LOCK / LOK2 Mode, TRANCE Status Element, Increase dark penalty,
+Increase enemy regen, Asshat Octopus, Boss tactics, RUSE Staff, NUKE Stick,
+Short ToFR, Save on game over.
 
 **TRANCE Status Element** (2026-10-11; played the same day) is FFR's
 `TranceHasStatusElement`, in every FFR preset, Improved Vanilla included --
@@ -1810,6 +1811,41 @@ too: `Enemy_DoMagicEffect` calls `Battle_PrepareMagic`, where it is hooked,
 and `test_trance` runs that routine for TRANCE.  Bit 40, the first of the
 sixth flag byte, which the flag word grew for it (format 8) -- and grew
 for the critical hit count too, until that became unconditional.
+
+**Increase dark penalty** (user, 2026-11-26: "port the Increase Dark
+Penalty and Increase Enemy Regeneration flags"; built, not yet played) is
+FFR's `IncreaseDarkPenalty`.  `DoPhysicalAttack` starts every swing at a hit
+chance of 168 and takes 40 off for an attacker in the dark, party member or
+enemy; FFR's nine bytes at `$326A7` set the hit chance and the crit chance to
+0 there instead, so a blind attacker has only its hit rate against the
+defender's evade (at least 1) and never crits -- FFR's tooltip: "this
+effectively makes the penalty -168".  `optdarkpen.patch` turns the nine
+bytes into a JSL to `opt_darkhit` and five NOPs, byte-neutral, reached only
+when the attacker is in the dark.  Boss tactics reckons a swing as the game
+does, so `tac_aim` and `tacref.swing` follow the flag too (below).  FFR's
+Balanced Rude touch pool keeps Dark in its main pool only under this flag;
+the cartridge's Status attacks is the shuffle, with no pools, so nothing else
+reads it.  Bit 29, spare since format 9, so the format stays.  Off in every
+preset, as in every FFR preset the New Game list draws on (FFR's tournament
+presets of 2024-25 turn it on).  `test_darkpenalty` runs `DoPhysicalAttack`
+from the base to the crit cap over 480 attacks -- either side in the dark or
+not, the defender asleep or stunned, a weakness by category or by element,
+hit rates, evades and crit rates -- against the disassembly's arithmetic,
+the flag byte's other bits random as decoys.
+
+**Increase enemy regen** (the same request; built, not yet played) is FFR's
+`IncreaseRegeneration`, its name cut to the row's 22 columns: enemies of the
+Regenerative category heal 57 HP at the end of each round, not 3.  FFR's one
+byte, `$39`, is the operand of `ApplyRegenToAllEnemies`' `LDX #$03`;
+`optregen.patch` turns the `LDA #$00` / `LDX #$03` before its `MathBuf_Add`
+into a JSL to `opt_regen`, four bytes for four, which hands back A = 0 and
+X = 3 or 57.  The cap at the enemy's max HP is the game's.  Nine vanilla
+enemies are Regenerative ($04, $1D, $25, $26, $33, $36, $3C, $3D and WarMECH,
+$76).  Boss tactics does not reckon with regeneration, so nothing else reads
+the flag.  Bit 30; off in every preset, as in FFR's.  `test_regen` runs the
+real routine over 60 battles each way: Regenerative enemies and not
+(categories $80, $FF, $81 against $00, $7F, $08), at, near and over their
+max HP, and near $FFFF.
 
 **Asshat Octopus** (user, 2026-10-14, for fun; played the same day, both fights;
 named Asshole Kraken until 2026-10-15, user) is not FFR's, and is off in
@@ -1950,6 +1986,10 @@ load, so its hit%, hits, crit% and max HP are the swing's own (the max HP
 had been the ROM's, unscaled, beside a scaled HP).
 
 `tools/tacref.py` is the reckoning in Python, integer for integer.
+Increase dark penalty is in it: under the flag (`TC_DARKPEN`, copied with
+White Mage HARM's) `tac_aim` starts a swing in the dark at 0 rather than 128
+and drops its crit chance, as `opt_darkhit` does in the battle, and so does
+`tacref.swing`; the drawn turns turn the flag on four times in ten.
 `test_bosstactics` holds the game to it first -- one swing through the real
 hit loop for chosen dice, every spell effect through the real
 `BtlMag_Effect_*` for every roll, the per-die damage and its square summed
@@ -5375,7 +5415,9 @@ Layout, 25 bytes of the 256:
     magic       2    distinguishes an initialised block from battery noise
     version     1    format version
     preset id   1    0-2 preset, 3 = Custom
-    flags       6    checkbox bits; 26-36 spare since format 9
+    flags       6    checkbox bits; 26-36 freed at format 9, 31-36 spare
+                     (26 Short ToFR, 27-28 Save on game over, 29 Increase
+                     dark penalty, 30 Increase enemy regen)
     scalars    13    gold/XP, encounter, enemy, boss, elemental, Thief hit,
                      starting items, then the scaling's six ranges' (enemy
                      stats max, enemy HP min and max, boss stats max, boss

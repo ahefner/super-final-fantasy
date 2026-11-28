@@ -67,6 +67,8 @@ double gold and XP. Nothing is randomized.
 "White Mage HARM" = false
 "LOK2 accuracy" = false
 "TRANCE status element" = true
+"Increase dark penalty" = false          # FFR's IncreaseDarkPenalty, off in its presets
+"Increase enemy regen" = false           # FFR's IncreaseRegeneration, likewise
 "Asshat Octopus" = false
 "Boss tactics" = "Off"
 "RUSE Staff" = false

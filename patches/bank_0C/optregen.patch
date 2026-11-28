@@ -1,0 +1,11 @@
+--- OLD
+    LDA #$00
+    LDX #$03
+    JSR MathBuf_Add             ; regenerative enemies recover 3 HP
+--- NEW
+.import opt_regen
+.export ApplyRegenToAllEnemies   ; for the harness
+
+    ;  A = 0, X = 3, or 57 with Increase enemy regen.  Four bytes for four.
+    JSL opt_regen + OPTFAR
+    JSR MathBuf_Add             ; regenerative enemies recover 3 HP (or 57)

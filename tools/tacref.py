@@ -71,9 +71,14 @@ def dice(B, a):
     return s
 
 
-def swing(B0, hr, cr, numhits, mult, att_ail, def_ail, evade, bonus=False, elemdmg=0):
-    """DoPhysicalAttack's numbers against one defender: (H, C, B, N)."""
-    H = 168 - (40 if att_ail & DARK else 0) + (40 if def_ail & DARK else 0)
+def swing(B0, hr, cr, numhits, mult, att_ail, def_ail, evade, bonus=False, elemdmg=0, darkpen=False):
+    """DoPhysicalAttack's numbers against one defender: (H, C, B, N).
+    darkpen: Increase dark penalty -- an attacker in the dark starts from 0
+    and has no crit chance."""
+    harsh = darkpen and att_ail & DARK
+    if harsh:
+        cr = 0
+    H = (0 if harsh else 168 - (40 if att_ail & DARK else 0)) + (40 if def_ail & DARK else 0)
     B = B0
     if bonus:
         H = min(255, H + 40)
@@ -175,11 +180,11 @@ class Spell:
 
 
 # --- threat ----------------------------------------------------------------
-def member_phys(m, b, elemdmg, dark=False, slow=False):
+def member_phys(m, b, elemdmg, dark=False, slow=False, darkpen=False):
     bonus = bool((m.wcat & b.cat) or (m.welem & b.weak))
     mult = max(0, m.mult - 1) if slow else m.mult
     H, C, B, N = swing(m.dmg, m.hitrate, m.crit, m.numhits, mult, m.ail | (DARK if dark else 0),
-                       b.ail, b.evade, bonus, elemdmg)
+                       b.ail, b.evade, bonus, elemdmg, darkpen)
     return min(0xFFFF, N * hit_mean(H, C, B, b.absorb))
 
 
@@ -252,17 +257,20 @@ class Mind:
     the pass's turns so far in the high.  Each slot plays once a pass; a
     pass is DECK_TURNS of the boss's turns."""
 
-    def __init__(self, party, boss, script, spellrec, elemdmg=0, wmharm=False, deck=(0, 0)):
+    def __init__(self, party, boss, script, spellrec, elemdmg=0, wmharm=False, deck=(0, 0), darkpen=False):
         self.p, self.b, self.script, self.rec = party, boss, script, spellrec
+        self.darkpen = darkpen
         self.spent, self.skspent, self.turns = deck[0], deck[1] & 0x0F, deck[1] >> 4
         if self.turns >= DECK_TURNS:
             self.spent = self.skspent = self.turns = 0
         self.alive = [m.alive for m in party]
         self.nalive = sum(self.alive)
-        self.phys = [member_phys(m, boss, elemdmg) if a else 0 for m, a in zip(party, self.alive)]
-        self.pdark = [(self.phys[i] if party[i].ail & DARK else member_phys(party[i], boss, elemdmg, dark=True))
+        self.phys = [member_phys(m, boss, elemdmg, darkpen=darkpen) if a else 0 for m, a in zip(party, self.alive)]
+        self.pdark = [(self.phys[i] if party[i].ail & DARK else
+                       member_phys(party[i], boss, elemdmg, dark=True, darkpen=darkpen))
                       if self.alive[i] else 0 for i in range(4)]
-        self.pslow = [(self.phys[i] if party[i].mult == 0 else member_phys(party[i], boss, elemdmg, slow=True))
+        self.pslow = [(self.phys[i] if party[i].mult == 0 else
+                       member_phys(party[i], boss, elemdmg, slow=True, darkpen=darkpen))
                       if self.alive[i] else 0 for i in range(4)]
         self.mag = [member_mag(m, boss, spellrec, wmharm) if a else 0 for m, a in zip(party, self.alive)]
         self.heal = [member_heal(m, party, spellrec) if a else 0 for m, a in zip(party, self.alive)]
@@ -284,7 +292,7 @@ class Mind:
     def swing_at(self, i, mult=None):
         b, m = self.b, self.p[i]
         H, C, B, N = swing(b.strength, b.hitrate, b.crit, b.numhits, b.mult if mult is None else mult,
-                           b.ail, m.ail, m.evade)
+                           b.ail, m.ail, m.evade, darkpen=self.darkpen)
         m16, m2 = hit_moments(H, C, B, m.absorb)
         return tail(min(0xFFFFFFFF, N * m16), N * var_of(m16, m2), m.hp)
 

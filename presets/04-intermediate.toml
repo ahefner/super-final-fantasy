@@ -58,6 +58,8 @@ A slightly spicier take on the original.
 "White Mage HARM" = true
 "LOK2 accuracy" = true
 "TRANCE status element" = true
+"Increase dark penalty" = false
+"Increase enemy regen" = false
 "Asshat Octopus" = false
 "Boss tactics" = "Off"
 "RUSE Staff" = true

@@ -496,6 +496,9 @@ tac_party:
     LDA OPTFB_WMHARM
     AND #OPTFM_WMHARM
     STA f:TC_WMHARM
+    LDA OPTFB_DARKPEN
+    AND #OPTFM_DARKPEN
+    STA f:TC_DARKPEN
     RTS
 
 ;  Each slot's records, at a slot's word: the out-of-battle record's offset
@@ -2224,7 +2227,8 @@ tac_decide:
 ;;  against one asleep or stunned a quarter more damage, else the hit rate
 ;;  in (at most 255) and evade out (at least 0); at least 1.  The crit chance
 ;;  no more than the hit chance; hits times the multiplier, the low byte, at
-;;  least 1.
+;;  least 1.  Under Increase dark penalty an attacker in the dark starts from
+;;  0, not 128, and its crit chance is 0 (opt_darkhit).
 tac_aim:
     .a16
     .i16
@@ -2233,6 +2237,10 @@ tac_aim:
     LDA f:TC_AD
     BEQ :+
     LDA #168 - 40
+    STA f:TC_H
+    LDA f:TC_DARKPEN
+    BEQ :+
+    LDA #0
     STA f:TC_H
 :   LDA f:TC_DA
     AND #AIL_DARK
@@ -2295,7 +2303,13 @@ tac_aim:
     BCC :+
     LDA f:TC_H
 :   STA f:TC_C
-    ;  ...and fall into tac_n
+    LDA f:TC_AD                 ; in the dark under the penalty: no crits
+    BEQ :+
+    LDA f:TC_DARKPEN
+    BEQ :+
+    LDA #0
+    STA f:TC_C
+:   ;  ...and fall into tac_n
 
 ;;  TC_N = TC_ANH * TC_AMU, the low byte, at least 1.
 tac_n:

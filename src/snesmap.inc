@@ -507,6 +507,22 @@ OPTFM_TRANCE    = $01    ; bit 40
 ATTACK_TRANCE   = $51
 ELEM_STATUS     = $01           ; FFR's SpellElement.Status
 
+;  Increase dark penalty, FFR's IncreaseDarkPenalty: an attacker in the dark
+;  loses all of the 168 base hit chance rather than 40 of it, and its crit
+;  chance, leaving its hit rate against the defender's evade (opt_darkhit).
+;  Players and enemies alike.  Bit 29, one of the Free items' until format 9,
+;  spare since -- no block has set it, so the format stays.
+OPTFB_DARKPEN   = OPT_FLAGS+3
+OPTFM_DARKPEN   = $20    ; bit 29
+
+;  Increase enemy regen, FFR's IncreaseRegeneration: enemies of the
+;  Regenerative category heal 57 HP at the end of each round, not 3
+;  (opt_regen).  Bit 30, spare since format 9 as bit 29 is.
+OPTFB_REGEN     = OPT_FLAGS+3
+OPTFM_REGEN     = $40    ; bit 30
+REGEN_HP        = 3             ; the game's
+REGEN_HP_MORE   = 57            ; FFR's: its one byte, $39
+
 ;  Asshat Octopus (user, 2026-10-14; not FFR's): Kraken and Kraken 2 spend
 ;  every turn hitting a White Mage or White Wizard, while one can be hit
 ;  (opt_kraken).  Bit 43, in the sixth byte after the Lefein edits; no build
@@ -2741,6 +2757,7 @@ TC_TGT          = TC_BASE+$2A6  ; ...target
 TC_EFF          = TC_BASE+$2A8  ; ...effect
 TC_AID          = TC_BASE+$2AA  ; ...and whose
 TC_WMHARM       = TC_BASE+$2AC  ; White Mage HARM's flag
+TC_DARKPEN      = TC_BASE+$2AE  ; Increase dark penalty's
 ;  Working values:
 TC_H            = TC_BASE+$2B0
 TC_C            = TC_BASE+$2B2
